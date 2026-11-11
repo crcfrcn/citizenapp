@@ -8,9 +8,7 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import 'package:citizen_square/post/square_models.dart';
-import 'package:citizen_user/identity/citizen_identity_chain_reader.dart';
-import 'package:citizen_user/membership/subscription_chain.dart'
-    show SubscriptionChain;
+import 'package:citizen_chain/citizen_chain.dart';
 
 class SquareChainPublishedResult {
   const SquareChainPublishedResult({

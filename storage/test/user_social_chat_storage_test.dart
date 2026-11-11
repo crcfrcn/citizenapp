@@ -58,7 +58,6 @@ const _userColumns = <String, Set<String>>{
     'id',
     'owner_cid',
     'cid_number',
-    'account_id',
     'contact_remark',
     'updated_at',
     'pending',

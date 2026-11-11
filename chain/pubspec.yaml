@@ -1,0 +1,21 @@
+name: citizen_chain
+description: CitizenApp verified light-client business data and synchronization.
+publish_to: none
+version: 1.0.0
+resolution: workspace
+environment:
+  sdk: ">=3.8.0 <4.0.0"
+dependencies:
+  citizen_sdk:
+    git:
+      url: https://github.com/crcfrcn/citizensdk.git
+      path: .
+      ref: main
+  citizen_storage: any
+  flutter:
+    sdk: flutter
+  isar_community: ^3.3.2
+dev_dependencies:
+  citizen_testing: any
+  flutter_test:
+    sdk: flutter

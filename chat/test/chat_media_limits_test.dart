@@ -29,7 +29,6 @@ void main() {
   });
 
   test('会员模块唯一保存 CID 绑定的聊天附件权益', () {
-    expect(SubscriptionService.membershipResolvedFor(_cidNumber), isTrue);
     expect(
       SubscriptionService.chatAuthorizationResolvedFor(_cidNumber),
       isTrue,
@@ -42,7 +41,6 @@ void main() {
   test('附件授权失败不关闭基础聊天，也不抹掉已确认会员展示事实', () {
     SubscriptionService.markAttachmentAuthorizationUnavailable(_cidNumber);
 
-    expect(SubscriptionService.membershipResolvedFor(_cidNumber), isTrue);
     expect(
       SubscriptionService.chatAuthorizationResolvedFor(_cidNumber),
       isTrue,
@@ -64,7 +62,6 @@ void main() {
     SubscriptionService.setChatAuthorizationForTesting(_cidNumber, 100 * mib);
     SubscriptionService.nowForTesting = () => now + 60000;
     expect(SubscriptionService.chatFileMaxBytesFor(_cidNumber), 0);
-    expect(SubscriptionService.membershipResolvedFor(_cidNumber), isTrue);
     expect(policy.exceedsForKind(ChatMessageKind.file, 1), isTrue);
   });
 

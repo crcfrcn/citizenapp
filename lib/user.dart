@@ -25,7 +25,6 @@ import 'package:citizen_user/identity/identity_badge_snapshot_store.dart';
 import 'package:citizen_user/creator/creator_page.dart';
 import 'package:citizen_user/creator/creator_service.dart';
 import 'package:citizen_user/membership/membership_page.dart';
-import 'package:citizen_user/membership/membership_revision.dart';
 import 'package:citizen_user/membership/subscription_service.dart';
 import 'package:citizen_user/identity/myid_page.dart';
 import 'package:citizen_storage/user_isar.dart';
@@ -90,14 +89,11 @@ class _ProfilePageState extends State<MyTab> {
   CitizenProfileMediaSnapshot _publicProfileMedia =
       const CitizenProfileMediaSnapshot();
 
-  /// 默认钱包的会员购买态（档位色 + 对勾）；best-effort，读失败为 null。
+  /// 云端业务资源预检与交易确认。
   late final SubscriptionService _subscriptionService;
   late final CurrentUserContext _currentUserContext;
   AccountSecurityService? _accountSecurity;
   bool _dependenciesReady = false;
-  SquareMembershipState? _membership;
-  MembershipDisplayDecision _membershipDecision =
-      MembershipDisplayDecision.inactiveConfirmed;
 
   /// _loadState 世代号：本地钱包、资料和徽章快照并发重载时，旧结果
   /// 不得覆盖新默认钱包。
@@ -118,35 +114,11 @@ class _ProfilePageState extends State<MyTab> {
     _publicProfile?.cidNumber ?? _communicationAccountId,
   ).resolveDisplayName(publicName: _publicProfile?.displayName);
 
-  /// 默认钱包徽章信号：颜色只来自 CID 级链上身份快照，勾来自会员匹配。
-  String? get _defaultWalletMembershipLevel => _membership?.memberLevel;
-  bool get _defaultWalletMembershipActive =>
-      _membershipDecision == MembershipDisplayDecision.activeConfirmed &&
-      (_membership?.active ?? false);
-
-  // 个人页副标题只组合既有身份与会员快照，不新增第二套身份或订阅真源。
   String get _identityLabel => switch (_defaultWalletIdentityLevel) {
     'candidate' => '竞选身份',
     'voting' => '投票身份',
     _ => '匿名访客',
   };
-
-  String? get _membershipLabel {
-    if (!_defaultWalletMembershipActive) return null;
-    return switch (_defaultWalletMembershipLevel) {
-      'freedom' => '自由会员',
-      'democracy' => '民主会员',
-      'spark' => '薪火会员',
-      _ => null,
-    };
-  }
-
-  String get _profileSubtitle {
-    final membership = _membershipLabel;
-    return membership == null
-        ? _identityLabel
-        : '$_identityLabel · $membership';
-  }
 
   @override
   void initState() {
@@ -156,7 +128,6 @@ class _ProfilePageState extends State<MyTab> {
     _profileApi = widget.profileApi ?? CitizenProfileApi();
     _profileCache = widget.profileCache ?? const CitizenProfileCache();
     _profileMediaCache = widget.profileMediaCache ?? CitizenProfileMediaCache();
-    MembershipRevision.instance.listenable.addListener(_onMembershipChanged);
     CitizenProfileCache.revision.addListener(_onPublicProfileChanged);
     IdentityBadgeSnapshotStore.revision.addListener(_onIdentitySnapshotChanged);
   }
@@ -208,7 +179,6 @@ class _ProfilePageState extends State<MyTab> {
   @override
   void dispose() {
     _accountSecurity?.revision.removeListener(_onWalletsChanged);
-    MembershipRevision.instance.listenable.removeListener(_onMembershipChanged);
     CitizenProfileCache.revision.removeListener(_onPublicProfileChanged);
     IdentityBadgeSnapshotStore.revision.removeListener(
       _onIdentitySnapshotChanged,
@@ -224,16 +194,6 @@ class _ProfilePageState extends State<MyTab> {
       return;
     }
     unawaited(_reloadCachedPublicProfile(event.cidNumber, _loadGeneration));
-  }
-
-  /// 统一会员缓存推进后，只重读当前永久 CID 的本机快照；不重复访问 CitizenServe，
-  /// 也不从广播事件本身推导或授予徽章。
-  void _onMembershipChanged() {
-    final event = MembershipRevision.instance.listenable.value;
-    if (!mounted || event == null || event.cidNumber != _identityCidNumber) {
-      return;
-    }
-    unawaited(_loadMembershipSnapshot(event.cidNumber, _loadGeneration));
   }
 
   Future<void> _onWalletsChanged() async {
@@ -301,40 +261,13 @@ class _ProfilePageState extends State<MyTab> {
       if (identityChanged) {
         _publicProfile = null;
         _publicProfileMedia = const CitizenProfileMediaSnapshot();
-        _membership = null;
-        _membershipDecision = MembershipDisplayDecision.inactiveConfirmed;
       }
     });
-    // 会员展示快照与本地资料一样先回刷；它只决定徽章和创作者入口首帧，任何
-    // 订阅、创作者编辑动作仍在提交前读取 finalized 链状态。
-    if (identityCidNumber.isNotEmpty) {
-      unawaited(_loadMembershipSnapshot(identityCidNumber, generation));
-    }
-    // 公开资料与会员态均非阻塞加载：昵称/头像先用缓存或稳定占位渲染。
+    // 昵称、头像和背景继续从本机业务资料缓存读取。
     if (refreshRemote) {
       await _refreshRemoteState(generation);
     } else if (identityCidNumber.isNotEmpty) {
       unawaited(_reloadCachedPublicProfile(identityCidNumber, generation));
-    }
-  }
-
-  Future<void> _loadMembershipSnapshot(String cidNumber, int generation) async {
-    try {
-      final snapshot = await _subscriptionService.readDisplaySnapshot(
-        cidNumber,
-      );
-      if (snapshot == null ||
-          !mounted ||
-          generation != _loadGeneration ||
-          cidNumber != _identityCidNumber) {
-        return;
-      }
-      setState(() {
-        _membership = snapshot.state;
-        _membershipDecision = snapshot.decision;
-      });
-    } on Exception catch (e) {
-      AppLog.d('profile membership snapshot load failed: $e');
     }
   }
 
@@ -365,22 +298,6 @@ class _ProfilePageState extends State<MyTab> {
         ).showSnackBar(const SnackBar(content: Text('刷新失败，已保留本地资料')));
       }
       return;
-    }
-
-    try {
-      // 身份会话只通过统一会员服务读取一次 CitizenServe；其它页面复用同一缓存。
-      final membership = await _subscriptionService.authorizeMembership(
-        session,
-      );
-      if (!mounted || generation != _loadGeneration) return;
-      setState(() {
-        _membership = membership;
-        _membershipDecision = membership.active
-            ? MembershipDisplayDecision.activeConfirmed
-            : MembershipDisplayDecision.inactiveConfirmed;
-      });
-    } on Exception catch (e) {
-      AppLog.d('profile membership load failed: $e');
     }
   }
 
@@ -506,8 +423,6 @@ class _ProfilePageState extends State<MyTab> {
             cache: _profileCache,
             mediaCache: _profileMediaCache,
             subscriptionService: _subscriptionService,
-            initialMembershipDecision: _membershipDecision,
-            initialMembershipState: _membership,
           ),
         ),
       ),
@@ -553,7 +468,6 @@ class _ProfilePageState extends State<MyTab> {
         builder: (_) => CreatorPage(
           service: widget.creatorService,
           initialCidNumber: _identityCidNumber,
-          initialMembershipDecision: _membershipDecision,
         ),
       ),
     );
@@ -578,8 +492,8 @@ class _ProfilePageState extends State<MyTab> {
                 ? _communicationAccountId
                 : _identityCidNumber,
             cidLevel: _defaultWalletIdentityLevel,
-            memberLevel: _defaultWalletMembershipLevel,
-            membergateActive: _defaultWalletMembershipActive,
+            memberLevel: null,
+            membergateActive: false,
           ),
           SizedBox(width: AppLayout.scaledValue(12)),
           Expanded(
@@ -605,7 +519,7 @@ class _ProfilePageState extends State<MyTab> {
                 ),
                 SizedBox(height: AppLayout.scaledValue(6)),
                 Text(
-                  _profileSubtitle,
+                  _identityLabel,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(

@@ -1,3 +1,5 @@
+import 'package:citizen_chain/citizen_chain.dart';
+
 /// 订阅周期；枚举值沿用既有链协议，不使用枚举序号。
 enum BillingPeriod { monthly, quarterly, yearly }
 
@@ -114,4 +116,28 @@ class CreatorPlan {
     }
     return CreatorPlan(tiers: List.unmodifiable(tiers));
   }
+}
+
+/// 将轻节点已核验的链上档位转换为页面模型；金额越界直接拒绝。
+CreatorPlan creatorPlanFromChain(List<ChainCreatorTier> tiers) {
+  int? price(ChainCreatorTier t, String period) {
+    final value = t.pricesFen[period];
+    if (value == null) return null;
+    if (value <= BigInt.zero || value > BigInt.from(9007199254740991))
+      throw const FormatException('创作者价格越界');
+    return value.toInt();
+  }
+
+  return CreatorPlan(
+    tiers: List.unmodifiable([
+      for (final t in tiers)
+        CreatorTier(
+          tierId: t.tierId,
+          tierName: t.tierName ?? t.tierId,
+          monthFen: price(t, 'monthly'),
+          quarterFen: price(t, 'quarterly'),
+          yearFen: price(t, 'yearly'),
+        ),
+    ]),
+  );
 }

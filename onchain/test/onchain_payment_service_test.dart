@@ -5,7 +5,7 @@ import 'package:substrate_metadata/substrate_metadata.dart' as metadata;
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_sdk/test/platform/fixture.dart';
-import 'package:citizen_user/identity/citizen_identity_chain_reader.dart';
+import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_onchain/onchain_payment_models.dart';
 import 'package:citizen_onchain/onchain_payment_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -20,7 +20,7 @@ class _Reader extends CitizenIdentityChainReader {
   int reads = 0;
   @override
   Future<CitizenBindingChainSnapshot?> readBindingByCidNumber(
-    String cid,
+    String cid, {CitizenBlockRef? at}
   ) async {
     expect(cid, _cid);
     reads++;

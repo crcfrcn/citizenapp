@@ -12496,34 +12496,29 @@ const ContactSchema = CollectionSchema(
   name: r'contact',
   id: 213978983763356937,
   properties: {
-    r'account_id': PropertySchema(
-      id: 0,
-      name: r'account_id',
-      type: IsarType.string,
-    ),
     r'change_version': PropertySchema(
-      id: 1,
+      id: 0,
       name: r'change_version',
       type: IsarType.long,
     ),
     r'cid_number': PropertySchema(
-      id: 2,
+      id: 1,
       name: r'cid_number',
       type: IsarType.string,
     ),
     r'contact_remark': PropertySchema(
-      id: 3,
+      id: 2,
       name: r'contact_remark',
       type: IsarType.string,
     ),
     r'owner_cid': PropertySchema(
-      id: 4,
+      id: 3,
       name: r'owner_cid',
       type: IsarType.string,
     ),
-    r'pending': PropertySchema(id: 5, name: r'pending', type: IsarType.string),
+    r'pending': PropertySchema(id: 4, name: r'pending', type: IsarType.string),
     r'updated_at': PropertySchema(
-      id: 6,
+      id: 5,
       name: r'updated_at',
       type: IsarType.long,
     ),
@@ -12569,7 +12564,6 @@ int _contactEstimateSize(
   Map<Type, List<int>> allOffsets,
 ) {
   var bytesCount = offsets.last;
-  bytesCount += 3 + object.accountId.length * 3;
   bytesCount += 3 + object.cidNumber.length * 3;
   bytesCount += 3 + object.contactRemark.length * 3;
   bytesCount += 3 + object.ownerCidNumber.length * 3;
@@ -12583,13 +12577,12 @@ void _contactSerialize(
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
-  writer.writeString(offsets[0], object.accountId);
-  writer.writeLong(offsets[1], object.changeVersion);
-  writer.writeString(offsets[2], object.cidNumber);
-  writer.writeString(offsets[3], object.contactRemark);
-  writer.writeString(offsets[4], object.ownerCidNumber);
-  writer.writeString(offsets[5], object.pendingAction);
-  writer.writeLong(offsets[6], object.updatedAt);
+  writer.writeLong(offsets[0], object.changeVersion);
+  writer.writeString(offsets[1], object.cidNumber);
+  writer.writeString(offsets[2], object.contactRemark);
+  writer.writeString(offsets[3], object.ownerCidNumber);
+  writer.writeString(offsets[4], object.pendingAction);
+  writer.writeLong(offsets[5], object.updatedAt);
 }
 
 Contact _contactDeserialize(
@@ -12599,14 +12592,13 @@ Contact _contactDeserialize(
   Map<Type, List<int>> allOffsets,
 ) {
   final object = Contact();
-  object.accountId = reader.readString(offsets[0]);
-  object.changeVersion = reader.readLong(offsets[1]);
-  object.cidNumber = reader.readString(offsets[2]);
-  object.contactRemark = reader.readString(offsets[3]);
+  object.changeVersion = reader.readLong(offsets[0]);
+  object.cidNumber = reader.readString(offsets[1]);
+  object.contactRemark = reader.readString(offsets[2]);
   object.rowId = id;
-  object.ownerCidNumber = reader.readString(offsets[4]);
-  object.pendingAction = reader.readString(offsets[5]);
-  object.updatedAt = reader.readLong(offsets[6]);
+  object.ownerCidNumber = reader.readString(offsets[3]);
+  object.pendingAction = reader.readString(offsets[4]);
+  object.updatedAt = reader.readLong(offsets[5]);
   return object;
 }
 
@@ -12618,9 +12610,9 @@ P _contactDeserializeProp<P>(
 ) {
   switch (propertyId) {
     case 0:
-      return (reader.readString(offset)) as P;
-    case 1:
       return (reader.readLong(offset)) as P;
+    case 1:
+      return (reader.readString(offset)) as P;
     case 2:
       return (reader.readString(offset)) as P;
     case 3:
@@ -12628,8 +12620,6 @@ P _contactDeserializeProp<P>(
     case 4:
       return (reader.readString(offset)) as P;
     case 5:
-      return (reader.readString(offset)) as P;
-    case 6:
       return (reader.readLong(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -12971,152 +12961,6 @@ extension ContactQueryWhere on QueryBuilder<Contact, Contact, QWhereClause> {
 
 extension ContactQueryFilter
     on QueryBuilder<Contact, Contact, QFilterCondition> {
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> accountIdEqualTo(
-    String value, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(
-          property: r'account_id',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> accountIdGreaterThan(
-    String value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'account_id',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> accountIdLessThan(
-    String value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'account_id',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> accountIdBetween(
-    String lower,
-    String upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'account_id',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> accountIdStartsWith(
-    String value, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.startsWith(
-          property: r'account_id',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> accountIdEndsWith(
-    String value, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.endsWith(
-          property: r'account_id',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> accountIdContains(
-    String value, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.contains(
-          property: r'account_id',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> accountIdMatches(
-    String pattern, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.matches(
-          property: r'account_id',
-          wildcard: pattern,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> accountIdIsEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'account_id', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> accountIdIsNotEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'account_id', value: ''),
-      );
-    });
-  }
-
   QueryBuilder<Contact, Contact, QAfterFilterCondition> changeVersionEqualTo(
     int value,
   ) {
@@ -13887,18 +13731,6 @@ extension ContactQueryLinks
     on QueryBuilder<Contact, Contact, QFilterCondition> {}
 
 extension ContactQuerySortBy on QueryBuilder<Contact, Contact, QSortBy> {
-  QueryBuilder<Contact, Contact, QAfterSortBy> sortByAccountId() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'account_id', Sort.asc);
-    });
-  }
-
-  QueryBuilder<Contact, Contact, QAfterSortBy> sortByAccountIdDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'account_id', Sort.desc);
-    });
-  }
-
   QueryBuilder<Contact, Contact, QAfterSortBy> sortByChangeVersion() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'change_version', Sort.asc);
@@ -13974,18 +13806,6 @@ extension ContactQuerySortBy on QueryBuilder<Contact, Contact, QSortBy> {
 
 extension ContactQuerySortThenBy
     on QueryBuilder<Contact, Contact, QSortThenBy> {
-  QueryBuilder<Contact, Contact, QAfterSortBy> thenByAccountId() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'account_id', Sort.asc);
-    });
-  }
-
-  QueryBuilder<Contact, Contact, QAfterSortBy> thenByAccountIdDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'account_id', Sort.desc);
-    });
-  }
-
   QueryBuilder<Contact, Contact, QAfterSortBy> thenByChangeVersion() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'change_version', Sort.asc);
@@ -14073,14 +13893,6 @@ extension ContactQuerySortThenBy
 
 extension ContactQueryWhereDistinct
     on QueryBuilder<Contact, Contact, QDistinct> {
-  QueryBuilder<Contact, Contact, QDistinct> distinctByAccountId({
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'account_id', caseSensitive: caseSensitive);
-    });
-  }
-
   QueryBuilder<Contact, Contact, QDistinct> distinctByChangeVersion() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'change_version');
@@ -14134,12 +13946,6 @@ extension ContactQueryProperty
   QueryBuilder<Contact, int, QQueryOperations> rowIdProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'id');
-    });
-  }
-
-  QueryBuilder<Contact, String, QQueryOperations> accountIdProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'account_id');
     });
   }
 

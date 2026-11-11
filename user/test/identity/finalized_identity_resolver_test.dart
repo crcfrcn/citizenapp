@@ -8,7 +8,7 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_sdk/test/platform/fixture.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:citizen_user/identity/citizen_identity_chain_reader.dart';
+import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_user/identity/finalized_identity_resolver.dart';
 
 import 'package:citizen_testing/fake_citizen_sdk.dart';
@@ -447,7 +447,7 @@ class _FakeReader extends CitizenIdentityChainReader {
 
   @override
   Future<CitizenIdentityChainSnapshot?> readByAccountId(
-    String accountId,
+    String accountId, {CitizenBlockRef? at}
   ) async {
     calls.add(accountId);
     if (accountId == throwFor) throw StateError('chain down');
@@ -493,7 +493,7 @@ class _DelayedReader extends CitizenIdentityChainReader {
   final answer = Completer<CitizenIdentityChainSnapshot?>();
   int calls = 0;
   @override
-  Future<CitizenIdentityChainSnapshot?> readByAccountId(String accountId) {
+  Future<CitizenIdentityChainSnapshot?> readByAccountId(String accountId, {CitizenBlockRef? at}) {
     calls++;
     if (!started.isCompleted) started.complete();
     return answer.future;

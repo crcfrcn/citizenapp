@@ -1,0 +1,7 @@
+targets:
+  $default:
+    builders:
+      source_gen:combining_builder:
+        options:
+          preamble: |
+            // ignore_for_file: experimental_member_use

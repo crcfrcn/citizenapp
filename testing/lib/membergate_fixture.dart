@@ -179,3 +179,28 @@ Map<String, dynamic> preflightGateFixture(
     },
   };
 }
+
+/// 服务端业务授权夹具，不包含链上身份、订阅或价格。
+Map<String, dynamic> resourceAuthorizationFixture({
+  bool allowed = true,
+  String level = 'freedom',
+  int validUntil = 9999999999999,
+}) {
+  final plans = [
+    for (final name in ['freedom', 'democracy', 'spark'])
+      membergatePlanFixture(name)..remove('price_fen'),
+  ];
+  return {
+    'is_ok': true,
+    'authorization': {
+      'allowed': allowed,
+      'plan': allowed
+          ? plans.firstWhere((p) => p['member_level'] == level)
+          : null,
+    },
+    'plans': plans,
+    'usage': membergateUsageFixture(),
+    'storage_cleanup_notice': null,
+    'gate': {'valid_until': validUntil},
+  };
+}

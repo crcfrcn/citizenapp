@@ -12,33 +12,21 @@ import 'package:citizen_system/security/account_security_exception.dart';
 
 import 'contact_sort.dart';
 
-/// 联系人及云端备份备注的展示模型；SS58仅由账户ID计算。
+/// 按公民号保存的联系人及其私有备注。
 class UserContact {
   const UserContact({
     required this.cidNumber,
-    required this.accountId,
     required this.contactRemark,
     required this.updatedAt,
   });
+
   final String cidNumber;
-  final String accountId;
   final String contactRemark;
   final int updatedAt;
-  String get ss58Address => citizenSs58FromAccountId(accountId);
-  UserContact copyWith({
-    String? accountId,
-    String? contactRemark,
-    int? updatedAt,
-  }) => UserContact(
-    cidNumber: cidNumber,
-    accountId: accountId ?? this.accountId,
-    contactRemark: contactRemark ?? this.contactRemark,
-    updatedAt: updatedAt ?? this.updatedAt,
-  );
+
   factory UserContact.fromCloudJson(Map<String, dynamic> value) {
-    if (value.length != 4 ||
+    if (value.length != 3 ||
         value['cid_number'] is! String ||
-        value['account_id'] is! String ||
         value['contact_remark'] is! String ||
         value['updated_at'] is! int ||
         (value['updated_at'] as int) <= 0) {
@@ -47,9 +35,6 @@ class UserContact {
     return UserContact(
       cidNumber: UserContactService.requireCidNumber(
         value['cid_number'] as String,
-      ),
-      accountId: UserContactService.requireAccountId(
-        value['account_id'] as String,
       ),
       contactRemark: validateContactRemark(value['contact_remark'] as String),
       updatedAt: value['updated_at'] as int,
@@ -72,11 +57,13 @@ class ContactSyncState {
     this.errorCode,
     this.statusCode,
     this.stage,
+    this.retryByPull = false,
   });
   final ContactSyncPhase phase;
   final String? message, errorCode;
   final int? statusCode;
   final SquareApiStage? stage;
+  final bool retryByPull;
   String get label => switch (phase) {
     ContactSyncPhase.syncing => '正在同步',
     ContactSyncPhase.synced => '云端已同步',
@@ -160,7 +147,7 @@ class UserContactService {
     }
     return _Owner(
       requireCidNumber(identity.cidNumber),
-      requireAccountId(identity.accountId),
+      _requireOwnerAccountId(identity.accountId),
       identity.bindRev,
       revision,
     );
@@ -225,15 +212,13 @@ class UserContactService {
 
   UserContact _view(store.Contact row) => UserContact(
     cidNumber: row.cidNumber,
-    accountId: row.accountId,
     contactRemark: row.contactRemark,
     updatedAt: row.updatedAt,
   );
   Future<List<UserContact>> _contacts(_Owner owner) async {
-    final result = (await _rows(owner))
-        .where((r) => r.pendingAction != 'delete')
-        .map(_view)
-        .toList();
+    final result = (await _rows(
+      owner,
+    )).where((r) => r.pendingAction != 'delete').map(_view).toList();
     result.sort(
       (a, b) => compareContactKeys(
         a.contactRemark,
@@ -245,7 +230,11 @@ class UserContactService {
     return result;
   }
 
-  void _state(ContactSyncPhase phase, {Object? error}) {
+  void _state(
+    ContactSyncPhase phase, {
+    Object? error,
+    bool retryByPull = false,
+  }) {
     if (_disposed) return;
     final failure = error == null
         ? null
@@ -256,12 +245,14 @@ class UserContactService {
       errorCode: failure?.errorCode,
       statusCode: failure?.statusCode,
       stage: failure?.stage,
+      retryByPull: retryByPull,
     );
   }
 
   Future<List<UserContact>> getContacts() async => _contacts(await _owner());
   Future<ContactSyncState> readSyncState() async {
     final rows = await _rows(await _owner());
+    if (syncState.value.retryByPull) return syncState.value;
     if (rows.any((r) => r.pendingAction.isNotEmpty)) {
       if ([
         ContactSyncPhase.syncing,
@@ -279,7 +270,11 @@ class UserContactService {
     );
   }
 
-  Future<void> _failed(_Owner owner, Object error) async {
+  Future<void> _failed(
+    _Owner owner,
+    Object error, {
+    bool retryByPull = false,
+  }) async {
     await _assertOwner(owner);
     final failure = SquareSessionResolution.fromError(error);
     _state(
@@ -287,13 +282,14 @@ class UserContactService {
           ? ContactSyncPhase.offline
           : ContactSyncPhase.failed,
       error: error,
+      retryByPull: retryByPull,
     );
   }
 
   Future<void> _flush(_Owner owner) async {
-    var pending = (await _rows(owner))
-        .where((r) => r.pendingAction.isNotEmpty)
-        .toList();
+    var pending = (await _rows(
+      owner,
+    )).where((r) => r.pendingAction.isNotEmpty).toList();
     if (pending.isEmpty) return;
     final session = await _session(owner);
     while (pending.isNotEmpty) {
@@ -308,7 +304,6 @@ class UserContactService {
           : await _api.saveUserContact(
               session: session,
               cidNumber: sent.cidNumber,
-              accountId: sent.accountId,
               contactRemark: sent.contactRemark,
             );
       await _assertOwner(owner);
@@ -323,7 +318,6 @@ class UserContactService {
           (reply['contact'] as Map).cast<String, dynamic>(),
         );
         if (confirmed.cidNumber != sent.cidNumber ||
-            confirmed.accountId != sent.accountId ||
             confirmed.contactRemark != sent.contactRemark) {
           throw const FormatException('联系人写入回执不匹配');
         }
@@ -347,9 +341,9 @@ class UserContactService {
           await rows.put(saved);
         }
       });
-      pending = (await _rows(owner))
-          .where((r) => r.pendingAction.isNotEmpty)
-          .toList();
+      pending = (await _rows(
+        owner,
+      )).where((r) => r.pendingAction.isNotEmpty).toList();
     }
     _state(ContactSyncPhase.synced);
   }
@@ -398,83 +392,39 @@ class UserContactService {
     );
   }
 
-  Future<ContactImportResult> importContact({
-    required String cidNumber,
-    required String accountId,
-  }) async {
-    final owner = await _owner();
-    final card = await _api.fetchUserCard(
-      cidNumber: requireCidNumber(cidNumber),
-      session: await _session(owner),
-    );
-    if (card.cidNumber != cidNumber ||
-        card.accountId != requireAccountId(accountId)) {
-      throw const FormatException('用户码与当前绑定不一致');
-    }
-    await _assertOwner(owner);
-    return _addContact(
-      owner,
-      cidNumber: cidNumber,
-      accountId: card.accountId,
-      contactRemark: '',
-    );
-  }
-
   Future<ContactImportResult> addContact({
     required String cidNumber,
-    required String accountId,
-    required String contactRemark,
-  }) async => _addContact(
-    await _owner(),
-    cidNumber: cidNumber,
-    accountId: accountId,
-    contactRemark: contactRemark,
-  );
-  Future<ContactImportResult> _addContact(
-    _Owner owner, {
-    required String cidNumber,
-    required String accountId,
-    required String contactRemark,
+    String contactRemark = '',
   }) async {
-    final cid = requireCidNumber(cidNumber),
-        account = requireAccountId(accountId),
-        remark = normalizeContactRemark(contactRemark);
-    if (cid == owner.cidNumber || account == owner.accountId) {
+    final owner = await _owner();
+    final cid = requireCidNumber(cidNumber);
+    final remark = normalizeContactRemark(contactRemark);
+    if (cid == owner.cidNumber) {
       throw const FormatException('不能把自己加入通讯录');
     }
-    var created = false, changed = false;
-    late UserContact result;
-    await _write(owner, (db) async {
+    final result = await _write(owner, (db) async {
       final rows = db.collection<store.Contact>();
       final prior = await rows.getByOwnerCidNumberCidNumber(
         owner.cidNumber,
         cid,
       );
-      created = prior == null || prior.pendingAction == 'delete';
+      if (prior != null && prior.pendingAction != 'delete') {
+        return ContactImportResult(contact: _view(prior), created: false);
+      }
       final row =
           prior ??
           (store.Contact()
             ..ownerCidNumber = owner.cidNumber
             ..cidNumber = cid);
-      final nextRemark = remark.isEmpty && !created
-          ? row.contactRemark
-          : remark;
-      changed =
-          created ||
-          row.accountId != account ||
-          row.contactRemark != nextRemark;
-      if (changed) {
-        row.accountId = account;
-        row.contactRemark = nextRemark;
-        row.changeVersion++;
-        row.pendingAction = 'put';
-        row.updatedAt = DateTime.now().millisecondsSinceEpoch;
-        await rows.put(row);
-      }
-      result = _view(row);
+      row.contactRemark = remark;
+      row.changeVersion++;
+      row.pendingAction = 'put';
+      row.updatedAt = DateTime.now().millisecondsSinceEpoch;
+      await rows.put(row);
+      return ContactImportResult(contact: _view(row), created: true);
     });
-    if (changed) await _afterMutation(owner);
-    return ContactImportResult(contact: result, created: created);
+    if (result.created) await _afterMutation(owner);
+    return result;
   }
 
   Future<List<UserContact>> renameContact(
@@ -540,7 +490,6 @@ class UserContactService {
             (store.Contact()
               ..ownerCidNumber = owner.cidNumber
               ..cidNumber = contact.cidNumber);
-        row.accountId = contact.accountId;
         row.contactRemark = contact.contactRemark;
         row.updatedAt = contact.updatedAt;
         await collection.put(row);
@@ -554,9 +503,11 @@ class UserContactService {
     late final Future<List<UserContact>> task;
     task =
         _serial(owner, () async {
-          _state(ContactSyncPhase.syncing);
+          var readingCloud = false;
           try {
             await _flush(owner);
+            readingCloud = true;
+            _state(ContactSyncPhase.syncing);
             final session = await _session(owner);
             final incoming = <String, UserContact>{}, cursors = <String>{};
             String? cursor;
@@ -577,7 +528,6 @@ class UserContactService {
                   (raw as Map).cast<String, dynamic>(),
                 );
                 if (contact.cidNumber == owner.cidNumber ||
-                    contact.accountId == owner.accountId ||
                     incoming.containsKey(contact.cidNumber)) {
                   throw const FormatException('通讯录联系人无效或重复');
                 }
@@ -595,7 +545,7 @@ class UserContactService {
                   : ContactSyncPhase.synced,
             );
           } on Object catch (error) {
-            await _failed(owner, error);
+            await _failed(owner, error, retryByPull: readingCloud);
           }
           return _contacts(owner);
         }).whenComplete(() {
@@ -616,7 +566,7 @@ class UserContactService {
     return value;
   }
 
-  static String requireAccountId(String value) {
+  static String _requireOwnerAccountId(String value) {
     if (!isCitizenAccountId(value)) throw const FormatException('account_id无效');
     return value;
   }

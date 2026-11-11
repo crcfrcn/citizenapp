@@ -3,7 +3,7 @@ import 'package:citizen_storage/user_isar.dart' as user_store show Identity;
 import 'dart:typed_data';
 
 import 'package:isar_community/isar.dart';
-import 'package:citizen_user/identity/citizen_identity_chain_reader.dart';
+import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_user/identity/identity_badge_snapshot_store.dart';
 import 'package:citizen_storage/user_isar.dart';
 import 'package:flutter_test/flutter_test.dart';

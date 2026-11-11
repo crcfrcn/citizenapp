@@ -6,7 +6,6 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:citizen_user/identity/current_user_context.dart';
 import 'package:citizen_user/identity/square_session_provider.dart';
-import 'package:citizen_user/membership/subscription_service.dart';
 import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_storage/user_isar.dart';
 
@@ -19,18 +18,13 @@ typedef NotificationScope = ({
   int bindRev,
   int generation,
 });
-typedef NotificationCacheWriter = Future<void> Function(
-  NotificationScope owner,
-  String state,
-  String pending, {
-  required bool Function() isCurrent,
-});
-typedef NotificationMemberWriter = Future<void> Function(
-  String cidNumber,
-  Map<String, dynamic> data, {
-  required int receivedAt,
-  required bool Function() isCurrent,
-});
+typedef NotificationCacheWriter =
+    Future<void> Function(
+      NotificationScope owner,
+      String state,
+      String pending, {
+      required bool Function() isCurrent,
+    });
 
 /// 当前已加载通知列表的本机快照；分页上界不因后续已读回执改变。
 class NotificationListSnapshot {
@@ -130,18 +124,16 @@ class Notifications extends ChangeNotifier {
     SquareApiClient? api,
     SquareSessionProvider? sessions,
     CurrentUserContext? user,
-    NotificationMemberWriter? memberWriter,
     NotificationCacheWriter? cacheWriter,
   }) : _api = api,
        _sessions = sessions,
        _user = user,
-       _memberWriter = memberWriter ?? SubscriptionService.applyPushedDisplay,
+
        _cacheWriter = cacheWriter ?? _writeCache;
   static final instance = Notifications();
   SquareApiClient? _api;
   SquareSessionProvider? _sessions;
   CurrentUserContext? _user;
-  final NotificationMemberWriter _memberWriter;
   final NotificationCacheWriter _cacheWriter;
   bool _cacheDirty = false;
   int _cacheVersion = 0;
@@ -151,8 +143,7 @@ class Notifications extends ChangeNotifier {
       _calibrated = false,
       _restored = false,
       _known = false;
-  Future<void>? _restoring, _calibration, _readFlight, _memberFlight;
-  int _applyingMember = 0, _appliedMember = 0;
+  Future<void>? _restoring, _calibration, _readFlight;
   final List<Map<String, dynamic>> _pending = [];
   final _confirmedReads = <String>{};
   final _readSubmissions = <String, Future<bool>>{};
@@ -184,8 +175,6 @@ class Notifications extends ChangeNotifier {
   bool isCurrent(NotificationScope? owner) => owner != null && owner == scope;
   String get cidNumber => _cidNumber;
   int get receivedAt => (_state['_received_at'] as int?) ?? 0;
-  int get memberReceivedAt =>
-      (_state['_member_received_at'] as int?) ?? receivedAt;
   int get creatorReceivedAt =>
       (_state['_creator_received_at'] as int?) ?? receivedAt;
   int get unread => (_state['square_unread'] as int?) ?? 0;
@@ -229,9 +218,6 @@ class Notifications extends ChangeNotifier {
     _restoring = null;
     _calibration = null;
     _readFlight = null;
-    _memberFlight = null;
-    _applyingMember = 0;
-    _appliedMember = 0;
     _calibrated = false;
     _restored = false;
     _known = false;
@@ -319,6 +305,11 @@ class Notifications extends ChangeNotifier {
               value['creator_rev'] is int &&
               (value['creator_rev'] as int) > 0;
           if (baseline || partial) {
+            value.remove('membergate');
+            if (value['creator'] case final Map<String, dynamic> creator) {
+              value['creator'] = Map<String, dynamic>.from(creator)
+                ..remove('plan');
+            }
             _state = value;
             _known = baseline;
           }
@@ -355,7 +346,6 @@ class Notifications extends ChangeNotifier {
       }
     }
     _restored = true;
-    await _applyMember(owner);
     if (isCurrent(owner)) notifyListeners();
   }
 
@@ -391,40 +381,6 @@ class Notifications extends ChangeNotifier {
     return true;
   }
 
-  Future<void> _applyMember(NotificationScope owner) async {
-    final version = (_state['member_rev'] as int?) ?? 0,
-        data = _state['membergate'];
-    if (!isCurrent(owner) ||
-        data is! Map<String, dynamic> ||
-        version <= _appliedMember) {
-      return;
-    }
-    if (_memberFlight != null && _applyingMember == version) {
-      await _memberFlight;
-      return;
-    }
-    _applyingMember = version;
-    late final Future<void> task;
-    task = Future<void>.microtask(() async {
-      try {
-        bool current() => isCurrent(owner) && _state['member_rev'] == version;
-        await _memberWriter(
-          owner.cidNumber,
-          data,
-          receivedAt: memberReceivedAt,
-          isCurrent: current,
-        );
-        if (current()) _appliedMember = version;
-      } on Object {
-        /* 原快照已持久化；同版本或下次恢复从本地补写，不增加GET。 */
-      } finally {
-        if (identical(_memberFlight, task)) _memberFlight = null;
-      }
-    });
-    _memberFlight = task;
-    await task;
-  }
-
   static bool valid(Map<String, dynamic> value, String cidNumber) {
     if (value['cid_number'] != cidNumber) return false;
     for (final key in [
@@ -439,11 +395,6 @@ class Notifications extends ChangeNotifier {
       if (n is! int || n < 0 || n > 9007199254740991) return false;
     }
     for (final (section, version, present) in [
-      (
-        value['membergate'],
-        value['member_rev'],
-        value.containsKey('member_rev'),
-      ),
       (
         value['creator'],
         value['creator_rev'],
@@ -506,11 +457,7 @@ class Notifications extends ChangeNotifier {
         value['creator'] is Map &&
         ((value['creator_rev'] as int?) ?? 0) >
             ((_state['creator_rev'] as int?) ?? 0);
-    final member =
-        value['membergate'] is Map &&
-        ((value['member_rev'] as int?) ?? 0) >
-            ((_state['member_rev'] as int?) ?? 0);
-    if (!counter && !creator && !member && !interaction) {
+    if (!counter && !creator && !interaction) {
       // 保存失败不能把内存版本当作已落盘版本；同版本允许补存并更新页面。
       if (_cacheDirty &&
           await _persist(owner) &&
@@ -518,12 +465,11 @@ class Notifications extends ChangeNotifier {
           !_cacheDirty) {
         notifyListeners();
       }
-      if (!_cacheDirty) await _applyMember(owner);
-      return false;
+      if (!_cacheDirty) return false;
     }
     final previousThrough = through;
     final previousListRevision = listRevision;
-    final merged = Map<String, dynamic>.from(_state),
+    final merged = Map<String, dynamic>.from(_state)..remove('membergate'),
         now = DateTime.now().millisecondsSinceEpoch;
     if (counter) {
       for (final key in [
@@ -543,14 +489,10 @@ class Notifications extends ChangeNotifier {
       _known = true;
     }
     if (creator) {
-      merged['creator'] = value['creator'];
+      merged['creator'] = Map<String, dynamic>.from(value['creator'] as Map)
+        ..remove('plan');
       merged['creator_rev'] = value['creator_rev'];
       merged['_creator_received_at'] = now;
-    }
-    if (member) {
-      merged['membergate'] = value['membergate'];
-      merged['member_rev'] = value['member_rev'];
-      merged['_member_received_at'] = now;
     }
     merged['interaction_sequence'] = interaction
         ? value['interaction_sequence']
@@ -570,7 +512,6 @@ class Notifications extends ChangeNotifier {
     if (!await _persist(owner) || !isCurrent(owner) || _cacheDirty) {
       return false;
     }
-    await _applyMember(owner);
     if (isCurrent(owner)) notifyListeners();
     return isCurrent(owner);
   }
@@ -603,7 +544,7 @@ class Notifications extends ChangeNotifier {
     _state['cid_number'] = cidNumber;
     _state['bind_rev'] = owner.bindRev;
     _state['creator_rev'] = version;
-    _state['creator'] = creator;
+    _state['creator'] = Map<String, dynamic>.from(creator)..remove('plan');
     _state['_creator_received_at'] = DateTime.now().millisecondsSinceEpoch;
     if (await _persist(owner) && isCurrent(owner) && !_cacheDirty) {
       notifyListeners();
@@ -804,7 +745,6 @@ class Notifications extends ChangeNotifier {
             await _persist(owner) &&
             isCurrent(owner) &&
             !_cacheDirty) {
-          await _applyMember(owner);
           if (isCurrent(owner)) notifyListeners();
         }
         return isCurrent(owner);

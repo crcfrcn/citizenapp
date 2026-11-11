@@ -1,3 +1,4 @@
+import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -14,7 +15,7 @@ import 'package:citizen_system/theme/app_layout.dart';
 /// 广场他人主页的创作者订阅入口（订阅者侧）。
 ///
 /// 有档才显示；订阅、取消、更换分别只提交一笔账户签名交易。档位、价格和当前订阅展示
-/// 统一采用 CitizenServe finalized 投影，手机页面不再直接读取链上会员状态。
+/// 统一由 citizen_chain 的最终块读模型提供。
 class CreatorSubscribeButton extends StatefulWidget {
   const CreatorSubscribeButton({
     super.key,
@@ -37,6 +38,8 @@ class CreatorSubscribeButton extends StatefulWidget {
 }
 
 class _CreatorSubscribeButtonState extends State<CreatorSubscribeButton> {
+  ChainDataService? _chainData;
+  VoidCallback? _unwatch;
   CreatorSubscribeService? _service;
   SquareSessionProvider? _session;
   bool _dependenciesReady = false;
@@ -55,6 +58,9 @@ class _CreatorSubscribeButtonState extends State<CreatorSubscribeButton> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_dependenciesReady) return;
+    _chainData = context.read<ChainDataService?>();
+    _unwatch = _chainData?.watchCreator(widget.creatorCid);
+    _chainData?.addListener(_onChainData);
     final injectedService = widget._service;
     final injectedSession = widget._sessionProvider;
     if (injectedService != null && injectedSession != null) {
@@ -93,6 +99,37 @@ class _CreatorSubscribeButtonState extends State<CreatorSubscribeButton> {
     _load();
   }
 
+  void _onChainData() {
+    final data = _chainData?.snapshot;
+    if (!mounted ||
+        data == null ||
+        !data.citizens.containsKey(widget.creatorCid))
+      return;
+    final target = data.citizens[widget.creatorCid]!,
+        sub = data.subscriptions[widget.creatorCid];
+    setState(() {
+      _plan = data.memberActive(widget.creatorCid)
+          ? creatorPlanFromChain(target.creatorTiers)
+          : null;
+      _subscription = sub == null
+          ? null
+          : CreatorSubscriptionState(
+              tierId: sub.plan.tierId!,
+              billingPeriod: sub.plan.billingPeriod!,
+              subState: sub.subState,
+              paidUntil: sub.paidUntil,
+            );
+      _loading = false;
+    });
+  }
+
+  @override
+  void dispose() {
+    _unwatch?.call();
+    _chainData?.removeListener(_onChainData);
+    super.dispose();
+  }
+
   Future<void> _load() async {
     setState(() => _loading = true);
     final sessionProvider = _session;
@@ -125,7 +162,10 @@ class _CreatorSubscribeButtonState extends State<CreatorSubscribeButton> {
     if (_loading || _plan == null || _plan!.tiers.isEmpty) {
       return const SizedBox.shrink();
     }
-    final actionable = widget.enabled && !_busy;
+    final actionable =
+        widget.enabled &&
+        !_busy &&
+        (_chainData == null || !_chainData!.isStale);
     final subscribed = _subscription?.subState == 'active';
     // 顶部操作栏只保留一个紧凑入口，并固定在通知图标左侧。是否已订阅只决定
     // 点击后的操作面板，不能在主页头部展开成两个按钮或增加纵向高度。
@@ -261,8 +301,9 @@ class _CreatorSubscribeButtonState extends State<CreatorSubscribeButton> {
       await _load();
     } on CreatorSubscribeException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -353,16 +394,18 @@ class _TierPeriodPicker extends StatelessWidget {
             children: periods.map((period) {
               final fen = tier.priceFenOf(period)!;
               return OutlinedButton(
-                onPressed: () =>
-                    Navigator.of(context)
-                        .pop(_TierPeriodSelection(tier.tierId, period, fen)),
+                onPressed: () => Navigator.of(
+                  context,
+                ).pop(_TierPeriodSelection(tier.tierId, period, fen)),
                 style: OutlinedButton.styleFrom(
                   minimumSize: Size(0, AppLayout.scaled(context, 40)),
                   padding: EdgeInsets.symmetric(
                     horizontal: AppLayout.scaled(context, 14),
                   ),
                 ),
-                child: Text('${period.label} ${formatFen(BigInt.from(fen), group: false, trimZeros: true)} 元'),
+                child: Text(
+                  '${period.label} ${formatFen(BigInt.from(fen), group: false, trimZeros: true)} 元',
+                ),
               );
             }).toList(),
           ),

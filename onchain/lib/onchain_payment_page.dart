@@ -22,7 +22,6 @@ import 'package:citizen_storage/user_isar.dart' hide Group;
 import 'package:citizen_scanner/qr_sign_session_page.dart';
 import 'package:citizen_scanner/address_scan_button.dart';
 import 'package:citizen_user/navigation.dart';
-import 'package:citizen_user/contacts/contact_service.dart' show UserContact;
 import 'package:citizen_user/identity/account_security_service.dart';
 import 'package:citizen_wallet/history/transaction_history_page.dart';
 import 'package:citizen_system/theme/app_layout.dart';
@@ -485,18 +484,17 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
 
   Future<void> _openContactsPage() async {
     const mode = ContactPickMode.pickForTransfer;
-    final contact = await Navigator.of(context).push<UserContact>(
-      MaterialPageRoute(
+    final cid = await Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(
         builder: (_) =>
             widget.contactPageBuilder?.call(mode) ??
             context.read<TransactionNavigation>().contactPicker(mode),
       ),
     );
-    if (!mounted || contact == null) return;
+    if (!mounted || cid == null) return;
     setState(() {
-      // 通讯录始终属于身份账户；这里只接收联系人 SS58 地址，付款钱包保持不变。
-      _toController.text = contact.ss58Address;
-      _recipientCid = contact.cidNumber;
+      _toController.clear();
+      _recipientCid = cid;
     });
   }
 
@@ -525,10 +523,13 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     final requestedCid = _recipientCid;
     final symbol = _selectedSymbol;
     final amountRaw = _amountController.text.trim();
-    if (requestedAddress.isEmpty || amountRaw.isEmpty) {
+    if ((requestedCid == null && requestedAddress.isEmpty) ||
+        amountRaw.isEmpty) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('请先填写完整的收款地址和金额')));
+      ).showSnackBar(
+        const SnackBar(content: Text('请先选择收款人或填写收款地址，再填写金额')),
+      );
       return;
     }
     final amountFen = parseFen(amountRaw);
@@ -878,7 +879,9 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
                   ],
                 ),
               ),
-            _buildFieldLabel('收款地址'),
+            _buildFieldLabel(
+              _recipientCid == null ? '收款地址' : '收款公民号：$_recipientCid',
+            ),
             TextField(
               controller: _toController,
               onChanged: (_) => setState(() => _recipientCid = null),

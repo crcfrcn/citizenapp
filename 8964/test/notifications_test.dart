@@ -100,6 +100,7 @@ class _Api extends SquareApiClient {
   final readThrough = <int?>[];
   bool offline = false;
   Completer<Map<String, dynamic>>? heldWrite;
+  Completer<void>? writeStarted;
   final writtenIds = <List<int>>[];
   Completer<Map<String, dynamic>>? pending;
   Future<Map<String, dynamic>> Function(SquareSession)? onRead;
@@ -124,6 +125,7 @@ class _Api extends SquareApiClient {
     List<String> commentIds = const [],
   }) async {
     writes++;
+    if (writeStarted?.isCompleted == false) writeStarted!.complete();
     writtenIds.add(List.of(ids));
     readThrough.add(through);
     if (offline) throw StateError('synthetic offline');
@@ -279,8 +281,9 @@ void main() {
   test('相同已读选择排序去重，合并在途请求并跳过已确认意图', () async {
     await service.restore();
     api.heldWrite = Completer<Map<String, dynamic>>();
+    api.writeStarted = Completer<void>();
     final first = service.read(owner: service.scope, ids: [2, 1]);
-    await pumpEventQueue();
+    await api.writeStarted!.future.timeout(const Duration(seconds: 5));
     final second = service.read(owner: service.scope, ids: [1, 2, 2]);
     await pumpEventQueue();
     expect(api.writes, 1);
@@ -618,58 +621,14 @@ void main() {
     expect(api.readThrough.single, 10);
     expect(service.unread, 1);
   });
-  test('会员展示部分写入失败后从持久快照重放，同版本不额外GET或重复写', () async {
-    final value = {
-      ..._state(3, 0),
-      '_member_received_at': 123456,
+  test('旧会员通知不回填链上状态，未读计数继续同步', () async {
+    await service.accept({
+      ..._state(3, 2),
       'member_rev': 3,
-      'membergate': {
-        'active': true,
-        'paid_until': 9999999999999,
-        'member_level': 'freedom',
-        'sub_state': 'active',
-        'prices': {'freedom': 1, 'democracy': 2, 'spark': 3},
-      },
-    };
-    final failed = Notifications(
-      api: api,
-      sessions: sessions,
-      user: user,
-      memberWriter:
-          (cid, data, {required receivedAt, required isCurrent}) async {
-            throw StateError('synthetic display write failure');
-          },
-    );
-    await failed.accept(value);
-    failed.dispose();
-    var writes = 0;
-    int? received;
-    final recovered = Notifications(
-      api: api,
-      sessions: sessions,
-      user: user,
-      memberWriter:
-          (cid, data, {required receivedAt, required isCurrent}) async {
-            if (isCurrent()) {
-              writes++;
-              received = receivedAt;
-            }
-          },
-    );
-    addTearDown(recovered.dispose);
-    await recovered.restore();
-    expect(writes, 1);
-    final actualTime = recovered.memberReceivedAt;
-    expect(received, actualTime);
-    await recovered.accept(value);
-    await recovered.accept({
-      ...value,
-      'notice_rev': 4,
-      'square_unread': 1,
-      'following_unread': 1,
+      'membergate': {'active': true, 'paid_until': 9999999999999},
     });
-    expect(writes, 1);
-    expect(recovered.memberReceivedAt, actualTime);
+    expect(service.unread, 2);
+    expect(service.scope, isNotNull);
     expect(api.reads, 0);
   });
   test('互动序号覆盖同批多帖，已读计数和重复快照不反复刷新', () async {

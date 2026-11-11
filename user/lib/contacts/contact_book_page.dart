@@ -16,7 +16,6 @@ import 'package:citizen_user/profile/profile_avatar.dart';
 import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_user/navigation.dart';
 import 'package:citizen_user/identity/current_user_context.dart';
-import 'package:citizen_user/identity/register_identity_flow.dart';
 import 'package:citizen_user/membership/membership_revision.dart';
 import 'package:citizen_user/contacts/contact_service.dart';
 import 'package:citizen_user/contacts/contact_sort.dart';
@@ -59,7 +58,6 @@ class ContactBookPage extends StatefulWidget {
   /// 测试可替换页面打开器；正式运行始终进入现有链上支付页面。
   final Future<void> Function(
     BuildContext context, {
-    required String toAddress,
     required String cidNumber,
   })?
   transferOpener;
@@ -248,58 +246,36 @@ class _ContactBookPageState extends State<ContactBookPage> {
     }
   }
 
-  /// 下拉与点击共用明确动作；不以重试名义清联系人或自动替换缺失身份。
-  Future<void> _retrySync() async {
+  Future<void> _refreshContacts() async {
     if (_retrying) return;
     _retrying = true;
     final generation = ++_loadGeneration;
     try {
-      final resolution = await resolveCitizenSessionForAction(
-        context,
-        provider: _sessionProvider,
-      );
+      final contacts = await _service.sync();
+      final syncState = await _service.readSyncState();
       if (!mounted || generation != _loadGeneration) return;
-      if (resolution.status != SquareSessionStatus.ready) {
-        setState(() {
-          _loading = false;
-          _syncState = ContactSyncState(
-            phase: ContactSyncPhase.failed,
-            message: resolution.message,
-            errorCode: resolution.errorCode,
-            stage: resolution.stage,
-          );
-        });
-        return;
-      }
-      await _sync();
+      await _loadCachedProfiles(contacts);
+      if (!mounted || generation != _loadGeneration) return;
+      setState(() {
+        _contacts = contacts;
+        _syncState = syncState;
+      });
     } on Object catch (error) {
-      if (mounted && generation == _loadGeneration) {
-        final failure = SquareSessionResolution.fromError(error);
-        setState(
-          () => _syncState = ContactSyncState(
-            phase: ContactSyncPhase.failed,
-            message: failure.message,
-            errorCode: failure.errorCode,
-            stage: failure.stage,
-          ),
+      if (!mounted || generation != _loadGeneration) return;
+      final failure = SquareSessionResolution.fromError(error);
+      setState(() {
+        _loading = false;
+        _syncState = ContactSyncState(
+          phase: ContactSyncPhase.failed,
+          message: failure.message,
+          errorCode: failure.errorCode,
+          stage: failure.stage,
+          retryByPull: true,
         );
-      }
+      });
     } finally {
       _retrying = false;
     }
-  }
-
-  Future<void> _sync() async {
-    final generation = _loadGeneration;
-    final contacts = await _service.sync();
-    final syncState = await _service.readSyncState();
-    if (!mounted || generation != _loadGeneration) return;
-    await _loadCachedProfiles(contacts);
-    if (!mounted || generation != _loadGeneration) return;
-    setState(() {
-      _contacts = contacts;
-      _syncState = syncState;
-    });
   }
 
   /// 联系人关系已强制携带永久 CID，公开资料无需再按 account_id 临时链读。
@@ -334,10 +310,7 @@ class _ContactBookPageState extends State<ContactBookPage> {
     // 复用统一「扫码加好友」收口(写库与提示在扫码页内完成),扫毕本地刷新。
     await scanAndAddContact(context, service: _service);
     if (!mounted) return;
-    final contacts = await _service.getContacts();
-    if (!mounted) return;
-    setState(() => _contacts = contacts);
-    await _loadCachedProfiles(contacts);
+    await _load();
   }
 
   Future<void> _rename(UserContact contact) async {
@@ -389,26 +362,13 @@ class _ContactBookPageState extends State<ContactBookPage> {
   }
 
   Future<void> _transfer(UserContact contact) async {
-    // 选择只传CID和展示缓存，绑定解析统一留到交易确认/签名前。
-    final current = contact;
     if (widget.mode == ContactPickMode.pickForTransfer) {
-      Navigator.of(context).pop(current);
+      Navigator.of(context).pop(contact.cidNumber);
       return;
     }
-    final opener = widget.transferOpener;
-    if (opener != null) {
-      await opener(
-        context,
-        toAddress: current.ss58Address,
-        cidNumber: current.cidNumber,
-      );
-      return;
-    }
-    await context.read<UserNavigation>().openTransfer(
-      context,
-      toAddress: current.ss58Address,
-      cidNumber: current.cidNumber,
-    );
+    final openTransfer =
+        widget.transferOpener ?? context.read<UserNavigation>().openTransfer;
+    await openTransfer(context, cidNumber: contact.cidNumber);
   }
 
   Future<void> _message(UserContact contact) async {
@@ -562,7 +522,7 @@ class _ContactBookPageState extends State<ContactBookPage> {
 
   Widget _buildContactList(List<UserContact> visible) {
     return RefreshIndicator(
-      onRefresh: _retrySync,
+      onRefresh: _refreshContacts,
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 10, 16, 28),
@@ -574,7 +534,7 @@ class _ContactBookPageState extends State<ContactBookPage> {
             ),
             SizedBox(height: AppLayout.scaledValue(10)),
           ],
-          _SyncBanner(state: _syncState, onRetry: _retrySync),
+          _SyncBanner(state: _syncState, onRetry: _service.flushPending),
           SizedBox(height: AppLayout.scaledValue(10)),
           TextField(
             key: const ValueKey('contact-search'),
@@ -816,9 +776,10 @@ class _SyncBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final retryable =
+    final hasError =
         state.phase == ContactSyncPhase.failed ||
         state.phase == ContactSyncPhase.offline;
+    final retryable = hasError && !state.retryByPull;
     return InkWell(
       onTap: retryable ? () => unawaited(onRetry()) : null,
       borderRadius: BorderRadius.circular(AppLayout.scaledValue(12)),
@@ -836,18 +797,20 @@ class _SyncBanner extends StatelessWidget {
                   ? Icons.sync_rounded
                   : Icons.cloud_outlined,
               size: AppLayout.scaled(context, 16),
-              color: retryable ? AppTheme.warning : AppTheme.textTertiary,
+              color: hasError ? AppTheme.warning : AppTheme.textTertiary,
             ),
             SizedBox(width: AppLayout.scaled(context, 6)),
             Text(
-              state.stage == SquareApiStage.identity ||
-                      state.stage == SquareApiStage.registration ||
-                      state.errorCode == 'device_not_registered' ||
-                      state.errorCode?.startsWith('mls_') == true
+              state.retryByPull
+                  ? '同步失败，请下拉重试'
+                  : state.stage == SquareApiStage.identity ||
+                        state.stage == SquareApiStage.registration ||
+                        state.errorCode == 'device_not_registered' ||
+                        state.errorCode?.startsWith('mls_') == true
                   ? state.message ?? state.label
                   : state.label,
               style: TextStyle(
-                color: retryable ? AppTheme.warning : AppTheme.textTertiary,
+                color: hasError ? AppTheme.warning : AppTheme.textTertiary,
                 fontSize: AppLayout.scaled(context, 12),
                 height: AppLayout.subtitleLineHeight,
               ),
@@ -930,30 +893,21 @@ class _EmptyContacts extends StatelessWidget {
 /// 通讯录 / 聊天页共用的「扫码加好友」收口。
 ///
 /// 打开 contact 模式扫码页,扫到用户名片码即写入本机并同步本人云端通讯录
-/// (写库与「已加入/已更新通讯录」提示均在扫码页内完成)。调用方返回后自行刷新列表。
+/// (写库与「已加入/已在通讯录」提示均在扫码页内完成)。调用方返回后自行刷新列表。
 Future<void> scanAndAddContact(
   BuildContext context, {
   UserContactService? service,
 }) async {
-  // 通讯录浏览与扫码入口均受当前 CID 门禁约束，禁止未注册身份写库。
-  // 未注册时所属页显示统一注册引导；占号成功后由用户
-  // 重新点「扫码加好友」(不自动续跑)。钱包缺失/链读失败的提示在助手内统一。
-  if (!await ensureCidRegisteredOrPrompt(context)) return;
-  if (!context.mounted) return;
-  UserContactService? contactService = service;
   await Navigator.of(context).push<void>(
     MaterialPageRoute<void>(
       builder: (scanContext) => QrScanPage(
         mode: QrScanMode.contact,
         importContact: (body) async {
-          final service = contactService ??= UserContactService(
-            accountSecurity: scanContext.read<AccountSecurityService>(),
-            currentUserContext: scanContext.read<CurrentUserContext>(),
-            sessionProvider: scanContext.read<SquareSessionProvider>(),
-          );
+          final contactService =
+              service ?? scanContext.read<UserContactService>();
           return (await addUserQrContact(
             body: body,
-            contactService: service,
+            contactService: contactService,
           )).created;
         },
         contactErrorMessage: contactImportFailure,

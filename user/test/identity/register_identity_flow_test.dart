@@ -11,7 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
-import 'package:citizen_user/identity/citizen_identity_chain_reader.dart';
+import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_user/identity/finalized_identity_resolver.dart';
 import 'package:citizen_user/identity/myid_service.dart';
 import 'package:citizen_user/identity/register_identity_flow.dart';

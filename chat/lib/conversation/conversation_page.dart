@@ -57,7 +57,6 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => OnchainPaymentPage(
-          initialToAddress: targetUserId,
           initialRecipientCid: targetUserId,
         ),
       ),

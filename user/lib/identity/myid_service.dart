@@ -15,7 +15,7 @@ import 'package:citizen_citizen/public/isar_admin_division_store.dart';
 import 'package:citizen_citizen/public/public_provinces.dart';
 import 'package:citizen_user/identity/cid_generator.dart';
 import 'package:citizen_user/identity/citizen_identity_transaction.dart';
-import 'package:citizen_user/identity/citizen_identity_chain_reader.dart';
+import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_scanner/qr_sign_session_page.dart';
 import 'package:citizen_user/identity/account_security_service.dart';
 import 'package:citizen_user/identity/identity_binding.dart';

@@ -23,6 +23,7 @@ class _RecipientService extends OnchainPaymentService {
   _RecipientService(this.recipient);
   final String recipient;
   String? input;
+  String? inputCid;
   BigInt? quotedAmountFen;
   int preparations = 0;
   CitizenBlockRef? remarkBlock;
@@ -39,7 +40,8 @@ class _RecipientService extends OnchainPaymentService {
     String? cidNumber,
   }) async {
     input = address;
-    return OnchainRecipient(address: recipient);
+    inputCid = cidNumber;
+    return OnchainRecipient(address: recipient, cidNumber: cidNumber);
   }
 
   @override
@@ -200,6 +202,61 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('联系人只有 CID 也能显示链上解析的收款账户', (tester) async {
+    const cid = 'CN220-CTZN2-100000002-2026';
+    const recipient = 'w5Bc7ma8qUcECfQDJmRyQM2wGmga5XSYtz7DvEengQ86xBWrT';
+    final service = _RecipientService(recipient);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme,
+        home: OnchainPaymentPanel(
+          title: '交易',
+          initialRecipientCid: cid,
+          paymentService: service,
+          currentWalletLoader: () async => _wallet(
+            index: 0,
+            name: '测试钱包',
+            address: 'wallet_a',
+            accountId: _walletAAccountId,
+          ),
+          balanceLoader: (_) async => BigInt.from(10000),
+          localRecordsLoader: (_, {limit = 100}) async => const [],
+        ),
+      ),
+    );
+    await _pumpUntilFound(tester, find.textContaining('钱包可用余额：100'));
+    final block = CitizenBlockRef(
+      hash: _walletAAccountId,
+      number: BigInt.one,
+      finality: CitizenBlockFinality.finalized,
+    );
+    tester
+        .widget<ChainProgressBanner>(find.byType(ChainProgressBanner))
+        .onProgressChanged
+        ?.call(
+          CitizenChainSyncStatus(
+            peerCount: BigInt.one,
+            isSyncing: false,
+            isUsable: true,
+            best: block,
+            finalized: block,
+          ),
+        );
+    await tester.pump();
+    expect(service.inputCid, isNull);
+    await tester.enterText(find.widgetWithText(TextField, '请输入金额'), '2.03');
+    final submit = find.widgetWithText(FilledButton, '签名交易');
+    await tester.ensureVisible(submit);
+    await tester.tap(submit);
+    await _pumpUntilFound(tester, find.text('确认交易'));
+    expect(service.input, isEmpty);
+    expect(service.inputCid, cid);
+    expect(find.text('收款账户：$recipient'), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, '取消'));
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('隐藏底层错误行但保留未就绪禁用与同步恢复', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -323,8 +380,10 @@ void main() {
     await _pumpUntilFound(tester, find.text('通讯录测试页'));
     // 交易入口只声明“选择收款人”意图，页面不再接收当前付款钱包账户。
     expect(openedContactMode, ContactPickMode.pickForTransfer);
-    Navigator.of(tester.element(find.text('通讯录测试页'))).pop();
-    await tester.pump(const Duration(milliseconds: 300));
+    const cid = 'CN220-CTZN2-100000002-2026';
+    Navigator.of(tester.element(find.text('通讯录测试页'))).pop(cid);
+    await _pumpUntilFound(tester, find.text('收款公民号：$cid'));
+    expect(find.text('收款公民号：$cid'), findsOneWidget);
   });
 
   testWidgets('钱包选择、取消与切回均核对真实付款源无障碍值', (tester) async {

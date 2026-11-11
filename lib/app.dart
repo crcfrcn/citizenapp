@@ -55,6 +55,26 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
   bool _identityRetry = true;
   bool _identityRequested = false;
   Future<void>? _identitySync;
+  late final _chainData = ChainDataService.forSdk(widget.sdk);
+  String? _chainIdentityKey;
+  void _onChainData() {
+    if (_closing || _chainData.isStale) return;
+    final value = _chainData.snapshot;
+    if (value == null) return;
+    final identity = value.own?.identity;
+    final key = jsonEncode([
+      value.accountId,
+      value.ownCid,
+      identity?.bindRev,
+      identity?.votingIdentity,
+      identity?.candidateIdentity,
+    ]);
+    if (_chainIdentityKey == key) return;
+    _chainIdentityKey = key;
+    _identityRetry = true;
+    _requestIdentitySync();
+  }
+
   final _topupUpdates = TopupUpdates();
   final _topupWallet = TopupWalletSession();
   final _topupPushSubs = <StreamSubscription<Map<String, dynamic>>>[];
@@ -143,17 +163,11 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
           widget.currentUserContext.invalidate();
           continue;
         }
-        final initial = _identityAccount == null;
         final changed = _identityAccount != account.accountId;
         if (changed) widget.currentUserContext.invalidate();
-        final current = await widget.currentUserContext.resolve();
+        await widget.currentUserContext.resolve();
         if (!changed && !_identityRetry) continue;
         _identityAccount = account.accountId;
-        // 已有绑定的首次启动直接复用；切换账户仍核对新账户的链事实。
-        if (initial && current?.isRegistered == true) {
-          _identityRetry = false;
-          continue;
-        }
         final state = await widget.identityService!.refreshState();
         _identityRetry = state.status == MyIdStatus.queryFailed;
       } on Object {
@@ -169,6 +183,7 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
       if (!_closing) {
         await widget.transactionHistory.start();
         _requestIdentitySync();
+        await _chainData.start();
       }
     } on Object {
       // 原生安全诊断归SDK；App不记录可能含业务数据的异常原文。
@@ -196,6 +211,12 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
       // 身份监听撤销失败也必须继续原SDK的有序关闭。
       AppLog.d('identity_listener_close_failed');
     }
+    _chainData.removeListener(_onChainData);
+    try {
+      await _chainData.close();
+    } on Object {
+      AppLog.d('chain_data_close_unavailable');
+    }
     await _chainStartup;
     await _identitySync;
     try {
@@ -216,6 +237,7 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    _chainData.addListener(_onChainData);
     _startTopupUpdates();
     WidgetsBinding.instance.addObserver(this);
     widget.squareSessionProvider.installMlsAuthentication(
@@ -239,11 +261,13 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // 系统授权造成的短暂 inactive 不终止同步；真正退后台才使迟到读取失效。
     if (state == AppLifecycleState.resumed) {
+      _chainData.setForeground(true);
       unawaited(_refreshTopupNotify());
       unawaited(_topupUpdates.resume());
       widget.transactionHistory.setForeground(true);
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
+      _chainData.setForeground(false);
       widget.transactionHistory.setForeground(false);
     }
   }
@@ -269,17 +293,14 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
         Provider<UserNavigation>.value(
           value: UserNavigation(
             openDirectChat: openDirectChat,
-            openTransfer:
-                (context, {required toAddress, required cidNumber}) async {
-                  await Navigator.of(context).push<void>(
-                    MaterialPageRoute<void>(
-                      builder: (_) => OnchainPaymentPage(
-                        initialToAddress: toAddress,
-                        initialRecipientCid: cidNumber,
-                      ),
-                    ),
-                  );
-                },
+            openTransfer: (context, {required cidNumber}) async {
+              await Navigator.of(context).push<void>(
+                MaterialPageRoute<void>(
+                  builder: (_) =>
+                      OnchainPaymentPage(initialRecipientCid: cidNumber),
+                ),
+              );
+            },
           ),
         ),
         Provider<ScanDispatch>.value(value: const AppScanDispatch()),
@@ -287,6 +308,7 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
           value: _registrationCoordinator,
         ),
         Provider<CitizenSdk>.value(value: widget.sdk),
+        ChangeNotifierProvider<ChainDataService>.value(value: _chainData),
         if (widget.identityService != null)
           Provider<MyIdService>.value(value: widget.identityService!),
         Provider<AccountSecurityService>.value(value: widget.accountSecurity),

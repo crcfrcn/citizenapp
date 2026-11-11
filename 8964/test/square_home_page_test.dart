@@ -22,7 +22,7 @@ import 'package:citizen_testing/isar_test_env.dart';
 import 'package:citizen_user/identity/account_security_service.dart';
 import 'package:citizen_user/identity/identity_binding.dart';
 import 'package:citizen_user/identity/identity_badge_snapshot_store.dart';
-import 'package:citizen_user/identity/citizen_identity_chain_reader.dart';
+import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_square/compose/compose_page.dart';
 import 'package:citizen_square/compose/document_compose_body.dart';
 import 'package:citizen_square/draft/compose_draft.dart';

@@ -237,9 +237,9 @@ void main() {
       'https://example.com/api/user/cards/$_profileCid/avatar',
     );
     expect(
-      () =>
-          CitizenProfileApi(client: client)
-              .cardMediaUrl('i/$_profileCid/banner/$_photoHash'),
+      () => CitizenProfileApi(
+        client: client,
+      ).cardMediaUrl('i/$_profileCid/banner/$_photoHash'),
       throwsA(isA<SquareApiException>()),
     );
   });
@@ -528,8 +528,9 @@ void main() {
       stream.add(_png);
       await stream.close();
       await rejected;
-      final image = CitizenProfileApi(client: api)
-          .mediaImage('i/$_profileCid/avatar/$_photoHash', session: session);
+      final image = CitizenProfileApi(
+        client: api,
+      ).mediaImage('i/$_profileCid/avatar/$_photoHash', session: session);
       expect(image.toString(), isNot(contains('synthetic-proof')));
       expect(image.toString(), isNot(contains('tok')));
     });
@@ -560,12 +561,13 @@ void main() {
       bindRev: 1,
       accountId: _owner,
       expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
-      authenticateRequest: ({
-        required method,
-        required uri,
-        required body,
-        required sessionToken,
-      }) async => {'x-mls-proof': 'shared-image-${++signed}'},
+      authenticateRequest:
+          ({
+            required method,
+            required uri,
+            required body,
+            required sessionToken,
+          }) async => {'x-mls-proof': 'shared-image-${++signed}'},
     );
     final a = CitizenProfileApi(client: firstClient),
         b = CitizenProfileApi(client: secondClient);
@@ -664,12 +666,13 @@ void main() {
       bindRev: 1,
       accountId: _owner,
       expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
-      authenticateRequest: ({
-        required method,
-        required uri,
-        required body,
-        required sessionToken,
-      }) async => {'x-mls-proof': 'image-${++signed}'},
+      authenticateRequest:
+          ({
+            required method,
+            required uri,
+            required body,
+            required sessionToken,
+          }) async => {'x-mls-proof': 'image-${++signed}'},
     );
     final api = CitizenProfileApi(client: client);
     final image = api.mediaImage(
@@ -782,8 +785,9 @@ void main() {
             return {'x-mls-proof': 'refresh-${++signed}'};
           },
     );
-    final profile = await CitizenProfileApi(client: client)
-        .refreshProfile(_profileCid, session: session, userInitiated: true);
+    final profile = await CitizenProfileApi(
+      client: client,
+    ).refreshProfile(_profileCid, session: session, userInitiated: true);
     final saved = await CitizenProfileMediaCache().read(profile);
     expect(paths, [
       '/api/user/profiles/$_profileCid',
@@ -885,8 +889,8 @@ void main() {
         _profileJson(isFollowing: true, isFollowedBy: true),
       );
 
-      expect(profile.accountId, _owner);
-      expect(profile.isCertified, isTrue);
+      expect(profile.accountId, isEmpty);
+      expect(profile.isCertified, isFalse);
       expect(profile.cidNumber, 'CN001-CTZN-000000001-2026');
       expect(profile.isFollowing, isTrue);
       expect(profile.isFollowedBy, isTrue);
@@ -1069,8 +1073,9 @@ void main() {
       final cache = CitizenProfileMediaCache(
         supportDirectoryProvider: () async => root,
       );
-      final profile = CitizenProfile.fromJson(_profileJson())
-          .copyWith(bannerKey: 'profile/banner');
+      final profile = CitizenProfile.fromJson(
+        _profileJson(),
+      ).copyWith(bannerKey: 'profile/banner');
       final saved = await cache.rememberSelected(
         profile: profile,
         avatarBytes: _png,
@@ -1105,8 +1110,9 @@ void main() {
 
     test('同版本媒体冲突整笔回滚，资料和已有图片不被半更新', () async {
       const profiles = CitizenProfileCache();
-      final profile = CitizenProfile.fromJson(_profileJson())
-          .copyWith(bannerKey: 'profile/banner');
+      final profile = CitizenProfile.fromJson(
+        _profileJson(),
+      ).copyWith(bannerKey: 'profile/banner');
       await profiles.writeWithMedia(
         profile,
         avatarBytes: _png,
@@ -1527,26 +1533,29 @@ void main() {
       expect(seen!.queryParameters['post_type'], 'article');
     });
 
-    test('fetchFollows sends the mutual_following query without local intersection', () async {
-      Uri? seen;
-      final client = _client(
-        MockClient((request) async {
-          seen = request.url;
-          expect(request.method, 'GET');
-          expect(request.headers['authorization'], 'Bearer tok');
-          expect(request.headers['x-mls-proof'], isNotEmpty);
-          return _ok({'is_ok': true, 'items': [], 'next_cursor': null});
-        }),
-      );
+    test(
+      'fetchFollows sends the mutual_following query without local intersection',
+      () async {
+        Uri? seen;
+        final client = _client(
+          MockClient((request) async {
+            seen = request.url;
+            expect(request.method, 'GET');
+            expect(request.headers['authorization'], 'Bearer tok');
+            expect(request.headers['x-mls-proof'], isNotEmpty);
+            return _ok({'is_ok': true, 'items': [], 'next_cursor': null});
+          }),
+        );
 
-      await client.fetchFollows(
-        cidNumber: 'CN001-CTZN-000000001-2026',
-        type: 'mutual_following',
-        session: _session(),
-      );
+        await client.fetchFollows(
+          cidNumber: 'CN001-CTZN-000000001-2026',
+          type: 'mutual_following',
+          session: _session(),
+        );
 
-      expect(seen!.queryParameters['type'], 'mutual_following');
-    });
+        expect(seen!.queryParameters['type'], 'mutual_following');
+      },
+    );
 
     test('解析资料对象键同时返回用途和内容哈希', () {
       final client = _client(MockClient((_) async => http.Response('', 200)));

@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 
 import 'package:citizen_user/identity/identity_badge_snapshot_store.dart';
 
-import 'package:citizen_user/identity/citizen_identity_chain_reader.dart';
+import 'package:citizen_chain/citizen_chain.dart';
 
 /// 动权/动钱路径的 finalized 身份解析结果。
 ///
@@ -41,6 +41,7 @@ class FinalizedIdentity {
 /// 私钥泄漏可换绑到新账户而 CID(及其通讯录/公文/文章/视频/粉丝)永不丢失。
 class FinalizedIdentityResolver {
   FinalizedIdentityResolver({
+    ChainDataService? chainData,
     CitizenSdk? wallet,
     CitizenSdk? chain,
     CitizenIdentityChainReader? chainReader,
@@ -55,7 +56,8 @@ class FinalizedIdentityResolver {
     getStorageBatch,
     Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
     getStorage,
-  }) : _snapshotStore = snapshotStore,
+  }) : _chainData = chainData,
+       _snapshotStore = snapshotStore,
        _identityRevision = identityRevision,
        _chainReader =
            chainReader ??
@@ -72,6 +74,7 @@ class FinalizedIdentityResolver {
   final CitizenSdkOperation<CitizenWalletState> Function() _getWalletState;
 
   final CitizenIdentityChainReader _chainReader;
+  final ChainDataService? _chainData;
   final IdentityBadgeSnapshotStore? _snapshotStore;
   final ValueListenable<int>? _identityRevision;
   final _inflight = <(String, BigInt, int), Future<FinalizedIdentity?>>{};
@@ -114,7 +117,13 @@ class FinalizedIdentityResolver {
     (String, BigInt, int) key,
     int generation,
   ) async {
-    final snapshot = await _chainReader.readByAccountId(account.accountId);
+    final data = await _chainData?.refresh();
+    if (_chainData != null && (data?.accountId != account.accountId || _chainData.isStale)) {
+      throw StateError('轻节点身份尚未核验');
+    }
+    final snapshot = _chainData == null
+        ? await _chainReader.readByAccountId(account.accountId)
+        : data?.own?.identity;
     final result = FinalizedIdentity(
       accountId: account.accountId,
       accountAddress: account.ss58Address,

@@ -43,8 +43,8 @@ class ProfileHeaderCard extends StatelessWidget {
   /// 完整资料媒体的签名读取器；不携带可复用的一次性证明头。
   final ImageProvider? avatarImage;
 
-  /// 本人页面可传入 CitizenServe 已确认并写入统一缓存的会员展示态。
-  /// null 表示尚未确认，继续使用公开资料镜像；false 表示已确认无有效会员。
+  /// 页面可传入已核验的本机会员展示提示，正式App头像订阅统一轻节点读模型。
+  /// null 表示尚未确认；提示不授予业务权限，也不从公开资料恢复链上状态。
   final String? confirmedMembershipLevel;
   final bool? confirmedMembershipActive;
 

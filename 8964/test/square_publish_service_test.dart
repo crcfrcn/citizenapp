@@ -1,7 +1,7 @@
 import 'package:citizen_testing/mls_authentication_fixture.dart';
 
 import 'package:citizen_user/identity/finalized_identity_resolver.dart';
-import 'package:citizen_user/identity/citizen_identity_chain_reader.dart';
+import 'package:citizen_chain/citizen_chain.dart';
 
 import 'dart:async';
 import 'dart:convert';

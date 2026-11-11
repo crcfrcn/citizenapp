@@ -235,13 +235,12 @@ class _ChatSearchPageState extends State<ChatSearchPage> {
   List<UserContact> get _contactHits {
     if (_query.isEmpty) return const <UserContact>[];
     final needle = _query.toLowerCase();
-    // 只匹配私人备注、CID 与账户：公开昵称要联网拉取，搜索页不引入网络依赖。
+    // 联系人只按本地备注或 CID 搜索。
     return _contacts
         .where(
           (item) =>
               item.contactRemark.toLowerCase().contains(needle) ||
-              item.cidNumber.toLowerCase().contains(needle) ||
-              item.accountId.toLowerCase().contains(needle),
+              item.cidNumber.toLowerCase().contains(needle),
         )
         .toList(growable: false);
   }

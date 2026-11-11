@@ -38,11 +38,6 @@ const String _profileCidNumber = 'CN001-CTZN-000000001-2026';
 /// 「非本人」（行为与迁移前一致）；避免 instance 触发真链读/真 Isar。
 class _NullMembershipSnapshotService implements SubscriptionService {
   @override
-  Future<MembershipDisplaySnapshot?> readDisplaySnapshot(
-    String cidNumber,
-  ) async => null;
-
-  @override
   Future<void> requireProfileAccess(
     SquareSession session,
     String targetCid,
@@ -72,8 +67,9 @@ Widget _wrap({
     child: MaterialApp(
       theme: ThemeData(platform: platform),
       builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(context)
-            .copyWith(textScaler: textScaler, padding: padding),
+        data: MediaQuery.of(
+          context,
+        ).copyWith(textScaler: textScaler, padding: padding),
         child: child!,
       ),
       home: UserProfilePage(
@@ -95,7 +91,6 @@ Widget _wrap({
         initialMembershipState: initialMembershipState,
         subscriptionService:
             subscriptionService ?? _NullMembershipSnapshotService(),
-        viewerAccountLoader: () async => null,
       ),
     ),
   );
@@ -148,8 +143,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final fallback = ProfilePresentation.forIdentityKey(_profileCidNumber)
-        .fallbackName;
+    final fallback = ProfilePresentation.forIdentityKey(
+      _profileCidNumber,
+    ).fallbackName;
     expect(find.text(fallback), findsWidgets);
     expect(find.text('公民号：$_profileCidNumber'), findsOneWidget);
     expect(find.textContaining('SS58：'), findsNothing);
@@ -889,7 +885,6 @@ void main() {
             cache: FakeProfileCache(),
             sessionProvider: FakeSessionProvider(fakeSession()),
             subscriptionService: _NullMembershipSnapshotService(),
-            viewerAccountLoader: () async => null,
             onOpenDirectChat: (context, {required peerUserId, required title}) {
               peer = peerUserId;
               chatTitle = title;
@@ -918,11 +913,13 @@ void main() {
             cidNumber: _profileCidNumber,
             isSelf: false,
             api: FakeProfileApi(sampleProfile(displayName: '轻节点')),
-            cache: FakeProfileCache(),
-            sessionProvider: FakeSessionProvider(fakeSession()),
+            cache: FakeProfileCache(sampleProfile()),
+            sessionProvider: FakeSessionProvider(
+              fakeSession(),
+              citizenId: _profileCidNumber,
+            ),
             subscriptionService: _NullMembershipSnapshotService(),
-            // 浏览者账户相同，依然允许关注，隐藏私信等本人操作。
-            viewerAccountLoader: () async => kOwner,
+            // 本机已确认公民号相同，隐藏私信等本人操作。
             onOpenDirectChat: (context, {required peerUserId, required title}) {
               peer = peerUserId;
               return Future<void>.value();
@@ -971,7 +968,7 @@ void main() {
     expect(find.byIcon(Icons.notifications_outlined), findsOneWidget);
   });
 
-  testWidgets('三点菜单的用户码入口打开用户码页面', (tester) async {
+  testWidgets('用户码无法核验轻节点绑定时提示重试', (tester) async {
     await tester.pumpWidget(
       _wrap(isSelf: true, api: FakeProfileApi(sampleProfile())),
     );
@@ -982,8 +979,8 @@ void main() {
     await tester.tap(find.text('用户码'));
     await tester.pumpAndSettle();
 
-    expect(find.byType(UserQrPage), findsOneWidget);
-    expect(find.widgetWithText(AppBar, '我的用户码'), findsOneWidget);
+    expect(find.byType(UserQrPage), findsNothing);
+    expect(find.text('轻节点绑定尚未核验，请刷新重试'), findsOneWidget);
   });
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
     testWidgets('$platform本人关注回读三项权威计数并重入缓存', (tester) async {

@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:citizen_user/membership/subscription_chain.dart';
+import 'package:citizen_chain/citizen_chain.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_sdk/test/platform/fixture.dart';
@@ -17,11 +17,13 @@ Uint8List _bytes(String hex) => Uint8List.fromList([
 void main() {
   late CitizenRuntimeContext runtime;
   setUpAll(() async {
-    runtime = await CitizenSdkTestFixture.runtimeContext(CitizenBlockRef(
-      hash: '0x${'11' * 32}',
-      number: BigInt.one,
-      finality: CitizenBlockFinality.finalized,
-    ));
+    runtime = await CitizenSdkTestFixture.runtimeContext(
+      CitizenBlockRef(
+        hash: '0x${'11' * 32}',
+        number: BigInt.one,
+        finality: CitizenBlockFinality.finalized,
+      ),
+    );
   });
   const creatorCid = 'CN220-CTZN2-900000001-2026';
   const creatorCidScale =
@@ -53,7 +55,10 @@ void main() {
     });
 
     test('取消只携带收款主体', () {
-      expect(_hex(SubscriptionChain.buildCancelPlatformCall(runtime)), '220200');
+      expect(
+        _hex(SubscriptionChain.buildCancelPlatformCall(runtime)),
+        '220200',
+      );
     });
 
     test('创作者套餐覆盖式编码', () {
@@ -111,7 +116,13 @@ void main() {
 
     test('平台与创作者换档使用同一 call_index 并携带目标签名价', () {
       expect(
-        _hex(SubscriptionChain.buildChangePlatformPlanCall(runtime, 1, BigInt.from(50))),
+        _hex(
+          SubscriptionChain.buildChangePlatformPlanCall(
+            runtime,
+            1,
+            BigInt.from(50),
+          ),
+        ),
         '220400000132000000000000000000000000000000',
       );
       expect(
@@ -145,7 +156,11 @@ void main() {
         throwsArgumentError,
       );
       expect(
-        () => SubscriptionChain.buildSubscribePlatformCall(runtime, 0, BigInt.zero),
+        () => SubscriptionChain.buildSubscribePlatformCall(
+          runtime,
+          0,
+          BigInt.zero,
+        ),
         throwsArgumentError,
       );
     });

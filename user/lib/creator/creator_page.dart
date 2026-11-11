@@ -1,3 +1,4 @@
+import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_user/membership/subscription_service.dart';
 import 'package:citizen_user/notifications.dart';
 import 'package:provider/provider.dart';
@@ -26,9 +27,8 @@ import 'package:citizen_system/theme/app_layout.dart';
 
 /// 「我的 → 创作者」：管理自己的创作者会员（档位 / 收入概览）。
 ///
-/// 当前账户的公民号门禁确认后才使用「我的」页会员展示态，随后只读本地持久化档位；快照过期或缺失
-/// 不触发远端请求。主动刷新及写入动作才验真。整次保存只产生一次
-/// `set_creator_plans` 账户签名，展示快照不参与授权。
+/// 当前账户的公民号门禁确认后展示链下统计；主动刷新从服务端读取概览。
+/// 链上档位订阅统一轻节点读模型，统计通知不改变身份或当前请求代次。
 class CreatorPage extends StatefulWidget {
   const CreatorPage({
     super.key,
@@ -52,16 +52,16 @@ class CreatorPage extends StatefulWidget {
 
 class _CreatorPageState extends State<CreatorPage> {
   late final CreatorService _service;
+  ChainDataService? _chainData;
   AccountSecurityService? _accountSecurity;
   bool _dependenciesReady = false;
   CreatorPageData? _data;
   bool _identityConfirmed = false;
   bool _businessReady = false;
-  Timer? _displayExpiry;
+  bool _overviewResolved = false;
   bool _unregistered = false;
   String? _error;
   String _cidNumber = '';
-  int _memberAt = 0;
   int _loadGeneration = 0;
 
   @override
@@ -84,6 +84,8 @@ class _CreatorPageState extends State<CreatorPage> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_dependenciesReady) return;
+    _chainData = context.read<ChainDataService?>();
+    _chainData?.addListener(_onChainData);
     final injected = widget._service;
     if (injected != null) {
       _service = injected;
@@ -108,7 +110,7 @@ class _CreatorPageState extends State<CreatorPage> {
 
   @override
   void dispose() {
-    _displayExpiry?.cancel();
+    _chainData?.removeListener(_onChainData);
     _accountSecurity?.revision.removeListener(_onIdentityChanged);
     MembershipRevision.instance.listenable.removeListener(_onMembershipChanged);
     Notifications.instance.removeListener(_onNotificationChanged);
@@ -120,31 +122,53 @@ class _CreatorPageState extends State<CreatorPage> {
     if (mounted) unawaited(_bootstrap());
   }
 
-  void _scheduleDisplayExpiry() {
-    _displayExpiry?.cancel();
-    final until = SubscriptionService.displayPaidUntilFor(_cidNumber),
-        remaining =
-            SubscriptionService.displayPaidUntilFor(_cidNumber) -
-            DateTime.now().millisecondsSinceEpoch;
-    if (_data?.gated == false && remaining > 0) {
-      final cid = _cidNumber;
-      _displayExpiry = Timer(Duration(milliseconds: remaining), () {
-        if (mounted &&
-            cid == _cidNumber &&
-            until == SubscriptionService.displayPaidUntilFor(cid)) {
-          setState(() => _data = CreatorPageData.gated());
-        }
+  void _onChainData() {
+    final data = _chainData?.snapshot;
+    if (mounted && data == null && _chainData != null) {
+      setState(() {
+        _data = null;
+        _overviewResolved = false;
       });
+      return;
     }
+    if (!mounted ||
+        !_businessReady ||
+        data == null ||
+        _chainData!.isStale ||
+        data.ownCid != _cidNumber)
+      return;
+    setState(
+      () => _data = data.memberActive(_cidNumber)
+          ? CreatorPageData.active(
+              plan: creatorPlanFromChain(data.own!.creatorTiers),
+              overview: _data?.overview ?? CreatorOverview.zero,
+            )
+          : CreatorPageData.gated(),
+    );
   }
 
   void _onNotificationChanged() {
-    if (mounted &&
-        _businessReady &&
-        Notifications.instance.cidNumber == _cidNumber &&
-        Notifications.instance.creatorFor(_cidNumber) != null) {
-      unawaited(_bootstrap());
-    }
+    if (!mounted || !_businessReady || _data?.gated == true) return;
+    final raw = Notifications.instance.creatorFor(_cidNumber)?['overview'];
+    if (raw is! Map<String, dynamic> ||
+        ['subscriber_count', 'monthly_income_fen', 'tier_count'].any(
+          (key) =>
+              raw[key] is! int || raw[key] < 0 || raw[key] > 9007199254740991,
+        ))
+      return;
+    final overview = CreatorOverview.fromJson(raw);
+    final wasResolved = _overviewResolved;
+    _overviewResolved = true;
+    final previous = _data?.overview;
+    if (wasResolved &&
+        previous?.subscriberCount == overview.subscriberCount &&
+        previous?.monthlyIncomeFen == overview.monthlyIncomeFen &&
+        previous?.tierCount == overview.tierCount)
+      return;
+    setState(
+      () =>
+          _data = CreatorPageData.active(plan: _data?.plan, overview: overview),
+    );
   }
 
   /// 会员动作确认后只刷新同一永久 CID；广播本身不直接授予页面能力。
@@ -159,7 +183,7 @@ class _CreatorPageState extends State<CreatorPage> {
     unawaited(_bootstrap());
   }
 
-  /// 入口提示不具备授权效力；先核对当前账户 CID，再读取本地创作者快照。
+  /// 身份变化才使当前请求失效；统计更新保留同一CID的请求代次。
   Future<void> _bootstrap() async {
     final generation = ++_loadGeneration;
     if (_identityConfirmed) setState(() => _identityConfirmed = false);
@@ -198,21 +222,12 @@ class _CreatorPageState extends State<CreatorPage> {
         _cidNumber = cidNumber;
         _unregistered = false;
         _error = null;
-        if (cidChanged) _data = null;
+        if (cidChanged || _chainData?.snapshot == null && _chainData != null) {
+          _data = null;
+          _overviewResolved = false;
+        }
       });
-
-      final snapshot = await _service.readDisplaySnapshot(cidNumber);
-      if (!mounted || generation != _loadGeneration) return;
-      // Creator 展示快照只由 CitizenServe 会员缓存与创作者读取写入，可信度高于入口提示；
-      // 已确认有效的本地快照可以覆盖旧的无会员入口状态。
-      if (snapshot != null) {
-        setState(() {
-          _data = snapshot.data;
-          _memberAt = snapshot.memberAt;
-          _scheduleDisplayExpiry();
-          _error = null;
-        });
-      }
+      _onChainData();
     } on Exception catch (e) {
       if (!mounted || generation != _loadGeneration) return;
       setState(() {
@@ -243,8 +258,7 @@ class _CreatorPageState extends State<CreatorPage> {
       }
       setState(() {
         _data = data;
-        _memberAt = DateTime.now().millisecondsSinceEpoch;
-        _scheduleDisplayExpiry();
+        _overviewResolved = data.overview != null;
         _error = null;
       });
     } on CreatorException catch (e) {
@@ -301,6 +315,7 @@ class _CreatorPageState extends State<CreatorPage> {
         CreatorPlan.empty(),
         CreatorOverview.zero,
         resolved: false,
+        overviewResolved: false,
       );
     } else if (data.gated) {
       content = Column(
@@ -310,7 +325,12 @@ class _CreatorPageState extends State<CreatorPage> {
         ],
       );
     } else {
-      content = _activeView(data.plan!, data.overview!);
+      content = _activeView(
+        data.plan ?? CreatorPlan.empty(),
+        data.overview!,
+        resolved: data.plan != null,
+        overviewResolved: _overviewResolved,
+      );
     }
     return content;
   }
@@ -319,6 +339,7 @@ class _CreatorPageState extends State<CreatorPage> {
     CreatorPlan plan,
     CreatorOverview overview, {
     bool resolved = true,
+    bool overviewResolved = true,
   }) {
     final atMax = plan.tiers.length >= CreatorPlan.maxTiers;
     return RefreshIndicator(
@@ -326,7 +347,8 @@ class _CreatorPageState extends State<CreatorPage> {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
         children: [
-          CreatorOverviewCard(overview: overview, resolved: resolved),
+          CreatorOverviewCard(overview: overview, resolved: overviewResolved),
+          if (!resolved) const Text('轻节点创作者档位尚未就绪'),
           if (_error != null) ...[
             SizedBox(height: AppLayout.scaledValue(12)),
             _inlineError(_error!),
@@ -483,9 +505,9 @@ class _CreatorPageState extends State<CreatorPage> {
   Widget _subscribersEntry(int count, {required bool resolved}) {
     return InkWell(
       onTap: resolved
-          ? () =>
-                ScaffoldMessenger.of(context)
-                    .showSnackBar(const SnackBar(content: Text('订阅者明细即将上线')))
+          ? () => ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(const SnackBar(content: Text('订阅者明细即将上线')))
           : null,
       borderRadius: BorderRadius.circular(AppTheme.radiusMd),
       child: Container(
@@ -596,20 +618,13 @@ class _CreatorPageState extends State<CreatorPage> {
         _data = data;
         _error = null;
       });
-      unawaited(
-        _service.rememberDisplayData(
-          cidNumber: _cidNumber,
-          data: data,
-          memberAt: _memberAt,
-          creatorAt: DateTime.now().millisecondsSinceEpoch,
-        ),
-      );
     }
   }
 
   Future<void> _openMembership() async {
-    await Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => const MembershipPage()));
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const MembershipPage()));
     // 仅浏览会员页再返回不代表用户请求刷新；实际会员动作已有独立广播。
     if (mounted) await _bootstrap();
   }

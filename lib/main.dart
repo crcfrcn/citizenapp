@@ -1,3 +1,4 @@
+import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_user/contacts/contact_service.dart';
 import 'package:citizen_topup/topup_api.dart';
 import 'package:citizen_topup/topup_webview_page.dart';
@@ -137,7 +138,9 @@ Future<void> main() async {
     wallet: citizenSdk,
     accountSecurity: accountSecurity,
   );
+  final chainData = ChainDataService.forSdk(citizenSdk);
   final finalizedIdentityResolver = FinalizedIdentityResolver(
+    chainData: chainData,
     wallet: citizenSdk,
     chain: citizenSdk,
     snapshotStore: IdentityBadgeSnapshotStore(),

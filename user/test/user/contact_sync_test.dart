@@ -6,6 +6,7 @@ import 'package:isar_community/isar.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_storage/user_isar.dart' as store;
 import 'package:citizen_testing/isar_test_env.dart';
+import 'package:citizen_user/contacts/contact_scan.dart';
 import 'package:citizen_user/contacts/contact_service.dart';
 import 'package:citizen_user/identity/account_security_service.dart';
 import 'package:citizen_user/identity/current_user_context.dart';
@@ -14,7 +15,7 @@ import 'package:citizen_user/identity/square_session_provider.dart';
 import 'package:citizen_user/square_api_client.dart';
 
 const owner = 'CID-1';
-final ownerAccount = '0x${'11' * 32}', peerAccount = '0x${'22' * 32}';
+final ownerAccount = '0x${'11' * 32}';
 IdentityBinding binding() => IdentityBinding(
   genesisHash: '0x${'aa' * 32}',
   cidNumber: owner,
@@ -122,7 +123,6 @@ class Api extends SquareApiClient {
   Future<Map<String, dynamic>> saveUserContact({
     required SquareSession session,
     required String cidNumber,
-    required String accountId,
     required String contactRemark,
   }) async {
     puts++;
@@ -133,7 +133,6 @@ class Api extends SquareApiClient {
     if (putFailure != null) throw putFailure!;
     final contact = {
       'cid_number': cidNumber,
-      'account_id': accountId,
       'contact_remark': contactRemark,
       'updated_at': clock++,
     };
@@ -187,11 +186,7 @@ void main() {
         (await db.collection<store.Contact>().where().findAll()).single,
   );
   Future<void> add(UserContactService s, {String remark = '同事'}) async {
-    await s.addContact(
-      cidNumber: 'CID-2',
-      accountId: peerAccount,
-      contactRemark: remark,
-    );
+    await s.addContact(cidNumber: 'CID-2', contactRemark: remark);
   }
 
   test('本地查看搜索所需数据不获取会话，不同步未变内容', () async {
@@ -200,7 +195,6 @@ void main() {
     await s.renameContact('CID-2', 'Alice');
     final contact = (await s.getContacts()).single;
     await s.readSyncState();
-    expect(contact.ss58Address, citizenSs58FromAccountId(peerAccount));
     expect(contact.contactRemark, 'Alice');
     expect(sessions.calls, 0);
     expect(api.sent, isEmpty);
@@ -213,6 +207,33 @@ void main() {
     expect(api.puts, 1);
     expect(api.reads, 0);
     expect(sessions.calls, calls);
+  });
+  test('扫码按 CID 离线落盘，重复扫到不同钱包仍保留备注', () async {
+    final s = service(automatic: false);
+    Future<ContactImportResult> scan(String accountId) => addUserQrContact(
+      contactService: s,
+      body: CitizenQrDocument(
+        kind: CitizenQrKind.userContact,
+        canonicalText: '',
+        scanPurposeMask: 0,
+        cidNumber: 'CID-2',
+        accountId: accountId,
+      ),
+    );
+    expect((await scan('0x${'22' * 32}')).created, isTrue);
+    expect(sessions.calls, 0);
+    expect(api.sent, isEmpty);
+    expect((await row()).pendingAction, 'put');
+    await s.renameContact('CID-2', '同事');
+    await s.flushPending();
+    final requests = List.of(api.sent);
+    final sessionCalls = sessions.calls;
+    final duplicate = await scan('0x${'33' * 32}');
+    expect(duplicate.created, isFalse);
+    expect(duplicate.contact.contactRemark, '同事');
+    await s.flushPending();
+    expect(api.sent, requests);
+    expect(sessions.calls, sessionCalls);
   });
   test('自动新增与备注修改各只上传变化项，不读取清单', () async {
     final s = service();
@@ -280,7 +301,6 @@ void main() {
     for (var i = 2; i < 5; i++) {
       api.records['CID-$i'] = {
         'cid_number': 'CID-$i',
-        'account_id': peerAccount,
         'contact_remark': '朋友',
         'updated_at': i,
       };
@@ -346,6 +366,22 @@ void main() {
     await Future.wait([first, second]);
     expect(api.reads, 1);
   });
+  test('拉取失败保留本地联系人，补发不会重试全量拉取', () async {
+    final s = service(automatic: false);
+    await add(s);
+    await s.flushPending();
+    api.listFailure = const SocketException('synthetic');
+    expect((await s.sync()).single.contactRemark, '同事');
+    final failed = await s.readSyncState();
+    expect(failed.phase, ContactSyncPhase.offline);
+    expect(failed.retryByPull, isTrue);
+    await s.flushPending();
+    expect(api.reads, 1);
+    expect(api.puts, 1);
+    api.listFailure = null;
+    expect(await s.sync(), hasLength(1));
+    expect((await s.readSyncState()).phase, ContactSyncPhase.synced);
+  });
   test('待发失败不读取整本，也不覆盖尚未备份的本地备注', () async {
     final s = service(automatic: false);
     await add(s);
@@ -372,15 +408,11 @@ void main() {
   test('拒绝自身和不合法备注，未发起任何云端操作', () async {
     final s = service();
     await expectLater(
-      s.addContact(cidNumber: owner, accountId: peerAccount, contactRemark: ''),
+      s.addContact(cidNumber: owner, contactRemark: ''),
       throwsFormatException,
     );
     await expectLater(
-      s.addContact(
-        cidNumber: 'CID-2',
-        accountId: peerAccount,
-        contactRemark: '朋友1',
-      ),
+      s.addContact(cidNumber: 'CID-2', contactRemark: '朋友1'),
       throwsFormatException,
     );
     expect(api.sent, isEmpty);

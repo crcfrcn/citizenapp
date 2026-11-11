@@ -12,7 +12,7 @@ import 'package:citizen_scanner/qr_sign_response_page.dart';
 import 'package:citizen_user/profile/square_action_sign_service.dart';
 import 'package:citizen_user/identity/citizen_identity_sign_service.dart';
 import 'package:citizen_user/identity/citizen_occupy_sign_service.dart';
-import 'package:citizen_user/identity/citizen_identity_chain_reader.dart';
+import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_user/identity/account_security_service.dart';
 import 'package:citizen_user/identity/identity_binding.dart';
 import 'package:citizen_offchain/offchain_scan_flow.dart';

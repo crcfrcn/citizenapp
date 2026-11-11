@@ -12,7 +12,7 @@ import 'package:citizen_storage/user_isar.dart' hide Group;
 import 'package:citizen_wallet/account/account_detail_page.dart';
 import 'package:citizen_user/identity/current_user_context.dart';
 import 'package:citizen_user/identity/finalized_identity_resolver.dart';
-import 'package:citizen_user/identity/citizen_identity_chain_reader.dart';
+import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_user/identity/identity_badge_snapshot_store.dart';
 import 'package:citizen_user/identity/square_session_provider.dart';
 import 'package:citizen_scanner/qr_scan_page.dart';

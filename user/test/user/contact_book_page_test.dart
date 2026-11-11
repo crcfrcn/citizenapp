@@ -2,6 +2,7 @@ import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:citizen_user/navigation.dart';
 import 'package:http/http.dart' as http;
 
+import 'package:citizen_testing/fake_citizen_sdk.dart';
 import 'package:citizen_testing/mls_authentication_fixture.dart';
 
 import 'dart:async';
@@ -53,7 +54,6 @@ IdentityBinding _ownerBinding() => IdentityBinding(
 );
 const _contact = UserContact(
   cidNumber: _contactCidNumber,
-  accountId: _contactAccountId,
   contactRemark: '张三',
   updatedAt: 2,
 );
@@ -94,6 +94,12 @@ class _FakeContacts implements UserContactService {
   /// 没有 CID 连读都不该读(读了必抛 WalletAuthException 并落成假的「空通讯录」)。
   int getContactsCalls = 0;
   int syncCalls = 0;
+  int flushCalls = 0;
+
+  @override
+  Future<void> flushPending() async {
+    flushCalls++;
+  }
 
   @override
   Future<List<UserContact>> getContacts() async {
@@ -118,7 +124,11 @@ class _FakeContacts implements UserContactService {
     String contactRemark,
   ) async {
     contacts = <UserContact>[
-      _contact.copyWith(contactRemark: contactRemark, updatedAt: 3),
+      UserContact(
+        cidNumber: cidNumber,
+        contactRemark: contactRemark,
+        updatedAt: 3,
+      ),
     ];
     return contacts;
   }
@@ -261,11 +271,7 @@ Widget _page({
   CitizenProfileCache? profileCache,
   CitizenProfileMediaCache? profileMediaCache,
   DirectChatOpener? directChatOpener,
-  Future<void> Function(
-    BuildContext context, {
-    required String toAddress,
-    required String cidNumber,
-  })?
+  Future<void> Function(BuildContext context, {required String cidNumber})?
   transferOpener,
   CurrentUserContext? currentUserContext,
   Listenable? identityRevision,
@@ -343,6 +349,32 @@ class _MutableIdentityCache implements CurrentUserContext {
 }
 
 void main() {
+  final sdk = TestCitizenSdkHarness(physicalUi: true);
+  testWidgets('点击扫码直接启动相机，不等待公民服务会话', (tester) async {
+    await tester.pumpWidget(
+      Provider<CitizenSdk>.value(
+        value: sdk.sdk,
+        child: _page(sessionProvider: _FailedSessions()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('扫码添加联系人'));
+    for (var i = 0; i < 100 && find.byType(Texture).evaluate().isEmpty; i++) {
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+      await tester.pump(const Duration(milliseconds: 10));
+    }
+    expect(find.byType(Texture), findsOneWidget);
+    expect(
+      sdk.fixture.calls.where((call) => call == 'openQrCapture'),
+      hasLength(1),
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+    for (var i = 0; i < 100 && sdk.fixture.nativeResources.isNotEmpty; i++) {
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+      await tester.pump(const Duration(milliseconds: 10));
+    }
+    expect(sdk.fixture.nativeResources, isEmpty);
+  });
   testWidgets('进页只读本地，下拉只同步通讯录且不逐人刷新资料', (tester) async {
     final service = _FakeContacts();
     final profiles = _FakeProfileApi(_profile);
@@ -430,6 +462,8 @@ void main() {
     expect(find.textContaining('注册验证'), findsNothing);
     expect(find.text('备注：张三'), findsOneWidget);
     expect(contacts.contacts, hasLength(1));
+    expect(contacts.flushCalls, 1);
+    expect(contacts.syncCalls, 0);
   });
   testWidgets('本地通讯录未返回时直接显示页面结构且不使用整页转圈', (tester) async {
     final service = _PendingContacts();
@@ -582,8 +616,9 @@ void main() {
     await tester.pumpWidget(_page(profile: emptyProfile));
     await tester.pumpAndSettle();
 
-    final fallback = ProfilePresentation.forIdentityKey(_contactCidNumber)
-        .fallbackName;
+    final fallback = ProfilePresentation.forIdentityKey(
+      _contactCidNumber,
+    ).fallbackName;
     expect(find.text(fallback), findsOneWidget);
     expect(find.textContaining('SS58：'), findsNothing);
   });
@@ -642,14 +677,13 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('转账打开链上支付并预填联系人钱包账户', (tester) async {
-    String? openedToAddress;
+  testWidgets('联系人转账入口只传公民号', (tester) async {
+    String? openedCid;
     Future<void> opener(
       BuildContext context, {
-      required String toAddress,
       required String cidNumber,
     }) async {
-      openedToAddress = toAddress;
+      openedCid = cidNumber;
     }
 
     await tester.pumpWidget(_page(transferOpener: opener));
@@ -660,7 +694,7 @@ void main() {
     await tester.tap(find.text('转账'));
     await tester.pump(const Duration(milliseconds: 400));
 
-    expect(openedToAddress, _contact.ss58Address);
+    expect(openedCid, _contact.cidNumber);
   });
 
   testWidgets('私信复用统一聊天入口并使用公开昵称', (tester) async {

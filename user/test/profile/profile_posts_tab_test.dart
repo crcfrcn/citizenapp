@@ -45,7 +45,6 @@ Widget _page(
               : sampleProfile().cidNumber,
         ),
     subscriptionService: _NullSubscriptionService(),
-    viewerAccountLoader: () async => null,
   ),
 );
 
@@ -57,11 +56,6 @@ class _NullSubscriptionService implements SubscriptionService {
   ) async {}
   @override
   Future<void> requireSquareAccess(SquareSession session) async {}
-
-  @override
-  Future<MembershipDisplaySnapshot?> readDisplaySnapshot(
-    String cidNumber,
-  ) async => null;
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

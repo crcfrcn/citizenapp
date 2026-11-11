@@ -736,7 +736,6 @@ void main() {
         _FakeContactService([
           const UserContact(
             cidNumber: _peerUserId,
-            accountId: _peerAccountId,
             contactRemark: '乙备注',
             updatedAt: 1,
           ),
@@ -748,7 +747,6 @@ void main() {
     delayed.held.complete([
       const UserContact(
         cidNumber: _peerUserId,
-        accountId: _peerAccountId,
         contactRemark: '甲备注',
         updatedAt: 1,
       ),
@@ -919,7 +917,6 @@ void main() {
             contactService: _FakeContactService(<UserContact>[
               const UserContact(
                 cidNumber: _peerUserId,
-                accountId: _peerAccountId,
                 contactRemark: '同事',
                 updatedAt: 1,
               ),
@@ -1822,11 +1819,7 @@ class _FakeRuntime extends ChatRuntime {
 class _AttachmentOnlySubscription implements SubscriptionService {
   int requests = 0;
   @override
-  Future<MembershipDisplaySnapshot?> readDisplaySnapshot(
-    String cidNumber,
-  ) async => null;
-  @override
-  Future<SquareMembershipState> authorizeMembership(
+  Future<SquareResourceAuthorization> authorizeResources(
     SquareSession session, {
     bool forceRefresh = false,
   }) async {

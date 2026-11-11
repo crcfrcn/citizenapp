@@ -78,22 +78,12 @@ class _PendingCreatorService implements CreatorService {
   }
 
   @override
-  Future<CreatorDisplaySnapshot?> readDisplaySnapshot(String cidNumber) async {
-    lastSnapshotCid = cidNumber;
-    return null;
-  }
-
-  @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 /// 主动刷新失败不能清掉已显示的本地数据。
 class _FailingCreatorService implements CreatorService {
   int loadCalls = 0;
-
-  @override
-  Future<CreatorDisplaySnapshot?> readDisplaySnapshot(String cidNumber) async =>
-      null;
 
   @override
   Future<CreatorPageData> load({String? expectedCidNumber}) async {
@@ -103,16 +93,6 @@ class _FailingCreatorService implements CreatorService {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
-
-class _SnapshotCreatorService extends _PendingCreatorService {
-  _SnapshotCreatorService(this.snapshot);
-
-  final CreatorDisplaySnapshot snapshot;
-
-  @override
-  Future<CreatorDisplaySnapshot?> readDisplaySnapshot(String cidNumber) async =>
-      snapshot;
 }
 
 void main() {
@@ -164,7 +144,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(service.lastSnapshotCid, currentCid);
+    expect(service.lastSnapshotCid, isNull);
     expect(find.text('已开通'), findsNothing);
   });
 
@@ -292,7 +272,8 @@ void main() {
     await tester.pump();
 
     expect(find.text('我的创作者会员'), findsOneWidget);
-    expect(find.text('已开通'), findsOneWidget);
+    expect(find.text('我的创作者会员'), findsOneWidget);
+    expect(find.text('已开通'), findsNothing);
     expect(service.loadCalls, 0);
     expect(find.textContaining('同步'), findsNothing);
     expect(find.byType(LinearProgressIndicator), findsNothing);
@@ -429,28 +410,6 @@ void main() {
     });
   });
 
-  test('展示快照的新鲜度分别约束会员与创作者数据', () {
-    const nowMs = 1000000;
-    final gated = CreatorDisplaySnapshot(
-      cidNumber: cidNumber,
-      data: CreatorPageData.gated(),
-      memberAt: nowMs - 1000,
-      creatorAt: 0,
-    );
-    expect(gated.isFresh(nowMs), isTrue, reason: '门禁态不需要创作者档位时间戳');
-
-    final active = CreatorDisplaySnapshot(
-      cidNumber: cidNumber,
-      data: CreatorPageData.active(
-        plan: CreatorPlan.empty(),
-        overview: CreatorOverview.zero,
-      ),
-      memberAt: nowMs - 1000,
-      creatorAt: 0,
-    );
-    expect(active.isFresh(nowMs), isFalse);
-  });
-
   testWidgets('缺失快照不自动联网，主动刷新失败保留本地展示', (tester) async {
     final service = _FailingCreatorService();
     await tester.pumpWidget(
@@ -466,58 +425,15 @@ void main() {
 
     expect(service.loadCalls, 0);
     expect(find.text('重试'), findsNothing);
-    expect(find.text('已开通'), findsOneWidget);
+    expect(find.text('我的创作者会员'), findsOneWidget);
+    expect(find.text('已开通'), findsNothing);
     expect(find.textContaining('同步'), findsNothing);
     expect(find.textContaining('MLS设备认证校验失败'), findsNothing);
     await tester.tap(find.byTooltip('刷新'));
     await tester.pumpAndSettle();
     expect(service.loadCalls, 1);
-    expect(find.text('已开通'), findsOneWidget);
+    expect(find.text('我的创作者会员'), findsOneWidget);
+    expect(find.text('已开通'), findsNothing);
     expect(find.textContaining('MLS设备认证校验失败'), findsOneWidget);
-  });
-
-  testWidgets('过期本地快照仍显示真实档位且不自动联网', (tester) async {
-    const nowMs = 1;
-    final service = _SnapshotCreatorService(
-      CreatorDisplaySnapshot(
-        cidNumber: cidNumber,
-        data: CreatorPageData.active(
-          plan: const CreatorPlan(
-            tiers: [
-              CreatorTier(
-                tierId: 'local',
-                tierName: '本地会员档',
-                monthFen: 990,
-                quarterFen: null,
-                yearFen: null,
-              ),
-            ],
-          ),
-          overview: const CreatorOverview(
-            subscriberCount: 7,
-            monthlyIncomeFen: 1234,
-            tierCount: 1,
-          ),
-        ),
-        memberAt: nowMs,
-        creatorAt: nowMs,
-      ),
-    );
-    await tester.pumpWidget(
-      _creatorApp(
-        home: CreatorPage(
-          service: service,
-          initialCidNumber: cidNumber,
-          initialMembershipDecision: MembershipDisplayDecision.activeConfirmed,
-        ),
-      ),
-    );
-    await tester.pump();
-    await tester.pump();
-
-    expect(find.text('本地会员档'), findsOneWidget);
-    expect(find.text('7'), findsOneWidget);
-    expect(find.textContaining('同步'), findsNothing);
-    expect(service.loadCalls, 0);
   });
 }

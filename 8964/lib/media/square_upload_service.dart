@@ -51,9 +51,8 @@ class SquarePreparedContent {
 }
 
 /// 普通会话由唯一MLS会话服务提供，发布器不持有签名能力。
-typedef SquareSessionResolver = Future<SquareSession> Function(
-  String accountId,
-);
+typedef SquareSessionResolver =
+    Future<SquareSession> Function(String accountId);
 
 abstract class SquareContentUploader {
   Future<SquareSession> resumeSession(
@@ -125,10 +124,10 @@ class SquareUploadService
   }) async {
     onStage?.call(SquarePublishStage.signingIn);
     final session = await sessionForAccount(accountId);
-    // 发布只读取 CitizenServe 已同步的会员状态，禁止在发布路径读取链或触发状态修复。
+    // 发布读取 CitizenServe 的资源授权与实际用量。
     // 与会员页/附件共用同一请求和结果；缺失或到期才读取，不每次强刷。
-    final membership = await _subscriptionService.authorizeMembership(session);
-    final plan = membership.activePlan;
+    final membership = await _subscriptionService.authorizeResources(session);
+    final plan = membership.plan;
     final usageState = membership.usageState;
     if (plan == null || usageState == null) {
       throw const SquareApiException('需要有效会员才能发布广场内容');

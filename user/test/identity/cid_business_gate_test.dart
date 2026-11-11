@@ -7,7 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
 
 import 'package:citizen_user/identity/cid_business_gate.dart';
-import 'package:citizen_user/identity/citizen_identity_chain_reader.dart';
+import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_user/identity/current_user_context.dart';
 import 'package:citizen_user/identity/finalized_identity_resolver.dart';
 import 'package:citizen_user/identity/identity_binding.dart';

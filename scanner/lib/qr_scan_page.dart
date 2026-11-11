@@ -306,8 +306,8 @@ class _QrScanPageState extends State<QrScanPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            // 码内不含昵称;这里只报 CID,真实昵称由通讯录按 CID 拉资料后展示。
-            created ? '已加入通讯录：${body.cidNumber}' : '已更新通讯录：${body.cidNumber}',
+            // 扫码只识别 CID，通讯录展示本机已有资料。
+            created ? '已加入通讯录：${body.cidNumber}' : '已在通讯录：${body.cidNumber}',
           ),
         ),
       );

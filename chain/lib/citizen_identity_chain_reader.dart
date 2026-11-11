@@ -69,7 +69,9 @@ class CitizenIdentityChainReader {
            getFinalizedHead ??
            chain?.getFinalizedHead ??
            (() => throw StateError('未配置getFinalizedHead')),
-       _getRuntimeContext = getRuntimeContext ?? chain?.getRuntimeContext ??
+       _getRuntimeContext =
+           getRuntimeContext ??
+           chain?.getRuntimeContext ??
            ((_) => throw StateError('未配置getRuntimeContext')),
        _getStorageBatch =
            getStorageBatch ??
@@ -82,7 +84,8 @@ class CitizenIdentityChainReader {
            ((CitizenBlockRef block, Uint8List key) =>
                throw StateError('未配置getStorage'));
   final Future<CitizenBlockRef> Function() _getFinalizedHead;
-  final Future<CitizenRuntimeContext> Function(CitizenBlockRef) _getRuntimeContext;
+  final Future<CitizenRuntimeContext> Function(CitizenBlockRef)
+  _getRuntimeContext;
   final Future<List<Uint8List?>> Function(
     CitizenBlockRef block,
     List<Uint8List> keys,
@@ -93,10 +96,11 @@ class CitizenIdentityChainReader {
 
   /// 按需解析一个CID的当前绑定；注册/换绑核验和CID转账复用同一准确块闭环。
   Future<CitizenBindingChainSnapshot?> readBindingByCidNumber(
-    String cidNumber,
-  ) async {
+    String cidNumber, {
+    CitizenBlockRef? at,
+  }) async {
     final cid = _normalizeCidNumber(cidNumber);
-    final block = await _getFinalizedHead();
+    final block = at ?? await _getFinalizedHead();
     final context = await _getRuntimeContext(block);
     final key = (scale: encodeBoundedBytes(utf8.encode(cid)));
     final rows = await _getStorageBatch(block, [
@@ -135,25 +139,50 @@ class CitizenIdentityChainReader {
   ///   (降到匿名而非误升成投票公民)。
   /// - 绑定闭环 + 合法 `VotingIdentityByCid` → **投票**;再有合法 candidate → **竞选**。
   Future<CitizenIdentityChainSnapshot?> readByAccountId(
-    String accountIdText,
-  ) async {
+    String accountIdText, {
+    CitizenBlockRef? at,
+  }) async {
     final accountId = citizenAccountIdBytes(accountIdText);
 
     // 同一次身份判断必须锚定同一个 finalized 区块，避免 CID 映射与身份值跨块混读。
-    final finalized = await _getFinalizedHead();
+    final finalized = at ?? await _getFinalizedHead();
     final context = await _getRuntimeContext(finalized);
 
-    final cidByAccountIdKey = context.storageKey('CitizenIdentity', 'CidByAccountId', [accountId]);
+    final cidByAccountIdKey = context.storageKey(
+      'CitizenIdentity',
+      'CidByAccountId',
+      [accountId],
+    );
     final cidRaw = await _getStorage(finalized, cidByAccountIdKey);
     final cidNumber = decodeCidNumber(cidRaw);
     if (cidNumber == null) return null;
 
     final cidScale = (scale: encodeBoundedBytes(utf8.encode(cidNumber)));
-    final accountIdByCidKey = context.storageKey('CitizenIdentity', 'AccountIdByCid', [cidScale]);
-    final cidRegistryKey = context.storageKey('CitizenIdentity', 'CidRegistry', [cidScale]);
-    final votingKey = context.storageKey('CitizenIdentity', 'VotingIdentityByCid', [cidScale]);
-    final candidateKey = context.storageKey('CitizenIdentity', 'CandidateIdentityByCid', [cidScale]);
-    final bindingRevisionKey = context.storageKey('CitizenIdentity', 'BindingRevisionByCid', [cidScale]);
+    final accountIdByCidKey = context.storageKey(
+      'CitizenIdentity',
+      'AccountIdByCid',
+      [cidScale],
+    );
+    final cidRegistryKey = context.storageKey(
+      'CitizenIdentity',
+      'CidRegistry',
+      [cidScale],
+    );
+    final votingKey = context.storageKey(
+      'CitizenIdentity',
+      'VotingIdentityByCid',
+      [cidScale],
+    );
+    final candidateKey = context.storageKey(
+      'CitizenIdentity',
+      'CandidateIdentityByCid',
+      [cidScale],
+    );
+    final bindingRevisionKey = context.storageKey(
+      'CitizenIdentity',
+      'BindingRevisionByCid',
+      [cidScale],
+    );
     final keys = <Uint8List>[
       accountIdByCidKey,
       cidRegistryKey,
@@ -203,11 +232,26 @@ class CitizenIdentityChainReader {
     );
   }
 
+  Future<CitizenIdentityChainSnapshot?> readByCidNumber(
+    String cid, {
+    CitizenBlockRef? at,
+  }) async {
+    final block = at ?? await _getFinalizedHead();
+    final binding = await readBindingByCidNumber(cid, at: block);
+    if (binding == null) return null;
+    final identity = await readByAccountId(binding.accountIdText, at: block);
+    if (identity?.cidNumber != cid) return null;
+    return identity;
+  }
+
   static Uint8List encodeBoundedBytes(List<int> value) {
     if (value.isEmpty || value.length > 32) {
       throw const FormatException('CID 长度不合法');
     }
-    return Uint8List.fromList([...CitizenScale.compact(value.length), ...value]);
+    return Uint8List.fromList([
+      ...CitizenScale.compact(value.length),
+      ...value,
+    ]);
   }
 
   static String _normalizeCidNumber(String cidNumber) {

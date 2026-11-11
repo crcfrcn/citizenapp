@@ -12,25 +12,19 @@ import 'package:citizen_network/square_request_signer.dart';
 import 'package:citizen_user/creator/creator_overview.dart';
 import 'package:citizen_user/creator/creator_plan.dart';
 
-/// 创作者档位/概览的边缘（Cloudflare）数据源。
+/// 创作者业务统计和交易确认的 Cloudflare 数据源。
 ///
-/// tier_id、tier_name、周期和价格均以 finalized 链状态为真源；Cloudflare 只保存查询投影。
+/// 链上档位和订阅展示由轻节点提供。
 abstract interface class CreatorApi {
-  /// 读我的档位；无档位返回 null。
-  Future<CreatorPlan?> fetchMyPlan(SquareSession session);
-
   /// 读概览（订阅人数 / 预计月收入 / 档位数，均为预计值）。
   Future<CreatorOverview> fetchOverview(SquareSession session);
 
   /// 链上一次签名交易 finalized 后确认查询投影；本请求不得再触发账户业务签名。
-  Future<CreatorPlan> saveMyPlan({
+  Future<void> saveMyPlan({
     required SquareSession session,
     required String txHash,
     required String blockHash,
   });
-
-  /// 读某创作者档位及当前会话对其订阅状态；两者均来自 CitizenServe finalized 投影。
-  Future<CreatorView> fetchViewOf(SquareSession session, String creatorCid);
 
   /// 订阅/取消创作者会员上链后确认查询投影（best-effort，链上已是真源）。
   Future<void> confirmCreatorSubscription({
@@ -60,15 +54,6 @@ class CreatorSubscriptionState {
   final String billingPeriod;
   final String subState;
   final int paidUntil;
-
-  factory CreatorSubscriptionState.fromJson(Map<String, dynamic> json) {
-    return CreatorSubscriptionState(
-      tierId: json['tier_id']?.toString() ?? '',
-      billingPeriod: json['billing_period']?.toString() ?? '',
-      subState: json['sub_state']?.toString() ?? '',
-      paidUntil: json['paid_until'] is int ? json['paid_until'] as int : 0,
-    );
-  }
 }
 
 class CreatorApiException implements Exception {
@@ -83,7 +68,6 @@ class CreatorApiException implements Exception {
 /// 生产实现：直连 Cloudflare Worker，复用会话与设备级请求认证。
 ///
 /// 使用CitizenServe现有公开端点：
-///   GET  /membergate/creators/{cid}/plans
 ///   GET  /membergate/creator/overview
 ///   POST /membergate/creators/plans             （校验 finalized 链状态后覆盖查询投影）
 class CreatorApiHttp implements CreatorApi {
@@ -114,13 +98,10 @@ class CreatorApiHttp implements CreatorApi {
     } else {
       data = raw;
     }
-    final plan = data['plan'], overview = data['overview'];
-    if (plan is! Map<String, dynamic> ||
-        overview is! Map<String, dynamic> ||
-        data['creator_rev'] is! int) {
+    final overview = data['overview'];
+    if (overview is! Map<String, dynamic> || data['creator_rev'] is! int) {
       throw const CreatorApiException('创作者快照不完整');
     }
-    CreatorPlan.fromJson(plan);
     for (final key in [
       'subscriber_count',
       'monthly_income_fen',
@@ -143,19 +124,10 @@ class CreatorApiHttp implements CreatorApi {
     await Notifications.instance.acceptCreator(
       session.cidNumber,
       data['creator_rev'] as int,
-      {'gated': false, 'plan': plan, 'overview': overview},
+      {'gated': false, 'overview': overview},
       session: session,
     );
     return data;
-  }
-
-  @override
-  Future<CreatorPlan?> fetchMyPlan(SquareSession session) async {
-    final data = await _ownSnapshot(session);
-    if (data['plan'] is! Map<String, dynamic>) {
-      throw const CreatorApiException('创作者档位响应不完整');
-    }
-    return CreatorPlan.fromJson(data['plan'] as Map<String, dynamic>);
   }
 
   @override
@@ -175,7 +147,7 @@ class CreatorApiHttp implements CreatorApi {
   }
 
   @override
-  Future<CreatorPlan> saveMyPlan({
+  Future<void> saveMyPlan({
     required SquareSession session,
     required String txHash,
     required String blockHash,
@@ -190,36 +162,6 @@ class CreatorApiHttp implements CreatorApi {
         saved['block_hash'] != blockHash) {
       throw const CreatorApiException('创作者档位确认回执不一致');
     }
-    return await fetchMyPlan(session) ?? CreatorPlan.empty();
-  }
-
-  @override
-  Future<CreatorView> fetchViewOf(
-    SquareSession session,
-    String creatorCid,
-  ) async {
-    final data = await _getJson(
-      '/membergate/creators/${Uri.encodeComponent(creatorCid)}/plans',
-      session,
-    );
-    if (data['is_ok'] != true ||
-        data['creator_cid'] != creatorCid ||
-        data['tiers'] is! List ||
-        data['membergate_active'] is! bool) {
-      throw const CreatorApiException('创作者档位响应不完整');
-    }
-    final subscription = data['subscription'];
-    if (subscription != null && subscription is! Map<String, dynamic>) {
-      throw const CreatorApiException('订阅响应无效');
-    }
-    return CreatorView(
-      plan: CreatorPlan.fromJson(data),
-      subscription: subscription == null
-          ? null
-          : CreatorSubscriptionState.fromJson(
-              subscription as Map<String, dynamic>,
-            ),
-    );
   }
 
   @override
@@ -335,9 +277,6 @@ class FakeCreatorApi implements CreatorApi {
   String? lastSaveTxHash;
 
   @override
-  Future<CreatorPlan?> fetchMyPlan(SquareSession session) async => _plan;
-
-  @override
   Future<CreatorOverview> fetchOverview(SquareSession session) async =>
       _overview ??
       CreatorOverview(
@@ -347,21 +286,14 @@ class FakeCreatorApi implements CreatorApi {
       );
 
   @override
-  Future<CreatorPlan> saveMyPlan({
+  Future<void> saveMyPlan({
     required SquareSession session,
     required String txHash,
     required String blockHash,
   }) async {
     lastSaveTxHash = txHash;
     _plan ??= CreatorPlan.empty();
-    return _plan!;
   }
-
-  @override
-  Future<CreatorView> fetchViewOf(
-    SquareSession session,
-    String creatorCid,
-  ) async => CreatorView(plan: _plan, subscription: null);
 
   @override
   Future<void> confirmCreatorSubscription({

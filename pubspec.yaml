@@ -7,6 +7,7 @@ environment:
   sdk: ">=3.8.0 <4.0.0"
 
 workspace:
+  - chain
   - user
   - wallet
   - onchain
@@ -26,6 +27,7 @@ workspace:
   - testing
 
 dependencies:
+  citizen_chain: any
   citizen_user: any
   citizen_wallet: any
   citizen_onchain: any

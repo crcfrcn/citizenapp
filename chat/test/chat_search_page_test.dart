@@ -14,8 +14,6 @@ import 'package:citizen_user/contacts/contact_service.dart';
 /// 因此全程用固定次数 `pump` 推进异步链。
 const _accountId =
     '0x1111111111111111111111111111111111111111111111111111111111111111';
-const _peerAccountId =
-    '0x2222222222222222222222222222222222222222222222222222222222222222';
 const _ownerUserId = 'CN220-CTZN2-100000001-2026';
 const _peerUserId = 'CN220-CTZN2-100000002-2026';
 
@@ -42,7 +40,6 @@ final _groupPreview = ChatConversationPreview(
 
 const _contact = UserContact(
   cidNumber: _peerUserId,
-  accountId: _peerAccountId,
   contactRemark: '张三',
   updatedAt: 2,
 );

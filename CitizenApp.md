@@ -34,7 +34,7 @@ iOS所属Workflow在核对原锁Flutter版本后，通过官方precache --ios --
 
 宿主 SDK 夹具及原生测试编译归现有 `lib/test/run.mjs`。宿主测试入口链接同轮 CitizenSDK 的 macOS 组件并交付实际测试库。普通工程直接使用 Flutter 模板生成的分析配置。App测试核对SDK的main来源声明、锁中基线及Flutter实际自动插件登记，不要求Podfile手写SDK podspec或把main改回人工固定SHA。
 
-平台会员GET与确认快照共用现行membergate结构校验。明确的membergate_active:false和membergate:null可表示未订阅；缺字段、错误类型或无效用量均为读取错误，不能伪造未订阅、零用量或授权金额。失败沿原机制保留展示快照及待同步交易证明，不接受旧membership字段兼容，不重新签名或付款。钱包及公民号仍只判定有或没有，读取失败属于操作错误；已有公民号不重复注册或再触发Turnstile，新注册先执行本文规定的默认人验及Siteverify流程。
+App 的身份、平台会员订阅、创作者档位、订阅和链上价格由 CitizenSDK 轻节点读取。服务端链上展示输入和旧展示快照读写已移除。根目录 citizen_chain 包统一监听最终区块并更新本地读模型；资源授权只用于云端业务预检。链上展示未知或读取失败时明确呈现未知／失败，不能变成无会员。钱包及公民号读取失败属于操作错误；已有公民号不重复注册。新注册沿用默认人验与 Siteverify。
 
 四个既有Isar生成文件仅在原ignore_for_file声明补experimental_member_use，确认原锁生成器使用的实验性索引API。集合、索引和序列化由当前实体的官方生成结果唯一确定；不排除生成文件、不全局忽略诊断。所属Workflow继续执行既有Node回归、fatal infos/warnings严格分析及完整Flutter测试。
 
@@ -72,6 +72,7 @@ citizenapp/
 ├── lib/                 # 启动、App生命周期、组合页；test收纳本App全部测试与测试入口
 ├── user/             # pubspec.yaml + lib + test：身份、门禁、会员、资料、通知、业务客户端
 ├── wallet/              # pubspec.yaml + lib + test：core、onboarding、account、history
+├── chain/               # pubspec.yaml + lib + test：轻节点业务读取、最终块同步与本地读模型
 ├── onchain/             # pubspec.yaml + lib + test：普通链上转账与交易入口
 ├── multisig/            # pubspec.yaml + lib + test：多签资金交易
 ├── personal/            # pubspec.yaml + lib + test：个人多签账户管理
@@ -120,6 +121,26 @@ Proto 的唯一源为 network/proto，生成类型归 network/lib/protocol；应
 聊天包与App统一构建、测试和交付，当前源码不维护独立聊天客户端产品。
 
 ## 钱包与轻节点
+
+根目录 `chain/` 是 `citizen_chain` workspace 包，源码直接位于 `chain/lib/`，不设 src 层。
+公开入口为 `chain/lib/citizen_chain.dart`；`chain_data_service.dart` 负责唯一最终块监听、关注集合与合并同步，
+`chain_data_reader.dart` 将同块键去重并以最多256键的批次调用 SDK getStorageBatch；
+`chain_data.dart` 提供身份、平台会员、创作者档位／订阅和价格模型，`chain_data_store.dart` 保存只供展示的已验证快照。
+既有身份读取器和订阅协议已迁入本包，业务包更新真实引用，不保留旧路径转发。
+
+依赖方向为 App／业务包→citizen_chain→CitizenSDK及citizen_storage；chain 不依赖 user、广场、HTTP服务或页面。
+SDK继续唯一拥有P2P、最终性、runtime metadata与存储证明验证；chain不实现第二套轻节点。
+同一SDK实例通过 forSdk 取得一个同步器。当前账户常驻，公共头像按可见CID引用计数关注，创作者订阅按目标关注；
+已覆盖当前最终块的数据直接复用，读取期间连续最终块只保留最新待处理块。
+最终块高度／时间单独变化不写库、不广播业务变化；会员到期和身份日期边界造成的实际状态变化会通知。
+后台暂停业务读取，恢复前台直接校准最新最终块，不逐块回放离线事件。
+
+`storage/lib/chain_state.dart` 及其生成文件定义统一UserIsar中的 chain_state 集合，按创世链及默认账户隔离。
+缓存包含schema、最终块号／hash、链时间及关注主体，旧server display不导入。恢复缓存仅供陈旧展示，仍需轻节点核验；
+缺失键表示无记录，链读取／证明／解码失败保留最后成功状态并标记失败。账户切换使旧代次立即失效，
+新账户不等待旧账户未返回的读取；关闭先阻止写回与通知，不以无法取消的SDK读取阻塞SDK停止。
+链上数据和链下资料分别组合展示，服务端资源授权、规则、用量及概览不覆盖链上身份或会员。
+
 
 CitizenApp 提供钱包和轻节点 UI。钱包目录、签名、交易和轻节点能力由 CitizenSDK 提供，CID、广场、会员、通讯录及聊天由 App 的业务包拥有。
 
@@ -296,11 +317,11 @@ CitizenApp 已删除独立 hardware-secretvault 插件；钱包设备金库由 C
 请求及响应的唯一服务端合同见 /Users/rhett/citizenserve/CitizenServe.md；App由 /Users/rhett/citizenapp/user/lib/square_api_client.dart消费实际/api路径：
 
 - GET /api/8964/posts/self：本人已发布帖子元数据、链锚和不透明游标。GET /api/8964/posts/{post_id}/manifest：逐帖读取原始 manifest，不读取媒体或增加浏览量。
-- GET /api/user/profiles/{cid_number}：完整资料与关系/内容计数；GET /api/user/cards/{cid_number}：最小名片。会员展示使用membergate_level和membergate_active。
+- GET /api/user/profiles/{cid_number} 提供昵称、签名、图片和关系/内容计数，GET /api/user/cards/{cid_number} 提供最小业务名片。响应不交付当前绑定账户、链上身份认证和会员徽章字段。
 - GET /api/8964/posts 与 GET /api/8964/follows：按当前服务端合同传CID、分类、类型和游标；POST /api/8964/follows及DELETE /api/8964/follows/{cid_number}处理关注与取关。
 - PUT /api/user/profile 接受 display_name、profile_bio、avatar_hash、banner_hash；POST /api/user/profile/assets申请上传，PUT /api/user/profile/assets/{upload_id}使用原服务端短期能力。属主从真实会话派生，不能由上传正文声明。
 - 完整资料媒体使用 /api/user/profiles/{cid_number}/assets/{kind}，每次GET含Range/条件读取和失败重试均现签实际MLS证明。仅 /api/user/cards/{cid_number}/avatar 的名片头像沿普通Bearer会话例外，仍核验当前身份、设备及交付围栏。
-- GET /api/membergate返回当前会员快照；POST /api/membergate/confirm仅提交真实交易锚，可用include_state取得同合同快照。解析只接受现行membergate/membergate_active字段，读取失败保留原事实并报告错误，不接受旧字段别名。
+- GET /api/membergate 返回 authorization、plans、gate、usage 和 storage_cleanup_notice。authorization 只表示本次服务端资源预检结果，plans 仅含服务端套餐规则及额度。POST /api/membergate/confirm 仅提交 tx_hash、block_hash，校验准确三字段回执。原交易证明保留到确认完成。
 
 #### 前端结构（user/lib/profile）
 - `user_profile_page.dart`：`NestedScrollView + SliverAppBar(pinned) + CollapsibleHeader 直接作为 flexibleSpace + bottom:分类TabBar + TabBarView`；本人首屏只读持久资料与媒体，显式刷新复用资料和帖子同步入口。其他用户访问及主动操作仍由单个in-flight Future取得Session；远端帖子请求等待`sessionReady`，本人本地内容不依赖它。展开高度由头图、分类栏及`ProfileHeaderCard.requiredHeight`共同计算；固定区域按真实文字样式测量，不为异步会话预留纵向空间。
@@ -341,7 +362,7 @@ CitizenApp 已删除独立 hardware-secretvault 插件；钱包设备金库由 C
 - `profile_edit_page.dart`：`CitizenProfileEditPage` 公开昵称/签名/头像/背景编辑；保存上传 R2 + `PUT /profile`，不得读取或重命名本机钱包；旧格式读取失败保留原记录，显式安全擦除仍处理原目录。
 - `profile_presentation.dart`：唯一展示解析器；公开昵称只接受 `display_name`，优先以 `cid_number` 做 FNV-1a 稳定分桶，从内置词库与 `assets/profiles/` 11 张照片中选择默认昵称、头像和背景。头像与背景使用不同盐值且避免同图；任何钱包名、完整或截断账户都不能成为公开昵称。
 - `citizen_profile.dart`、`citizen_profile_api.dart`、`citizen_profile_cache.dart`、`profile_asset_service.dart`；会话协调归 `user/lib/identity/square_session_provider.dart`。
-- 私聊入口统一使用 `chat/lib/conversation/chat_navigation.dart` 的 `openDirectChat()`。通讯录、聊天、广场作者、关注/关注者/互关列表全部进入同一个 `UserProfilePage`；联系人只保存私人名称和账户，不再维护联系人详情或公开资料副本。
+- 私聊入口统一使用 `chat/lib/conversation/chat_navigation.dart` 的 `openDirectChat()`。通讯录、聊天、广场作者、关注/关注者/互关列表全部进入同一个 `UserProfilePage`；联系人只保存公民号和私人备注，不再维护联系人详情或公开资料副本。
 - `profile_avatar.dart` 是用户主页、“我的”、通讯录、广场、聊天和关注列表共用的圆角方形头像、用户图片状态和身份徽章唯一 UI 实现，禁止各入口复制一套头像规则。“我的”头部头像与用户主页统一为 80 逻辑像素；由于“我的”头像没有主页的 4 像素边框，调用时用可配置外溢量补偿边框占位，使徽章同样明确超出头像右下边界，而不改变其它入口的默认位置。
 
 #### 广场 feed 卡片（8964/lib/feed；媒体组件归8964/lib/media）
@@ -361,7 +382,7 @@ CitizenApp 已删除独立 hardware-secretvault 插件；钱包设备金库由 C
   重进、重启与缺缓存均不发起身份查询。发布点击后由 `SquarePublishService` 调用
   `FinalizedIdentityResolver` 完整验真一次；上传与提交链上前只复核本机账户版本，
   并校验发布会话的CID、账户和绑定版本一致，不能拿展示缓存授予发布资格。独立最终状态同步和用户明确交易确认负责链事实更新。
-- 会员读取与确认只接受同一现行快照；失败不伪造未订阅，不清空已保存事实。缓存仅作显示，不能授予发布、订阅或附件权限。
+- 本机会员展示不读取服务端资源许可。会员展示、链上价格与创作者档位来自 citizen_chain 的最终块读模型，资源权限由服务端 RPC 隧道独立核验。
 - 轻节点连接状态变化不触发身份查询；广场只订阅统一身份快照的本地变更通知。
 - 广场首页显示推荐、公民圈、关注、竞选、文章、视频、通知七项分类栏、水印、信息流区域和发布按钮。七项均可长按拖动，松手后事务保存稳定分类名到 UserIsar.setting.square_tab_order；重启后保留已保存顺序，首次及重新进入广场默认显示第一项。首个 feed 等本机顺序读取完成后按默认项加载；互动子 tab 按内容聚合评论和回复通知，并使用独立阅读层级。公民圈通过 `/8964/feed/circle` 读取本人及双向关注作者的已发布内容，本地即时发布结果只合并当前 CID 本人的内容，切换时不沿用其他分类的旧结果。
   未完成时只显示顶部细进度，禁止用全屏身份门或圆形转圈替换页面。信息流 Future
@@ -577,11 +598,11 @@ MLS底层继续使用现有OpenMLS库，身份密钥及生命周期由本地 cha
 
 #### 8. 广场手机本地媒体成品
 
-- Worker计划以plans条目的membergate_level、price_fen、plan、limits及顶层usage为准。SquareApiClient将真实plan/limits数值映射为App内部document/video/article/usage模型；这些内部模型不是服务端JSON结构。缺失、类型错误或越界额度直接拒绝，不默认补齐。
+- 服务端资源规则以 plans 条目的 member_level、plan、limits、resources、daily_limits 和顶层 usage 为准。规则不包含链上价格。实际授权档位由 authorization.plan 给出，读取失败不能构造放行或零用量。
 - 媒体额度与成品规格唯一来自CitizenServe的membergate/limits.rs，经现有会员接口plan/limits/resources/daily_limits交付。SquareMediaPolicy只映射本次响应，不按会员名称推导码率、尺寸、质量或默认值。缺规格拒绝发布。
 - 图片统一在手机生成WebP主图及缩略图；主图上限400/800/1200 KiB，最长边1280/1600/1920，初始质量65/72/78。缩略图360px/80 KiB、初始质量65；视频封面540px/120 KiB、初始质量70。按比例缩放，不放大小图，归一方向并移除EXIF。
 - 视频仍为单份HEVC Main 8-bit/SDR/hvc1/MP4、最高30fps、2秒关键帧、AAC-LC 48kHz和faststart。三档480p/720p/1080p，音视频目标平均码率450000/800000/1200000bit/s、峰值675000/1200000/1800000，音频64000/96000/128000；文件上限12/200/1800 MiB，时长180/1800/10800秒。压缩由手机完成，服务端验证成品与额度，不承担转码。
-- 会员页始终展示自由、民主、薪火三档卡片；无钱包、未注册、断网、服务失败及无缓存均不删除卡片。固定档名、配色、宣传语及三档权益介绍为本地UI展示文案；卡片摘要和详情共用membershipBenefits，真实服务端套餐或原缓存到达后按其原值展示，缺套餐仍保留完整介绍。文案不构造默认套餐，不写入缓存、额度预检或本地授权；价格及当前已用量只显示真实数据，未知不补值。缓存保留真实套餐、媒体规格和用量，读取与网络复用同一解码；缓存用于展示，不作为授权。每日资源用量标明当前UTC日。每日广场媒体请求为5000/15000/50000次，由服务端直接交付，会员详情显示同份额度和已用量。
+- 会员页保留自由、民主、薪火三档卡片与服务端权益规则、用量。当前订阅、三档价格和订阅动作由统一轻节点读模型驱动；付费有效期使用同块 Timestamp.Now 判断。页面不读取旧 display 持久快照，也不接收通知回填的链上会员状态。
 - 历史已保存媒体的安全读取顶与新上传规格独立；调小上传上限不重压、不删除历史内容，不将旧内容按新上传档位拒绝读取。
 - Android 使用 Media3 Transformer 与系统 MediaCodec，只接受 API 29+ 的硬件 HEVC
   编码器和解码器；iOS 使用 AVFoundation/VideoToolbox，并以“只允许硬件”的
@@ -1630,7 +1651,7 @@ PersonalAdmins storage：
 #### 产品使用边界
 
 - 签名请求及响应只通过SDK公开会话生成、验真和消费；CitizenApp提供业务payload与审阅内容，不解析通用信封或自行验签。链交易使用CitizenSdk，不通过通用payload签名绕开交易流程。
-- 用户码只为链上CID与当前账户双向绑定成立的身份生成；“我的”和用户主页共用用户码页面。扫码添加联系人必须重新核对该绑定，读取失败禁止生成或接纳。
+- 用户码只为链上CID与当前账户双向绑定成立的身份生成；“我的”和用户主页共用用户码页面。生成用户码须核验绑定；通讯录导入只读取码内 CID 并在本机按 CID 去重。
 - 账户码由钱包账户详情与聊天收付款入口调用SDK生成；未注册账户及其他钱包账户可使用账户码。当前收款码生成仍属待实现，不以账户码代替已实现收款业务。
 - 通讯录用途只接纳用户码；转账及分派用途按SDK公开用途允许关系消费用户码、账户码和收款码。用途不符、SDK拒绝或裸SS58输入不得触发第二解析入口。
 - 公开昵称仅由产品资料接口取得。账户地址仅用于页面展示和边界输入输出，账户授权与关系仍使用SDK给出的规范账户标识。
@@ -1886,7 +1907,7 @@ UserIsar中独立保存图片实际字节、用途、对象位置、资料版本
 
 ##### 3.3 通讯录 UserContact
 
-联系人按属主CID和联系人CID定位，账户快照、contact_remark和updated_at逐条备份到私有R2。ss58Address由CitizenSDK从account_id派生，不独立存储。公开昵称、头像、认证和会员状态使用已有公开资料缓存，不进入联系人备份。
+联系人按属主CID和联系人CID定位，contact_remark和updated_at逐条备份到私有R2。联系人关系不保存钱包账户。公开昵称、头像、认证和会员状态使用已有公开资料缓存，不进入联系人备份。
 
 ##### 4.1 UserIsar 唯一结构
 
@@ -1911,9 +1932,9 @@ UserIsar中独立保存图片实际字节、用途、对象位置、资料版本
 
 ##### 4.2 通讯录
 
-本机contact是唯一联系人集合，按owner_cid与cid_number唯一定位，保存account_id、contact_remark、updated_at及仅本机的pending/change_version。新增和真实修改标记put；删除标记delete并立即隐藏，云端成功后物理删除。不保存永久删除历史；运行阶段和错误只在内存显示。
+本机contact是唯一联系人集合，按owner_cid与cid_number唯一定位，保存contact_remark、updated_at及仅本机的pending/change_version。新增和真实修改标记put；删除标记delete并立即隐藏，云端成功后物理删除。不保存永久删除历史；运行阶段和错误只在内存显示。
 
-云端每个联系人一个私有R2对象。PUT /api/user/contacts/{cid}逐条保存账户快照与备注，DELETE同路径空正文删除；GET /api/user/contacts按cursor分页读取全部。只有本机真实变化才自动发送；同一记录多设备修改由最后成功云写入决定。下拉先完成待发操作再读完整清单，新设备也沿用下拉同步。没有变化的联系人不上传，不逐人刷新名片或头像。
+云端每个联系人一个私有R2对象。PUT /api/user/contacts/{cid}按CID逐条保存联系人备注，DELETE同路径空正文删除；GET /api/user/contacts按cursor分页读取全部。只有本机真实变化才自动发送；同一记录多设备修改由最后成功云写入决定。下拉先完成待发操作再读完整清单，新设备也沿用下拉同步。没有变化的联系人不上传，不逐人刷新名片或头像。
 
 ##### 4.3 电子护照
 
@@ -1939,10 +1960,7 @@ UserIsar中独立保存图片实际字节、用途、对象位置、资料版本
 “我的”头部头像与公开用户主页统一为 80 逻辑像素，右下角身份/会员徽章必须超出头像边界显示；
 “个人服务”固定按“创作者 → 通讯录 → 会员｜订阅”排列，随后是设置入口。
 
-进入创作者页时，MyTab 直接传递当前永久 `cid_number` 与 CitizenServe 统一会员缓存。
-创作者普通进入、身份变更及浏览会员页后返回只读取本地持久化展示快照，快照缺失或过期均不自动联网。
-用户点击刷新或下拉刷新才重新读取远端；会员动作确认广播及创建、编辑的鉴权保留。
-刷新失败保留本地展示并提示错误；无会员展示态也提供刷新按钮。展示快照不授予写入权限。
+进入创作者页时只传递永久 `cid_number` 展示提示，当前身份仍由本机身份门禁核对。链上档位和订阅由根目录 citizen_chain 包提供，不读取服务端会员展示快照。用户点击刷新或下拉刷新时读取服务端链下概览；概览通知只更新同一CID的统计，不推进身份代次或作废当前刷新。刷新失败保留已显示统计，原交易签名及服务端RPC鉴权保留。
 主页各分类空态统一为“暂无xx内容，请在广场发布”，xx取公文、竞选、视频、文章；读取或刷新异常统一为“内容加载失败，请下拉刷新”。
 会员页展示服务端已记录的存储清理提醒和期限。会员结果只有有效或无效；缓存尚未建立只是当前身份会话读取尚未完成，不得保存第三种会员态。
 
@@ -1988,12 +2006,12 @@ UserIsar中独立保存图片实际字节、用途、对象位置、资料版本
 
 - 属主只取CurrentUserContext的当前默认身份CID，不接受付款钱包覆盖；未注册沿用注册引导。
 - 普通进页、返回或身份revision重读只读取本机联系人、状态、公开资料与头像缓存，不握手或云端同步。
-- 扫码只接纳用户码，按其CID/account_id向公开用户投影核对绑定；页与扫码共用服务，新增/真实账户变化只提交一次任务，重复相同关系不写云端。
+- 点扫码直接打开相机。只接纳用户码并在本机按CID去重，新增落盘后才逐条备份，重复扫码不联网。
 - 备注只允许汉字和英文字母、可空、最多40字。实际保存或清空时标记同条联系人待同步；相同内容不建立会话或请求云端。
 - 排序：备注中文取拼音首字母、英文忽略大小写；无备注取公民号首个数字。数字0–9在前、字母A–Z在后，同键按完整拼音和公民号稳定排序，不按公开昵称或时间。
-- 下拉执行完整同步：先逐条提交待发增删改，再分页拉取云端全部联系人与备注。未变联系人不上传；下载完整成功后才对齐本地清单，保留下载期间新产生的本地变更。失败不自动重读或覆盖本地。网络恢复和前台准备只补发待发项。
+- 同步失败重试只补发待发记录。下拉执行完整同步：先逐条提交待发增删改，再分页拉取云端全部联系人与备注。未变联系人不上传；下载完整成功后才对齐本地清单，保留下载期间新产生的本地变更。失败不自动重读或覆盖本地。网络恢复和前台准备只补发待发项。
 - 联系人卡片的头像、公开昵称、私人备注、公民号、徽章和搜索范围保持；菜单仍为转账、私信、修改备注、删除联系人，删除项保持危险红色。
-- 联系人页和聊天选人复用同一服务与排序；回传派生ss58Address和CID，不改付款账户。付款确认前仍由链上支付服务核验CID当前finalized绑定。私信仅以CID寻址，普通点击仍进入唯一UserProfilePage。
+- 联系人页和聊天选人复用同一服务与排序；只回传联系人CID，不改付款账户。付款确认前仍由链上支付服务核验CID当前finalized绑定。私信仅以CID寻址，普通点击仍进入唯一UserProfilePage。
 
 #### 6. 依赖
 
@@ -2045,9 +2063,7 @@ UserIsar中独立保存图片实际字节、用途、对象位置、资料版本
   中性占位，禁止退回内置照片。
 - 用户选图上传成功后，本机图片字节与公开资料完成同一CID的数据库事务提交，再广播资料
   revision；已挂载的 MyTab 和本人主页据此就地刷新，不依赖退出页面或重启 App。
-- 会员展示只使用按 CID 隔离的 CitizenServe 快照：有效或无效。无缓存时保持稳定页面结构，
-  等待当前身份会话唯一一次鉴权读取；不得把无缓存保存为第三种会员状态，也不得用公开资料
-  线索覆盖统一缓存。
+- 身份、会员与订阅的链上展示统一由轻节点提供；旧服务端展示输入已移除，按链、账户、CID及最终区块隔离的本地读模型已接入。未知时显示尚未就绪或读取失败，资源授权只供服务端业务预检。
 - 用户主动注销仅删除对应CID的资料和媒体行、旧文件及临时展示目录。AppLock先关闭并
   擦除UserIsar，再删除旧`user/profile_media`与临时`profile_media_work`；媒体清理入口不得
   为擦除重新打开数据库。代次检查阻止迟到下载或展示文件写入复活已清理数据。
@@ -2131,7 +2147,7 @@ App第一方使用统一用户库27个集合与广场库10个集合，共37个�
 | user.province | id, province_code, data_version  | 单省目录版本 |
 | user.region | id, province_code, city_code, town_code, region_name  | 行政区自然三级编码及名称 |
 | user.sync | id, data_kind, global_version, province_data  | 静态目录版本及省份状态 |
-| user.contact | id, owner_cid, cid_number, account_id, contact_remark, updated_at, pending, change_version | 逐联系人本机记录 |
+| user.contact | id, owner_cid, cid_number, contact_remark, updated_at, pending, change_version | 逐联系人本机记录 |
 | user.edit | id, cid_number, state, request, response, content_hash, avatar_bytes, banner_bytes  | 一次资料修改的完整请求、回执、摘要与图片字节 |
 | user.follow | id, cid_number, peer_cid  | 自然关注关系 |
 | user.identity | id, cid_number, account_id, data, updated_at  | 账户/CID展示及真实采样时间；级别不重复持久化 |

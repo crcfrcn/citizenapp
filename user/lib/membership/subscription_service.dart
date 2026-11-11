@@ -16,39 +16,13 @@ import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_user/membership/membership_revision.dart';
 import 'package:citizen_user/identity/finalized_identity_resolver.dart';
 import 'package:citizen_scanner/qr_sign_session_page.dart';
-import 'package:citizen_user/membership/subscription_chain.dart';
+import 'package:citizen_chain/citizen_chain.dart';
 
 class SubscriptionException implements Exception {
   const SubscriptionException(this.message);
   final String message;
   @override
   String toString() => message;
-}
-
-/// 会员页持久化展示快照：只缓存 CitizenServe 已确认的订阅态与三档链上价格。
-///
-/// 套餐和权益缓存服务端真实定义；订阅或支付动作仍在提交前
-class MembershipDisplaySnapshot {
-  const MembershipDisplaySnapshot({
-    required this.state,
-    required this.prices,
-    required this.memberAt,
-    required this.priceAt,
-  });
-
-  final SquareMembershipState state;
-  final Map<String, int> prices;
-  final int memberAt;
-  final int priceAt;
-
-  MembershipDisplayDecision get decision {
-    return state.active
-        ? MembershipDisplayDecision.activeConfirmed
-        : MembershipDisplayDecision.inactiveConfirmed;
-  }
-
-  bool pricesAreFresh(int nowMs, Duration ttl) =>
-      priceAt > 0 && nowMs >= priceAt && nowMs - priceAt <= ttl.inMilliseconds;
 }
 
 /// 平台会员订阅编排：在「我的 → 会员」页订阅 / 取消平台会员（自由/民主/薪火）。
@@ -140,12 +114,8 @@ class SubscriptionService {
   static final MembershipResourceGate resourceGate = MembershipResourceGate();
   bool _mirrorSyncPending = false;
 
-  /// 全 App 按 CID 共享一份内存会员快照；UserIsar 只是跨进程重启的持久化副本。
-  static final Map<String, MembershipDisplaySnapshot> _memorySnapshots =
-      <String, MembershipDisplaySnapshot>{};
-
   /// 唯一请求/权限缓存；离线展示快照不参与授权。所有消费者共用同一个进行中Future。
-  static final Map<String, _MembershipAuthorization> _authorizations = {};
+  static final Map<String, _ResourceAuthorization> _authorizations = {};
   static String? _currentAuthorizedCidNumber;
   static final Map<String, SquareSession> _citizenSessions = {};
 
@@ -159,8 +129,6 @@ class SubscriptionService {
 
   @visibleForTesting
   static int Function()? nowForTesting;
-  static int displayPaidUntilFor(String cid) =>
-      _memorySnapshots[cid]?.state.paidUntil ?? 0;
   static int _now() =>
       nowForTesting?.call() ?? DateTime.now().millisecondsSinceEpoch;
 
@@ -183,66 +151,6 @@ class SubscriptionService {
         errorCode: 'invalid_session',
       );
     }
-  }
-
-  /// 服务端推送只推进展示；旧请求权限缓存失效，业务执行仍由原服务端门禁判断。
-  static Future<void> applyPushedDisplay(
-    String cid,
-    Map<String, dynamic> data, {
-    required bool Function() isCurrent,
-    required int receivedAt,
-  }) async {
-    if (data['active'] is! bool ||
-        data['paid_until'] is! int ||
-        (data['paid_until'] as int) < 0 ||
-        !isCurrent()) {
-      return;
-    }
-    final previous = await _readDisplaySnapshot(cid, isCurrent: isCurrent);
-    if (!isCurrent()) return;
-    final prices = <String, int>{...?(previous?.prices)};
-    var receivedPrices = 0;
-    final raw = data['prices'];
-    if (raw is Map) {
-      for (final entry in raw.entries) {
-        if (entry.key is String &&
-            ['freedom', 'democracy', 'spark'].contains(entry.key) &&
-            entry.value is int &&
-            (entry.value as int) >= 0 &&
-            (entry.value as int) <= 9007199254740991) {
-          prices[entry.key as String] = entry.value as int;
-          receivedPrices++;
-        }
-      }
-    }
-    final state = SquareMembershipState(
-      active: data['active'] as bool,
-      paidUntil: data['paid_until'] as int,
-      memberLevel: data['member_level'] as String?,
-      subState: data['sub_state'] as String?,
-
-      chargeAt: (data['charge_at'] as int?) ?? 0,
-      plans: previous?.state.plans ?? const [],
-      usageState:
-          previous?.state.chargeAt == data['charge_at'] &&
-              previous?.state.paidUntil == data['paid_until']
-          ? previous?.state.usageState
-          : null,
-    );
-    if (!_sameMembership(previous?.state, state)) {
-      resourceGate.expireMember(cid);
-      _authorizations.remove(cid);
-    }
-    await _writeDisplaySnapshot(
-      cid,
-      MembershipDisplaySnapshot(
-        state: state,
-        prices: prices,
-        memberAt: receivedAt,
-        priceAt: receivedPrices == 3 ? receivedAt : previous?.priceAt ?? 0,
-      ),
-      isCurrent: isCurrent,
-    );
   }
 
   /// 普通业务直接请求原接口，由服务端门禁决定；这里不前置GET会员。
@@ -290,8 +198,6 @@ class SubscriptionService {
   Future<void> requireSquareAccess(SquareSession session) =>
       requireSquareSession(session);
 
-  static bool membershipResolvedFor(String cidNumber) =>
-      _memorySnapshots.containsKey(cidNumber.trim());
   static bool chatAuthorizationResolvedFor(String cidNumber) =>
       _citizenSessions.containsKey(cidNumber.trim());
   static bool chatAuthorizedFor(String cidNumber) {
@@ -299,8 +205,8 @@ class SubscriptionService {
     return session != null && session.expiresAt > _now();
   }
 
-  static bool _activeBusinessMembership(SquareMembershipState state) =>
-      state.active && state.paidUntil > _now();
+  static bool _activeBusinessMembership(SquareResourceAuthorization state) =>
+      state.allowed && state.validUntil > _now();
 
   static int chatFileMaxBytesFor(String cidNumber) {
     final cid = cidNumber.trim(),
@@ -317,9 +223,7 @@ class SubscriptionService {
       return 0;
     }
     final state = entry.resolved!;
-    return _activeBusinessMembership(state)
-        ? state.activePlan?.fileLimit ?? 0
-        : 0;
+    return _activeBusinessMembership(state) ? state.plan?.fileLimit ?? 0 : 0;
   }
 
   static int get currentChatFileMaxBytes => _currentAuthorizedCidNumber == null
@@ -339,9 +243,9 @@ class SubscriptionService {
     SquareSession session, {
     SubscriptionService? service,
   }) async {
-    final SquareMembershipState state;
+    final SquareResourceAuthorization state;
     if (service != null) {
-      state = await service.authorizeMembership(session);
+      state = await service.authorizeResources(session);
     } else {
       final client = SquareApiClient();
       try {
@@ -352,7 +256,7 @@ class SubscriptionService {
     }
     await _validateSession(session);
     if (!_activeBusinessMembership(state) ||
-        (state.activePlan?.fileLimit ?? 0) <= 0) {
+        (state.plan?.fileLimit ?? 0) <= 0) {
       throw const SquareApiException(
         '需要有效会员才能发送附件',
         statusCode: 403,
@@ -388,7 +292,6 @@ class SubscriptionService {
   static void setChatAuthorizationForTesting(String cidNumber, int? fileLimit) {
     final cid = cidNumber.trim();
     _authorizations.remove(cid);
-    _memorySnapshots.remove(cid);
     if (fileLimit == null) return;
     final now = _now(), end = now + 60000;
     final session =
@@ -402,62 +305,52 @@ class SubscriptionService {
           expiresAt: end,
         );
     rememberCitizenSession(session);
-    final state = SquareMembershipState(
-      active: fileLimit > 0,
-      paidUntil: end,
-      memberLevel: 'freedom',
-      subState: 'active',
+    final state = SquareResourceAuthorization(
+      allowed: fileLimit > 0,
+      validUntil: end,
 
-      plans: [
-        SquareMembershipPlan(
-          memberLevel: 'freedom',
-          displayName: '测试夹具',
-          fileLimit: fileLimit,
-          chat: const SquareChatQuota(
-            textEnabled: true,
-            emojiEnabled: true,
-            stickerEnabled: true,
-            imageEnabled: true,
-            voiceSecs: 180,
-            videoSecs: 180,
-            voiceCallEnabled: true,
-            videoCallEnabled: true,
-          ),
-          document: const SquareDocumentQuota(
-            textMaxChars: 300,
-            imageQuality: 'sd',
-            maxImages: 1,
-          ),
-          video: const SquareVideoQuota(
-            textMaxChars: 300,
-            videoQuality: 'sd',
-            videoMaxSeconds: 180,
-            videoMaxBytes: 1,
-          ),
-          article: const SquareArticleQuota(
-            titleMinChars: 1,
-            titleMaxChars: 80,
-            bodyMaxChars: 1,
-            coverQuality: 'sd',
-            imageQuality: 'sd',
-            maxImages: 1,
-            maxVideos: 0,
-          ),
-          usage: const SquareMembershipUsageQuota(storageBytes: 1),
+      plan: SquareMembershipPlan(
+        memberLevel: 'freedom',
+        displayName: '测试夹具',
+        fileLimit: fileLimit,
+        chat: const SquareChatQuota(
+          textEnabled: true,
+          emojiEnabled: true,
+          stickerEnabled: true,
+          imageEnabled: true,
+          voiceSecs: 180,
+          videoSecs: 180,
+          voiceCallEnabled: true,
+          videoCallEnabled: true,
         ),
-      ],
+        document: const SquareDocumentQuota(
+          textMaxChars: 300,
+          imageQuality: 'sd',
+          maxImages: 1,
+        ),
+        video: const SquareVideoQuota(
+          textMaxChars: 300,
+          videoQuality: 'sd',
+          videoMaxSeconds: 180,
+          videoMaxBytes: 1,
+        ),
+        article: const SquareArticleQuota(
+          titleMinChars: 1,
+          titleMaxChars: 80,
+          bodyMaxChars: 1,
+          coverQuality: 'sd',
+          imageQuality: 'sd',
+          maxImages: 1,
+          maxVideos: 0,
+        ),
+        usage: const SquareMembershipUsageQuota(storageBytes: 1),
+      ),
     );
-    final entry = _MembershipAuthorization(session, _cacheGeneration);
+    final entry = _ResourceAuthorization(session, _cacheGeneration);
     _authorizations[cid] = entry;
     _install(entry, state);
     entry.pending = false;
     entry.state = Future.value(state);
-    _memorySnapshots[cid] = MembershipDisplaySnapshot(
-      state: state,
-      prices: const {},
-      memberAt: now,
-      priceAt: 0,
-    );
   }
 
   static String _chatFileSizeLabel(int bytes) =>
@@ -468,12 +361,12 @@ class SubscriptionService {
   bool get mirrorSyncPending => _mirrorSyncPending;
 
   /// 会员页、附件、上传共用此入口；强刷也必须合并进行中请求并尊重失败退避。
-  Future<SquareMembershipState> authorizeMembership(
+  Future<SquareResourceAuthorization> authorizeResources(
     SquareSession session, {
     bool forceRefresh = false,
   }) => _authorizeSession(session, client: _api, forceRefresh: forceRefresh);
 
-  static bool _currentEntry(_MembershipAuthorization entry) {
+  static bool _currentEntry(_ResourceAuthorization entry) {
     final cid = entry.session.cidNumber.trim(), session = _citizenSessions[cid];
     return identical(_authorizations[cid], entry) &&
         entry.generation == _cacheGeneration &&
@@ -483,8 +376,8 @@ class SubscriptionService {
   }
 
   static void _install(
-    _MembershipAuthorization entry,
-    SquareMembershipState state,
+    _ResourceAuthorization entry,
+    SquareResourceAuthorization state,
   ) {
     final now = _now();
     entry.checkedAt = now;
@@ -492,12 +385,12 @@ class SubscriptionService {
     entry.failed = false;
     final active = _activeBusinessMembership(state);
     var end = now + (active ? 60000 : 30000);
-    if (active && state.paidUntil < end) end = state.paidUntil;
+    if (state.validUntil < end) end = state.validUntil;
     if (entry.session.expiresAt < end) end = entry.session.expiresAt;
     entry.deadline = end;
   }
 
-  static Future<SquareMembershipState> _authorizeSession(
+  static Future<SquareResourceAuthorization> _authorizeSession(
     SquareSession session, {
     required SquareApiClient client,
     bool forceRefresh = false,
@@ -520,20 +413,14 @@ class SubscriptionService {
       }
       return state;
     }
-    final entry = _MembershipAuthorization(session, _cacheGeneration);
+    final entry = _ResourceAuthorization(session, _cacheGeneration);
     _authorizations[cid] = entry;
     entry.state = () async {
       try {
-        final state = await client.fetchMembership(session);
+        final state = await client.fetchResourceAuthorization(session);
         await _validateSession(session);
         if (!_currentEntry(entry)) throw const SubscriptionException('会员会话已变化');
         _install(entry, state);
-        await _rememberServerState(
-          session,
-          state,
-          isCurrent: () => _currentEntry(entry),
-        );
-        if (!_currentEntry(entry)) throw const SubscriptionException('会员会话已变化');
         entry.pending = false;
         return state;
       } on Object catch (error) {
@@ -558,184 +445,6 @@ class SubscriptionService {
       }
     }();
     return entry.state;
-  }
-
-  /// 读取当前账户上一次成功同步的展示快照；损坏缓存只忽略展示，读取路径不删除事实。
-  Future<MembershipDisplaySnapshot?> readDisplaySnapshot(String cidNumber) =>
-      _readDisplaySnapshot(cidNumber);
-  static Future<MembershipDisplaySnapshot?> _readDisplaySnapshot(
-    String cidNumber, {
-    bool Function()? isCurrent,
-  }) async {
-    final normalized = cidNumber.trim();
-    if (normalized.isEmpty || (isCurrent != null && !isCurrent())) return null;
-    final memory = _memorySnapshots[normalized];
-    if (memory != null) return _rememberInMemory(normalized, memory);
-    final raw = await wallet_store.Member.readState(normalized, 'display');
-    if (raw == null || raw.isEmpty || (isCurrent != null && !isCurrent())) {
-      return null;
-    }
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is! Map<String, dynamic>) return null;
-      final pricesRaw = decoded['prices'];
-      final prices = <String, int>{};
-      if (pricesRaw is Map<String, dynamic>) {
-        for (final level in const ['freedom', 'democracy', 'spark']) {
-          final value = pricesRaw[level];
-          if (value is int && value >= 0) prices[level] = value;
-        }
-      }
-      final memberLevel = decoded['member_level'];
-      final subState = decoded['sub_state'];
-      final snapshot = MembershipDisplaySnapshot(
-        state: SquareMembershipState(
-          active: decoded['active'] == true,
-          paidUntil: decoded['paid_until'] is int
-              ? decoded['paid_until'] as int
-              : 0,
-          memberLevel: memberLevel is String ? memberLevel : null,
-          subState: subState is String ? subState : null,
-
-          chargeAt: decoded['charge_at'] is int
-              ? decoded['charge_at'] as int
-              : 0,
-          cleanupAfter: decoded['cleanup_after'] as int?,
-          plans: decoded['plans'] == null
-              ? const []
-              : SquareApiClient.decodeMembershipPlans(decoded['plans']),
-          usageState: decoded['usage'] == null
-              ? null
-              : SquareApiClient.decodeMembershipUsage(decoded['usage']),
-        ),
-        prices: prices,
-        memberAt: decoded['member_at'] is int ? decoded['member_at'] as int : 0,
-        priceAt: decoded['price_at'] is int ? decoded['price_at'] as int : 0,
-      );
-      return _rememberInMemory(normalized, snapshot, notify: false);
-    } on Object {
-      // 损坏展示快照不参与授权；读取路径保留事实供显式诊断。
-      return null;
-    }
-  }
-
-  /// 原子覆盖当前账户展示快照；只有真实服务端或公开价格结果才推进时间戳。
-  Future<void> writeDisplaySnapshot(
-    String cidNumber,
-    MembershipDisplaySnapshot snapshot,
-  ) => _writeDisplaySnapshot(cidNumber, snapshot);
-  static Future<void> _writeDisplaySnapshot(
-    String cidNumber,
-    MembershipDisplaySnapshot snapshot, {
-    bool Function()? isCurrent,
-  }) async {
-    final normalized = cidNumber.trim();
-    if (normalized.isEmpty || (isCurrent != null && !isCurrent())) return;
-    final effective = _rememberInMemory(normalized, snapshot);
-    await wallet_store.Member.writeState(
-      wallet_store.Member()
-        ..cidNumber = normalized
-        ..stateKind = 'display'
-        ..bodyData = jsonEncode({
-          'active': effective.state.active,
-          'paid_until': effective.state.paidUntil,
-          'member_level': effective.state.memberLevel,
-          'sub_state': effective.state.subState,
-          'charge_at': effective.state.chargeAt,
-          'plans': effective.state.plans.map((plan) => plan.toJson()).toList(),
-          'usage': effective.state.usageState?.toJson(),
-          if (effective.state.cleanupAfter != null)
-            'cleanup_after': effective.state.cleanupAfter,
-          'prices': effective.prices,
-          'member_at': effective.memberAt,
-          'price_at': effective.priceAt,
-        }),
-      isCurrent: isCurrent,
-      staleError: const SubscriptionException('会员会话已变化'),
-    );
-  }
-
-  static MembershipDisplaySnapshot _rememberInMemory(
-    String cidNumber,
-    MembershipDisplaySnapshot snapshot, {
-    bool notify = true,
-  }) {
-    final now = _now();
-    final state = snapshot.state;
-    final effectiveState =
-        state.active && (state.paidUntil <= 0 || now >= state.paidUntil)
-        ? SquareMembershipState(
-            active: false,
-            paidUntil: state.paidUntil,
-            memberLevel: state.memberLevel,
-            subState: state.subState,
-
-            chargeAt: state.chargeAt,
-            plans: state.plans,
-            usageState: state.usageState,
-            cleanupAfter: state.cleanupAfter,
-          )
-        : state;
-    final effective = identical(effectiveState, state)
-        ? snapshot
-        : MembershipDisplaySnapshot(
-            state: effectiveState,
-            prices: snapshot.prices,
-            memberAt: snapshot.memberAt,
-            priceAt: snapshot.priceAt,
-          );
-    final previous = _memorySnapshots[cidNumber];
-    _memorySnapshots[cidNumber] = effective;
-    if (notify && !_sameMembership(previous?.state, effective.state)) {
-      MembershipRevision.instance.notifyChanged(cidNumber);
-    }
-    return effective;
-  }
-
-  static bool _sameMembership(
-    SquareMembershipState? left,
-    SquareMembershipState right,
-  ) =>
-      left?.active == right.active &&
-      left?.paidUntil == right.paidUntil &&
-      left?.memberLevel == right.memberLevel &&
-      left?.subState == right.subState &&
-      left?.chargeAt == right.chargeAt;
-
-  static Future<void> _rememberServerState(
-    SquareSession session,
-    SquareMembershipState state, {
-    required bool Function() isCurrent,
-  }) async {
-    MembershipDisplaySnapshot? previous;
-    try {
-      previous = await _readDisplaySnapshot(
-        session.cidNumber,
-        isCurrent: isCurrent,
-      );
-    } on Object {
-      // 展示持久化暂不可用时仍保留服务端已确认权限。
-    }
-    if (!isCurrent()) return;
-    final prices = {
-      for (final plan in state.plans)
-        if (plan.priceFen != null) plan.memberLevel: plan.priceFen!,
-    };
-    final snapshot = MembershipDisplaySnapshot(
-      state: state,
-      prices: prices.length == 3 ? prices : previous?.prices ?? const {},
-      memberAt: _now(),
-      priceAt: prices.length == 3 ? _now() : previous?.priceAt ?? 0,
-    );
-    try {
-      await _writeDisplaySnapshot(
-        session.cidNumber,
-        snapshot,
-        isCurrent: isCurrent,
-      );
-    } on Object {
-      // 磁盘失败不撤销已经确认的内存事实；迟到写入仍由事务内检查拒绝。
-    }
   }
 
   /// 订阅平台会员某档（level=freedom/democracy/spark）。
@@ -906,7 +615,7 @@ class SubscriptionService {
     final generation = _cacheGeneration;
     final previousEntry = _authorizations[cidNumber];
     try {
-      final confirmed = await _api.confirmPlatformSubscription(
+      await _api.confirmPlatformSubscription(
         session: session,
         txHash: txHash,
         blockHash: blockHash,
@@ -918,20 +627,7 @@ class SubscriptionService {
           (current != null && !_sameSession(current, session))) {
         return false;
       }
-      rememberCitizenSession(session);
-      // 先替换条目，再更新展示/广播，旧读取和旧确认不能覆盖新状态。
-      _cacheGeneration++;
-      final entry = _MembershipAuthorization(session, _cacheGeneration);
-      _authorizations[cidNumber] = entry;
-      _install(entry, confirmed);
-      entry.pending = false;
-      entry.state = Future.value(confirmed);
-      await _rememberServerState(
-        session,
-        confirmed,
-        isCurrent: () => _currentEntry(entry),
-      );
-      if (!_currentEntry(entry)) return false;
+      invalidateBusinessMembership(cidNumber);
     } on Exception {
       return false;
     }
@@ -947,16 +643,16 @@ class SubscriptionService {
 
 enum MembershipDisplayDecision { activeConfirmed, inactiveConfirmed }
 
-class _MembershipAuthorization {
-  _MembershipAuthorization(this.session, this.generation);
+class _ResourceAuthorization {
+  _ResourceAuthorization(this.session, this.generation);
   final SquareSession session;
   final int generation;
-  late final Future<SquareMembershipState> state;
+  late final Future<SquareResourceAuthorization> state;
   int checkedAt = 0;
   int deadline = 0;
   bool pending = true;
   bool failed = false;
-  SquareMembershipState? resolved;
+  SquareResourceAuthorization? resolved;
 }
 
 /// 广场及云端详情的共同显示门禁；已校验的本人本地副本保持原离线呈现。
@@ -1206,9 +902,9 @@ final class MembershipResourceGate implements SquareResourceGate {
         }
       }
     }
-    if (data['membergate_active'] is bool) {
+    if (data['authorization'] is Map) {
       try {
-        final member = SquareApiClient.decodeMembership(data);
+        final member = SquareApiClient.decodeResourceAuthorization(data);
         scope.member = member;
         scope.memberDeadline = end;
         final u = member.usageState;
@@ -1251,7 +947,7 @@ final class MembershipResourceGate implements SquareResourceGate {
     work = () async {
       final client = SquareApiClient(baseUrl: '$origin/api');
       try {
-        await client.fetchMembership(session);
+        await client.fetchResourceAuthorization(session);
         final scope = _scopes[key];
         if (scope == null || scope.memberDeadline <= scope.now) {
           _retryAt[key] = DateTime.now().millisecondsSinceEpoch + 5000;
@@ -1289,7 +985,7 @@ final class MembershipResourceGate implements SquareResourceGate {
         ? (scope!.gate['rules'] as Map)[operation] as Map?
         : null;
     if ((rule()?[own ? 'self' : 'other'] == 'member' ||
-            (scope?.member?.active == true &&
+            (scope?.member?.allowed == true &&
                 actions.containsKey('profile_read'))) &&
         scope != null &&
         scope.now >= scope.memberDeadline) {
@@ -1307,11 +1003,11 @@ final class MembershipResourceGate implements SquareResourceGate {
     final requiresMember = rule()?[own ? 'self' : 'other'] == 'member';
     if (requiresMember &&
         current.memberDeadline > current.now &&
-        current.member?.active != true) {
+        current.member?.allowed != true) {
       throw const SquarePreflightException('此操作需要有效会员', 'membergate_required');
     }
     final plan = current.memberDeadline > current.now
-        ? current.member?.activePlan
+        ? current.member?.plan
         : null;
     final limits = <String, int>{};
     _copyNumbers(current.gate['daily_limits'], limits);
@@ -1465,7 +1161,7 @@ final class _ResourceScope {
   }
 
   Map<String, dynamic> gate = {};
-  SquareMembershipState? member;
+  SquareResourceAuthorization? member;
   bool attachmentAvailable = false;
   Map<String, int> gauges = {};
   final Map<(String, int), int> confirmed = {};

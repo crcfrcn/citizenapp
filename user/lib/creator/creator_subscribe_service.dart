@@ -1,3 +1,4 @@
+import 'creator_plan.dart';
 import 'dart:async';
 import 'dart:typed_data';
 
@@ -8,7 +9,7 @@ import 'package:citizen_user/square_api_client.dart' show SquareSession;
 import 'package:citizen_user/creator/creator_api.dart';
 import 'package:citizen_user/identity/finalized_identity_resolver.dart';
 import 'package:citizen_scanner/qr_sign_session_page.dart';
-import 'package:citizen_user/membership/subscription_chain.dart';
+import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_storage/user_isar.dart' show Member;
 
 class CreatorSubscribeException implements Exception {
@@ -24,6 +25,7 @@ class CreatorSubscribeException implements Exception {
 /// runtime 根据共识时间戳完成，CitizenApp 不提交续费或周期确认。
 class CreatorSubscribeService {
   CreatorSubscribeService({
+    ChainDataService? chainData,
     CitizenSdk? wallet,
     CitizenSdk? chain,
     CitizenSdk? transactions,
@@ -54,7 +56,9 @@ class CreatorSubscribeService {
       String response,
     )?
     consumePreparedTransactionQrResponse,
-  }) : _subscriptionChain =
+  }) : _chainData =
+           chainData ?? (chain == null ? null : ChainDataService.forSdk(chain)),
+       _subscriptionChain =
            subscriptionChain ??
            SubscriptionChain(
              chain: chain,
@@ -80,6 +84,7 @@ class CreatorSubscribeService {
   }
   final CitizenSdkOperation<CitizenWalletState> Function() _getWalletState;
 
+  final ChainDataService? _chainData;
   final SubscriptionChain _subscriptionChain;
 
   final FinalizedIdentityResolver _identityResolver;
@@ -91,7 +96,29 @@ class CreatorSubscribeService {
     String creatorCid,
   ) async {
     await _retryPendingMirrors();
-    return _api.fetchViewOf(session, creatorCid);
+    final source = _chainData;
+    if (source == null) throw const CreatorApiException('轻节点创作者读取不可用');
+    final data = await source.ensureCitizen(creatorCid, creator: true);
+    await session.validateCurrent();
+    if (data.accountId != session.accountId ||
+        data.ownCid != session.cidNumber ||
+        data.own?.identity?.bindRev != session.bindRev)
+      throw const CreatorApiException('当前账户已变化');
+    final target = data.citizens[creatorCid]!,
+        state = data.subscriptions[creatorCid];
+    return CreatorView(
+      plan: data.memberActive(creatorCid)
+          ? creatorPlanFromChain(target.creatorTiers)
+          : null,
+      subscription: state == null
+          ? null
+          : CreatorSubscriptionState(
+              tierId: state.plan.tierId!,
+              billingPeriod: state.plan.billingPeriod!,
+              subState: state.subState,
+              paidUntil: state.paidUntil,
+            ),
+    );
   }
 
   /// 订阅创作者某档某周期（priceFen=该档该周期价，分）。

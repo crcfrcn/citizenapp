@@ -21,11 +21,6 @@ import 'package:citizen_testing/fake_profile.dart';
 /// 「非本人」（行为与迁移前一致）；避免 instance 触发真链读/真 Isar。
 class _NullMembershipSnapshotService implements SubscriptionService {
   @override
-  Future<MembershipDisplaySnapshot?> readDisplaySnapshot(
-    String cidNumber,
-  ) async => null;
-
-  @override
   Future<void> requireProfileAccess(
     SquareSession session,
     String targetCid,
@@ -49,7 +44,6 @@ Widget _wrap({required bool isSelf, CitizenProfile? localProfile}) =>
           citizenId: isSelf ? sampleProfile().cidNumber : null,
         ),
         subscriptionService: _NullMembershipSnapshotService(),
-        viewerAccountLoader: () async => null,
       ),
     );
 
@@ -155,7 +149,6 @@ void main() {
           cache: FakeProfileCache(sampleProfile(displayName: '不得显示的缓存')),
           sessionProvider: FakeSessionProvider(fakeSession()),
           subscriptionService: denied,
-          viewerAccountLoader: () async => null,
         ),
       ),
     );
@@ -177,7 +170,6 @@ void main() {
           cache: FakeProfileCache(sampleProfile(displayName: '旧缓存不可提前显示')),
           sessionProvider: FakeSessionProvider(fakeSession()),
           subscriptionService: service,
-          viewerAccountLoader: () async => null,
         ),
       ),
     );
@@ -213,7 +205,6 @@ void main() {
             citizenId: sampleProfile().cidNumber,
           ),
           subscriptionService: denied,
-          viewerAccountLoader: () async => null,
         ),
       ),
     );
@@ -242,7 +233,6 @@ void main() {
             cache: FakeProfileCache(sampleProfile()),
             sessionProvider: provider,
             subscriptionService: _NullMembershipSnapshotService(),
-            viewerAccountLoader: () async => null,
           ),
         ),
       );
@@ -287,7 +277,6 @@ void main() {
             cache: FakeProfileCache(sampleProfile()),
             sessionProvider: _UnavailableSession(status),
             subscriptionService: _NullMembershipSnapshotService(),
-            viewerAccountLoader: () async => null,
           ),
         ),
       );
@@ -394,7 +383,6 @@ void main() {
             citizenId: sampleProfile().cidNumber,
           ),
           subscriptionService: _NullMembershipSnapshotService(),
-          viewerAccountLoader: () async => null,
         ),
       ),
     );

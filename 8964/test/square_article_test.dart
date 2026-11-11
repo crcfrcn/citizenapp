@@ -1,5 +1,5 @@
 import 'package:citizen_testing/membergate_fixture.dart'
-    show membergatePlanFixture, membergateUsageFixture;
+    show resourceAuthorizationFixture;
 import 'package:citizen_testing/mls_authentication_fixture.dart';
 
 import 'dart:convert';
@@ -174,50 +174,30 @@ void main() {
         baseUrl: 'https://square.test/api',
         httpClient: MockClient(
           (_) async => http.Response(
-            jsonEncode({
-              'is_ok': true,
-              'membergate_active': true,
-              'membergate': {
-                'member_level': 'democracy',
-                'paid_until': 200,
-                'charge_at': 100,
-                'sub_state': 'active',
-              },
-              'plans': [
-                for (final level in const ['freedom', 'democracy', 'spark'])
-                  membergatePlanFixture(level),
-              ],
-              'usage': {
-                ...membergateUsageFixture(),
-                'used_images': 10,
-                'reserved_images': 2,
-                'used_video_seconds': 300,
-                'reserved_video_seconds': 45,
-                'active_uploads': 1,
-              },
-            }),
+            jsonEncode(resourceAuthorizationFixture(level: 'democracy')),
             200,
             headers: {'content-type': 'application/json'},
           ),
         ),
       );
-      final state = await api.fetchMembership(
+      final state = await api.fetchResourceAuthorization(
         const SquareSession(
           deviceId: testMlsDeviceId,
           sessionToken: 'token',
           cidNumber: 'CN220-CTZN2-198805200-2026',
           bindRev: 1,
-          accountId: '0x1111111111111111111111111111111111111111111111111111111111111111',
+          accountId:
+              '0x1111111111111111111111111111111111111111111111111111111111111111',
           expiresAt: 9999999999999,
           // MockClient 只验证响应解析，不校验设备请求签名头。
           authenticateRequest: fakeMlsRequestHeaders,
         ),
       );
-      expect(state.activePlan!.article.maxVideos, 3);
-      expect(state.activePlan!.video.videoMaxSeconds, 1800);
-      expect(state.activePlan!.video.videoMaxBytes, 200 * 1024 * 1024);
-      expect(state.activePlan!.dailyLimits.length, 4);
-      expect(state.activePlan!.usage.storageBytes, 1024 * 1024 * 1024 * 1024);
+      expect(state.plan!.article.maxVideos, 3);
+      expect(state.plan!.video.videoMaxSeconds, 1800);
+      expect(state.plan!.video.videoMaxBytes, 200 * 1024 * 1024);
+      expect(state.plan!.dailyLimits.length, 4);
+      expect(state.plan!.usage.storageBytes, 1024 * 1024 * 1024 * 1024);
       expect(state.usageState!.toJson().containsKey('used_images'), isFalse);
       expect(
         state.usageState!.toJson().containsKey('used_video_seconds'),

@@ -14,7 +14,7 @@ import 'package:chat/chat.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_user/identity/cid_generator.dart';
 import 'package:citizen_citizen/public/admin_division_store.dart';
-import 'package:citizen_user/identity/citizen_identity_chain_reader.dart';
+import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_user/identity/current_user_context.dart';
 import 'package:citizen_user/identity/finalized_identity_resolver.dart';
 import 'package:citizen_user/identity/identity_badge_snapshot_store.dart';

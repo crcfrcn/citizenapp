@@ -6,16 +6,12 @@ import 'package:provider/provider.dart';
 
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 
-import 'dart:async';
 import 'dart:io';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizen_user/creator/creator_service.dart';
-import 'package:citizen_user/creator/creator_overview.dart';
-import 'package:citizen_user/creator/creator_plan.dart';
 import 'package:citizen_user/identity/current_user_context.dart';
 import 'package:citizen_user/identity/cid_business_gate.dart';
-import 'package:citizen_user/identity/citizen_identity_chain_reader.dart';
+import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_user/identity/identity_badge_snapshot_store.dart';
 import 'package:citizen_user/membership/membership_revision.dart';
 import 'package:citizen_user/membership/subscription_service.dart';
@@ -199,28 +195,25 @@ class _FakeSquareApi extends SquareApiClient {
   int membershipCalls = 0;
 
   @override
-  Future<SquareMembershipState> fetchMembership(SquareSession session) async {
+  Future<SquareResourceAuthorization> fetchResourceAuthorization(
+    SquareSession session,
+  ) async {
     membershipCalls += 1;
-    return const SquareMembershipState(active: false, paidUntil: 0);
+    return const SquareResourceAuthorization(
+      allowed: false,
+      validUntil: 9999999999999,
+    );
   }
-}
-
-class _PendingMembershipSquareApi extends SquareApiClient {
-  final Completer<SquareMembershipState> result =
-      Completer<SquareMembershipState>();
-
-  @override
-  Future<SquareMembershipState> fetchMembership(SquareSession session) =>
-      result.future;
 }
 
 class _ActiveMembershipSquareApi extends SquareApiClient {
   @override
-  Future<SquareMembershipState> fetchMembership(SquareSession session) async {
-    return const SquareMembershipState(
-      active: true,
-      paidUntil: 9999999999999,
-      memberLevel: 'democracy',
+  Future<SquareResourceAuthorization> fetchResourceAuthorization(
+    SquareSession session,
+  ) async {
+    return const SquareResourceAuthorization(
+      allowed: false,
+      validUntil: 9999999999999,
     );
   }
 }
@@ -251,80 +244,7 @@ class _StaticProfileMediaCache extends CitizenProfileMediaCache {
 }
 
 class _ConfirmedMembershipSnapshotService implements SubscriptionService {
-  static const _state = SquareMembershipState(
-    active: true,
-    paidUntil: 9999999999999,
-    memberLevel: 'democracy',
-  );
   int authorizeCalls = 0;
-
-  @override
-  Future<MembershipDisplaySnapshot?> readDisplaySnapshot(
-    String cidNumber,
-  ) async {
-    return const MembershipDisplaySnapshot(
-      state: _state,
-      prices: <String, int>{},
-      memberAt: 1,
-      priceAt: 0,
-    );
-  }
-
-  @override
-  Future<void> writeDisplaySnapshot(
-    String cidNumber,
-    MembershipDisplaySnapshot snapshot,
-  ) async {}
-
-  @override
-  Future<SquareMembershipState> authorizeMembership(
-    SquareSession session, {
-    bool forceRefresh = false,
-  }) async {
-    authorizeCalls += 1;
-    return _state;
-  }
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
-
-class _DelayedMembershipSnapshotService implements SubscriptionService {
-  final Completer<MembershipDisplaySnapshot?> snapshot =
-      Completer<MembershipDisplaySnapshot?>();
-
-  @override
-  Future<MembershipDisplaySnapshot?> readDisplaySnapshot(String cidNumber) =>
-      snapshot.future;
-
-  @override
-  Future<void> writeDisplaySnapshot(
-    String cidNumber,
-    MembershipDisplaySnapshot snapshot,
-  ) async {}
-
-  @override
-  Future<SquareMembershipState> authorizeMembership(
-    SquareSession session, {
-    bool forceRefresh = false,
-  }) async =>
-      (await snapshot.future)?.state ??
-      const SquareMembershipState(active: false, paidUntil: 0);
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
-
-class _PendingCreatorService implements CreatorService {
-  final Completer<CreatorPageData> refresh = Completer<CreatorPageData>();
-
-  @override
-  Future<CreatorDisplaySnapshot?> readDisplaySnapshot(String cidNumber) async =>
-      null;
-
-  @override
-  Future<CreatorPageData> load({String? expectedCidNumber}) => refresh.future;
-
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -510,7 +430,7 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('我的首页统一显示 CID 公开头像背景和已确认会员徽章', (tester) async {
+  testWidgets('我的首页展示公开头像背景并等待轻节点会员数据', (tester) async {
     late Directory root;
     late File avatar;
     late File banner;
@@ -569,84 +489,13 @@ void main() {
         .toSet();
     expect(fileImages, containsAll(<String>{avatar.path, banner.path}));
     final badge = tester.widget<IdentityBadge>(find.byType(IdentityBadge));
-    expect(badge.style.checked, isTrue);
+    expect(badge.style.checked, isFalse);
     final avatarRect = tester.getRect(find.byType(ProfileAvatar));
     final badgeRect = tester.getRect(find.byType(IdentityBadge));
     expect(badgeRect.right, greaterThan(avatarRect.right));
     expect(badgeRect.bottom, greaterThan(avatarRect.bottom));
-    expect(find.text('竞选身份 · 民主会员'), findsOneWidget);
+    expect(find.text('竞选身份 · 民主会员'), findsNothing);
 
-    await tester.pumpWidget(const SizedBox.shrink());
-  });
-
-  testWidgets('MyTab 已确认有效快照在普通资料读取等待时保持会员徽章和创作者首帧', (tester) async {
-    final wallet = _testWallet;
-    final membershipSnapshots = _DelayedMembershipSnapshotService();
-    final squareApi = _PendingMembershipSquareApi();
-    final creatorService = _PendingCreatorService();
-    await tester.pumpWidget(
-      Provider<CidBusinessGate>.value(
-        value: _ReadyBusinessGate(),
-        child: Provider<CitizenSdk>.value(
-          value: _sdkHarness.sdk,
-          child: MaterialApp(
-            home: MyTab(
-              walletStateReader: _FakeWallet(wallet).getWalletState,
-              currentUserContext: _CachedIdentityCache(),
-              badgeSnapshotStore: _FakeIdentityBadgeSnapshotStore(),
-              profileApi: FakeProfileApi(sampleProfile(displayName: '公开昵称')),
-              profileCache: FakeProfileCache(
-                sampleProfile(displayName: '缓存昵称'),
-              ),
-              sessionProvider: FakeSessionProvider(fakeSession()),
-              squareApi: squareApi,
-              subscriptionService: membershipSnapshots,
-              creatorService: creatorService,
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.pump();
-
-    // finalized 有效展示快照先落地；后台读取失败也不能把已同步会员降级。
-    membershipSnapshots.snapshot.complete(
-      const MembershipDisplaySnapshot(
-        state: SquareMembershipState(
-          active: true,
-          paidUntil: 9999999999999,
-          memberLevel: 'democracy',
-        ),
-        prices: <String, int>{},
-        memberAt: 1,
-        priceAt: 0,
-      ),
-    );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
-    final badge = tester.widget<IdentityBadge>(find.byType(IdentityBadge));
-    expect(badge.style.checked, isTrue);
-    await tester.tap(find.text('创作者'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
-
-    expect(find.text('去订阅平台会员'), findsNothing);
-    expect(find.text('还没有会员档'), findsOneWidget);
-    expect(find.textContaining('同步'), findsNothing);
-
-    creatorService.refresh.complete(
-      CreatorPageData.active(
-        plan: CreatorPlan.empty(),
-        overview: CreatorOverview.zero,
-      ),
-    );
-    squareApi.result.complete(
-      const SquareMembershipState(
-        active: true,
-        paidUntil: 9999999999999,
-        memberLevel: 'democracy',
-      ),
-    );
     await tester.pumpWidget(const SizedBox.shrink());
   });
 }

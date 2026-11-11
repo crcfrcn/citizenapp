@@ -8,6 +8,7 @@ environment:
 
 # 本包公开接口的真实依赖；上游约束沿用产品原锁。
 dependencies:
+  citizen_chain: any
   citizen_user: any
   citizen_assets: any
   citizen_citizen: any

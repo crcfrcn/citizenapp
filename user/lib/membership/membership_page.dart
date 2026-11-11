@@ -1,4 +1,5 @@
-import 'package:citizen_user/identity/current_user_context.dart';
+import 'package:citizen_user/identity/register_identity_flow.dart';
+import 'package:citizen_chain/citizen_chain.dart';
 
 import 'dart:async';
 
@@ -6,91 +7,59 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import 'package:citizen_square/compose/square_chain_service.dart';
 import 'package:citizen_user/identity/square_session_provider.dart';
 import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_user/membership/membership_detail_page.dart';
-import 'package:citizen_user/membership/membership_revision.dart';
 import 'package:citizen_user/membership/subscription_service.dart';
-import 'package:citizen_user/identity/register_identity_flow.dart';
 import 'package:citizen_user/identity/finalized_identity_resolver.dart';
 import 'package:citizen_user/identity/identity_badge.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_user/identity/account_security_service.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
-/// 会员三档固定顺序（与价格升序一致，ADR-037，与身份彻底解耦）：
-/// 自由 freedom < 民主 democracy < 薪火 spark。
 const List<String> _tierOrder = ['freedom', 'democracy', 'spark'];
 
-/// 「会员」页：三档订阅卡前后层叠，当前会员档卡在最上层，另两档退到下层露边等候选；
-/// 左右滑动 / 点击把候选档换到最上层。任意身份可订任意档（无身份门槛）。
-///
-/// 订阅 / 取消全部在 App 内完成：默认钱包账户按 Hot/Cold 模式签名
-/// → 链上 square-post 订阅授权 → confirm 刷新镜像。价格由链上
-/// `PlatformPrice[level]` 单源读取（公民币）。
+/// 会员链上状态与价格来自统一轻节点；云端额度及用量独立读取。
 class MembershipPage extends StatefulWidget {
   const MembershipPage({
     super.key,
-    SquareChainService? chainService,
+    ChainDataService? chainData,
     SquareSessionProvider? sessionProvider,
     SubscriptionService? subscriptionService,
-    FinalizedIdentityResolver? identityResolver,
-    CurrentUserContext? currentUserContext,
-  }) : _chainService = chainService,
+  }) : _chainData = chainData,
        _sessionProvider = sessionProvider,
-       _subscriptionService = subscriptionService,
-       _identityResolver = identityResolver,
-       _currentUserContext = currentUserContext;
-
-  final SquareChainService? _chainService;
+       _subscriptionService = subscriptionService;
+  final ChainDataService? _chainData;
   final SquareSessionProvider? _sessionProvider;
   final SubscriptionService? _subscriptionService;
-  final FinalizedIdentityResolver? _identityResolver;
-  final CurrentUserContext? _currentUserContext;
-
   @override
   State<MembershipPage> createState() => _MembershipPageState();
 }
 
 class _MembershipPageState extends State<MembershipPage>
     with SingleTickerProviderStateMixin {
-  late final SquareChainService _chainService;
+  ChainDataService? _chainData;
   late final SquareSessionProvider _sessionProvider;
   late final SubscriptionService _subscriptionService;
-  late final FinalizedIdentityResolver _identityResolver;
-  CurrentUserContext? _currentUserContext;
   AccountSecurityService? _accountSecurity;
-  bool _dependenciesReady = false;
+  bool _dependenciesReady = false,
+      _refreshing = false,
+      _identityReloadPending = false,
+      _unregistered = false,
+      _busy = false;
+  String? _loadFailure;
+  SquareSessionStatus? _sessionStatus;
   late final AnimationController _snapController;
   Animation<double>? _snapAnim;
-
-  /// 三档首屏始终存在；价格和权益复用真实快照，缺失值显示待获取。
-  bool _refreshing = false;
-  bool _identityReloadPending = false;
-
-  /// 读取失败保留已有服务端快照，并给出可见的刷新入口。
-  String? _loadFailure;
-
-  /// 当前钱包未注册 CID；三档继续展示，注册引导置于卡片上方。
-  bool _unregistered = false;
-  SquareSessionStatus? _sessionStatus;
-
-  /// 订阅 / 取消上链进行中：期间禁用按钮、显示按钮内进度圈。
-  bool _busy = false;
-  Timer? _displayExpiry;
+  double _page = 0;
+  int _cardCount = 0;
   _MembershipViewData _data = const _MembershipViewData(
     accountId: '',
     cidNumber: '',
     state: _emptyMembershipState,
-    prices: <String, int>{},
+    prices: {},
     subscriptionReady: false,
   );
-
-  /// 连续层叠位置（0..卡数-1）；整数=某卡在最上层，拖动时为小数。
-  double _page = 0;
-  int _cardCount = 0;
-
   @override
   void initState() {
     super.initState();
@@ -102,61 +71,38 @@ class _MembershipPageState extends State<MembershipPage>
           final anim = _snapAnim;
           if (anim != null && mounted) setState(() => _page = anim.value);
         });
-    MembershipRevision.instance.listenable.addListener(_onMembershipChanged);
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_dependenciesReady) return;
-    final injectedSession = widget._sessionProvider;
-    final injectedSubscription = widget._subscriptionService;
-    final injectedChain = widget._chainService;
-    final injectedIdentity = widget._identityResolver;
-    if (injectedSession != null &&
-        injectedSubscription != null &&
-        injectedChain != null &&
-        injectedIdentity != null) {
-      _chainService = injectedChain;
-      _sessionProvider = injectedSession;
-      _subscriptionService = injectedSubscription;
-      _identityResolver = injectedIdentity;
-      _currentUserContext = widget._currentUserContext;
-      _dependenciesReady = true;
-      unawaited(_load());
-      return;
-    }
-    _currentUserContext =
-        widget._currentUserContext ?? context.read<CurrentUserContext>();
-    final sdk = context.read<CitizenSdk>();
-    _chainService =
-        widget._chainService ??
-        SquareChainService(chain: sdk, transactions: sdk);
-    final accountSecurity = context.read<AccountSecurityService>();
+    _chainData = widget._chainData ?? context.read<ChainDataService?>();
+    _chainData?.addListener(_onChainData);
     _sessionProvider =
         widget._sessionProvider ?? context.read<SquareSessionProvider>();
-    _subscriptionService =
-        widget._subscriptionService ??
-        SubscriptionService(
-          wallet: sdk,
-          chain: sdk,
-          transactions: sdk,
-          identityResolver: context.read<FinalizedIdentityResolver>(),
-          sessionProvider: _sessionProvider,
-        );
-    _identityResolver =
-        widget._identityResolver ?? context.read<FinalizedIdentityResolver>();
-    _accountSecurity = accountSecurity;
-    accountSecurity.revision.addListener(_onIdentityChanged);
+    if (widget._subscriptionService case final service?) {
+      _subscriptionService = service;
+    } else {
+      final sdk = context.read<CitizenSdk>();
+      _subscriptionService = SubscriptionService(
+        wallet: sdk,
+        chain: sdk,
+        transactions: sdk,
+        identityResolver: context.read<FinalizedIdentityResolver>(),
+        sessionProvider: _sessionProvider,
+      );
+    }
+    _accountSecurity = context.read<AccountSecurityService?>();
+    _accountSecurity?.revision.addListener(_onIdentityChanged);
     _dependenciesReady = true;
     unawaited(_load());
   }
 
   @override
   void dispose() {
-    _displayExpiry?.cancel();
+    _chainData?.removeListener(_onChainData);
     _accountSecurity?.revision.removeListener(_onIdentityChanged);
-    MembershipRevision.instance.listenable.removeListener(_onMembershipChanged);
     _snapController.dispose();
     super.dispose();
   }
@@ -172,220 +118,130 @@ class _MembershipPageState extends State<MembershipPage>
     unawaited(_load());
   }
 
-  /// 其它页面或订阅确认推进同一 CID 缓存时只重读本机快照，不重复访问 CitizenServe。
-  void _onMembershipChanged() {
-    final event = MembershipRevision.instance.listenable.value;
-    if (!mounted ||
-        _refreshing ||
-        event == null ||
-        event.cidNumber != _data.cidNumber) {
-      return;
-    }
-    unawaited(() async {
-      final snapshot = await _subscriptionService.readDisplaySnapshot(
-        event.cidNumber,
-      );
-      if (!mounted ||
-          snapshot == null ||
-          _data.cidNumber != event.cidNumber ||
-          MembershipRevision.instance.listenable.value != event) {
-        return;
-      }
+  /// 普通加载与主动重试共用自动准备；明确取消的钱包授权仅由主动重试继续。
+  Future<void> _retryLoad() => _load(forceRefresh: true);
+
+  void _onChainData() {
+    final data = _chainData?.snapshot;
+    if (!mounted) return;
+    if (data == null) {
       _applyViewData(
-        _MembershipViewData(
-          accountId: _data.accountId,
-          cidNumber: event.cidNumber,
-          state: snapshot.state,
-          prices: snapshot.prices,
-          subscriptionReady: snapshot.memberAt > 0,
+        const _MembershipViewData(
+          accountId: '',
+          cidNumber: '',
+          state: _emptyMembershipState,
+          prices: {},
+          subscriptionReady: false,
         ),
       );
-    }());
-  }
-
-  /// 未注册展示紧凑引导和三卡，不补取会员业务价格或启动 MLS。
-  void _enterUnregistered() {
-    if (mounted) setState(() => _unregistered = true);
-  }
-
-  /// 价格是公开链状态；会话或身份投影失败不能阻止用户查看套餐价格。
-  Future<void> _loadPublicPrices({required bool forceRefresh}) async {
-    try {
-      final prices = await _chainService.fetchAllPlatformPrices(
-        forceFresh: forceRefresh,
-      );
-      if (!mounted || prices.isEmpty) return;
-      setState(() => _data = _data.copyWithPrices(prices));
-    } on Object {
-      // 链暂时读不到价格不影响页面可用性;下次进入或下拉刷新继续尝试。
+      return;
     }
+    // 新账户或未知状态立即撤下旧显示，不能把未知写成无会员。
+    if (_data.accountId.isNotEmpty && data.accountId != _data.accountId) {
+      _applyViewData(
+        _MembershipViewData(
+          accountId: data.accountId,
+          cidNumber: '',
+          state: _emptyMembershipState,
+          prices: data.prices,
+          subscriptionReady: false,
+        ),
+      );
+    }
+    _applyLightData(data);
   }
 
-  /// 普通加载与主动重试共用自动准备；明确取消的钱包授权仅由主动重试继续。
-  Future<void> _retryLoad() async {
-    if (_refreshing) return;
-    setState(() => _refreshing = true);
-    late final SquareSessionResolution resolution;
-    try {
-      resolution = await resolveCitizenSessionForAction(
-        context,
-        provider: _sessionProvider,
-      );
-    } finally {
-      if (mounted) setState(() => _refreshing = false);
-    }
+  void _applyLightData(ChainDataSnapshot data) {
     if (!mounted) return;
-    if (_identityReloadPending) {
-      _identityReloadPending = false;
-      await _load();
-      return;
-    }
-    if (resolution.status != SquareSessionStatus.ready) {
-      setState(() {
-        _loadFailure = resolution.message;
-        _sessionStatus = resolution.status;
-      });
-      return;
-    }
-    await _load(forceRefresh: true);
+    final state = data.own?.platform;
+    _unregistered = data.ownCid == null && _chainData?.isStale == false;
+    _applyViewData(
+      _MembershipViewData(
+        accountId: data.accountId,
+        cidNumber: data.ownCid ?? '',
+        state: SquareMembershipState(
+          active: data.ownCid != null && data.memberActive(data.ownCid!),
+          memberLevel: state?.plan.memberLevel,
+          subState: state?.subState,
+          chargeAt: state?.chargeAt ?? 0,
+          paidUntil: state?.paidUntil ?? 0,
+          plans: _data.state.plans,
+          usageState: _data.state.usageState,
+          cleanupAfter: _data.state.cleanupAfter,
+        ),
+        prices: data.prices,
+        subscriptionReady: _chainData?.isStale == false && data.ownCid != null,
+      ),
+    );
   }
 
   Future<void> _load({bool forceRefresh = false}) async {
     if (_refreshing) return;
-    setState(() {
-      _refreshing = true;
-      _loadFailure = null;
-      _sessionStatus = null;
-    });
-    Object? refreshError;
-    var localIdentityResolved = false;
+    setState(() => _refreshing = true);
     try {
-      // 本地显示先按当前默认账户/CID读取；鉴权不可用不能阻止已有快照展示。
-      final localUser = await _currentUserContext?.resolve();
-      localIdentityResolved = true;
-      final localCid = localUser?.cidNumber;
-      if (_currentUserContext != null) {
-        final local = localCid == null || localCid.isEmpty
-            ? null
-            : await _subscriptionService.readDisplaySnapshot(localCid);
-        if (!mounted) return;
-        _applyViewData(
-          _MembershipViewData(
-            accountId: localUser?.accountId ?? '',
-            cidNumber: localCid ?? '',
-            state: local == null ? _emptyMembershipState : local.state,
-            prices: local?.prices ?? const <String, int>{},
-            subscriptionReady: false,
-          ),
-        );
-      }
-      // 只消费公开身份同步的结果；缺缓存不冒充未注册，也不借页面加载登记设备。
-      if (localUser?.isUnregistered == true) {
-        _enterUnregistered();
-        return;
-      }
-      final resolution = await _sessionProvider.resolveSession();
-      _sessionStatus = resolution.status;
-      final session = resolution.session;
-      if (session == null) {
-        if (resolution.status == SquareSessionStatus.identityUnbound &&
-            (localCid == null || localCid.isEmpty)) {
-          _enterUnregistered();
-        } else {
-          _unregistered = false;
-          _loadFailure =
-              resolution.status == SquareSessionStatus.identityUnbound &&
-                  localCid != null &&
-                  localCid.isNotEmpty
-              ? SquareSessionStatus.identityUnavailable.message
-              : resolution.message;
-          await _loadPublicPrices(forceRefresh: forceRefresh);
-        }
-        return;
-      }
-      if (_unregistered && mounted) setState(() => _unregistered = false);
-
-      final accountId = session.accountId;
-      final cidNumber = session.cidNumber;
-      final cached = await _subscriptionService.readDisplaySnapshot(cidNumber);
-      if (cached != null && mounted) {
-        _applyViewData(
-          _MembershipViewData(
-            accountId: accountId,
-            cidNumber: cidNumber,
-            state: cached.state,
-            prices: cached.prices,
-            subscriptionReady: cached.memberAt > 0,
-          ),
-        );
-      } else if (mounted) {
-        _applyViewData(
-          _MembershipViewData(
-            accountId: accountId,
-            cidNumber: cidNumber,
-            state: _emptyMembershipState,
-            prices: const <String, int>{},
-            subscriptionReady: false,
-          ),
-        );
-      }
-
-      SquareMembershipState? refreshedState;
-      try {
-        refreshedState = await _subscriptionService.authorizeMembership(
-          session,
-          forceRefresh: forceRefresh,
-        );
-      } on Object catch (error) {
-        refreshError ??= error;
-      }
-      // 已注册页面直接消费同一服务端快照的真实价格，不再并行查链。
-      final refreshedPrices = refreshedState == null
-          ? null
-          : <String, int>{
-              for (final plan in refreshedState.plans)
-                if (plan.priceFen != null) plan.memberLevel: plan.priceFen!,
-            };
-      await session.validateCurrent();
-      if (_identityReloadPending) return;
-      final serverSnapshot = await _subscriptionService.readDisplaySnapshot(
-        cidNumber,
-      );
-      await session.validateCurrent();
-      if (_identityReloadPending) return;
-      final state =
-          refreshedState ??
-          serverSnapshot?.state ??
-          cached?.state ??
-          _emptyMembershipState;
-      final prices = refreshedPrices?.isNotEmpty == true
-          ? refreshedPrices!
-          : serverSnapshot?.prices ?? cached?.prices ?? const <String, int>{};
+      final source = _chainData;
+      if (source == null) throw StateError('轻节点会员数据尚未就绪');
+      final data = await source.refresh();
       if (!mounted) return;
-      _applyViewData(
-        _MembershipViewData(
-          accountId: accountId,
-          cidNumber: cidNumber,
-          state: state,
-          prices: prices,
-          subscriptionReady:
-              refreshedState != null ||
-              (serverSnapshot?.memberAt ?? cached?.memberAt ?? 0) > 0,
-        ),
-      );
-    } on Object catch (error) {
-      refreshError = error;
-      _unregistered = false;
-      _sessionStatus = null;
-      _loadFailure = '会员数据加载失败，请点右上刷新重试';
+      if (data == null) {
+        _loadFailure = '请先添加钱包账户';
+        return;
+      }
+      _applyLightData(data);
+      _loadFailure = null;
+      // 云端规则与用量独立读取；故障不覆盖轻节点订阅和价格。
+      try {
+        final resolution = await _sessionProvider.resolveSession();
+        if (!mounted ||
+            (source.snapshot?.accountId != data.accountId ||
+                source.snapshot?.ownCid != data.ownCid ||
+                source.snapshot?.own?.identity?.bindRev !=
+                    data.own?.identity?.bindRev))
+          return;
+        _sessionStatus = resolution.status;
+        final session = resolution.session;
+        if (session != null && session.cidNumber == data.ownCid) {
+          final resources = await _subscriptionService.authorizeResources(
+            session,
+            forceRefresh: forceRefresh,
+          );
+          if (!mounted ||
+              (source.snapshot?.accountId != data.accountId ||
+                  source.snapshot?.ownCid != data.ownCid ||
+                  source.snapshot?.own?.identity?.bindRev !=
+                      data.own?.identity?.bindRev))
+            return;
+          final current = _data.state;
+          _applyViewData(
+            _MembershipViewData(
+              accountId: _data.accountId,
+              cidNumber: _data.cidNumber,
+              state: SquareMembershipState(
+                active: current.active,
+                paidUntil: current.paidUntil,
+                memberLevel: current.memberLevel,
+                subState: current.subState,
+                chargeAt: current.chargeAt,
+                plans: resources.plans,
+                usageState: resources.usageState,
+                cleanupAfter: resources.cleanupAfter,
+              ),
+              prices: _data.prices,
+              subscriptionReady: !source.isStale,
+            ),
+          );
+        }
+      } on Object {
+        if (mounted) _loadFailure = '云端用量暂不可用';
+      }
+    } on Object {
       if (mounted) {
-        final currentKnown =
-            _currentUserContext == null || localIdentityResolved;
+        _loadFailure = '轻节点会员读取失败，请刷新重试';
         _applyViewData(
           _MembershipViewData(
-            accountId: currentKnown ? _data.accountId : '',
-            cidNumber: currentKnown ? _data.cidNumber : '',
-            state: currentKnown ? _data.state : _emptyMembershipState,
+            accountId: _data.accountId,
+            cidNumber: _data.cidNumber,
+            state: _data.state,
             prices: _data.prices,
             subscriptionReady: false,
           ),
@@ -398,55 +254,10 @@ class _MembershipPageState extends State<MembershipPage>
         unawaited(_load());
       }
     }
-    if (forceRefresh && refreshError != null && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            SquareSessionResolution.fromError(refreshError).message,
-          ),
-        ),
-      );
-    }
   }
 
   void _applyViewData(_MembershipViewData data) {
     if (!mounted) return;
-    _displayExpiry?.cancel();
-    if (data.state.active &&
-        data.state.paidUntil > DateTime.now().millisecondsSinceEpoch) {
-      _displayExpiry = Timer(
-        Duration(
-          milliseconds:
-              data.state.paidUntil - DateTime.now().millisecondsSinceEpoch,
-        ),
-        () {
-          if (!mounted ||
-              _data.cidNumber != data.cidNumber ||
-              _data.state.paidUntil != data.state.paidUntil) {
-            return;
-          }
-          final state = data.state;
-          _applyViewData(
-            _MembershipViewData(
-              accountId: data.accountId,
-              cidNumber: data.cidNumber,
-              state: SquareMembershipState(
-                active: false,
-                paidUntil: state.paidUntil,
-                memberLevel: state.memberLevel,
-                subState: state.subState,
-
-                chargeAt: state.chargeAt,
-                plans: state.plans,
-                usageState: state.usageState,
-              ),
-              prices: data.prices,
-              subscriptionReady: data.subscriptionReady,
-            ),
-          );
-        },
-      );
-    }
     final accountChanged = _data.accountId != data.accountId;
     final membershipChanged = _data.state.memberLevel != data.state.memberLevel;
     final defaultIndex = _tierIndexOfLevel(data.state.memberLevel);
@@ -462,64 +273,30 @@ class _MembershipPageState extends State<MembershipPage>
   /// 失败弹 SnackBar（文案单源自 [SubscriptionException]）。
   Future<void> _handleAction(String level) async {
     if (_busy) return;
-    if (_data.accountId.isEmpty) {
-      final message = _sessionStatus?.message ?? '会员状态尚未就绪，请稍后重试';
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
-      return;
-    }
-    // 动作仍复核当前 CID；未注册时返回页面内统一引导，不由动作直接弹面板。
-    if (!await ensureCidRegisteredOrPrompt(
-      context,
-      identityResolver: _identityResolver,
-    )) {
-      return;
-    }
-    if (!mounted) return;
     setState(() => _busy = true);
     try {
-      // 复用本会话已有状态；真实交易仍执行原链验真和签名。
-      final resolution = await _sessionProvider.resolveSession(refresh: true);
-      final session = resolution.session;
-      if (session == null || session.cidNumber != _data.cidNumber) {
-        throw SubscriptionException(resolution.message);
-      }
-      final state = await _subscriptionService.authorizeMembership(session);
-      final action = _actionFor(state, level);
-      final prices = action == _SubscribeAction.cancel
-          ? _data.prices
-          : await _chainService.fetchAllPlatformPrices(forceFresh: true);
-      final priceFen = prices[level];
-      if (action != _SubscribeAction.cancel && priceFen == null) {
-        throw const SubscriptionException('链上会员价格尚未就绪，请稍后重试');
-      }
+      final data = await _chainData?.refresh();
+      if (data == null || _chainData!.isStale || data.ownCid == null)
+        throw const SubscriptionException('当前轻节点身份尚未就绪');
       if (!mounted) return;
+      _applyLightData(data);
+      final action = _actionFor(_data.state, level), price = data.prices[level];
+      if (action != _SubscribeAction.cancel && price == null)
+        throw const SubscriptionException('链上价格尚未就绪');
       if (action == _SubscribeAction.cancel) {
         await _subscriptionService.cancel(context: context);
       } else if (action == _SubscribeAction.change) {
-        await _subscriptionService.changePlan(
-          level,
-          priceFen!,
-          context: context,
-        );
+        await _subscriptionService.changePlan(level, price!, context: context);
       } else {
-        await _subscriptionService.subscribe(
-          level,
-          priceFen!,
-          context: context,
-        );
+        await _subscriptionService.subscribe(level, price!, context: context);
       }
-      if (!mounted) return;
-      await _load();
-      if (!mounted) return;
-      if (_subscriptionService.mirrorSyncPending) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('链上订阅已生效，会员权益正在同步')));
-      }
-    } on SubscriptionException catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+      await _chainData!.refresh();
+      if (mounted) _onChainData();
+    } on Object catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -535,8 +312,7 @@ class _MembershipPageState extends State<MembershipPage>
     final action = _actionFor(state, level);
     final noWallet = _sessionStatus == SquareSessionStatus.noWallet;
     // 缓存只提供展示，详情按钮与会员卡一样必须有当前可用会话。
-    final sessionUnavailable =
-        _sessionStatus != SquareSessionStatus.ready || _data.accountId.isEmpty;
+    final sessionUnavailable = _data.accountId.isEmpty;
     final stateNotReady = !_data.subscriptionReady;
     final label = noWallet
         ? '请先添加钱包账户'
@@ -551,7 +327,6 @@ class _MembershipPageState extends State<MembershipPage>
         !noWallet &&
         !sessionUnavailable &&
         !stateNotReady &&
-        plan != null &&
         (action == _SubscribeAction.cancel || priceFen != null);
     Navigator.of(context).push<void>(
       MaterialPageRoute(
@@ -600,7 +375,7 @@ class _MembershipPageState extends State<MembershipPage>
   Widget build(BuildContext context) {
     // 三张套餐卡始终显示；未注册引导与真实数据的加载状态不替换卡片。
     // 会员、价格与钱包状态由 [_load] 后台补齐；真正订阅、
-    // 换档或取消时由 [SubscriptionService] 核验钱包、CID 与 CitizenServe 会员真源，
+    // 换档或取消时由 [SubscriptionService] 核验钱包、CID 与轻节点会员状态，
     // 随后的链上交易继续执行最终状态校验。
     return Scaffold(
       appBar: AppBar(
@@ -686,10 +461,7 @@ class _MembershipPageState extends State<MembershipPage>
                         state: state,
                         priceFen: data.prices[_tierOrder[index]],
                         canSubscribe:
-                            _sessionStatus == SquareSessionStatus.ready &&
-                            data.accountId.isNotEmpty &&
-                            data.subscriptionReady &&
-                            state.planForLevel(_tierOrder[index]) != null,
+                            data.accountId.isNotEmpty && data.subscriptionReady,
                         unavailableLabel: _unregistered
                             ? '注册后可订阅'
                             : data.accountId.isEmpty && !_refreshing

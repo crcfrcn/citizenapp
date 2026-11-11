@@ -6,6 +6,8 @@ import 'package:citizen_sdk/citizen_sdk.dart' show citizenSs58FromAccountId;
 import 'package:citizen_system/security/system_protected_storage.dart';
 import 'package:citizen_storage/isar_core_bootstrap.dart';
 
+import 'chain_state.dart';
+
 part 'user_isar.g.dart';
 
 /// 行政区字典实体。
@@ -230,8 +232,6 @@ class Contact {
   late String ownerCidNumber;
   @Name('cid_number')
   late String cidNumber;
-  @Name('account_id')
-  late String accountId;
   @Name('contact_remark')
   String contactRemark = '';
   @Name('updated_at')
@@ -926,6 +926,7 @@ class UserIsar {
         EditSchema,
         ProfileMediaSchema,
         IdentitySchema,
+        ChainStateSchema,
         ContactSchema,
         NoticeSchema,
         SettingSchema,

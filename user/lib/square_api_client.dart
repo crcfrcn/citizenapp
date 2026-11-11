@@ -165,6 +165,24 @@ class _FinalizedSessionBinding {
       session.accountId == accountId;
 }
 
+/// 仅用于服务端资源预检，不作为链上会员展示状态。
+class SquareResourceAuthorization {
+  const SquareResourceAuthorization({
+    required this.allowed,
+    required this.validUntil,
+    this.plan,
+    this.plans = const [],
+    this.usageState,
+    this.cleanupAfter,
+  });
+  final bool allowed;
+  final int validUntil;
+  final SquareMembershipPlan? plan;
+  final List<SquareMembershipPlan> plans;
+  final SquareMembershipUsageState? usageState;
+  final int? cleanupAfter;
+}
+
 /// 会员订阅态（ADR-037：与身份彻底解耦）。只描述付费订阅本身，不含任何链上身份信息；
 /// 身份展示由身份页（myid）单独负责。
 class SquareMembershipState {
@@ -506,13 +524,11 @@ class SquareApiClient
         SquareFeedSource,
         SquarePublicationConfirmer,
         SquarePostDeletionService {
-  SquareApiClient({
-    String? baseUrl,
-    http.Client? httpClient,
-  }) : baseUrl = SquareApiConfig.normalizeBaseUrl(
-         baseUrl ?? SquareApiConfig.defaultBaseUrl,
-       ),
-       _http = HttpsOnlyClient(httpClient ?? http.Client()) {
+  SquareApiClient({String? baseUrl, http.Client? httpClient})
+    : baseUrl = SquareApiConfig.normalizeBaseUrl(
+        baseUrl ?? SquareApiConfig.defaultBaseUrl,
+      ),
+      _http = HttpsOnlyClient(httpClient ?? http.Client()) {
     _liveClients.add(WeakReference<SquareApiClient>(this));
   }
 
@@ -938,8 +954,9 @@ class SquareApiClient
     Future<void> Function()? requireCurrent,
   }) async {
     binding.validate();
-    if (!RegExp(r'^[A-Za-z0-9][A-Za-z0-9-]{0,31}$')
-        .hasMatch(binding.cidNumber)) {
+    if (!RegExp(
+      r'^[A-Za-z0-9][A-Za-z0-9-]{0,31}$',
+    ).hasMatch(binding.cidNumber)) {
       throw const SquareApiException('注销身份绑定无效');
     }
     final generation = _sessionGenerations[binding.accountId] ?? 0;
@@ -1143,12 +1160,13 @@ class SquareApiClient
     }
   }
 
-  /// 读取 CitizenServe 的平台会员快照。该方法只解析响应，不修改页面或聊天全局状态；
-  /// 会话级去重、本地缓存和刷新广播统一由 SubscriptionService 负责。
-  Future<SquareMembershipState> fetchMembership(SquareSession session) async {
-    const membershipPath = '/membergate';
-    final data = await _getJson(membershipPath, session: session);
-    return decodeMembership(data);
+  /// 服务端只交付本次资源许可、规则和实际用量。
+  Future<SquareResourceAuthorization> fetchResourceAuthorization(
+    SquareSession session,
+  ) async {
+    return decodeResourceAuthorization(
+      await _getJson('/membergate', session: session),
+    );
   }
 
   /// 许可由宿主当前会话签发；传输可用性仍由聊天适配交付验收。
@@ -1242,75 +1260,58 @@ class SquareApiClient
     }
   }
 
-  static SquareMembershipState decodeMembership(Map<String, dynamic> data) {
-    final membership = data['membergate'];
-    // GET与确认只接受同一份完整快照；读取失败不能冒充未订阅或清空原事实。
+  static SquareResourceAuthorization decodeResourceAuthorization(
+    Map<String, dynamic> data,
+  ) {
+    final authorization = data['authorization'];
+    final gate = data['gate'];
     if (data['is_ok'] != true ||
-        data['membergate_active'] is! bool ||
-        !data.containsKey('membergate') ||
-        (membership != null && membership is! Map<String, dynamic>) ||
-        (data['membergate_active'] == true && membership == null) ||
-        data['plans'] is! List ||
-        data['usage'] is! Map<String, dynamic>) {
-      throw const SquareApiException('会员快照不完整');
+        authorization is! Map<String, dynamic> ||
+        authorization['allowed'] is! bool ||
+        gate is! Map<String, dynamic> ||
+        gate['valid_until'] is! int ||
+        (gate['valid_until'] as int) <= 0 ||
+        (gate['valid_until'] as int) > 9007199254740991 ||
+        data['usage'] is! Map<String, dynamic> ||
+        data.containsKey('membergate') ||
+        data.containsKey('membergate_active') ||
+        data.containsKey('final_hash')) {
+      throw const SquareApiException('资源授权响应不完整');
     }
-    if (membership is Map<String, dynamic> &&
-        (membership['member_level'] is! String ||
-            membership['sub_state'] is! String ||
-            membership['paid_until'] is! int ||
-            (membership['paid_until'] as int) < 0 ||
-            membership['charge_at'] is! int ||
-            (membership['charge_at'] as int) < 0)) {
-      throw const SquareApiException('会员快照字段无效');
-    }
-    final active = data['membergate_active'] == true;
     final plans = decodeMembershipPlans(data['plans']);
-    final usageState = decodeMembershipUsage(data['usage']);
-    final notice = data['storage_cleanup_notice'];
-    int? cleanupAfter;
-    if (notice != null) {
-      if (notice is! Map<String, dynamic> ||
-          notice['notified_at'] is! int ||
-          notice['cleanup_after'] is! int ||
-          notice['storage_limit_bytes'] is! int ||
-          (notice['storage_limit_bytes'] as int) <= 0 ||
-          (notice['notified_at'] as int) <= 0 ||
-          notice['cleanup_after'] !=
-              (notice['notified_at'] as int) + 86400000) {
-        throw const SquareApiException('会员存储清理提醒无效');
-      }
-      if (!active &&
-          usageState.usedBytes > (notice['storage_limit_bytes'] as int)) {
-        cleanupAfter = notice['cleanup_after'] as int;
-      }
+    final raw = authorization['plan'];
+    if (authorization['allowed'] == true && raw is! Map<String, dynamic> ||
+        authorization['allowed'] == false && raw != null) {
+      throw const SquareApiException('资源授权档位无效');
     }
-    // 会员与身份解耦（ADR-037）：响应只含订阅与套餐，无身份/冻结字段。
-    if (membership is! Map<String, dynamic>) {
-      return SquareMembershipState(
-        active: false,
-        paidUntil: 0,
-        plans: plans,
-        usageState: usageState,
-        cleanupAfter: cleanupAfter,
-      );
-    }
-    final memberLevel = membership['member_level']?.toString();
-    return SquareMembershipState(
-      active: active,
-      paidUntil: _asInt(membership['paid_until']),
-      memberLevel: memberLevel,
-      subState: membership['sub_state']?.toString(),
-
-      chargeAt: _asInt(membership['charge_at']),
+    return SquareResourceAuthorization(
+      allowed: authorization['allowed'] as bool,
+      validUntil: gate['valid_until'] as int,
+      plan: raw == null
+          ? null
+          : _parseMembershipPlan(raw as Map<String, dynamic>),
       plans: plans,
-      usageState: usageState,
-      cleanupAfter: cleanupAfter,
+      usageState: decodeMembershipUsage(data['usage']),
+      cleanupAfter: decodeCleanupNotice(data['storage_cleanup_notice']),
     );
   }
 
-  /// 确认请求携带原MLS正文证明，一次取得回执和真实快照，不再额外GET会员。
-  /// 回执或快照失败保留原证明；不能再次签名或付款。
-  Future<SquareMembershipState> confirmPlatformSubscription({
+  static int? decodeCleanupNotice(Object? value) {
+    if (value == null) return null;
+    if (value is! Map<String, dynamic> ||
+        value['notified_at'] is! int ||
+        value['cleanup_after'] is! int ||
+        value['storage_limit_bytes'] is! int ||
+        (value['storage_limit_bytes'] as int) <= 0 ||
+        (value['notified_at'] as int) <= 0 ||
+        value['cleanup_after'] != (value['notified_at'] as int) + 86400000) {
+      throw const SquareApiException('会员存储清理提醒无效');
+    }
+    return value['cleanup_after'] as int;
+  }
+
+  /// 确认原交易锚，回执不交付链上订阅展示状态。
+  Future<void> confirmPlatformSubscription({
     required SquareSession session,
     required String txHash,
     required String blockHash,
@@ -1322,19 +1323,13 @@ class SquareApiClient
     final data = await _postJson('/membergate/confirm', {
       'tx_hash': txHash,
       'block_hash': blockHash,
-      'include_state': true,
     }, session: session);
-    if (data.length != 4 ||
+    if (data.length != 3 ||
         data['is_ok'] != true ||
         data['tx_hash'] != txHash ||
         data['block_hash'] != blockHash) {
       throw const SquareApiException('会员确认回执与本次交易不一致');
     }
-    final snapshot = data['membergate_state'];
-    if (snapshot is! Map<String, dynamic>) {
-      throw const SquareApiException('会员确认快照不完整');
-    }
-    return decodeMembership(snapshot);
   }
 
   /// 联系人逐条备份；完整分页列表只用于明确下拉同步。
@@ -1348,10 +1343,8 @@ class SquareApiClient
   Future<Map<String, dynamic>> saveUserContact({
     required SquareSession session,
     required String cidNumber,
-    required String accountId,
     required String contactRemark,
   }) => _putJson('/user/contacts/${Uri.encodeComponent(cidNumber)}', {
-    'account_id': accountId,
     'contact_remark': contactRemark,
   }, session: session);
   Future<Map<String, dynamic>> deleteUserContact({
@@ -1768,7 +1761,7 @@ class SquareApiClient
   }
 
   /// 拉取某身份（cid_number）的用户主页资料；钱包 Session 决定双向关注状态。
-  /// 响应 profile 含 `account_id`（该身份当前绑定钱包账户，展示用，可能空串）+ `cid_number`。
+  /// 资料响应只包含永久公民号及业务资料，链上绑定由本机已验证状态提供。
   Future<CitizenProfileCard> fetchUserCard({
     required String cidNumber,
     SquareSession? session,
@@ -1781,7 +1774,6 @@ class SquareApiClient
     if (data['is_ok'] != true ||
         card is! Map<String, dynamic> ||
         card['cid_number'] != cidNumber ||
-        card['account_id'] is! String ||
         card['display_name'] is! String ||
         card['profile_at'] is! int) {
       throw const SquareApiException('聊天资料卡响应无效');
@@ -1907,8 +1899,9 @@ class SquareApiClient
         uri.hasQuery ||
         uri.hasFragment ||
         uri.toString() !=
-            _uri('/user/profiles/${target.group(1)}/assets/${target.group(2)}')
-                .toString()) {
+            _uri(
+              '/user/profiles/${target.group(1)}/assets/${target.group(2)}',
+            ).toString()) {
       throw const SquareApiException('资料媒体地址必须是当前服务的准确头像或背景路径');
     }
     if (!session.isUsable) {
@@ -2470,14 +2463,6 @@ class SquareApiClient
             path: request.url.path,
             sample: sample,
           );
-          if (data['membergate_state'] is Map<String, dynamic>) {
-            resourceGate?.observe(
-              baseUri.origin,
-              session,
-              data['membergate_state'] as Map<String, dynamic>,
-              sample: sample,
-            );
-          }
         }
       } on FormatException {
         /* 正式解码器负责报告损坏响应。 */
@@ -2663,7 +2648,6 @@ class SquareApiClient
     return SquareMembershipPlan(
       memberLevel: level,
       displayName: name,
-      priceFen: data['price_fen'] == null ? null : quota(data, 'price_fen'),
       fileLimit: quota(plan, 'file_limit'),
       imageBytes: quota(limits, 'image_bytes'),
       imageDimension: quota(limits, 'image_dimension'),
@@ -2799,13 +2783,8 @@ class SquareApiClient
         avatarKey: (data['avatar_key']?.toString().isNotEmpty ?? false)
             ? data['avatar_key'].toString()
             : fallbackAuthor?.avatarKey,
+
         // 作者徽章信号（Worker feed 已按去重作者读链身份+会员回填）。
-        cidLevel: data['cid_level']?.toString() ?? fallbackAuthor?.cidLevel,
-        memberLevel:
-            data['member_level']?.toString() ?? fallbackAuthor?.memberLevel,
-        membergateActive: data.containsKey('membergate_active')
-            ? data['membergate_active'] == true
-            : fallbackAuthor?.membergateActive ?? false,
       ),
       postCategory: _parseCategory(data['post_category']),
       postType: postType,

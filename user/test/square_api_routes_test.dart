@@ -1,6 +1,4 @@
 import 'package:crypto/crypto.dart' show sha256;
-import 'package:citizen_testing/membergate_fixture.dart'
-    show membergatePlanFixture, membergateUsageFixture;
 
 import 'dart:async';
 import 'dart:convert';
@@ -83,7 +81,6 @@ void main() {
     await api.saveUserContact(
       session: session,
       cidNumber: cid,
-      accountId: testMlsAccountId,
       contactRemark: '同事',
     );
     await api.deleteUserContact(session: session, cidNumber: cid);
@@ -94,10 +91,7 @@ void main() {
       '/api/user/contacts/$cid',
     ]);
     expect(sent[0].body, '');
-    expect(jsonDecode(sent[1].body), {
-      'account_id': testMlsAccountId,
-      'contact_remark': '同事',
-    });
+    expect(jsonDecode(sent[1].body), {'contact_remark': '同事'});
     expect(sent[2].body, '');
     expect(signed, sent.map((r) => r.bodyBytes).toList());
   });
@@ -372,46 +366,6 @@ void main() {
     }
   }
 
-  for (final price in [null, 0, 29900, -1, 1.5, true, 9007199254740992]) {
-    test('会员真实价格解析不伪造未知值并拒绝非法数值 $price', () async {
-      final api = SquareApiClient(
-        baseUrl: 'https://square.test/api',
-        httpClient: MockClient(
-          (r) async => http.Response(
-            jsonEncode({
-              'is_ok': true,
-              'membergate_active': false,
-              'membergate': null,
-              'plans': [
-                for (final level in const ['freedom', 'democracy', 'spark'])
-                  membergatePlanFixture(level)..['price_fen'] = price,
-              ],
-              'usage': membergateUsageFixture(),
-            }),
-            200,
-          ),
-        ),
-      );
-      addTearDown(api.close);
-      final state = api.fetchMembership(
-        const SquareSession(
-          deviceId: testMlsDeviceId,
-          sessionToken: 'price',
-          cidNumber: testMlsCidNumber,
-          accountId: testMlsAccountId,
-          bindRev: 1,
-          expiresAt: 9999999999999,
-          authenticateRequest: fakeMlsRequestHeaders,
-        ),
-      );
-      if (price == null ||
-          price is int && price >= 0 && price <= 9007199254740991) {
-        expect((await state).planForLevel('freedom')!.priceFen, price);
-      } else {
-        await expectLater(state, throwsA(isA<SquareApiException>()));
-      }
-    });
-  }
   test('功能API使用实际/api路径；方法、查询及正文与证明完全相同', () async {
     final signed = <({String method, Uri uri, List<int> body})>[],
         sent = <http.Request>[];
@@ -1571,11 +1525,15 @@ void coldIdentityAuthenticationTests() {
         paths.add(r.url.path);
         if (r.url.path.endsWith('/challenges')) {
           expect(r.headers['x-mls-proof'], isNotEmpty);
-          final header = jsonDecode(
-            utf8.decode(
-              base64Url.decode(base64Url.normalize(r.headers['x-mls-proof']!)),
-            ),
-          ) as Map<String, dynamic>;
+          final header =
+              jsonDecode(
+                    utf8.decode(
+                      base64Url.decode(
+                        base64Url.normalize(r.headers['x-mls-proof']!),
+                      ),
+                    ),
+                  )
+                  as Map<String, dynamic>;
           expect(header['request_target'], '/api/user/challenges');
           expect(header['body_hash'], '0x${sha256.convert(r.bodyBytes)}');
           final body = jsonDecode(r.body) as Map<String, dynamic>;
@@ -1613,10 +1571,7 @@ void coldIdentityAuthenticationTests() {
       issuedAt: DateTime.now().millisecondsSinceEpoch,
       bindingSignatureHex: '0x${'11' * 64}',
     );
-    expect(paths, [
-      '/api/user/challenges',
-      '/api/user/devices',
-    ]);
+    expect(paths, ['/api/user/challenges', '/api/user/devices']);
     expect(source.proofCalls, 2);
   });
   test('首次会话挑战明确缺上下文仅恢复一次，不能将会话提交失败当设备缺失', () async {

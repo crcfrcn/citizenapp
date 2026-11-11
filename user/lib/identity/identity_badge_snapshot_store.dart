@@ -9,7 +9,7 @@ import 'package:isar_community/isar.dart';
 import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:citizen_storage/user_isar.dart';
 
-import 'package:citizen_user/identity/citizen_identity_chain_reader.dart';
+import 'package:citizen_chain/citizen_chain.dart';
 
 /// 身份的持久展示快照；完整链数据只供卡片显示，不能用作当前操作的授权结果。
 class IdentityBadgeSnapshot {

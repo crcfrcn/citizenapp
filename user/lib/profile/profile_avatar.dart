@@ -1,3 +1,6 @@
+import 'package:citizen_chain/citizen_chain.dart';
+import 'package:provider/provider.dart';
+
 import 'package:citizen_user/profile/citizen_profile_api.dart';
 
 import 'dart:io';
@@ -10,7 +13,7 @@ import 'package:citizen_user/identity/identity_badge.dart';
 
 /// 用户公开资料统一头像。用户主页与通讯录共用同一套圆角、默认头像和身份徽章，
 /// 避免不同入口把同一个用户展示成两套视觉身份。
-class ProfileAvatar extends StatelessWidget {
+class ProfileAvatar extends StatefulWidget {
   const ProfileAvatar({
     super.key,
     required this.seed,
@@ -54,33 +57,88 @@ class ProfileAvatar extends StatelessWidget {
   final double badgeOverflow;
 
   @override
+  State<ProfileAvatar> createState() => _ProfileAvatarState();
+}
+
+class _ProfileAvatarState extends State<ProfileAvatar> {
+  ChainDataService? _source;
+  VoidCallback? _release;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final source = context.read<ChainDataService?>();
+    if (!identical(source, _source)) {
+      _source?.removeListener(_changed);
+      _release?.call();
+      _source = source;
+      _source?.addListener(_changed);
+      _bind();
+    }
+  }
+
+  @override
+  void didUpdateWidget(ProfileAvatar old) {
+    super.didUpdateWidget(old);
+    if (old.seed != widget.seed || old.showBadge != widget.showBadge) _bind();
+  }
+
+  void _bind() {
+    _release?.call();
+    _release = null;
+    if (widget.showBadge &&
+        RegExp(
+          r'^[A-Z0-9]+-[A-Z0-9]+-[0-9]{9}-[0-9]{4}$',
+        ).hasMatch(widget.seed)) {
+      _release = _source?.watchCitizen(widget.seed);
+    }
+  }
+
+  void _changed() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _release?.call();
+    _source?.removeListener(_changed);
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final radius = borderRadius ?? size * 0.22;
+    final snapshot = _source?.snapshot;
+    final radius = widget.borderRadius ?? widget.size * 0.22;
     final badge = identityBadgeStyle(
-      cidLevel: cidLevel,
-      memberLevel: memberLevel,
-      membergateActive: membergateActive,
+      cidLevel: _source == null ? widget.cidLevel : snapshot?.identityLevel(widget.seed),
+      memberLevel: _source == null
+          ? widget.memberLevel
+          : snapshot?.memberLevel(widget.seed),
+      membergateActive: _source == null
+          ? widget.membergateActive
+          : snapshot?.memberActive(widget.seed) == true,
     );
-    final path = imagePath?.trim();
+    final path = widget.imagePath?.trim();
     final file = path == null || path.isEmpty ? null : File(path);
     final validFile = file?.existsSync() == true;
-    final url = imageUrl?.trim();
+    final url = widget.imageUrl?.trim();
     final hasUserImage =
-        userImageSet ??
-        validFile || imageProvider != null || (url != null && url.isNotEmpty);
+        widget.userImageSet ??
+        validFile ||
+            widget.imageProvider != null ||
+            (url != null && url.isNotEmpty);
     return Stack(
       clipBehavior: Clip.none,
       children: [
         Container(
-          width: size,
-          height: size,
+          width: widget.size,
+          height: widget.size,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(radius + borderWidth),
-            border: borderWidth <= 0
+            borderRadius: BorderRadius.circular(radius + widget.borderWidth),
+            border: widget.borderWidth <= 0
                 ? null
                 : Border.all(
-                    color: borderColor ?? AppTheme.surfaceCard,
-                    width: borderWidth,
+                    color: widget.borderColor ?? AppTheme.surfaceCard,
+                    width: widget.borderWidth,
                   ),
           ),
           child: ClipRRect(
@@ -89,24 +147,25 @@ class ProfileAvatar extends StatelessWidget {
                 ? Image.file(
                     file!,
                     fit: BoxFit.cover,
-                    width: size,
-                    height: size,
+                    width: widget.size,
+                    height: widget.size,
                   )
-                : imageProvider != null || (url != null && url.isNotEmpty)
-                ? imageProvider == null
+                : widget.imageProvider != null ||
+                      (url != null && url.isNotEmpty)
+                ? widget.imageProvider == null
                       ? CitizenRemoteImage(
                           url: url!,
                           role: Uri.parse(url).path.contains('/cards/')
                               ? 'card'
                               : 'avatar',
-                          width: size,
-                          height: size,
+                          width: widget.size,
+                          height: widget.size,
                         )
                       : Image(
-                          image: imageProvider!,
+                          image: widget.imageProvider!,
                           fit: BoxFit.cover,
-                          width: size,
-                          height: size,
+                          width: widget.size,
+                          height: widget.size,
                           frameBuilder: (context, child, frame, syncLoaded) =>
                               syncLoaded || frame != null
                               ? child
@@ -116,19 +175,19 @@ class ProfileAvatar extends StatelessWidget {
                         )
                 : hasUserImage
                 ? const _UserImagePlaceholder()
-                : _StableDefaultAvatar(seed: seed, size: size),
+                : _StableDefaultAvatar(seed: widget.seed, size: widget.size),
           ),
         ),
-        if (showBadge && badge != null)
+        if (widget.showBadge && badge != null)
           Positioned(
-            right: -badgeOverflow,
-            bottom: -badgeOverflow,
+            right: -widget.badgeOverflow,
+            bottom: -widget.badgeOverflow,
             child: IdentityBadge(
               style: badge,
-              size: (size * 0.34).clamp(18, 28),
+              size: (widget.size * 0.34).clamp(18, 28),
               tooltip: identityBadgeLabel(
-                cidLevel: cidLevel,
-                memberLevel: memberLevel,
+                cidLevel: widget.cidLevel,
+                memberLevel: widget.memberLevel,
                 checked: badge.checked,
               ),
             ),

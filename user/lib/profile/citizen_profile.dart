@@ -77,8 +77,9 @@ class CitizenProfile {
   /// `display_name` 是公开昵称唯一真源；缺失时按 CID（无 CID 才按账户）
   /// 生成稳定默认昵称，绝不把钱包名、完整账户或截断账户当昵称。
   String get resolvedDisplayName {
-    return ProfilePresentation.forIdentityKey(cidNumber ?? accountId)
-        .resolveDisplayName(publicName: displayName);
+    return ProfilePresentation.forIdentityKey(
+      cidNumber ?? accountId,
+    ).resolveDisplayName(publicName: displayName);
   }
 
   factory CitizenProfile.fromJson(Map<String, dynamic> json) {
@@ -97,16 +98,16 @@ class CitizenProfile {
     }
     final countsMap = counts;
     return CitizenProfile(
-      accountId: _asString(json['account_id']),
+      accountId: '',
       displayName: _asString(json['display_name']),
       profileBio: _asString(json['profile_bio']),
       avatarKey: _asNullableString(json['avatar_key']),
       bannerKey: _asNullableString(json['banner_key']),
       cidNumber: _asNullableString(json['cid_number']),
-      isCertified: json['is_certified'] == true,
-      cidLevel: _asIdentityLevel(json['cid_level']),
-      memberLevel: _asMembershipLevel(json['member_level']),
-      membergateActive: json['membergate_active'] == true,
+      isCertified: false,
+      cidLevel: 'visitor',
+      memberLevel: null,
+      membergateActive: false,
       following: _asInt(countsMap['following']),
       followers: _asInt(countsMap['followers']),
       mutualFollowing: _asInt(countsMap['mutual_following']),
@@ -122,16 +123,11 @@ class CitizenProfile {
   }
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-    'account_id': accountId,
     'display_name': displayName,
     'profile_bio': profileBio,
     'avatar_key': avatarKey,
     'banner_key': bannerKey,
     'cid_number': cidNumber,
-    'is_certified': isCertified,
-    'cid_level': cidLevel,
-    'member_level': memberLevel,
-    'membergate_active': membergateActive,
     'counts': <String, dynamic>{
       'following': following,
       'followers': followers,
@@ -223,26 +219,6 @@ String? _asNullableString(Object? value) {
   return normalized.isEmpty ? null : normalized;
 }
 
-/// 归一化链上身份档位；未知/缺失一律 visitor（fail-closed，不误判认证）。
-String _asIdentityLevel(Object? value) {
-  final normalized = value?.toString().trim();
-  return (normalized == 'voting' || normalized == 'candidate')
-      ? normalized!
-      : 'visitor';
-}
-
-/// 归一化会员档位；未知/缺失/未购买 → null（不给勾）。
-/// 会员三档 = freedom / democracy / spark；ADR-037 规定会员与链上身份档彻底解耦，
-/// voting / candidate 是身份档（cid_level），绝不能出现在会员白名单里。
-String? _asMembershipLevel(Object? value) {
-  final normalized = value?.toString().trim();
-  return (normalized == 'freedom' ||
-          normalized == 'democracy' ||
-          normalized == 'spark')
-      ? normalized
-      : null;
-}
-
 int _asInt(Object? value) {
   if (value is int) return value;
   if (value is num) return value.toInt();
@@ -253,17 +229,17 @@ int _asInt(Object? value) {
 final class CitizenProfileCard extends CitizenProfile {
   CitizenProfileCard(Map<String, dynamic> card)
     : super(
-        accountId: card['account_id'] as String,
+        accountId: '',
         cidNumber: card['cid_number'] as String,
         displayName: card['display_name'] as String,
         avatarKey: card['avatar_key'] as String?,
         profileAt: card['profile_at'] as int,
         profileBio: '',
         bannerKey: null,
-        isCertified: card['is_certified'] == true,
-        cidLevel: card['cid_level'] as String? ?? 'visitor',
-        memberLevel: card['member_level'] as String?,
-        membergateActive: card['membergate_active'] == true,
+        isCertified: false,
+        cidLevel: 'visitor',
+        memberLevel: null,
+        membergateActive: false,
         following: 0,
         followers: 0,
         mutualFollowing: 0,

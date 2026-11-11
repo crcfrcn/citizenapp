@@ -400,23 +400,14 @@ class _ChatTabState extends State<ChatTab> {
     }
   }
 
-  /// 打开聊天只读取展示、复用普通会话；附件动作才按需读取唯一会员缓存。
+  /// 打开聊天复用普通会话；附件动作单独读取服务端资源许可。
   Future<void> _ensureChatEntitlement(
     String cidNumber,
     int reloadGeneration,
   ) async {
     if (cidNumber.isEmpty) return;
-    final subscriptionService = _subscriptionService;
     final sessionProvider = _sessionProvider;
-    if (subscriptionService == null || sessionProvider == null) return;
-    // 展示先恢复上一次服务端确认的本地快照，避免每次进入页面先显示无会员；
-    // 展示不授予附件权限；打开聊天不为此发GET会员。
-    await subscriptionService.readDisplaySnapshot(cidNumber);
-    if (mounted &&
-        reloadGeneration == _reloadGeneration &&
-        cidNumber == _cidNumber) {
-      setState(() {});
-    }
+    if (sessionProvider == null || _subscriptionService == null) return;
     if (!mounted ||
         reloadGeneration != _reloadGeneration ||
         cidNumber != _cidNumber) {

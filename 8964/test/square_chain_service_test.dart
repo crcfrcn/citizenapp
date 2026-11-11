@@ -9,7 +9,7 @@ import 'package:polkadart/scale_codec.dart' show CompactBigIntCodec;
 
 import 'package:citizen_square/compose/square_chain_service.dart';
 import 'package:citizen_square/post/square_models.dart';
-import 'package:citizen_user/identity/citizen_identity_chain_reader.dart';
+import 'package:citizen_chain/citizen_chain.dart';
 
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 
@@ -312,7 +312,7 @@ class _FakeIdentityReader extends CitizenIdentityChainReader {
 
   @override
   Future<CitizenIdentityChainSnapshot?> readByAccountId(
-    String accountAddress,
+    String accountAddress, {CitizenBlockRef? at}
   ) async => snapshot;
 }
 
