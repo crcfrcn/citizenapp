@@ -140,13 +140,19 @@ function release(platform,environment) {
 }
 
 // TATA.md 第 28 条：同平台保留最近成功和失败各一条，活动 Run 不清理。
-function cleanup(platform,environment) {
+async function cleanup(platform,environment) {
     const current=Number(environment.GITHUB_RUN_ID), platformPrefix=prefix(platform);
-    const gone=path=>{
-        const result=spawnSync('gh',['api','--method','GET','--include','--silent',repository(environment,path)],
-            {env:environment,encoding:'utf8',maxBuffer:16*1024*1024});
-        const status=/^HTTP\/[0-9.]+[ \t]+([0-9]{3})(?:[ \t]|$)/m.exec([result.stdout,result.stderr].filter(Boolean).join('\n'))?.[1];
-        check(result.status>0 && status==='404','无法确认对象已删除：'+path);
+    const gone=async path=>{
+        // 删除顺序与保留规则不变；仅给远端删除状态最多三次只读确认。
+        for(let attempt=0;attempt<3;attempt++){
+            const result=spawnSync('gh',['api','--method','GET','--include','--silent',repository(environment,path)],
+                {env:environment,encoding:'utf8',maxBuffer:16*1024*1024});
+            const headers=[result.stdout,result.stderr].filter(Boolean).join('\n');
+            const status=[...headers.matchAll(/^HTTP\/[0-9.]+[ \t]+([0-9]{3})(?:[ \t\r]|$)/gm)].at(-1)?.[1];
+            if(result.status>0 && status==='404')return;
+            check(result.status===0 && status==='200' && attempt<2,'无法确认对象已删除：'+path+'（HTTP '+(status||'unknown')+'）');
+            await new Promise(resolve=>setTimeout(resolve,500));
+        }
     };
     const list=(path,key)=>pages(environment,path,key);
     const runs=list('actions/workflows/'+platform+'.yml/runs?branch=main&per_page=100','workflow_runs');
@@ -167,18 +173,18 @@ function cleanup(platform,environment) {
             && item.tag_name===platformPrefix+proof.version && item.target_commitish===proof.source_sha,'历史Release回执归属不符');
         const old=runs.find(run=>run.id===proof.run_id);
         if(old) check(old.head_sha===proof.source_sha && old.run_attempt>=proof.run_attempt,'历史Run来源不符');
-        else gone('actions/runs/'+proof.run_id);
+        else await gone('actions/runs/'+proof.run_id);
         if(keep.has(proof.run_id)) continue;
         const tag=tagPath(item.tag_name);
         let ref;
-        try { ref=api(environment,tag); } catch { gone(tag); }
+        try { ref=api(environment,tag); } catch { await gone(tag); }
         if(ref){
             check(isCommit(ref,proof.source_sha),'历史Tag归属不符');
             remove(environment,tag.replace('git/ref/','git/refs/'));
-            gone(tag);
+            await gone(tag);
         }
         remove(environment,'releases/'+item.id);
-        gone('releases/'+item.id);
+        await gone('releases/'+item.id);
     }
     const caches=()=>list('actions/caches?per_page=100','actions_caches');
     const stale=new Set(caches().filter(cache=>cache.ref==='refs/heads/main' && cache.key.startsWith('citizenapp-'+platform+'-'))
@@ -194,9 +200,9 @@ function cleanup(platform,environment) {
         const attachments=list('actions/runs/'+id+'/artifacts?per_page=100','artifacts').map(artifact=>artifact.id);
         check(attachments.every(number),'旧附件编号无效');
         gh(environment,['run','delete',String(id),'--repo',environment.GITHUB_REPOSITORY]);
-        gone('actions/runs/'+id);
-        gone('actions/runs/'+id+'/logs');
-        for(const attachment of attachments) gone('actions/artifacts/'+attachment);
+        await gone('actions/runs/'+id);
+        await gone('actions/runs/'+id+'/logs');
+        for(const attachment of attachments) await gone('actions/artifacts/'+attachment);
     }
     check(list('actions/artifacts?per_page=100','artifacts').every(artifact=>!obsolete.has(artifact.workflow_run?.id)),'旧附件未清理');
     // 无回执的孤立Tag不从Run显示名猜归属。
@@ -320,7 +326,7 @@ async function main([step,platform],environment) {
         case 'manifest': manifest(platform,environment); break;
         case 'release': release(platform,environment); break;
         case 'cleanup-work': cleanupWork(environment); break;
-        case 'cleanup': cleanup(platform,environment); break;
+        case 'cleanup': await cleanup(platform,environment); break;
         default: throw Error('未知公民发布步骤：'+(step||''));
     }
 }
