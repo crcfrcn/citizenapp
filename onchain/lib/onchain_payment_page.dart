@@ -443,6 +443,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     if (mounted) setState(() => _refreshing = true);
     try {
       await _reloadWalletAndLocalRecords();
+      if (!mounted) return;
       final account = _currentWallet;
       if (account != null && widget.balanceLoader == null) {
         await context.read<CitizenSdk>().getAccountBalance(account.accountId);

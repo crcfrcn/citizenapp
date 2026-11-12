@@ -158,7 +158,9 @@ class _UserProfilePageState extends State<UserProfilePage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_dependenciesReady) return;
+    if (_dependenciesReady) {
+      return;
+    }
     _sessionProvider =
         widget.sessionProvider ?? context.read<SquareSessionProvider>();
     final injectedSubscription = widget.subscriptionService;
@@ -207,7 +209,9 @@ class _UserProfilePageState extends State<UserProfilePage> {
         accountRevision == _profileSecurity?.revision.value;
     try {
       final citizen = await _sessionProvider.currentCitizenId();
-      if (!current()) return;
+      if (!current()) {
+        return;
+      }
       if (citizen == null || citizen.isEmpty) {
         throw const SquareApiException('当前公民身份尚未就绪');
       }
@@ -215,27 +219,37 @@ class _UserProfilePageState extends State<UserProfilePage> {
       final self = citizen == widget.cidNumber;
       if (!self) {
         final session = await _ensureSession();
-        if (!current()) return;
+        if (!current()) {
+          return;
+        }
         if (session == null || session.cidNumber != citizen) {
           throw const SquareApiException('当前公民会话不可用');
         }
         // 原资料请求由服务端门禁最终决定；不先GET一遍会员。
       }
-      if (!current()) return;
+      if (!current()) {
+        return;
+      }
       setState(() {
         _verifiedSelf = self;
         _accessAllowed = true;
         _accessReady = self;
         _accessError = null;
       });
-      if (_profile is CitizenProfileCard) _profile = null;
+      if (_profile is CitizenProfileCard) {
+        _profile = null;
+      }
       if (self && _profile != null) {
         unawaited(_loadProfileMedia(_profile!));
       }
       await _load(propagateFailure: true);
-      if (current()) setState(() => _accessReady = true);
+      if (current()) {
+        setState(() => _accessReady = true);
+      }
     } on Object catch (error) {
-      if (!current()) return;
+      if (!current()) {
+        return;
+      }
       setState(() {
         _accessReady = true;
         _accessAllowed = false;
@@ -276,7 +290,9 @@ class _UserProfilePageState extends State<UserProfilePage> {
   }
 
   bool? get _confirmedMembershipActive {
-    if (!_isSelf) return null;
+    if (!_isSelf) {
+      return null;
+    }
     return switch (_membershipDecision) {
       MembershipDisplayDecision.activeConfirmed => true,
       MembershipDisplayDecision.inactiveConfirmed => false,
@@ -297,28 +313,42 @@ class _UserProfilePageState extends State<UserProfilePage> {
   }) async {
     final generation = ++_profileLoadGeneration;
     try {
-      if (!_accessAllowed) return;
+      if (!_accessAllowed) {
+        return;
+      }
       // 他人主页先等原业务请求通过；不得在服务端拒绝前展示旧缓存或发媒体请求。
       final local = _verifiedSelf || localOnly
           ? await _cache.read(widget.cidNumber)
           : null;
-      if (!mounted || generation != _profileLoadGeneration) return;
+      if (!mounted || generation != _profileLoadGeneration) {
+        return;
+      }
       if (local != null && local.cidNumber == widget.cidNumber) {
         setState(() => _profile = local);
         await _loadProfileMedia(local);
       }
-      if (_verifiedSelf || localOnly) return;
+      if (_verifiedSelf || localOnly) {
+        return;
+      }
       // 他人公开主页仍按用户本次访问读取远端；不将本人私有副本用于他人页面。
       final session = await _ensureSession();
       final fresh = await _api.fetchProfile(widget.cidNumber, session: session);
-      if (!mounted || generation != _profileLoadGeneration) return;
+      if (!mounted || generation != _profileLoadGeneration) {
+        return;
+      }
       await _cache.write(fresh);
-      if (!mounted || generation != _profileLoadGeneration) return;
+      if (!mounted || generation != _profileLoadGeneration) {
+        return;
+      }
       setState(() => _profile = fresh);
       await _loadProfileMedia(fresh);
     } catch (_) {
-      if (propagateFailure) rethrow;
-      if (mounted && _profile == null) _snack('内容加载失败，请下拉刷新');
+      if (propagateFailure) {
+        rethrow;
+      }
+      if (mounted && _profile == null) {
+        _snack('内容加载失败，请下拉刷新');
+      }
     }
   }
 
@@ -329,20 +359,26 @@ class _UserProfilePageState extends State<UserProfilePage> {
   ) async {
     try {
       await _subscriptionService!.requireSquareAccess(session);
-      if (!current()) return;
+      if (!current()) {
+        return;
+      }
       await SquarePostSyncService().sync(
         session,
         userInitiated: true,
         isCurrent: current,
       );
     } on SquareApiException catch (error) {
-      if (error.errorCode != 'square_membergate_required') rethrow;
+      if (error.errorCode != 'square_membergate_required') {
+        rethrow;
+      }
     }
   }
 
   Future<void> _refresh() async {
     // 资料刷新与关系写入互斥，避免复用写入前已发出的旧资料请求。
-    if (_refreshing || _followBusy) return;
+    if (_refreshing || _followBusy) {
+      return;
+    }
     setState(() {
       _refreshing = true;
       _contentRefreshFailed = false;
@@ -352,7 +388,9 @@ class _UserProfilePageState extends State<UserProfilePage> {
       // 服务不可用也必须先重读本地；本人普通进入依旧只读本地，不隐式同步。
       await _load(localOnly: true, propagateFailure: true);
       final session = await _ensureSession(refresh: true);
-      if (session == null) throw StateError('当前无法建立服务会话');
+      if (session == null) {
+        throw StateError('当前无法建立服务会话');
+      }
       if (_isSelf && session.cidNumber != widget.cidNumber) {
         throw StateError('当前用户已变化');
       }
@@ -373,10 +411,16 @@ class _UserProfilePageState extends State<UserProfilePage> {
         if (_isSelf && _subscriptionService != null)
           _syncMemberCloudPosts(session, current),
       ]);
-      if (!current()) return;
+      if (!current()) {
+        return;
+      }
       await _load(localOnly: true, propagateFailure: true);
-      if (_isSelf) await _api.fetchLocalPublishedPosts(widget.cidNumber);
-      if (!current()) return;
+      if (_isSelf) {
+        await _api.fetchLocalPublishedPosts(widget.cidNumber);
+      }
+      if (!current()) {
+        return;
+      }
       if (mounted) {
         setState(() => _postsRevision++);
         _snack('刷新完成');
@@ -387,7 +431,9 @@ class _UserProfilePageState extends State<UserProfilePage> {
         _snack('内容加载失败，请下拉刷新');
       }
     } finally {
-      if (mounted) setState(() => _refreshing = false);
+      if (mounted) {
+        setState(() => _refreshing = false);
+      }
     }
   }
 
@@ -408,13 +454,17 @@ class _UserProfilePageState extends State<UserProfilePage> {
   /// [_sessionResolved] 保持 false，让帖子 Tab 等待而不是用 null 抢跑请求 Worker。
   Future<SquareSession?> _ensureSession({bool refresh = false}) {
     final pending = _sessionFuture;
-    if (pending != null) return pending;
+    if (pending != null) {
+      return pending;
+    }
     if (refresh && mounted) {
       setState(() => _sessionResolved = false);
     }
     late final Future<SquareSession?> future;
     future = _resolveSession(refresh).whenComplete(() {
-      if (identical(_sessionFuture, future)) _sessionFuture = null;
+      if (identical(_sessionFuture, future)) {
+        _sessionFuture = null;
+      }
     });
     _sessionFuture = future;
     return future;
@@ -446,12 +496,16 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
   Future<void> _toggleFollow() async {
     final before = _profile;
-    if (before == null || _followBusy || _refreshing) return;
+    if (before == null || _followBusy || _refreshing) {
+      return;
+    }
     final target = widget.cidNumber;
     setState(() => _followBusy = true);
     try {
       final session = _session ?? await _ensureSession();
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       if (session == null) {
         _snack(_sessionStatus?.message ?? '公民服务暂时不可用，请稍后重试');
         return;
@@ -466,7 +520,9 @@ class _UserProfilePageState extends State<UserProfilePage> {
           _session?.cidNumber == session.cidNumber &&
           _session?.accountId == session.accountId &&
           _session?.bindRev == session.bindRev;
-      if (!current()) return;
+      if (!current()) {
+        return;
+      }
       final wasFollowing = before.isFollowing;
       // 只即时切换关系图标；三项计数不手算，等待同一次服务端资料确认。
       setState(
@@ -495,13 +551,19 @@ class _UserProfilePageState extends State<UserProfilePage> {
           userInitiated: true,
           isCurrent: current,
         );
-        if (current()) setState(() => _profile = fresh);
+        if (current()) {
+          setState(() => _profile = fresh);
+        }
       } on Exception {
         // 写入已经成功，资料回读失败不能反向撤销用户的关注/取关。
-        if (current()) _snack('关注已更新，资料刷新失败，请下拉刷新');
+        if (current()) {
+          _snack('关注已更新，资料刷新失败，请下拉刷新');
+        }
       }
     } finally {
-      if (mounted) setState(() => _followBusy = false);
+      if (mounted) {
+        setState(() => _followBusy = false);
+      }
     }
   }
 
@@ -509,13 +571,17 @@ class _UserProfilePageState extends State<UserProfilePage> {
   /// 关注后铃铛按用户静音/取消静音，静音不影响其内容在关注流展示。
   Future<void> _toggleNotify() async {
     final current = _profile;
-    if (current == null) return;
+    if (current == null) {
+      return;
+    }
     if (!current.isFollowing) {
       _snack('请先关注 TA 再开启通知');
       return;
     }
     final session = _session ?? await _ensureSession();
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     if (session == null) {
       _snack(_sessionStatus?.message ?? '公民服务暂时不可用，请稍后重试');
       return;
@@ -532,7 +598,9 @@ class _UserProfilePageState extends State<UserProfilePage> {
         enabled: !wasNotifying,
       );
     } on Exception {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() => _profile = current); // 失败回滚。
       _snack('操作失败，请重试');
     }
@@ -550,7 +618,9 @@ class _UserProfilePageState extends State<UserProfilePage> {
         ),
       ),
     );
-    if (updated == null || !mounted) return;
+    if (updated == null || !mounted) {
+      return;
+    }
     setState(() => _profile = updated);
     await _loadProfileMedia(updated);
   }
@@ -561,7 +631,9 @@ class _UserProfilePageState extends State<UserProfilePage> {
     // 注销目标始终是页面永久 CID；本机已验证绑定账户完成
     // 会话与主钥签名授权，Worker 会再用 finalized 链双向绑定复核，不能决定删除范围。
     final local = await context.read<CurrentUserContext?>()?.resolve();
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     final selfAccountId = local?.cidNumber == widget.cidNumber
         ? local?.binding?.accountId ?? ''
         : '';
@@ -571,7 +643,9 @@ class _UserProfilePageState extends State<UserProfilePage> {
     }
     final sdk = context.read<CitizenSdk>();
     final walletState = await sdk.getWalletState().result;
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     if (!walletState.accounts.any(
       (account) => account.accountId == selfAccountId,
     )) {
@@ -597,12 +671,16 @@ class _UserProfilePageState extends State<UserProfilePage> {
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
+    if (confirmed != true || !mounted) {
+      return;
+    }
 
     try {
       final users = context.read<CurrentUserContext>();
       final binding = (await users.resolve())?.binding;
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       if (binding == null ||
           binding.cidNumber != widget.cidNumber ||
           binding.accountId != selfAccountId) {
@@ -631,28 +709,40 @@ class _UserProfilePageState extends State<UserProfilePage> {
             '0x${bytesToHex(await signCitizenPayload(signing: sdk, context: context, accountId: selfAccountId, payload: message, action: CitizenQrActions.squareAccountAction))}',
       );
     } on SquareAccountDeletionPendingException catch (e) {
-      if (mounted) _snack(e.message);
+      if (mounted) {
+        _snack(e.message);
+      }
       return;
     } on SquareAccountLocalCleanupException catch (e) {
       // Worker 已经完成不可逆注销；此时不能误报“注销失败”诱导用户重复提交。
-      if (mounted) _snack(e.toString());
+      if (mounted) {
+        _snack(e.toString());
+      }
       if (mounted) {
         Navigator.of(context).popUntil((route) => route.isFirst);
       }
       return;
     } on SquareApiException catch (e) {
-      if (mounted) _snack('注销失败：${e.message}');
+      if (mounted) {
+        _snack('注销失败：${e.message}');
+      }
       return;
     } on CitizenSdkException catch (e) {
-      if (mounted) _snack('注销已取消：${e.message}');
+      if (mounted) {
+        _snack('注销已取消：${e.message}');
+      }
       return;
     } on Exception catch (e) {
       // 兜底：注销签名的任何异常都必须有反馈，永不静默。
-      if (mounted) _snack('注销失败：$e');
+      if (mounted) {
+        _snack('注销失败：$e');
+      }
       return;
     }
 
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     _snack('账户已注销');
     Navigator.of(context).popUntil((route) => route.isFirst);
   }
@@ -664,12 +754,15 @@ class _UserProfilePageState extends State<UserProfilePage> {
     try {
       final data = await source?.ensureCitizen(widget.cidNumber);
       final identity = data?.citizens[widget.cidNumber]?.identity;
-      if (identity != null)
+      if (identity != null) {
         accountId = citizenAccountIdFromBytes(identity.accountId);
+      }
     } on Object {
       /* 不用缓存或服务端资料补填当前绑定。 */
     }
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     if (accountId.isEmpty) {
       _snack('轻节点绑定尚未核验，请刷新重试');
       return;
@@ -680,7 +773,9 @@ class _UserProfilePageState extends State<UserProfilePage> {
         accountId: accountId,
       ),
     );
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => UserQrPage(
@@ -705,7 +800,9 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
   Future<void> _openFollows(FollowsType type) async {
     final session = await _ensureSession();
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     if (session == null) {
       _snack(
         _sessionStatus == SquareSessionStatus.noWallet
@@ -747,14 +844,20 @@ class _UserProfilePageState extends State<UserProfilePage> {
       fit: BoxFit.cover,
     );
     final objectKey = _profile?.bannerKey?.trim();
-    if (objectKey == null || objectKey.isEmpty) return fallback;
+    if (objectKey == null || objectKey.isEmpty) {
+      return fallback;
+    }
     final path = _profileMedia.bannerPath;
     if (path != null && File(path).existsSync()) {
       return Image.file(File(path), fit: BoxFit.cover);
     }
-    if (_isSelf) return const ColoredBox(color: AppTheme.surfaceMuted);
+    if (_isSelf) {
+      return const ColoredBox(color: AppTheme.surfaceMuted);
+    }
     final session = _session;
-    if (session == null) return const ColoredBox(color: AppTheme.surfaceMuted);
+    if (session == null) {
+      return const ColoredBox(color: AppTheme.surfaceMuted);
+    }
     return Image(
       image: _api.mediaImage(
         objectKey,
@@ -773,9 +876,13 @@ class _UserProfilePageState extends State<UserProfilePage> {
   /// 他人主页的创作者订阅入口：SquarePost 以公民 CID 为创作者唯一主键。
   /// 本人主页不显示；CID 不因换绑改变，因此换绑不会重建或丢失订阅态。
   Widget? _creatorSubscribeButton() {
-    if (_isSelf) return null;
+    if (_isSelf) {
+      return null;
+    }
     final creatorCid = widget.cidNumber.trim();
-    if (creatorCid.isEmpty) return null;
+    if (creatorCid.isEmpty) {
+      return null;
+    }
     return CreatorSubscribeButton(
       key: ValueKey<String>('creator-subscribe:$creatorCid'),
       creatorCid: creatorCid,

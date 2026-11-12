@@ -94,13 +94,16 @@ class CreatorSubscribeService {
   ) async {
     await _retryRegistrations(session);
     final source = _chainData;
-    if (source == null) throw const CreatorApiException('轻节点创作者读取不可用');
+    if (source == null) {
+      throw const CreatorApiException('轻节点创作者读取不可用');
+    }
     final data = await source.ensureCitizen(creatorCid, creator: true);
     await session.validateCurrent();
     if (data.accountId != session.accountId ||
         data.ownCid != session.cidNumber ||
-        data.own?.identity?.bindRev != session.bindRev)
+        data.own?.identity?.bindRev != session.bindRev) {
       throw const CreatorApiException('当前账户已变化');
+    }
     final target = data.citizens[creatorCid]!,
         state = data.subscriptions[creatorCid];
     return CreatorView(
@@ -211,7 +214,9 @@ class CreatorSubscribeService {
     BuildContext? context,
     CitizenTransactionExternalSigningPending pending,
   ) {
-    if (context == null || !context.mounted) return Future<String?>.value();
+    if (context == null || !context.mounted) {
+      return Future<String?>.value();
+    }
     return showCitizenSdkQrResponse(
       context,
       request: pending.qrRequest,
@@ -237,11 +242,15 @@ class CreatorSubscribeService {
     required int finalBlock,
   }) async {
     final key = '$cidNumber:$creatorCid';
-    if (_registered.contains(key)) return;
+    if (_registered.contains(key)) {
+      return;
+    }
     await Member.pendCreator(cidNumber, creatorCid, finalBlock);
     try {
       final s = await _session.ensureSession();
-      if (s != null && s.cidNumber == cidNumber) await _retryRegistrations(s);
+      if (s != null && s.cidNumber == cidNumber) {
+        await _retryRegistrations(s);
+      }
     } on Exception {
       /* 已上链，仅待下一次真实会话重试登记。 */
     }
@@ -250,11 +259,14 @@ class CreatorSubscribeService {
   final Map<SquareSession, Future<void>> _registrations = {};
   Future<void> _retryRegistrations(SquareSession session) {
     final pending = _registrations[session];
-    if (pending != null) return pending;
+    if (pending != null) {
+      return pending;
+    }
     late final Future<void> work;
     work = _sendRegistrations(session).whenComplete(() {
-      if (identical(_registrations[session], work))
+      if (identical(_registrations[session], work)) {
         _registrations.remove(session);
+      }
     });
     return _registrations[session] = work;
   }

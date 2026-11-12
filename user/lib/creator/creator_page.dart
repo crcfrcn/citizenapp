@@ -81,7 +81,9 @@ class _CreatorPageState extends State<CreatorPage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_dependenciesReady) return;
+    if (_dependenciesReady) {
+      return;
+    }
     _chainData = context.read<ChainDataService?>();
     _chainData?.addListener(_onChainData);
     final injected = widget._service;
@@ -117,7 +119,9 @@ class _CreatorPageState extends State<CreatorPage> {
 
   /// 注册可能发生在任意常驻页；finalized 身份广播后，本页必须原地退出注册引导。
   void _onIdentityChanged() {
-    if (mounted) unawaited(_bootstrap());
+    if (mounted) {
+      unawaited(_bootstrap());
+    }
   }
 
   VoidCallback? _releaseCreator;
@@ -136,8 +140,9 @@ class _CreatorPageState extends State<CreatorPage> {
         data == null ||
         _chainData!.isStale ||
         data.ownCid != _cidNumber ||
-        data.own?.creatorTiers == null)
+        data.own?.creatorTiers == null) {
       return;
+    }
     setState(
       () => _data = data.memberActive(_cidNumber)
           ? CreatorPageData.active(
@@ -171,8 +176,9 @@ class _CreatorPageState extends State<CreatorPage> {
     if (!mounted ||
         cid != _cidNumber ||
         restored == null ||
-        _data?.gated == true)
+        _data?.gated == true) {
       return;
+    }
     setState(() {
       _overviewResolved = true;
       _data = CreatorPageData.active(plan: _data?.plan, overview: restored);
@@ -181,11 +187,15 @@ class _CreatorPageState extends State<CreatorPage> {
 
   Future<void> _bootstrap() async {
     final generation = ++_loadGeneration;
-    if (_identityConfirmed) setState(() => _identityConfirmed = false);
+    if (_identityConfirmed) {
+      setState(() => _identityConfirmed = false);
+    }
     _businessReady = false;
     try {
       final decision = await context.read<CidBusinessGate>().resolve();
-      if (!mounted || generation != _loadGeneration) return;
+      if (!mounted || generation != _loadGeneration) {
+        return;
+      }
       if (decision.status == CidBusinessStatus.unregistered) {
         setState(() {
           _identityConfirmed = true;
@@ -230,7 +240,9 @@ class _CreatorPageState extends State<CreatorPage> {
       _onChainData();
       await _restoreOverview();
     } on Exception catch (e) {
-      if (!mounted || generation != _loadGeneration) return;
+      if (!mounted || generation != _loadGeneration) {
+        return;
+      }
       setState(() {
         if (!_identityConfirmed) {
           _identityConfirmed = true;
@@ -248,10 +260,14 @@ class _CreatorPageState extends State<CreatorPage> {
   }
 
   Future<void> _refresh({required bool forceVisibleError}) async {
-    if (!_businessReady) return;
+    if (!_businessReady) {
+      return;
+    }
     final owner = ++_loadGeneration;
     final cidNumber = _cidNumber;
-    if (cidNumber.isEmpty) return;
+    if (cidNumber.isEmpty) {
+      return;
+    }
     try {
       final data = await _service.load(expectedCidNumber: cidNumber);
       if (!mounted || owner != _loadGeneration || cidNumber != _cidNumber) {
@@ -388,7 +404,9 @@ class _CreatorPageState extends State<CreatorPage> {
               CreatorTierCard(
                 tier: tier,
                 onEdit: () {
-                  if (resolved) _openEdit(tier);
+                  if (resolved) {
+                    _openEdit(tier);
+                  }
                 },
               ),
               SizedBox(height: AppLayout.scaledValue(12)),
@@ -627,6 +645,8 @@ class _CreatorPageState extends State<CreatorPage> {
       context,
     ).push(MaterialPageRoute(builder: (_) => const MembershipPage()));
     // 仅浏览会员页再返回不代表用户请求刷新；实际会员动作已有独立广播。
-    if (mounted) await _bootstrap();
+    if (mounted) {
+      await _bootstrap();
+    }
   }
 }

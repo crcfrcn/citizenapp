@@ -291,6 +291,7 @@ class _AccountDetailPageState extends State<AccountDetailPage>
     await Future.wait<void>([
       Future(() async {
         try {
+          if (!mounted) return;
           await context.read<CitizenSdk>().getAccountBalance(
             widget.account.accountId,
           );

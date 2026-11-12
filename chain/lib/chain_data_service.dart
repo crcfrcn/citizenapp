@@ -23,7 +23,9 @@ class ChainDataService extends ChangeNotifier {
   static final _instances = Expando<ChainDataService>();
   static ChainDataService forSdk(CitizenSdk sdk) {
     final existing = _instances[sdk];
-    if (existing != null && !existing._closed) return existing;
+    if (existing != null && !existing._closed) {
+      return existing;
+    }
     return _instances[sdk] = ChainDataService(
       reader: ChainDataReader(
         getRuntimeContext: sdk.getRuntimeContext,
@@ -66,7 +68,9 @@ class ChainDataService extends ChangeNotifier {
   Completer<ChainDataSnapshot?>? _completion;
 
   Future<void> start() async {
-    if (_closed) throw StateError('同步器已关闭');
+    if (_closed) {
+      throw StateError('同步器已关闭');
+    }
     if (!_started) {
       _started = true;
       _subscription = _events?.listen(_event);
@@ -75,7 +79,9 @@ class ChainDataService extends ChangeNotifier {
   }
 
   void _event(CitizenSdkEvent event) {
-    if (_closed) return;
+    if (_closed) {
+      return;
+    }
     if (event is CitizenSdkWalletChanged) {
       _generation++;
       _activeAccount = null;
@@ -86,8 +92,9 @@ class ChainDataService extends ChangeNotifier {
       _pending = null;
       _flight = null;
       final pending = _completion;
-      if (pending != null && !pending.isCompleted)
+      if (pending != null && !pending.isCompleted) {
         pending.completeError(StateError('账户已变化'));
+      }
       _completion = null;
       _refresh = null;
       notifyListeners();
@@ -100,7 +107,9 @@ class ChainDataService extends ChangeNotifier {
   }
 
   void _backgroundRefresh() {
-    if (_foreground) unawaited(refresh().catchError((Object _) => _snapshot));
+    if (_foreground) {
+      unawaited(refresh().catchError((Object _) => _snapshot));
+    }
   }
 
   int _priceWatchers = 0;
@@ -108,7 +117,9 @@ class ChainDataService extends ChangeNotifier {
     _priceWatchers++;
     if (_snapshot?.pricesLoaded != true) {
       _again = true;
-      if (_foreground && _started) _backgroundRefresh();
+      if (_foreground && _started) {
+        _backgroundRefresh();
+      }
     }
     var released = false;
     return () {
@@ -131,7 +142,9 @@ class ChainDataService extends ChangeNotifier {
   VoidCallback watchCitizen(String cid) => _watch(_citizens, cid);
   VoidCallback watchCreator(String cid) => _watch(_creators, cid);
   VoidCallback _watch(Map<String, int> values, String cid) {
-    if (cid.trim().isEmpty) throw ArgumentError('CID为空');
+    if (cid.trim().isEmpty) {
+      throw ArgumentError('CID为空');
+    }
     values[cid] = (values[cid] ?? 0) + 1;
     final covered = identical(values, _creators)
         ? _snapshot?.subscriptions.containsKey(cid) == true &&
@@ -139,17 +152,22 @@ class ChainDataService extends ChangeNotifier {
         : _snapshot?.citizens.containsKey(cid) == true;
     if (!covered || isStale) {
       _again = true;
-      if (_foreground && _started) _backgroundRefresh();
+      if (_foreground && _started) {
+        _backgroundRefresh();
+      }
     }
     bool released = false;
     return () {
-      if (released) return;
+      if (released) {
+        return;
+      }
       released = true;
       final count = (values[cid] ?? 1) - 1;
-      if (count <= 0)
+      if (count <= 0) {
         values.remove(cid);
-      else
+      } else {
         values[cid] = count;
+      }
     };
   }
 
@@ -163,8 +181,9 @@ class ChainDataService extends ChangeNotifier {
       creator: creator,
       candidates: candidates,
     );
-    if (_closed || owner != _generation || account != _activeAccount)
+    if (_closed || owner != _generation || account != _activeAccount) {
       throw StateError('统计期间账户变化');
+    }
     return summary;
   }
 
@@ -188,27 +207,39 @@ class ChainDataService extends ChangeNotifier {
   }
 
   Future<ChainDataSnapshot?> refresh() {
-    if (_closed) return Future.error(StateError('同步器已关闭'));
+    if (_closed) {
+      return Future.error(StateError('同步器已关闭'));
+    }
     final existing = _refresh;
-    if (existing != null) return existing;
+    if (existing != null) {
+      return existing;
+    }
     final done = Completer<ChainDataSnapshot?>();
     final work = done.future;
     _refresh = work;
     _completion = done;
     void finish() {
-      if (identical(_refresh, work)) _refresh = null;
-      if (identical(_completion, done)) _completion = null;
+      if (identical(_refresh, work)) {
+        _refresh = null;
+      }
+      if (identical(_completion, done)) {
+        _completion = null;
+      }
     }
 
     unawaited(
       _refreshHead().then<void>(
         (value) {
           finish();
-          if (!done.isCompleted) done.complete(value);
+          if (!done.isCompleted) {
+            done.complete(value);
+          }
         },
         onError: (Object error, StackTrace stack) {
           finish();
-          if (!done.isCompleted) done.completeError(error, stack);
+          if (!done.isCompleted) {
+            done.completeError(error, stack);
+          }
         },
       ),
     );
@@ -220,7 +251,9 @@ class ChainDataService extends ChangeNotifier {
     try {
       final generation = _generation;
       final account = await _account();
-      if (_closed || generation != _generation) throw StateError('账户已变化');
+      if (_closed || generation != _generation) {
+        throw StateError('账户已变化');
+      }
       if (account != _activeAccount) {
         _generation++;
         _activeAccount = account;
@@ -236,7 +269,9 @@ class ChainDataService extends ChangeNotifier {
       }
       owner = _generation;
       final scope = await _genesis();
-      if (_closed || owner != _generation) throw StateError('账户已变化');
+      if (_closed || owner != _generation) {
+        throw StateError('账户已变化');
+      }
       _scope = scope;
       if (!_restored) {
         _restored = true;
@@ -254,7 +289,9 @@ class ChainDataService extends ChangeNotifier {
         }
       }
       final head = await _head();
-      if (_closed || owner != _generation) throw StateError('账户已变化');
+      if (_closed || owner != _generation) {
+        throw StateError('账户已变化');
+      }
       if (!_foreground) {
         _latest = head;
         throw StateError('应用已进入后台');
@@ -263,8 +300,12 @@ class ChainDataService extends ChangeNotifier {
       while (_flight != null) {
         await _flight;
       }
-      if (_closed || owner != _generation) throw StateError('账户已变化');
-      if (_error != null) throw StateError('轻节点读取失败');
+      if (_closed || owner != _generation) {
+        throw StateError('账户已变化');
+      }
+      if (_error != null) {
+        throw StateError('轻节点读取失败');
+      }
       return _snapshot;
     } on Object catch (e) {
       if (!_closed && owner == _generation) {
@@ -276,9 +317,13 @@ class ChainDataService extends ChangeNotifier {
   }
 
   void _enqueue(CitizenBlockRef block) {
-    if (_closed || block.finality != CitizenBlockFinality.finalized) return;
+    if (_closed || block.finality != CitizenBlockFinality.finalized) {
+      return;
+    }
     final previous = _latest;
-    if (previous != null && block.number < previous.number) return;
+    if (previous != null && block.number < previous.number) {
+      return;
+    }
     if (previous != null &&
         block.number == previous.number &&
         block.hash != previous.hash) {
@@ -287,20 +332,28 @@ class ChainDataService extends ChangeNotifier {
       return;
     }
     _latest = block;
-    if (!_foreground || _activeAccount == null || _scope == null) return;
+    if (!_foreground || _activeAccount == null || _scope == null) {
+      return;
+    }
     final covered =
         _snapshot?.block.hash == block.hash &&
         _verified &&
         !_again &&
         _error == null;
-    if (covered) return;
+    if (covered) {
+      return;
+    }
     _pending = block;
     if (_flight == null) {
       late final Future<void> work;
       work = _drain(_generation).whenComplete(() {
-        if (!identical(_flight, work)) return;
+        if (!identical(_flight, work)) {
+          return;
+        }
         _flight = null;
-        if (_pending != null && !_closed && _foreground) _enqueue(_pending!);
+        if (_pending != null && !_closed && _foreground) {
+          _enqueue(_pending!);
+        }
       });
       _flight = work;
     }
@@ -334,7 +387,9 @@ class ChainDataService extends ChangeNotifier {
           creators: _creators.keys.toSet(),
           prices: _priceWatchers > 0,
         );
-        if (!current()) continue;
+        if (!current()) {
+          continue;
+        }
         final changed =
             !_verified ||
             _error != null ||
@@ -346,12 +401,18 @@ class ChainDataService extends ChangeNotifier {
             /* 已验证内存数据仍可使用。 */
           }
         }
-        if (!current()) continue;
+        if (!current()) {
+          continue;
+        }
         _snapshot = value;
         _verified = true;
         _error = null;
-        if (changed) notifyListeners();
-        if (_again) _pending = _latest;
+        if (changed) {
+          notifyListeners();
+        }
+        if (_again) {
+          _pending = _latest;
+        }
       } on Object catch (e) {
         if (current()) {
           _error = e;
@@ -362,7 +423,9 @@ class ChainDataService extends ChangeNotifier {
   }
 
   void setForeground(bool value) {
-    if (_closed || _foreground == value) return;
+    if (_closed || _foreground == value) {
+      return;
+    }
     _foreground = value;
     if (value) {
       _again = true;
@@ -371,12 +434,15 @@ class ChainDataService extends ChangeNotifier {
   }
 
   Future<void> close() async {
-    if (_closed) return;
+    if (_closed) {
+      return;
+    }
     _closed = true;
     _generation++;
     final pending = _completion;
-    if (pending != null && !pending.isCompleted)
+    if (pending != null && !pending.isCompleted) {
       pending.completeError(StateError('同步器已关闭'));
+    }
     _completion = null;
     _refresh = null;
     try {

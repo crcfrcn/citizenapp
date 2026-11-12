@@ -438,11 +438,14 @@ class Member {
 
   static Future<Map<String, int>> pendingCreators(String cid) async {
     final raw = await readState(cid, 'registration');
-    if (raw == null) return {};
+    if (raw == null) {
+      return {};
+    }
     final value = jsonDecode(raw);
     if (value is! Map<String, dynamic> ||
-        value.values.any((v) => v is! int || v < 0))
+        value.values.any((v) => v is! int || v < 0)) {
       throw const FormatException('登记待办无效');
+    }
     return value.cast<String, int>();
   }
 
@@ -456,7 +459,9 @@ class Member {
               ..bodyData = '{}');
         final value = (jsonDecode(row.bodyData) as Map<String, dynamic>);
         final old = value[creator] as int?;
-        if (old != null && old >= block) return;
+        if (old != null && old >= block) {
+          return;
+        }
         value[creator] = block;
         row.bodyData = jsonEncode(value);
         await db.members.putByCidNumberStateKind(row);
@@ -467,9 +472,13 @@ class Member {
           cid,
           'registration',
         );
-        if (row == null) return;
+        if (row == null) {
+          return;
+        }
         final value = jsonDecode(row.bodyData) as Map<String, dynamic>;
-        if (!value.containsKey(creator)) return;
+        if (!value.containsKey(creator)) {
+          return;
+        }
         value.remove(creator);
         if (value.isEmpty) {
           await db.members.delete(row.rowId);
@@ -496,15 +505,23 @@ class Creator {
     Map<String, dynamic> value,
     bool Function() current,
   ) => UserIsar.instance.writeTxn((db) async {
-    if (!current()) return;
+    if (!current()) {
+      return;
+    }
     final encoded = jsonEncode(value);
     final row =
         await db.creators.getByCidNumber(cid) ?? (Creator()..cidNumber = cid);
-    if (row.rowId != Isar.autoIncrement && row.bodyData == encoded) return;
+    if (row.rowId != Isar.autoIncrement && row.bodyData == encoded) {
+      return;
+    }
     row.bodyData = encoded;
-    if (!current()) return;
+    if (!current()) {
+      return;
+    }
     await db.creators.putByCidNumber(row);
-    if (!current()) throw StateError('统计归属变化');
+    if (!current()) {
+      throw StateError('统计归属变化');
+    }
   });
   @Name('id')
   Id rowId = Isar.autoIncrement;
@@ -810,7 +827,9 @@ class IsarConsumerLease {
 
   /// 仅在消费者的取消 Future 已成功完成后调用；重复释放是幂等操作。
   void release() {
-    if (_released) return;
+    if (_released) {
+      return;
+    }
     _owner._releaseConsumerLease(this);
     _released = true;
   }
@@ -826,7 +845,9 @@ class _IsarConsumerRegistration {
   /// 同一消费者的并发取消请求共用一次调用；失败后保留登记并允许下一次擦除重试。
   Future<void> cancelSingleFlight() {
     final inFlight = _cancelInFlight;
-    if (inFlight != null) return inFlight;
+    if (inFlight != null) {
+      return inFlight;
+    }
 
     late final Future<void> task;
     task = Future<void>.sync(cancel).whenComplete(() {
@@ -967,7 +988,9 @@ class UserIsar {
     final record = _balanceRecord(row?.bodyData);
     update(record);
     if (record.isEmpty) {
-      if (row != null) await rows.delete(row.rowId);
+      if (row != null) {
+        await rows.delete(row.rowId);
+      }
     } else {
       await rows.putByAccountId(
         (row ?? (Balance()..accountId = accountId))
@@ -982,7 +1005,9 @@ class UserIsar {
   }
 
   static Map<String, dynamic> _balanceRecord(String? body) {
-    if (body == null) return {};
+    if (body == null) {
+      return {};
+    }
     try {
       final record = jsonDecode(body);
       return record is Map<String, dynamic> ? record : {};
@@ -1014,7 +1039,9 @@ class UserIsar {
 
   void _releaseConsumerLease(IsarConsumerLease lease) {
     final registration = _consumerRegistrations[lease._id];
-    if (registration == null) return;
+    if (registration == null) {
+      return;
+    }
     if (!identical(registration.lease, lease)) {
       throw StateError('UserIsar 消费者 lease 归属不一致，拒绝释放。');
     }
@@ -1197,24 +1224,34 @@ class UserIsar {
       }
       throw const _UserOpeningCancelled();
     } catch (error) {
-      if (error is _UserOpeningCancelled) rethrow;
+      if (error is _UserOpeningCancelled) {
+        rethrow;
+      }
       throw _UserOpeningCancelled(error);
     }
   }
 
   Future<bool> _deleteInstance(Isar isar) {
     final deleting = _deleteInFlight;
-    if (deleting != null) return deleting;
-    if (!isar.isOpen) return Future<bool>.value(true);
+    if (deleting != null) {
+      return deleting;
+    }
+    if (!isar.isOpen) {
+      return Future<bool>.value(true);
+    }
 
     final task = isar.close(deleteFromDisk: true);
     _deleteInFlight = task;
     task.then<void>(
       (_) {
-        if (identical(_deleteInFlight, task)) _deleteInFlight = null;
+        if (identical(_deleteInFlight, task)) {
+          _deleteInFlight = null;
+        }
       },
       onError: (Object _, StackTrace _) {
-        if (identical(_deleteInFlight, task)) _deleteInFlight = null;
+        if (identical(_deleteInFlight, task)) {
+          _deleteInFlight = null;
+        }
       },
     );
     return task;
@@ -1320,7 +1357,9 @@ class UserIsar {
     late final Future<void> task;
     task = _closeAndDeleteInternal().whenComplete(() {
       _lifecycle = _UserIsarLifecycle.closed;
-      if (identical(_closing, task)) _closing = null;
+      if (identical(_closing, task)) {
+        _closing = null;
+      }
     });
     _closing = task;
     return task;
@@ -1361,12 +1400,16 @@ class UserIsar {
     final candidates = <Isar>[];
     final tracked = _isar;
     final registered = Isar.getInstance('citizenapp_user');
-    if (tracked != null) candidates.add(tracked);
+    if (tracked != null) {
+      candidates.add(tracked);
+    }
     if (registered != null && !identical(registered, tracked)) {
       candidates.add(registered);
     }
     for (final candidate in candidates) {
-      if (!candidate.isOpen) continue;
+      if (!candidate.isOpen) {
+        continue;
+      }
       deleteWasAttempted = true;
       try {
         final deleted = await _deleteInstance(
@@ -1410,7 +1453,9 @@ class UserIsar {
       }
     }
 
-    if ((_isar?.isOpen ?? false) == false) _isar = null;
+    if ((_isar?.isOpen ?? false) == false) {
+      _isar = null;
+    }
     if (failures.isNotEmpty) {
       throw StateError(failures.join('\n'));
     }

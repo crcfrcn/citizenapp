@@ -45,7 +45,9 @@ class _ChainBalanceScopeState extends State<ChainBalanceScope> with RouteAware {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (!_ready) _store = _resolve();
+    if (!_ready) {
+      _store = _resolve();
+    }
     _tabVisible =
         context
             .dependOnInheritedWidgetOfExactType<ChainBalanceVisibility>()
@@ -56,7 +58,9 @@ class _ChainBalanceScopeState extends State<ChainBalanceScope> with RouteAware {
       chainBalanceRoutes.unsubscribe(this);
       _route = route;
       _routeVisible = route?.isCurrent ?? true;
-      if (route != null) chainBalanceRoutes.subscribe(this, route);
+      if (route != null) {
+        chainBalanceRoutes.subscribe(this, route);
+      }
     }
     _ready = true;
     _bind();
@@ -65,18 +69,23 @@ class _ChainBalanceScopeState extends State<ChainBalanceScope> with RouteAware {
   @override
   void didUpdateWidget(ChainBalanceScope oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (_ready) _bind();
+    if (_ready) {
+      _bind();
+    }
   }
 
   void _changed() {
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     final errors = _states.where((s) => s.hasError);
     final error = errors.isEmpty ? null : errors.first.error;
     if (error != null && !identical(error, _reportedError)) {
       _reportedError = error;
       scheduleMicrotask(() {
-        if (mounted && _routeVisible && _tabVisible)
+        if (mounted && _routeVisible && _tabVisible) {
           widget.onError?.call(error);
+        }
       });
     } else if (error == null) {
       _reportedError = null;
@@ -107,12 +116,15 @@ class _ChainBalanceScopeState extends State<ChainBalanceScope> with RouteAware {
     final next = _resolve();
     if (identical(next, _store) &&
         ids.length == _ids.length &&
-        ids.containsAll(_ids))
+        ids.containsAll(_ids)) {
       return;
+    }
     _unbind();
     _store = next;
     _ids = ids;
-    if (ids.isEmpty) return;
+    if (ids.isEmpty) {
+      return;
+    }
     for (final id in ids) {
       final state = _store.accountState(id);
       state.addListener(_changed);

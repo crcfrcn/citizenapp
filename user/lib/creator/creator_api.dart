@@ -75,7 +75,9 @@ class CreatorApiHttp implements CreatorApi {
     final uri = Uri.parse('$baseUrl$path');
     final encoded = body == null ? '' : jsonEncode(body);
     final sign = s.authenticateRequest;
-    if (sign == null) throw const CreatorApiException('MLS请求认证未就绪');
+    if (sign == null) {
+      throw const CreatorApiException('MLS请求认证未就绪');
+    }
     final headers = {
       'content-type': 'application/json; charset=utf-8',
       'authorization': 'Bearer ${s.sessionToken}',
@@ -94,15 +96,18 @@ class CreatorApiHttp implements CreatorApi {
             .timeout(const Duration(seconds: 20));
     await s.validateCurrent();
     final raw = jsonDecode(response.body);
-    if (raw is! Map<String, dynamic>) throw const CreatorApiException('登记响应无效');
+    if (raw is! Map<String, dynamic>) {
+      throw const CreatorApiException('登记响应无效');
+    }
     if (response.statusCode < 200 ||
         response.statusCode >= 300 ||
-        raw['is_ok'] != true)
+        raw['is_ok'] != true) {
       throw CreatorApiException(
         '创作者请求失败',
         statusCode: response.statusCode,
         errorCode: raw['error_code'] as String?,
       );
+    }
     return raw;
   }
 
@@ -123,7 +128,9 @@ class CreatorApiHttp implements CreatorApi {
     try {
       data = await pending;
     } finally {
-      if (identical(_reads[key], pending)) _reads.remove(key);
+      if (identical(_reads[key], pending)) {
+        _reads.remove(key);
+      }
     }
     final list = data['cid_numbers'];
     final next = data['next_cursor'];
@@ -133,8 +140,9 @@ class CreatorApiHttp implements CreatorApi {
               v is! String ||
               !RegExp(r'^[A-Za-z0-9][A-Za-z0-9-]{0,31}$').hasMatch(v),
         ) ||
-        next != null && next is! String)
+        next != null && next is! String) {
       throw const CreatorApiException('登记分页无效');
+    }
     return CreatorSubscriberPage(
       cidNumbers: List<String>.from(list),
       nextCursor: next as String?,

@@ -2439,3 +2439,5 @@ SquareApiClient不申请普通MLS挑战。每个真实设备/会话/业务请求
 ChainDataReader按关注范围取键：普通头像不取CreatorPlans；只有创作者消费者取档位和本人对应订阅；只有会员价格消费者取三档PlatformPrice。未请求的tiers为null，pricesLoaded明确覆盖状态，不能把未知当无记录。统一快照schema为2，仍按创世链和账户隔离，contentKey排除仅高度/时间变化，实际业务不变不写库。
 
 普通聊天、通讯录、浏览和构造服务不前置GET会员，不恢复会员交易。附件提示复用唯一ChainDataService快照及会话响应下发的静态计划；用户明确附件动作只刷新同一轻节点读模型，不发会员预检HTTP。真实资源许可、额度、撤销和最新链鉴权由服务端独立RPC决定；未知本机用量不伪造0。
+
+云端普通工程沿用Flutter官方模板的flutter_lints配置并以fatal infos/warnings分析；本机验证必须装配同一模板，不能以缺省分析配置替代。所有跨异步间隔的页面context访问先确认mounted。本地chat包直接声明实际使用的citizen_chain工作区依赖，依赖版本和来源不变。

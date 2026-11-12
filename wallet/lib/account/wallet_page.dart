@@ -167,7 +167,9 @@ class _WalletTabState extends State<WalletTab> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) unawaited(_reload());
+      if (mounted) {
+        unawaited(_reload());
+      }
     });
   }
 
@@ -187,7 +189,9 @@ class _WalletTabState extends State<WalletTab> {
       });
     }
     final next = _accountSecurity;
-    if (identical(next, _security)) return;
+    if (identical(next, _security)) {
+      return;
+    }
     _security?.revision.removeListener(_onSecurityRevision);
     _security = next;
     next.revision.addListener(_onSecurityRevision);
@@ -199,7 +203,9 @@ class _WalletTabState extends State<WalletTab> {
     unawaited(_walletEvents?.cancel());
     _loadGeneration += 1;
     final read = _directoryRead;
-    if (read != null) unawaited(read.cancel().catchError((Object _) => false));
+    if (read != null) {
+      unawaited(read.cancel().catchError((Object _) => false));
+    }
     unawaited(_releaseRead(_readOwner));
     _readOwner = null;
     _inspection = null;
@@ -208,7 +214,9 @@ class _WalletTabState extends State<WalletTab> {
 
   // 资源由SDK登记并兜底释放；页面只归还其引用，释放失败不伪造成功。
   Future<void> _releaseInspection(CitizenWalletInspection? inspection) async {
-    if (inspection == null) return;
+    if (inspection == null) {
+      return;
+    }
     try {
       await inspection.release();
     } catch (error) {
@@ -225,16 +233,22 @@ class _WalletTabState extends State<WalletTab> {
   }
 
   void _onSecurityRevision() {
-    if (mounted && !_mutationInProgress) unawaited(_reload());
+    if (mounted && !_mutationInProgress) {
+      unawaited(_reload());
+    }
   }
 
   Future<void> _reload() {
     final existing = _directoryFlight;
-    if (existing != null) return existing;
+    if (existing != null) {
+      return existing;
+    }
     final operation = _loadDirectory();
     _directoryFlight = operation;
     return operation.whenComplete(() {
-      if (identical(_directoryFlight, operation)) _directoryFlight = null;
+      if (identical(_directoryFlight, operation)) {
+        _directoryFlight = null;
+      }
     });
   }
 
@@ -261,10 +275,14 @@ class _WalletTabState extends State<WalletTab> {
       unawaited(
         read.result
             .then((late) async {
-              if (expired) await _releaseRead(late);
+              if (expired) {
+                await _releaseRead(late);
+              }
             }, onError: (Object _) {})
             .whenComplete(() {
-              if (identical(_directoryRead, read)) _directoryRead = null;
+              if (identical(_directoryRead, read)) {
+                _directoryRead = null;
+              }
             }),
       );
       final result = await read.result.timeout(
@@ -304,7 +322,9 @@ class _WalletTabState extends State<WalletTab> {
       await _releaseRead(previous);
       await _refreshWalletDisplay(state, generation);
     } catch (error) {
-      if (!mounted || generation != _loadGeneration) return;
+      if (!mounted || generation != _loadGeneration) {
+        return;
+      }
       AppLog.d('wallet_catalog_read_failed');
       setState(() {
         _loadError = error;
@@ -324,19 +344,25 @@ class _WalletTabState extends State<WalletTab> {
     CitizenWalletState state,
     int generation,
   ) async {
-    if (!mounted || generation != _loadGeneration) return;
+    if (!mounted || generation != _loadGeneration) {
+      return;
+    }
     try {
       final pending = await _accountSecurity.hasPendingAccountCleanup;
       if (mounted && generation == _loadGeneration) {
         setState(() {
           _pendingAccountCleanup = pending;
-          if (!pending) _cleanupError = null;
+          if (!pending) {
+            _cleanupError = null;
+          }
         });
       }
     } on Object {
       AppLog.d('wallet_cleanup_status_read_failed');
     }
-    if (!mounted || generation != _loadGeneration) return;
+    if (!mounted || generation != _loadGeneration) {
+      return;
+    }
     unawaited(_loadIdentity(generation));
   }
 
@@ -351,7 +377,9 @@ class _WalletTabState extends State<WalletTab> {
     } on Object {
       text = '安全诊断暂不可读取';
     }
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     await showModalBottomSheet<void>(
       context: context,
       builder: (context) => SafeArea(
@@ -387,14 +415,18 @@ class _WalletTabState extends State<WalletTab> {
           );
         },
       ).getState();
-      if (!mounted || generation != _loadGeneration) return;
+      if (!mounted || generation != _loadGeneration) {
+        return;
+      }
       setState(() {
         _identityAccountId = identity.isCitizen
             ? identity.votingAccountId
             : null;
       });
     } catch (error) {
-      if (!mounted || generation != _loadGeneration) return;
+      if (!mounted || generation != _loadGeneration) {
+        return;
+      }
       AppLog.d('wallet identity marker load failed: $error');
       setState(() => _identityAccountId = null);
     }
@@ -427,18 +459,25 @@ class _WalletTabState extends State<WalletTab> {
         try {
           final status =
               await (widget.actions?.syncStatus ?? sdk.getSyncStatus)();
-          if (status.isSyncing) message = '轻节点正在同步链状态，请稍后再试';
-        } on Object {}
+          if (status.isSyncing) {
+            message = '轻节点正在同步链状态，请稍后再试';
+          }
+        } on Object {
+          // 同步诊断失败时保留当前操作的原始失败提示。
+        }
       }
     }
-    if (mounted)
+    if (mounted) {
       ScaffoldMessenger.maybeOf(
         context,
       )?.showSnackBar(SnackBar(content: Text(message)));
+    }
   }
 
   Future<void> _onDefaultAccountReorder(int oldIndex, int newIndex) async {
-    if (_mutationInProgress || oldIndex == newIndex || _state == null) return;
+    if (_mutationInProgress || oldIndex == newIndex || _state == null) {
+      return;
+    }
     final before = List<CitizenWalletStateAccount>.of(_accounts);
     final target = List<CitizenWalletStateAccount>.of(before);
     final moved = target.removeAt(oldIndex);
@@ -453,7 +492,9 @@ class _WalletTabState extends State<WalletTab> {
       _accountSecurity.notifyDefaultAccountChanged();
       await _reload();
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(_errorMessage(error))));
@@ -504,7 +545,9 @@ class _WalletTabState extends State<WalletTab> {
           ttlSeconds: 90,
         )
         .result;
-    if (outcome is CitizenDefaultAccountChangeCompleted) return;
+    if (outcome is CitizenDefaultAccountChangeCompleted) {
+      return;
+    }
     final pending = outcome as CitizenDefaultAccountChangePending;
     try {
       if (!mounted) {
@@ -536,7 +579,9 @@ class _WalletTabState extends State<WalletTab> {
     CitizenWalletDiagnostic? diagnostic,
   }) async {
     final state = _state;
-    if (state == null) return;
+    if (state == null) {
+      return;
+    }
     final inspection = _inspection;
     final walletName = diagnostic?.walletName ?? _walletName(wallet!);
     final controller = TextEditingController(text: walletName);
@@ -604,10 +649,14 @@ class _WalletTabState extends State<WalletTab> {
             )
             .result;
       }
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       await _reload();
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('重命名失败：$e')));
@@ -617,9 +666,13 @@ class _WalletTabState extends State<WalletTab> {
   /// 非法签名模式不能进入任何签名路径。用户可用本机受保护私钥验证为热钱包；
   /// 冷钱包必须从“导入冷钱包”重新扫描同一账户，不能仅凭缺少本机私钥猜测。
   Future<void> _repairBrokenWallet(CitizenWalletDiagnostic wallet) async {
-    if (_mutationInProgress) return;
+    if (_mutationInProgress) {
+      return;
+    }
     final inspection = _inspection;
-    if (inspection == null && widget.actions?.repair == null) return;
+    if (inspection == null && widget.actions?.repair == null) {
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -640,7 +693,9 @@ class _WalletTabState extends State<WalletTab> {
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
+    if (confirmed != true || !mounted) {
+      return;
+    }
     _loadGeneration += 1;
     setState(() => _mutationInProgress = true);
     try {
@@ -650,12 +705,16 @@ class _WalletTabState extends State<WalletTab> {
         await inspection!.repairHot(wallet.walletIndex).result;
       }
       await _reload();
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('已验证为热钱包')));
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('热钱包验证失败：$error')));
@@ -668,7 +727,9 @@ class _WalletTabState extends State<WalletTab> {
 
   /// 原清理重试入口只转交现有SDK和关联服务；页面不重建清理计划。
   Future<void> _retryPendingWalletCleanup({bool explicit = false}) async {
-    if (_pendingWalletCleanupInProgress || _mutationInProgress) return;
+    if (_pendingWalletCleanupInProgress || _mutationInProgress) {
+      return;
+    }
     setState(() {
       _pendingWalletCleanupInProgress = true;
       _mutationInProgress = true;
@@ -685,7 +746,9 @@ class _WalletTabState extends State<WalletTab> {
       error = _cleanupError;
     } on Object catch (caught) {
       error = caught;
-      if (mounted) setState(() => _cleanupError = caught);
+      if (mounted) {
+        setState(() => _cleanupError = caught);
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -694,7 +757,9 @@ class _WalletTabState extends State<WalletTab> {
         });
       }
     }
-    if (!mounted || !explicit) return;
+    if (!mounted || !explicit) {
+      return;
+    }
     final message = error == null ? '待清理缓存已全部处理' : '部分后续清理仍未完成：$error';
     ScaffoldMessenger.of(
       context,
@@ -749,7 +814,9 @@ class _WalletTabState extends State<WalletTab> {
       }
       await _reload();
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('重命名失败：${_errorMessage(error)}')));
@@ -760,7 +827,9 @@ class _WalletTabState extends State<WalletTab> {
     CitizenWalletStateAccount? account, {
     CitizenWalletDiagnostic? diagnostic,
   }) async {
-    if (_mutationInProgress) return;
+    if (_mutationInProgress) {
+      return;
+    }
     final balanceStore = _balanceStore;
     final inspection = _inspection;
     final deletingWholeWallet =
@@ -796,7 +865,9 @@ class _WalletTabState extends State<WalletTab> {
           ],
         ),
       );
-      if (confirmed != true || !mounted) return;
+      if (confirmed != true || !mounted) {
+        return;
+      }
     } else if ((diagnostic != null ||
         account!.signMode == CitizenWalletSignMode.cold)) {
       final confirmed = await showDialog<bool>(
@@ -817,10 +888,14 @@ class _WalletTabState extends State<WalletTab> {
           ],
         ),
       );
-      if (confirmed != true || !mounted) return;
+      if (confirmed != true || !mounted) {
+        return;
+      }
     }
     // 原非0热账户直接删除；这里不增加原交互没有的确认弹窗。
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     final sdkWallet = _wallet;
     final security = _accountSecurity;
     final messenger = ScaffoldMessenger.of(context);
@@ -871,9 +946,13 @@ class _WalletTabState extends State<WalletTab> {
       } catch (failure) {
         error = failure;
       }
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       await _reload();
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       final factLabel =
           deletingWholeWallet ||
               (diagnostic != null ||
@@ -916,7 +995,9 @@ class _WalletTabState extends State<WalletTab> {
         );
       }
     } finally {
-      if (mounted) setState(() => _mutationInProgress = false);
+      if (mounted) {
+        setState(() => _mutationInProgress = false);
+      }
     }
   }
 
@@ -952,7 +1033,9 @@ class _WalletTabState extends State<WalletTab> {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(builder: (_) => AccountDetailPage(account: account)),
     );
-    if (mounted) await _reload();
+    if (mounted) {
+      await _reload();
+    }
   }
 
   Future<void> _scanSignForAccount(CitizenWalletStateAccount account) async {
@@ -963,17 +1046,25 @@ class _WalletTabState extends State<WalletTab> {
   }
 
   Future<void> _openImportColdWalletPage() async {
-    if (_mutationInProgress) return;
+    if (_mutationInProgress) {
+      return;
+    }
     try {
       final imported = await Navigator.of(context).push<bool>(
         MaterialPageRoute(builder: (_) => const ImportColdWalletPage()),
       );
-      if (imported != true) return;
-      if (!mounted) return;
+      if (imported != true) {
+        return;
+      }
+      if (!mounted) {
+        return;
+      }
       _accountSecurity.notifyDefaultAccountChanged();
       await _reload();
     } on CitizenSdkException catch (error) {
-      if (!mounted || error.code == CitizenSdkErrorCode.cancelled) return;
+      if (!mounted || error.code == CitizenSdkErrorCode.cancelled) {
+        return;
+      }
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('导入冷钱包失败：${error.message}')));
@@ -982,7 +1073,9 @@ class _WalletTabState extends State<WalletTab> {
 
   Future<void> _selectPaymentAccount(CitizenWalletStateAccount selected) async {
     final snapshot = _state;
-    if (snapshot == null || _mutationInProgress) return;
+    if (snapshot == null || _mutationInProgress) {
+      return;
+    }
     setState(() => _mutationInProgress = true);
     try {
       final current =
@@ -999,7 +1092,9 @@ class _WalletTabState extends State<WalletTab> {
           message: '账户目录已变化，请刷新后重新选择',
         );
       }
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       Navigator.of(context).pop(
         PaymentAccountSelection(
           accountId: selected.accountId,
@@ -1019,7 +1114,9 @@ class _WalletTabState extends State<WalletTab> {
         ).showSnackBar(SnackBar(content: Text(_errorMessage(error))));
       }
     } finally {
-      if (mounted) setState(() => _mutationInProgress = false);
+      if (mounted) {
+        setState(() => _mutationInProgress = false);
+      }
     }
   }
 
@@ -1037,11 +1134,15 @@ class _WalletTabState extends State<WalletTab> {
         ),
       ),
     );
-    if (mounted) await _reload();
+    if (mounted) {
+      await _reload();
+    }
   }
 
   Future<void> _showWalletEntryChooser() async {
-    if (!_canOpenWalletEntryChooser) return;
+    if (!_canOpenWalletEntryChooser) {
+      return;
+    }
     final hot = _hotWallet;
     await showModalBottomSheet<void>(
       context: context,
@@ -1049,11 +1150,15 @@ class _WalletTabState extends State<WalletTab> {
         canAddAccount: hot != null,
         onAddNextAccount: () {
           Navigator.of(sheetContext).pop();
-          if (hot != null) unawaited(_openAddAccount(next: true));
+          if (hot != null) {
+            unawaited(_openAddAccount(next: true));
+          }
         },
         onAddSpecifyAccount: () {
           Navigator.of(sheetContext).pop();
-          if (hot != null) unawaited(_openAddAccount(next: false));
+          if (hot != null) {
+            unawaited(_openAddAccount(next: false));
+          }
         },
         onImportCold: () {
           Navigator.of(sheetContext).pop();
@@ -1064,18 +1169,26 @@ class _WalletTabState extends State<WalletTab> {
   }
 
   Future<void> _openAddAccount({required bool next}) async {
-    if (_mutationInProgress) return;
+    if (_mutationInProgress) {
+      return;
+    }
     final profile = _state?.hotProfile;
-    if (profile == null) return;
+    if (profile == null) {
+      return;
+    }
     final added = await showAddAccountSheet(
       context,
       masterId: profile.masterAccountId,
       mode: next ? AddAccountMode.next : AddAccountMode.specify,
     );
-    if (added != true || !mounted) return;
+    if (added != true || !mounted) {
+      return;
+    }
     final messenger = ScaffoldMessenger.of(context);
     await _reload();
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     messenger.showSnackBar(const SnackBar(content: Text('已添加账户')));
   }
 
@@ -1199,7 +1312,9 @@ class _WalletTabState extends State<WalletTab> {
 
   Widget _buildSelectionList() {
     final accounts = _accounts;
-    if (accounts.isEmpty) return const Center(child: Text('没有可用的付款账户'));
+    if (accounts.isEmpty) {
+      return const Center(child: Text('没有可用的付款账户'));
+    }
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
       itemCount: accounts.length,
@@ -1813,7 +1928,9 @@ class WalletAccountTile extends StatelessWidget {
 
   String _shortAddress(String address) {
     // 卡片固定显示前 10 位和后 8 位，中间严格使用 6 个 ASCII 句点；复制值仍是完整地址。
-    if (address.length <= 18) return address;
+    if (address.length <= 18) {
+      return address;
+    }
     return '${address.substring(0, 10)}......${address.substring(address.length - 8)}';
   }
 
@@ -2010,6 +2127,7 @@ class _WalletDetailPageState extends State<WalletDetailPage>
     await Future.wait<void>([
       Future(() async {
         try {
+          if (!mounted) return;
           await context.read<CitizenSdk>().getAccountBalance(
             widget.wallet.accountId,
           );
@@ -2057,7 +2175,9 @@ class _WalletDetailPageState extends State<WalletDetailPage>
         widget.wallet.accountId,
         limit: 5,
       );
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _recentRecords = records;
       });
@@ -2106,7 +2226,9 @@ class _WalletDetailPageState extends State<WalletDetailPage>
           )
           .result;
       _walletRevision = state.revision;
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -2213,7 +2335,9 @@ class _ImportColdWalletPageState extends State<ImportColdWalletPage> {
         ),
       ),
     );
-    if (!mounted || result == null) return;
+    if (!mounted || result == null) {
+      return;
+    }
     final accountId = result.accountId;
     if (accountId == null) {
       setState(() {
@@ -2232,7 +2356,9 @@ class _ImportColdWalletPageState extends State<ImportColdWalletPage> {
   }
 
   Future<void> _import() async {
-    if (_isImporting) return;
+    if (_isImporting) {
+      return;
+    }
     setState(() {
       _error = null;
       _isImporting = true;
@@ -2242,10 +2368,14 @@ class _ImportColdWalletPageState extends State<ImportColdWalletPage> {
           .read<CitizenSdk>()
           .importColdAccount(_accountController.text)
           .result;
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       Navigator.of(context).pop(true);
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _error = walletOperationErrorMessage(e);
       });

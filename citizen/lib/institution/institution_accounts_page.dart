@@ -21,7 +21,7 @@ class InstitutionAccountsPage extends StatefulWidget {
 }
 
 class _InstitutionAccountsPageState extends State<InstitutionAccountsPage> {
-  late List<InstitutionAccountRow> _rows = institutionAccountIdRows(
+  late final List<InstitutionAccountRow> _rows = institutionAccountIdRows(
     widget.institution,
   );
   @override

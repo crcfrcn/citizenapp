@@ -8,7 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 const account =
     '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 CitizenBlockRef block(int n) => CitizenBlockRef(
-  hash: '0x' + n.toRadixString(16).padLeft(64, '0'),
+  hash: '0x${n.toRadixString(16).padLeft(64, '0')}',
   number: BigInt.from(n),
   finality: CitizenBlockFinality.finalized,
 );

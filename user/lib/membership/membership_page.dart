@@ -69,7 +69,9 @@ class _MembershipPageState extends State<MembershipPage>
           duration: const Duration(milliseconds: 320),
         )..addListener(() {
           final anim = _snapAnim;
-          if (anim != null && mounted) setState(() => _page = anim.value);
+          if (anim != null && mounted) {
+            setState(() => _page = anim.value);
+          }
         });
   }
 
@@ -77,7 +79,9 @@ class _MembershipPageState extends State<MembershipPage>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_dependenciesReady) return;
+    if (_dependenciesReady) {
+      return;
+    }
     _chainData = widget._chainData ?? context.read<ChainDataService?>();
     _releasePrices = _chainData?.watchPrices();
     _chainData?.addListener(_onChainData);
@@ -113,7 +117,9 @@ class _MembershipPageState extends State<MembershipPage>
   /// 同账户从未注册推进到 finalized CID 时钱包列表不变；身份 revision 仍需让已挂载
   /// 会员页立即重建会话与订阅快照。若正在刷新，记一次尾随重载避免丢广播。
   void _onIdentityChanged() {
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     if (_refreshing) {
       _identityReloadPending = true;
       return;
@@ -126,7 +132,9 @@ class _MembershipPageState extends State<MembershipPage>
 
   void _onChainData() {
     final data = _chainData?.snapshot;
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     if (data == null) {
       _applyViewData(
         const _MembershipViewData(
@@ -155,7 +163,9 @@ class _MembershipPageState extends State<MembershipPage>
   }
 
   void _applyLightData(ChainDataSnapshot data) {
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     final state = data.own?.platform;
     _unregistered = data.ownCid == null && _chainData?.isStale == false;
     _applyViewData(
@@ -179,13 +189,19 @@ class _MembershipPageState extends State<MembershipPage>
   }
 
   Future<void> _load({bool forceRefresh = false}) async {
-    if (_refreshing) return;
+    if (_refreshing) {
+      return;
+    }
     setState(() => _refreshing = true);
     try {
       final source = _chainData;
-      if (source == null) throw StateError('轻节点会员数据尚未就绪');
+      if (source == null) {
+        throw StateError('轻节点会员数据尚未就绪');
+      }
       final data = await source.ensurePrices();
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       if (data == null) {
         _loadFailure = '请先添加钱包账户';
         return;
@@ -199,8 +215,9 @@ class _MembershipPageState extends State<MembershipPage>
             (source.snapshot?.accountId != data.accountId ||
                 source.snapshot?.ownCid != data.ownCid ||
                 source.snapshot?.own?.identity?.bindRev !=
-                    data.own?.identity?.bindRev))
+                    data.own?.identity?.bindRev)) {
           return;
+        }
         _sessionStatus = resolution.status;
         final session = resolution.session;
         if (session != null && session.cidNumber == data.ownCid) {
@@ -212,8 +229,9 @@ class _MembershipPageState extends State<MembershipPage>
               (source.snapshot?.accountId != data.accountId ||
                   source.snapshot?.ownCid != data.ownCid ||
                   source.snapshot?.own?.identity?.bindRev !=
-                      data.own?.identity?.bindRev))
+                      data.own?.identity?.bindRev)) {
             return;
+          }
           final current = _data.state;
           _applyViewData(
             _MembershipViewData(
@@ -235,7 +253,9 @@ class _MembershipPageState extends State<MembershipPage>
           );
         }
       } on Object {
-        if (mounted) _loadFailure = '云端用量暂不可用';
+        if (mounted) {
+          _loadFailure = '云端用量暂不可用';
+        }
       }
     } on Object {
       if (mounted) {
@@ -251,7 +271,9 @@ class _MembershipPageState extends State<MembershipPage>
         );
       }
     } finally {
-      if (mounted) setState(() => _refreshing = false);
+      if (mounted) {
+        setState(() => _refreshing = false);
+      }
       if (mounted && _identityReloadPending) {
         _identityReloadPending = false;
         unawaited(_load());
@@ -260,7 +282,9 @@ class _MembershipPageState extends State<MembershipPage>
   }
 
   void _applyViewData(_MembershipViewData data) {
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     final accountChanged = _data.accountId != data.accountId;
     final membershipChanged = _data.state.memberLevel != data.state.memberLevel;
     final defaultIndex = _tierIndexOfLevel(data.state.memberLevel);
@@ -275,17 +299,23 @@ class _MembershipPageState extends State<MembershipPage>
   /// App 内订阅 / 取消：据当前订阅态决定动作 → 上链热签（生物识别）→ confirm → 刷新。
   /// 失败弹 SnackBar（文案单源自 [SubscriptionException]）。
   Future<void> _handleAction(String level) async {
-    if (_busy) return;
+    if (_busy) {
+      return;
+    }
     setState(() => _busy = true);
     try {
       final data = await _chainData?.ensurePrices();
-      if (data == null || _chainData!.isStale || data.ownCid == null)
+      if (data == null || _chainData!.isStale || data.ownCid == null) {
         throw const SubscriptionException('当前轻节点身份尚未就绪');
-      if (!mounted) return;
+      }
+      if (!mounted) {
+        return;
+      }
       _applyLightData(data);
       final action = _actionFor(_data.state, level), price = data.prices[level];
-      if (action != _SubscribeAction.cancel && price == null)
+      if (action != _SubscribeAction.cancel && price == null) {
         throw const SubscriptionException('链上价格尚未就绪');
+      }
       if (action == _SubscribeAction.cancel) {
         await _subscriptionService.cancel(context: context);
       } else if (action == _SubscribeAction.change) {
@@ -294,14 +324,19 @@ class _MembershipPageState extends State<MembershipPage>
         await _subscriptionService.subscribe(level, price!, context: context);
       }
       await _chainData!.ensurePrices();
-      if (mounted) _onChainData();
+      if (mounted) {
+        _onChainData();
+      }
     } on Object catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(e.toString())));
+      }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() => _busy = false);
+      }
     }
   }
 

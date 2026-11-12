@@ -87,7 +87,7 @@ void main() {
   });
   test('读取失败保留成功状态并标记陈旧，重试恢复', () async {
     await service.start();
-    reader.behavior = (_, __, ___, ____) =>
+    reader.behavior = (_, _, _, _) =>
         Future.error(StateError('proof unavailable'));
     head = f.block(104);
     await expectLater(service.refresh(), throwsStateError);
@@ -111,7 +111,7 @@ void main() {
   });
   test('恢复缓存仍需轻节点核验，不能把缓存当作新最终块', () async {
     store.cached = f.snapshot(f.block(86), owner);
-    reader.behavior = (_, __, ___, ____) => Future.error(StateError('offline'));
+    reader.behavior = (_, _, _, _) => Future.error(StateError('offline'));
     await expectLater(service.start(), throwsStateError);
     expect(service.snapshot!.block.number, BigInt.from(86));
     expect(service.isStale, isTrue);
@@ -140,7 +140,7 @@ void main() {
   test('关闭不等待未返回的SDK请求，迟到结果不写库或通知', () async {
     await service.start();
     final pending = Completer<ChainDataSnapshot>();
-    reader.behavior = (_, __, ___, ____) => pending.future;
+    reader.behavior = (_, _, _, _) => pending.future;
     head = f.block(104);
     final refresh = service.refresh();
     final rejected = expectLater(refresh, throwsStateError);

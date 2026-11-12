@@ -18,16 +18,18 @@ final class ChainCitizenData {
     final voting = identity?.votingIdentity;
     if (voting == null ||
         !CitizenIdentityChainReader.votingIdentityLayoutIsValid(voting) ||
-        voting[8] != 0)
+        voting[8] != 0) {
       return 'visitor';
+    }
     final date = DateTime.fromMillisecondsSinceEpoch(
       millis,
       isUtc: true,
     ).add(const Duration(hours: 8));
     final today = date.year * 10000 + date.month * 100 + date.day;
     if (today < CitizenScale.readUnsigned(voting, 0, 4).toInt() ||
-        today > CitizenScale.readUnsigned(voting, 4, 4).toInt())
+        today > CitizenScale.readUnsigned(voting, 4, 4).toInt()) {
       return 'visitor';
+    }
     return identity?.candidateIdentity == null ? 'voting' : 'candidate';
   }
 }
@@ -130,8 +132,9 @@ final class ChainDataSnapshot {
     for (final e in (v['citizens'] as Map<String, dynamic>).entries) {
       final value = e.value as Map<String, dynamic>;
       final identity = _identityFrom(value['identity']);
-      if (identity != null && identity.cidNumber != e.key)
+      if (identity != null && identity.cidNumber != e.key) {
         throw const FormatException('CID不一致');
+      }
       citizens[e.key] = ChainCitizenData(
         cidNumber: e.key,
         identity: identity,
@@ -196,9 +199,13 @@ Map<String, Object?>? _identityJson(CitizenIdentityChainSnapshot? v) =>
             : base64Encode(v.candidateIdentity!),
       };
 CitizenIdentityChainSnapshot? _identityFrom(dynamic v) {
-  if (v == null) return null;
+  if (v == null) {
+    return null;
+  }
   final a = base64Decode(v['account'] as String), rev = v['rev'] as int;
-  if (a.length != 32 || rev <= 0) throw const FormatException('绑定无效');
+  if (a.length != 32 || rev <= 0) {
+    throw const FormatException('绑定无效');
+  }
   return CitizenIdentityChainSnapshot(
     cidNumber: v['cid'] as String,
     accountId: a,
@@ -228,7 +235,9 @@ Map<String, Object?>? _subscriptionJson(ChainSubscriptionState? s) => s == null
         'reason': s.suspendReason,
       };
 ChainSubscriptionState? _subscriptionFrom(dynamic s) {
-  if (s == null) return null;
+  if (s == null) {
+    return null;
+  }
   if (![
         'active',
         'cancelled',
@@ -236,8 +245,9 @@ ChainSubscriptionState? _subscriptionFrom(dynamic s) {
         'suspended',
         'issuerPaused',
       ].contains(s['state']) ||
-      (s['paid'] as int) <= (s['charge'] as int))
+      (s['paid'] as int) <= (s['charge'] as int)) {
     throw const FormatException('订阅无效');
+  }
   return ChainSubscriptionState(
     plan: s['kind'] == 'platform'
         ? ChainSubscriptionPlan.platform(s['level'] as String)
@@ -257,7 +267,9 @@ ChainSubscriptionState? _subscriptionFrom(dynamic s) {
 
 BigInt _amount(dynamic v) {
   final n = BigInt.parse(v as String);
-  if (n < BigInt.zero || n.bitLength > 128) throw const FormatException('金额无效');
+  if (n < BigInt.zero || n.bitLength > 128) {
+    throw const FormatException('金额无效');
+  }
   return n;
 }
 
@@ -266,6 +278,8 @@ Object? _canonical(Object? value) {
     final keys = value.keys.cast<String>().toList()..sort();
     return {for (final key in keys) key: _canonical(value[key])};
   }
-  if (value is List) return value.map(_canonical).toList();
+  if (value is List) {
+    return value.map(_canonical).toList();
+  }
   return value;
 }

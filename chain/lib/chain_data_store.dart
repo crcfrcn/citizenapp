@@ -17,7 +17,9 @@ final class IsarChainDataStore implements ChainDataStore {
         '$genesis:$account',
       ))?.data,
     );
-    if (raw == null) return null;
+    if (raw == null) {
+      return null;
+    }
     try {
       return ChainDataSnapshot.decode(raw, genesis, account);
     } on Object {
@@ -28,7 +30,9 @@ final class IsarChainDataStore implements ChainDataStore {
   @override
   Future<void> write(ChainDataSnapshot value, bool Function() isCurrent) =>
       UserIsar.instance.writeTxn((db) async {
-        if (!isCurrent()) return;
+        if (!isCurrent()) {
+          return;
+        }
         final key = '${value.genesisHash}:${value.accountId}';
         final IsarCollection<ChainState> rows = db.collection<ChainState>();
         final old = await rows.getByKey(key);
@@ -45,17 +49,24 @@ final class IsarChainDataStore implements ChainDataStore {
           }
         }
         if (cached != null) {
-          if (cached.block.number > value.block.number) return;
+          if (cached.block.number > value.block.number) {
+            return;
+          }
           if (cached.block.number == value.block.number &&
-              cached.block.hash != value.block.hash)
+              cached.block.hash != value.block.hash) {
             throw StateError('最终区块冲突');
+          }
         }
-        if (!isCurrent()) return;
+        if (!isCurrent()) {
+          return;
+        }
         await rows.putByKey(
           ChainState()
             ..key = key
             ..data = jsonEncode(value.toJson()),
         );
-        if (!isCurrent()) throw StateError('链上读模型归属已变化');
+        if (!isCurrent()) {
+          throw StateError('链上读模型归属已变化');
+        }
       });
 }

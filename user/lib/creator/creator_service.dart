@@ -124,7 +124,9 @@ class CreatorService {
     }
 
     final pending = _loads[session];
-    if (pending != null) return pending;
+    if (pending != null) {
+      return pending;
+    }
     final task = _loadSession(session);
     _loads[session] = task;
     try {
@@ -134,19 +136,26 @@ class CreatorService {
     } on Object {
       throw const CreatorException('创作者刷新失败，已保留本地内容');
     } finally {
-      if (identical(_loads[session], task)) _loads.remove(session);
+      if (identical(_loads[session], task)) {
+        _loads.remove(session);
+      }
     }
   }
 
   Future<CreatorPageData> _loadSession(SquareSession session) async {
     await session.validateCurrent();
     final source = _chainData;
-    if (source == null) throw const CreatorException('轻节点统计尚未就绪');
+    if (source == null) {
+      throw const CreatorException('轻节点统计尚未就绪');
+    }
     final data = await source.ensureCitizen(session.cidNumber, creator: true);
     if (data.accountId != session.accountId ||
-        data.own?.identity?.bindRev != session.bindRev)
+        data.own?.identity?.bindRev != session.bindRev) {
       throw const CreatorException('统计身份已变化');
-    if (!data.memberActive(session.cidNumber)) return CreatorPageData.gated();
+    }
+    if (!data.memberActive(session.cidNumber)) {
+      return CreatorPageData.gated();
+    }
     final ids = <String>{};
     String? cursor;
     final cursors = <String>{};
@@ -155,8 +164,9 @@ class CreatorService {
       await session.validateCurrent();
       ids.addAll(page.cidNumbers);
       cursor = page.nextCursor;
-      if (cursor != null && !cursors.add(cursor))
+      if (cursor != null && !cursors.add(cursor)) {
         throw const CreatorException('登记分页循环');
+      }
     } while (cursor != null);
     final summary = await source.creatorSummary(session.cidNumber, ids);
     await session.validateCurrent();
@@ -198,10 +208,12 @@ class CreatorService {
           _chainData!.isStale ||
           data.accountId != identity.accountId ||
           data.ownCid != identity.snapshot!.cidNumber ||
-          data.own?.identity?.bindRev != identity.snapshot!.bindRev)
+          data.own?.identity?.bindRev != identity.snapshot!.bindRev) {
         throw const CreatorException('轻节点会员状态尚未核验');
-      if (!data.memberActive(data.ownCid!))
+      }
+      if (!data.memberActive(data.ownCid!)) {
         throw const CreatorException('需要当前有效的平台会员才能设置创作者会员档');
+      }
       await _subscriptionChain.setCreatorPlans(
         signerPublicKey: citizenAccountIdBytes(identity.accountId),
         tiers: tiers
@@ -241,7 +253,9 @@ class CreatorService {
     final identity = await _requireIdentity();
     await _requireSigningAccount(identity.accountId);
     final index = currentTiers.indexWhere((tier) => tier.tierId == tierId);
-    if (index < 0) throw const CreatorException('要改名的会员档不存在');
+    if (index < 0) {
+      throw const CreatorException('要改名的会员档不存在');
+    }
     try {
       await _subscriptionChain.updateCreatorTierName(
         signerPublicKey: citizenAccountIdBytes(identity.accountId),
@@ -272,7 +286,9 @@ class CreatorService {
     BuildContext? context,
     CitizenTransactionExternalSigningPending pending,
   ) {
-    if (context == null || !context.mounted) return Future<String?>.value();
+    if (context == null || !context.mounted) {
+      return Future<String?>.value();
+    }
     return showCitizenSdkQrResponse(
       context,
       request: pending.qrRequest,

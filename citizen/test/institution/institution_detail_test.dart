@@ -64,7 +64,7 @@ class _FakeChainState implements InstitutionChainState {
           CitizenAccountBalance(
             accountId: id,
             block: CitizenBlockRef(
-              hash: '0x' + List.filled(32, '11').join(),
+              hash: '0x${List.filled(32, '11').join()}',
               number: BigInt.one,
               finality: CitizenBlockFinality.finalized,
             ),

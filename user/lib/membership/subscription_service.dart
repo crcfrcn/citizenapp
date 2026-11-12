@@ -80,7 +80,9 @@ class SubscriptionService {
            getWalletState ??
            wallet?.getWalletState ??
            (() => throw StateError('未配置getWalletState')) {
-    if (chainData != null) _chainSource = chainData;
+    if (chainData != null) {
+      _chainSource = chainData;
+    }
   }
   final CitizenSdkOperation<CitizenWalletState> Function() _getWalletState;
 
@@ -145,7 +147,9 @@ class SubscriptionService {
   /// 全部业务共享当前公民会话引用；切账户/令牌/设备后旧Future不得写回。
   static void rememberCitizenSession(SquareSession session) {
     final cid = session.cidNumber.trim();
-    if (cid.isEmpty) return;
+    if (cid.isEmpty) {
+      return;
+    }
     final old = _citizenSessions[cid];
     if ((_currentAuthorizedCidNumber != null &&
             _currentAuthorizedCidNumber != cid) ||
@@ -169,7 +173,9 @@ class SubscriptionService {
   /// 只有明确失效路径调用；MembershipRevision表示缓存已推进，不能反向删除它。
   static void invalidateBusinessMembership(String? cidNumber) {
     resourceGate.expireMember(cidNumber);
-    if (cidNumber == null) return;
+    if (cidNumber == null) {
+      return;
+    }
     _cacheGeneration++;
     _authorizations.remove(cidNumber.trim());
   }
@@ -197,9 +203,12 @@ class SubscriptionService {
         !session.isUsable ||
         data.accountId != session.accountId ||
         data.ownCid != session.cidNumber ||
-        data.own?.identity?.bindRev != session.bindRev)
+        data.own?.identity?.bindRev != session.bindRev) {
       return null;
-    if (data.own?.platform?.isEffectiveAt(_now()) != true) return null;
+    }
+    if (data.own?.platform?.isEffectiveAt(_now()) != true) {
+      return null;
+    }
     final level = data.memberLevel(session.cidNumber);
     return level == null ? null : _plans[session.cidNumber]?[level];
   }
@@ -252,8 +261,9 @@ class SubscriptionService {
         s.accountId != accountId ||
         s.bindRev != bindRev ||
         expectedDeviceId != null && s.deviceId != expectedDeviceId ||
-        chatFileMaxBytesFor(cidNumber) <= 0)
+        chatFileMaxBytesFor(cidNumber) <= 0) {
       return false;
+    }
     await _validateSession(s);
     return chatFileMaxBytesFor(cidNumber) > 0;
   }
@@ -286,8 +296,12 @@ class SubscriptionService {
     entry.failed = false;
     final active = _activeBusinessMembership(state);
     var end = now + (active ? 60000 : 30000);
-    if (state.validUntil < end) end = state.validUntil;
-    if (entry.session.expiresAt < end) end = entry.session.expiresAt;
+    if (state.validUntil < end) {
+      end = state.validUntil;
+    }
+    if (entry.session.expiresAt < end) {
+      end = entry.session.expiresAt;
+    }
     entry.deadline = end;
   }
 
@@ -320,7 +334,9 @@ class SubscriptionService {
       try {
         final state = await client.fetchResourceAuthorization(session);
         await _validateSession(session);
-        if (!_currentEntry(entry)) throw const SubscriptionException('会员会话已变化');
+        if (!_currentEntry(entry)) {
+          throw const SubscriptionException('会员会话已变化');
+        }
         _install(entry, state);
         entry.pending = false;
         return state;
@@ -425,7 +441,9 @@ class SubscriptionService {
     BuildContext? context,
     CitizenTransactionExternalSigningPending pending,
   ) {
-    if (context == null || !context.mounted) return Future<String?>.value();
+    if (context == null || !context.mounted) {
+      return Future<String?>.value();
+    }
     return showCitizenSdkQrResponse(
       context,
       request: pending.qrRequest,
@@ -484,7 +502,9 @@ class _MembershipBusinessGateState extends State<MembershipBusinessGate> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_generation != 0) return;
+    if (_generation != 0) {
+      return;
+    }
     _security = context.read<AccountSecurityService?>();
     _security?.revision.addListener(_changed);
     MembershipRevision.instance.listenable.addListener(_changed);
@@ -504,10 +524,14 @@ class _MembershipBusinessGateState extends State<MembershipBusinessGate> {
 
   Future<void> _retry() {
     final existing = _actionFlight;
-    if (existing != null) return existing;
+    if (existing != null) {
+      return existing;
+    }
     late final Future<void> task;
     task = _check(userInitiated: true).whenComplete(() {
-      if (identical(_actionFlight, task)) _actionFlight = null;
+      if (identical(_actionFlight, task)) {
+        _actionFlight = null;
+      }
     });
     _actionFlight = task;
     return task;
@@ -577,7 +601,9 @@ class _MembershipBusinessGateState extends State<MembershipBusinessGate> {
 
   @override
   Widget build(BuildContext context) {
-    if (_ready) return widget.child;
+    if (_ready) {
+      return widget.child;
+    }
     if (_unregistered) {
       return Scaffold(
         body: IdentityRegisterGuide(
@@ -943,7 +969,9 @@ final class _LocalResourceLease implements SquareResourceLease {
   bool _sent = false, _done = false;
   void _unknownStock() {
     final s = scope;
-    if (s == null) return;
+    if (s == null) {
+      return;
+    }
     var changed = false;
     for (final key in amounts.keys.toList()) {
       if (MembershipResourceGate._stockMetrics.contains(key.$1)) {
@@ -968,7 +996,9 @@ final class _LocalResourceLease implements SquareResourceLease {
 
   @override
   void cancel() {
-    if (_sent && !_done) _unknownStock();
+    if (_sent && !_done) {
+      _unknownStock();
+    }
     if (!_sent && !_done) {
       _done = true;
       scope?.holds.remove(this);
@@ -1038,11 +1068,15 @@ final class _LocalResourceLease implements SquareResourceLease {
           ),
         );
         _unknownStock();
-        if (amounts.isNotEmpty) return;
+        if (amounts.isNotEmpty) {
+          return;
+        }
       }
     } else if (raw != null || uncertain && _sent) {
       _unknownStock();
-      if (amounts.isNotEmpty) return;
+      if (amounts.isNotEmpty) {
+        return;
+      }
     }
     // 重试回执结算原许可，不把同一操作的未知日扣量留成第二份消耗。
     final licensed =

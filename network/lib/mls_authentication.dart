@@ -105,7 +105,7 @@ class MlsAuthenticationRequest {
   static void validateExpiry(int expiry) {
     final now = DateTime.now().millisecondsSinceEpoch;
     if (expiry > maxJsonInteger || expiry <= now || expiry - now > 300000) {
-      throw ArgumentError('MLS认证挑战已过期或有效期非法');
+      throw ArgumentError('MLS认证证明已过期或有效期非法');
     }
   }
 
@@ -113,7 +113,7 @@ class MlsAuthenticationRequest {
   Map<String, Object> toJson() => {
     'service_origin': serviceOrigin,
     'token_purpose': tokenPurpose,
-    if (sessionHash != null) 'session_hash': sessionHash!,
+    'session_hash': ?sessionHash,
     'nonce_id': nonceId,
     'expires_at': expiresAt,
     'http_method': httpMethod,

@@ -57,7 +57,9 @@ class _CreatorSubscribeButtonState extends State<CreatorSubscribeButton> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_dependenciesReady) return;
+    if (_dependenciesReady) {
+      return;
+    }
     _chainData = context.read<ChainDataService?>();
     _unwatch = _chainData?.watchCreator(widget.creatorCid);
     _chainData?.addListener(_onChainData);
@@ -103,8 +105,9 @@ class _CreatorSubscribeButtonState extends State<CreatorSubscribeButton> {
     final data = _chainData?.snapshot;
     if (!mounted ||
         data == null ||
-        !data.citizens.containsKey(widget.creatorCid))
+        !data.citizens.containsKey(widget.creatorCid)) {
       return;
+    }
     final target = data.citizens[widget.creatorCid]!,
         sub = data.subscriptions[widget.creatorCid];
     setState(() {
@@ -135,24 +138,32 @@ class _CreatorSubscribeButtonState extends State<CreatorSubscribeButton> {
     final sessionProvider = _session;
     final service = _service;
     if (sessionProvider == null || service == null) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
       return;
     }
     try {
       final session = await sessionProvider.ensureSession();
       if (session == null) {
-        if (mounted) setState(() => _loading = false);
+        if (mounted) {
+          setState(() => _loading = false);
+        }
         return;
       }
       final view = await service.fetchView(session, widget.creatorCid);
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _plan = view.plan;
         _subscription = view.subscription;
         _loading = false;
       });
     } on Exception {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 
@@ -218,7 +229,9 @@ class _CreatorSubscribeButtonState extends State<CreatorSubscribeButton> {
         ),
       ),
     );
-    if (!mounted || action == null) return;
+    if (!mounted || action == null) {
+      return;
+    }
     switch (action) {
       case _SubscribedAction.changePlan:
         await _openPicker();
@@ -230,14 +243,20 @@ class _CreatorSubscribeButtonState extends State<CreatorSubscribeButton> {
   Future<void> _openPicker() async {
     // 未注册 CID:先于选档返回所属页的统一注册引导，不由动作直接弹面板；
     // 占号成功后订阅由用户重新发起。取消订阅无需此门(未注册者不可能有订阅)。
-    if (!await ensureCidRegisteredOrPrompt(context)) return;
-    if (!mounted) return;
+    if (!await ensureCidRegisteredOrPrompt(context)) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
     final selection = await showModalBottomSheet<_TierPeriodSelection>(
       context: context,
       isScrollControlled: true,
       builder: (_) => _TierPeriodPicker(plan: _plan!),
     );
-    if (selection == null || !mounted) return;
+    if (selection == null || !mounted) {
+      return;
+    }
     final current = _subscription;
     final samePlan =
         current?.tierId == selection.tierId &&
@@ -246,7 +265,9 @@ class _CreatorSubscribeButtonState extends State<CreatorSubscribeButton> {
         (current?.subState == 'active' || current?.subState == 'cancelled') &&
         !samePlan;
     final service = _service;
-    if (service == null) return;
+    if (service == null) {
+      return;
+    }
     await _run(
       () => shouldChange
           ? service.changePlan(
@@ -285,9 +306,13 @@ class _CreatorSubscribeButtonState extends State<CreatorSubscribeButton> {
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
+    if (confirmed != true || !mounted) {
+      return;
+    }
     final service = _service;
-    if (service == null) return;
+    if (service == null) {
+      return;
+    }
     await _run(
       () => service.cancel(context: context, creatorCid: widget.creatorCid),
     );
@@ -297,15 +322,21 @@ class _CreatorSubscribeButtonState extends State<CreatorSubscribeButton> {
     setState(() => _busy = true);
     try {
       await action();
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       await _load();
     } on CreatorSubscribeException catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(e.message)));
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() => _busy = false);
+      }
     }
   }
 }

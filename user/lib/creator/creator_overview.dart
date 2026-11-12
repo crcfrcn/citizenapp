@@ -26,8 +26,9 @@ class CreatorOverview {
     if (value['subscriber_count'] is! int ||
         value['monthly_income_fen'] is! String ||
         value['final_block'] is! int ||
-        value['final_hash'] is! String)
+        value['final_hash'] is! String) {
       throw const FormatException('轻节点统计快照无效');
+    }
     return CreatorOverview(
       subscriberCount: value['subscriber_count'] as int,
       monthlyIncomeFen: BigInt.parse(value['monthly_income_fen'] as String),

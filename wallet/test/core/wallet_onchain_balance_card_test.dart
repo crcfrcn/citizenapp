@@ -189,7 +189,7 @@ void main() {
     chain.height = 3;
     store.finalized(
       CitizenBlockRef(
-        hash: '0x' + List.filled(32, '11').join(),
+        hash: '0x${List.filled(32, '11').join()}',
         number: BigInt.from(3),
         finality: CitizenBlockFinality.finalized,
       ),

@@ -61,7 +61,7 @@ class Reader extends ChainDataReader {
   Reader()
     : super(
         getRuntimeContext: (_) async => throw StateError('unused'),
-        getStorageBatch: (_, __) async => throw StateError('unused'),
+        getStorageBatch: (_, _) async => throw StateError('unused'),
       );
   final calls = <(String, int)>[];
   Future<ChainDataSnapshot> Function(
@@ -95,10 +95,14 @@ class Store implements ChainDataStore {
       cached?.accountId == account ? cached : null;
   @override
   Future<void> write(ChainDataSnapshot value, bool Function() current) async {
-    if (current()) writes.add(value);
+    if (current()) {
+      writes.add(value);
+    }
   }
 }
 
 Future<void> flush() async {
-  for (var i = 0; i < 20; i++) await Future<void>.delayed(Duration.zero);
+  for (var i = 0; i < 20; i++) {
+    await Future<void>.delayed(Duration.zero);
+  }
 }

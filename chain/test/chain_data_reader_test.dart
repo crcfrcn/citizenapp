@@ -49,10 +49,11 @@ void main() {
       ],
     );
     put('Timestamp', 'Now', [], number(1000, 8));
-    for (final level in ['freedom', 'democracy', 'spark'])
+    for (final level in ['freedom', 'democracy', 'spark']) {
       put('SquarePost', 'PlatformPrice', [
         SubscriptionChain.membershipLevelVariant(level),
       ], number(199900, 16));
+    }
     values[id(
       SubscriptionChain.buildSubscriptionStorageKey(runtime, f.cidA, null),
     )] = Uint8List.fromList([
@@ -196,7 +197,7 @@ void main() {
     expect(data.memberActive(f.cidA), isFalse);
     final broken = ChainDataReader(
       getRuntimeContext: (_) async => runtime,
-      getStorageBatch: (_, __) async => throw StateError('proof unavailable'),
+      getStorageBatch: (_, _) async => throw StateError('proof unavailable'),
     );
     await expectLater(
       broken.read(genesisHash: f.hash(0), accountId: owner, block: at),
