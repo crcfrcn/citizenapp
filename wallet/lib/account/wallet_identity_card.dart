@@ -21,7 +21,6 @@ class WalletDetailBody extends StatelessWidget {
     required this.name,
     required this.onNameChanged,
     required this.onRefresh,
-    required this.balanceKey,
     required this.actionKey,
     required this.records,
     this.balanceLoader,
@@ -30,7 +29,6 @@ class WalletDetailBody extends StatelessWidget {
   final String name;
   final Future<void> Function(String) onNameChanged;
   final Future<void> Function() onRefresh;
-  final GlobalKey<WalletOnchainBalanceCardState> balanceKey;
   final GlobalKey<WalletActionCardState> actionKey;
   final List<wallet_store.Entry> records;
   final Future<CitizenAccountBalance> Function(String)? balanceLoader;
@@ -60,18 +58,13 @@ class WalletDetailBody extends StatelessWidget {
                 child: Divider(height: 1, color: Colors.white.withAlpha(55)),
               ),
               WalletOnchainBalanceCard(
-                key: balanceKey,
                 wallet: account,
                 balanceLoader: balanceLoader,
               ),
             ],
           ),
         ),
-        WalletActionCard(
-          key: actionKey,
-          accountId: account.accountId,
-          onTopupPaid: onRefresh,
-        ),
+        WalletActionCard(key: actionKey, accountId: account.accountId),
         SizedBox(height: AppLayout.scaled(context, 24)),
         Padding(
           key: const ValueKey('wallet-transaction-section-padding'),
@@ -258,8 +251,9 @@ class _WalletIdentityCardState extends State<WalletIdentityCard> {
   /// 复制钱包地址并弹 SnackBar。
   void _copyAddress() {
     Clipboard.setData(ClipboardData(text: widget.wallet.ss58Address));
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('钱包地址已复制')));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('钱包地址已复制')));
   }
 
   /// 按最终设计稿把完整地址拆成两行：

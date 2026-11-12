@@ -156,8 +156,6 @@ void main() {
           getSystemEvents: reads1.getSystemEvents,
           getRuntimeContext: reads1.getRuntimeContext,
           getBlockBody: reads1.getBlockBody,
-          getAccountBalance: reads1.getAccountBalance,
-          getAccountBalances: reads1.getAccountBalances,
           getWalletState: () => testCitizenOperation(() => wallet),
           events: events.stream,
         );

@@ -55,10 +55,26 @@ class _FakeChainState implements InstitutionChainState {
   final List<InstitutionProposalSummary> proposalList;
   final Map<String, BigInt> balanceByAccountId;
 
-  @override
-  Future<Map<String, BigInt>> balances(List<String> publicKeyes) async =>
-      balanceFuture ??
-      {for (final h in publicKeyes) h: balanceByAccountId[h] ?? BigInt.from(1250)};
+  CitizenBalances? _balances;
+  CitizenBalances get balances => _balances ??= CitizenBalances(
+    getAccountBalances: (ids) async {
+      final amounts = await (balanceFuture ?? Future.value(balanceByAccountId));
+      return [
+        for (final id in ids)
+          CitizenAccountBalance(
+            accountId: id,
+            block: CitizenBlockRef(
+              hash: '0x' + List.filled(32, '11').join(),
+              number: BigInt.one,
+              finality: CitizenBlockFinality.finalized,
+            ),
+            freeFen: amounts[id] ?? BigInt.from(1250),
+            reservedFen: BigInt.zero,
+            totalFen: amounts[id] ?? BigInt.from(1250),
+          ),
+      ];
+    },
+  );
 
   @override
   Future<List<InstitutionAdminView>> adminViews(Institution institution) async {
@@ -121,7 +137,12 @@ app_store.Entity _fscEntity() =>
       'custom_account_names': [kReservedNameFcsf],
     }).toEntity();
 
-Widget _wrap(Widget child) => MaterialApp(home: child);
+Widget _wrap(Widget child) => Provider<CitizenBalances>.value(
+  value: _FakeChainState(
+    balanceByAccountId: {_fcsfAccountId: BigInt.from(1000000000000)},
+  ).balances,
+  child: MaterialApp(home: child),
+);
 
 /// 合成名册和权限时序，测试不打开设备钱包、激活存储或实际链会话。
 List<InstitutionAdminView> _rows(int count, {bool loaded = true}) => [
@@ -240,7 +261,9 @@ Future<void> _openDetails(
     });
     app = Provider<CitizenSdk>.value(value: sdk, child: app);
   }
-  await tester.pumpWidget(app);
+  await tester.pumpWidget(
+    Provider<CitizenBalances>.value(value: chain.balances, child: app),
+  );
   for (var i = 0; i < 5; i++) {
     await tester.pump();
   }
@@ -537,14 +560,7 @@ void main() {
   testWidgets('联邦安全局全部账户页显示 FCSF 正确余额', (tester) async {
     final institution = Institution.fromPublicEntity(_fscEntity());
     await tester.pumpWidget(
-      _wrap(
-        InstitutionAccountsPage(
-          institution: institution,
-          chainState: _FakeChainState(
-            balanceByAccountId: {_fcsfAccountId: BigInt.from(1000000000000)},
-          ),
-        ),
-      ),
+      _wrap(InstitutionAccountsPage(institution: institution)),
     );
     await tester.pumpAndSettle();
 

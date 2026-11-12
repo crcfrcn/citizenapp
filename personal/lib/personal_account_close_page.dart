@@ -1,3 +1,4 @@
+import 'package:citizen_widgets/chain_balance_scope.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:typed_data';
@@ -41,8 +42,6 @@ class _PersonalAccountClosePageState extends State<PersonalAccountClosePage> {
   bool _dependenciesReady = false;
 
   bool _submitting = false;
-  bool _loadingBalance = true;
-  BigInt? _availableBalance;
   String? _addressError;
   CitizenChainSyncStatus? _chainProgress;
   String? _chainProgressError;
@@ -65,7 +64,6 @@ class _PersonalAccountClosePageState extends State<PersonalAccountClosePage> {
     _manageService = PersonalManageService(chain: sdk, transactions: sdk);
     _proposalQuery = ProposalQueryService(chain: sdk);
     _dependenciesReady = true;
-    _fetchBalance();
   }
 
   @override
@@ -75,31 +73,12 @@ class _PersonalAccountClosePageState extends State<PersonalAccountClosePage> {
   }
 
   /// 页面进入读取 wallet 持久余额，交易前校验由既有余额守卫强制刷新。
-  Future<bool> _fetchBalance({bool forceRefresh = false}) async {
-    if (forceRefresh && mounted) setState(() => _loadingBalance = true);
-    try {
-      final snapshot = await context.read<CitizenSdk>().getAccountBalance(
-        widget.institution.accountId,
-        forceRefresh: forceRefresh,
-      );
-      if (!mounted) return false;
-      setState(() {
-        _availableBalance = snapshot.freeFen;
-        _loadingBalance = false;
-      });
-      return true;
-    } catch (_) {
-      if (mounted) {
-        setState(() => _loadingBalance = false);
-        if (forceRefresh) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('余额校验失败，请刷新后重试')));
-        }
-      }
-      return false;
-    }
-  }
+  CitizenBalanceState<CitizenAccountBalance> get _balance => context
+      .read<CitizenSdk>()
+      .balances
+      .accountState(widget.institution.accountId);
+  BigInt? get _availableBalance => _balance.value?.freeFen;
+  bool get _loadingBalance => _balance.value == null && !_balance.hasError;
 
   // ──── 校验 ────
 
@@ -144,7 +123,10 @@ class _PersonalAccountClosePageState extends State<PersonalAccountClosePage> {
     setState(() => _submitting = true);
 
     try {
-      if (!await _fetchBalance(forceRefresh: true) || !mounted) return;
+      await context.read<CitizenSdk>().getAccountBalance(
+        widget.institution.accountId,
+      );
+      if (!mounted) return;
       final balanceFen = _availableBalance!;
       final fees = await chain.getFeeSnapshot(amountFen: balanceFen);
       if (!mounted ||
@@ -246,7 +228,11 @@ class _PersonalAccountClosePageState extends State<PersonalAccountClosePage> {
   // ──── UI ────
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ChainBalanceScope(
+    accountIds: [widget.institution.accountId],
+    builder: _buildBalanceView,
+  );
+  Widget _buildBalanceView(BuildContext context, CitizenBalances balances) {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(

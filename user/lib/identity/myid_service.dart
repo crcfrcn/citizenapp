@@ -745,6 +745,8 @@ class MyIdService {
     bool existingRuntimeOnly = false,
     Future<void> Function()? requireCurrent,
   }) async {
+    var bindingChanged = false;
+    var activationRevision = _accountSecurity.revision.value;
     try {
       await requireCurrent?.call();
       // 已有完整身份优先；注册收尾仅在没有同代次完整快照时构造匿名展示。
@@ -779,12 +781,21 @@ class MyIdService {
         current.cidNumber,
       );
       await requireCurrent?.call();
+      if (previous != null &&
+          previous.genesisHash == current.genesisHash &&
+          previous.cidNumber == current.cidNumber &&
+          previous.accountId == current.accountId &&
+          previous.bindRev == current.bindRev) {
+        return;
+      }
+      activationRevision = _accountSecurity.revision.value;
       await _accountSecurity.activateIdentityBinding(
         genesisHash: current.genesisHash,
         cidNumber: current.cidNumber,
         bindRev: current.bindRev,
         accountId: current.accountId,
       );
+      bindingChanged = true;
       await requireCurrent?.call();
       _currentUserContext.invalidate();
       if (previous != null) {
@@ -799,10 +810,13 @@ class MyIdService {
       await _onChatBindingChanged(current, existingOnly: existingRuntimeOnly);
       await requireCurrent?.call();
     } finally {
-      // CID 占号与换绑不一定改变 account_id，必须先清“未注册”快照再广播；所有常驻
-      // 页面收到 revision 后按 cid_number + account_id 重读，禁止依赖重启 App。
-      _currentUserContext.invalidate();
-      _accountSecurity.notifyIdentityBindingChanged();
+      if (bindingChanged) {
+        _currentUserContext.invalidate();
+        // 激活器已广播时沿用该版本；只在实际绑定变化时补齐通知。
+        if (_accountSecurity.revision.value == activationRevision) {
+          _accountSecurity.notifyIdentityBindingChanged();
+        }
+      }
     }
   }
 

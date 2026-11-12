@@ -13,7 +13,6 @@ import 'package:citizen_wallet/history/tx_auto_refresh_mixin.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_wallet/account/wallet_action_card.dart';
 import 'package:citizen_wallet/account/wallet_identity_card.dart';
-import 'package:citizen_wallet/core/wallet_onchain_balance_card.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
 /// 两个钱包入口共用私钥显示，真实认证、撤销和字节清零由 SDK 资源负责。
@@ -244,9 +243,6 @@ class _AccountDetailPageState extends State<AccountDetailPage>
   final GlobalKey<WalletActionCardState> _actionCardKey =
       GlobalKey<WalletActionCardState>();
 
-  final GlobalKey<WalletOnchainBalanceCardState> _balanceCardKey =
-      GlobalKey<WalletOnchainBalanceCardState>();
-
   /// 该账户最近交易记录(最多 5 条),按 `account_id` 查询。
   List<wallet_store.Entry> _recentRecords = const [];
 
@@ -295,7 +291,9 @@ class _AccountDetailPageState extends State<AccountDetailPage>
     await Future.wait<void>([
       Future(() async {
         try {
-          await _balanceCardKey.currentState?.refresh();
+          await context.read<CitizenSdk>().getAccountBalance(
+            widget.account.accountId,
+          );
         } catch (_) {}
       }),
       Future(() async {
@@ -376,7 +374,6 @@ class _AccountDetailPageState extends State<AccountDetailPage>
         name: account.name,
         onNameChanged: _saveAccountName,
         onRefresh: _onPullRefresh,
-        balanceKey: _balanceCardKey,
         actionKey: _actionCardKey,
         records: _recentRecords,
       ),

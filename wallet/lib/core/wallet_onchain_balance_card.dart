@@ -1,3 +1,4 @@
+import 'package:citizen_widgets/chain_balance_scope.dart';
 import 'dart:async';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -11,8 +12,7 @@ import 'package:citizen_system/theme/app_layout.dart';
 /// 钱包详情页主视觉中的链上余额区。
 ///
 /// - SDK读取已验证finalized块，字段为totalFen（free + reserved），换算成元展示。
-/// - 不再展示卡内刷新按钮,刷新由外层 [WalletDetailPage] 的 RefreshIndicator
-///   下拉触发,通过 [GlobalKey<WalletOnchainBalanceCardState>] 调 [refresh()]。
+/// - 页面可见性由 ChainBalanceScope 登记，更新由 SDK 最终区块统一驱动。
 /// - 与 [WalletIdentityCard] 共用外层纯色面板，单位只在金额行展示一次。
 /// - 加载态:金额位显示「— 元」占位。
 /// - 错误态:金额位显示「查询失败,点击刷新」,点击触发 [refresh()]。
@@ -33,8 +33,7 @@ class WalletOnchainBalanceCard extends StatefulWidget {
       WalletOnchainBalanceCardState();
 }
 
-/// State 类公开(去掉下划线)是为了支持外层 [GlobalKey] 引用,
-/// 下拉刷新时由 [WalletDetailPage] 通过 key 调 [refresh()]。
+/// 状态只绑定 SDK 唯一余额，不向父页面暴露独立刷新命令。
 class WalletOnchainBalanceCardState extends State<WalletOnchainBalanceCard> {
   late CitizenBalanceState<CitizenAccountBalance> _balance;
 
@@ -44,16 +43,17 @@ class WalletOnchainBalanceCardState extends State<WalletOnchainBalanceCard> {
     _bind();
   }
 
-  // 各次进入直接绑定同一个 wallet 状态，页面不另存金额、失败或刷新标志。
   void _bind() {
     final loader = widget.balanceLoader;
     _balance = loader == null
-        ? context.read<CitizenSdk>().balances.accountState(
-            widget.wallet.accountId,
-          )
+        ? (context.read<CitizenBalances?>() ??
+                  context.read<CitizenSdk>().balances)
+              .accountState(widget.wallet.accountId)
         : CitizenBalanceState((_) => loader(widget.wallet.accountId));
-    _balance.addListener(_changed);
-    unawaited(refresh(forceRefresh: false));
+    if (loader != null) {
+      _balance.addListener(_changed);
+      unawaited(_balance.load());
+    }
   }
 
   void _changed() {
@@ -65,22 +65,27 @@ class WalletOnchainBalanceCardState extends State<WalletOnchainBalanceCard> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.wallet.accountId != widget.wallet.accountId ||
         oldWidget.balanceLoader != widget.balanceLoader) {
-      _balance.removeListener(_changed);
+      if (oldWidget.balanceLoader != null) _balance.removeListener(_changed);
       _bind();
     }
   }
 
   @override
   void dispose() {
-    _balance.removeListener(_changed);
+    if (widget.balanceLoader != null) _balance.removeListener(_changed);
     super.dispose();
   }
 
-  Future<void> refresh({bool forceRefresh = true}) =>
-      _balance.load(forceRefresh: forceRefresh);
-
   @override
   Widget build(BuildContext context) {
+    if (widget.balanceLoader != null) return _buildBalanceView(context);
+    return ChainBalanceScope(
+      accountIds: [widget.wallet.accountId],
+      builder: (context, _) => _buildBalanceView(context),
+    );
+  }
+
+  Widget _buildBalanceView(BuildContext context) {
     return Padding(
       key: const ValueKey('wallet-onchain-balance-section'),
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
@@ -98,6 +103,8 @@ class WalletOnchainBalanceCardState extends State<WalletOnchainBalanceCard> {
           ),
           SizedBox(height: AppLayout.scaled(context, 8)),
           _buildAmountSection(),
+          if (_balance.hasError && _balance.value != null)
+            const Text('更新失败，显示最近余额', style: TextStyle(color: Colors.white70)),
         ],
       ),
     );
@@ -111,7 +118,7 @@ class WalletOnchainBalanceCardState extends State<WalletOnchainBalanceCard> {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(AppTheme.radiusSm),
-          onTap: refresh,
+          onTap: () => unawaited(_balance.load(forceRefresh: true)),
           child: ConstrainedBox(
             constraints: BoxConstraints(minHeight: AppLayout.scaledValue(44)),
             child: Align(

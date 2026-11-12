@@ -1,3 +1,4 @@
+import 'package:citizen_widgets/chain_balance_scope.dart';
 import 'package:citizen_topup/store.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:citizen_storage/user_isar.dart' as wallet_store show Entry;
@@ -29,7 +30,6 @@ import 'package:citizen_wallet/account/add_account_sheet.dart';
 import 'package:citizen_scanner/qr_scan_page.dart';
 import 'package:citizen_wallet/account/wallet_action_card.dart';
 import 'package:citizen_wallet/account/wallet_identity_card.dart';
-import 'package:citizen_wallet/core/wallet_onchain_balance_card.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
 /// App只保留公开目录与本次读取的归还动作；SDK私有资源仍由默认读取器持有。
@@ -228,17 +228,17 @@ class _WalletTabState extends State<WalletTab> {
     if (mounted && !_mutationInProgress) unawaited(_reload());
   }
 
-  Future<void> _reload({bool forceBalance = false}) {
+  Future<void> _reload() {
     final existing = _directoryFlight;
     if (existing != null) return existing;
-    final operation = _loadDirectory(forceBalance: forceBalance);
+    final operation = _loadDirectory();
     _directoryFlight = operation;
     return operation.whenComplete(() {
       if (identical(_directoryFlight, operation)) _directoryFlight = null;
     });
   }
 
-  Future<void> _loadDirectory({bool forceBalance = false}) async {
+  Future<void> _loadDirectory() async {
     final generation = ++_loadGeneration;
     if (_state == null && mounted) {
       setState(() {
@@ -302,7 +302,7 @@ class _WalletTabState extends State<WalletTab> {
         _loadError = null;
       });
       await _releaseRead(previous);
-      await _refreshWalletDisplay(state, generation, forceBalance);
+      await _refreshWalletDisplay(state, generation);
     } catch (error) {
       if (!mounted || generation != _loadGeneration) return;
       AppLog.d('wallet_catalog_read_failed');
@@ -323,7 +323,6 @@ class _WalletTabState extends State<WalletTab> {
   Future<void> _refreshWalletDisplay(
     CitizenWalletState state,
     int generation,
-    bool forceBalance,
   ) async {
     if (!mounted || generation != _loadGeneration) return;
     try {
@@ -339,7 +338,6 @@ class _WalletTabState extends State<WalletTab> {
     }
     if (!mounted || generation != _loadGeneration) return;
     unawaited(_loadIdentity(generation));
-    unawaited(_refreshBalances(state, generation, forceRefresh: forceBalance));
   }
 
   Future<void> _showDiagnostics() async {
@@ -415,48 +413,28 @@ class _WalletTabState extends State<WalletTab> {
     );
   }
 
-  Future<void> _refreshBalances(
-    CitizenWalletState state,
-    int generation, {
-    bool forceRefresh = false,
-  }) async {
-    if (state.accounts.isEmpty) {
-      return;
-    }
+  Future<void> _showBalanceError(Object error) async {
     final sdk = context.read<CitizenSdk>();
-    try {
-      await _balanceStore.getAccountBalances(
-        state.accounts.map((account) => account.accountId).toList(),
-        forceRefresh: forceRefresh,
-      );
-    } catch (error) {
-      if (!mounted || generation != _loadGeneration) return;
-      // SDK没有设备离线/同步超时的细分事实，不能从peer数或自由文本猜原因。
-      var message = '区块链读取失败，请稍后再试';
-      if ((widget.actions?.lifecycle?.call() ?? sdk.lifecycle) ==
-          CitizenSdkLifecycle.startFailed) {
-        message = '轻节点初始化失败，请检查网络后重试';
-      } else if (error is CitizenSdkException) {
-        if (error.code == CitizenSdkErrorCode.unavailable ||
-            error.code == CitizenSdkErrorCode.integrity) {
-          message = '区块链暂不可用，请检查网络连接后重试';
-        } else if (error.code == CitizenSdkErrorCode.notReady) {
-          try {
-            final status =
-                await (widget.actions?.syncStatus ?? sdk.getSyncStatus)();
-            if (status.isSyncing) {
-              message = '轻节点正在同步链状态，请稍后再试';
-            }
-          } catch (_) {
-            // 状态也不可读取时保留原通用提示，不伪造同步事实。
-          }
-        }
+    var message = '区块链读取失败，请稍后再试';
+    if ((widget.actions?.lifecycle?.call() ?? sdk.lifecycle) ==
+        CitizenSdkLifecycle.startFailed) {
+      message = '轻节点初始化失败，请检查网络后重试';
+    } else if (error is CitizenSdkException) {
+      if (error.code == CitizenSdkErrorCode.unavailable ||
+          error.code == CitizenSdkErrorCode.integrity) {
+        message = '区块链暂不可用，请检查网络连接后重试';
+      } else if (error.code == CitizenSdkErrorCode.notReady) {
+        try {
+          final status =
+              await (widget.actions?.syncStatus ?? sdk.getSyncStatus)();
+          if (status.isSyncing) message = '轻节点正在同步链状态，请稍后再试';
+        } on Object {}
       }
-      if (!mounted || generation != _loadGeneration) return;
+    }
+    if (mounted)
       ScaffoldMessenger.maybeOf(
         context,
       )?.showSnackBar(SnackBar(content: Text(message)));
-    }
   }
 
   Future<void> _onDefaultAccountReorder(int oldIndex, int newIndex) async {
@@ -1105,7 +1083,16 @@ class _WalletTabState extends State<WalletTab> {
       WalletEmptyChoices(onImportCold: _openImportColdWalletPage);
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ChainBalanceScope(
+    accountIds: _accounts
+        .where((a) => a.signMode == CitizenWalletSignMode.cold)
+        .map((a) => a.accountId),
+    balances: _balanceStore,
+    onError: (error) => unawaited(_showBalanceError(error)),
+    builder: _buildBalanceView,
+  );
+
+  Widget _buildBalanceView(BuildContext context, CitizenBalances balances) {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.selectForTrade ? '选择交易钱包' : '我的钱包'),
@@ -1259,7 +1246,13 @@ class _WalletTabState extends State<WalletTab> {
       );
     }
     return RefreshIndicator(
-      onRefresh: () => _reload(forceBalance: true),
+      onRefresh: () async {
+        await _reload();
+        await _balanceStore.getAccountBalances(
+          _accounts.map((a) => a.accountId).toList(),
+          forceRefresh: true,
+        );
+      },
       child: CustomScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
@@ -2005,21 +1998,21 @@ class _WalletDetailPageState extends State<WalletDetailPage>
   late BigInt _walletRevision;
   List<wallet_store.Entry> _recentRecords = const [];
 
-  /// 外层下拉刷新通过此 key 触发链上余额卡的 refresh()。
-  final GlobalKey<WalletOnchainBalanceCardState> _balanceCardKey =
-      GlobalKey<WalletOnchainBalanceCardState>();
+  /// 此 key 仅用于链下清算行操作卡，链上余额由 SDK 管理。
   final GlobalKey<WalletActionCardState> _actionCardKey =
       GlobalKey<WalletActionCardState>();
 
   /// 整页下拉刷新:
-  /// - 链上余额卡:通过 GlobalKey 调 refresh()
+  /// - 链上余额:调用 SDK 统一读取入口
   /// - 交易记录：复用唯一历史同步及本地列表重载。
   /// - 清算行余额:通过 WalletActionCard 读取当前绑定清算行节点余额。
   Future<void> _onPullRefresh() async {
     await Future.wait<void>([
       Future(() async {
         try {
-          await _balanceCardKey.currentState?.refresh();
+          await context.read<CitizenSdk>().getAccountBalance(
+            widget.wallet.accountId,
+          );
         } catch (_) {
           // 链上余额刷新失败已在卡片内置错误态处理,这里不打断其他刷新
         }
@@ -2151,7 +2144,6 @@ class _WalletDetailPageState extends State<WalletDetailPage>
         name: widget.walletName,
         onNameChanged: _saveWalletName,
         onRefresh: _onPullRefresh,
-        balanceKey: _balanceCardKey,
         actionKey: _actionCardKey,
         records: _recentRecords,
       ),

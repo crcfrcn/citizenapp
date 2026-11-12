@@ -4,6 +4,9 @@ import 'package:http/http.dart' as http;
 
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 import 'package:citizen_testing/mls_authentication_fixture.dart';
+import 'package:citizen_testing/chain_data_fixture.dart' as chain_fixture;
+import 'package:citizen_chain/citizen_chain.dart';
+import 'package:citizen_user/identity/identity_badge.dart';
 
 import 'dart:async';
 
@@ -349,6 +352,85 @@ class _MutableIdentityCache implements CurrentUserContext {
 }
 
 void main() {
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    for (final brokenCache in [false, true]) {
+      testWidgets('$platform非空通讯录独立加载徽章，资料缓存故障=$brokenCache', (tester) async {
+        final reader = chain_fixture.Reader();
+        var head = chain_fixture.block(103);
+        final requestedCids = <String>{};
+        reader.behavior = (account, block, citizens, creators) async {
+          requestedCids.addAll(citizens);
+          return chain_fixture.snapshot(
+            block,
+            account,
+            cidNumber: _ownerBinding().cidNumber,
+            citizens: citizens,
+            creators: creators,
+            hasMembership: block.number < BigInt.from(104),
+          );
+        };
+        final source = ChainDataService(
+          reader: reader,
+          getFinalizedHead: () async => head,
+          getGenesisHash: () async => chain_fixture.hash(0),
+          getAccount: () async => _accountId,
+        );
+        addTearDown(source.close);
+        await source.start();
+        final contacts = _FakeContacts()
+          ..contacts = [
+            _contact,
+            const UserContact(
+              cidNumber: chain_fixture.cidB,
+              contactRemark: '李四',
+              updatedAt: 3,
+            ),
+          ];
+        final profiles = _FakeProfileApi(_profile);
+        await tester.pumpWidget(
+          ChangeNotifierProvider<ChainDataService>.value(
+            value: source,
+            child: _page(
+              platform: platform,
+              service: contacts,
+              profileApi: profiles,
+              initialProfiles: const {},
+              profileCache: brokenCache
+                  ? const _ThrowingProfileCache()
+                  : const _MemoryProfileCache(null),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('备注：张三'), findsOneWidget);
+        expect(find.text('备注：李四'), findsOneWidget);
+        expect(
+          requestedCids,
+          containsAll([_contactCidNumber, chain_fixture.cidB]),
+        );
+        expect(find.byType(IdentityBadge), findsNWidgets(2));
+        for (final badge in tester.widgetList<IdentityBadge>(
+          find.byType(IdentityBadge),
+        )) {
+          expect(badge.style.checked, isTrue);
+          expect(badge.tooltip, '访客 · 自由会员');
+        }
+        head = chain_fixture.block(104);
+        await source.refresh();
+        await tester.pumpAndSettle();
+        for (final badge in tester.widgetList<IdentityBadge>(
+          find.byType(IdentityBadge),
+        )) {
+          expect(badge.style.checked, isFalse);
+          expect(badge.tooltip, '访客');
+        }
+        expect(profiles.cardReads, 0);
+        expect(contacts.syncCalls, 0);
+        expect(contacts.flushCalls, 0);
+        await tester.pumpWidget(const SizedBox());
+      });
+    }
+  }
   final sdk = TestCitizenSdkHarness(physicalUi: true);
   testWidgets('点击扫码直接启动相机，不等待公民服务会话', (tester) async {
     await tester.pumpWidget(
@@ -531,8 +613,8 @@ void main() {
     final avatar = tester.widget<ProfileAvatar>(find.byType(ProfileAvatar));
     expect(avatar.imagePath, avatarPath);
     expect(avatar.userImageSet, isTrue);
-    expect(avatar.memberLevel, 'democracy');
-    expect(avatar.membergateActive, isTrue);
+    expect(avatar.memberLevel, isNull);
+    expect(avatar.membergateActive, isFalse);
     expect(avatar.showBadge, isTrue);
   });
 
@@ -554,7 +636,8 @@ void main() {
     );
     final avatar = tester.widget<ProfileAvatar>(find.byType(ProfileAvatar));
     expect(avatar.userImageSet, isTrue);
-    expect(avatar.showBadge, isFalse);
+    expect(avatar.showBadge, isTrue);
+    expect(find.byType(IdentityBadge), findsNothing);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();

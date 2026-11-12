@@ -108,15 +108,22 @@ class _ProfileAvatarState extends State<ProfileAvatar> {
   Widget build(BuildContext context) {
     final snapshot = _source?.snapshot;
     final radius = widget.borderRadius ?? widget.size * 0.22;
-    final badge = identityBadgeStyle(
-      cidLevel: _source == null ? widget.cidLevel : snapshot?.identityLevel(widget.seed),
-      memberLevel: _source == null
-          ? widget.memberLevel
-          : snapshot?.memberLevel(widget.seed),
-      membergateActive: _source == null
-          ? widget.membergateActive
-          : snapshot?.memberActive(widget.seed) == true,
-    );
+    final cidLevel = _source == null
+        ? widget.cidLevel
+        : snapshot?.identityLevel(widget.seed);
+    final memberLevel = _source == null
+        ? widget.memberLevel
+        : snapshot?.memberLevel(widget.seed);
+    final membergateActive = _source == null
+        ? widget.membergateActive
+        : snapshot?.memberActive(widget.seed) == true;
+    final badge = cidLevel == null && !membergateActive
+        ? null
+        : identityBadgeStyle(
+            cidLevel: cidLevel,
+            memberLevel: memberLevel,
+            membergateActive: membergateActive,
+          );
     final path = widget.imagePath?.trim();
     final file = path == null || path.isEmpty ? null : File(path);
     final validFile = file?.existsSync() == true;
@@ -186,8 +193,8 @@ class _ProfileAvatarState extends State<ProfileAvatar> {
               style: badge,
               size: (widget.size * 0.34).clamp(18, 28),
               tooltip: identityBadgeLabel(
-                cidLevel: widget.cidLevel,
-                memberLevel: widget.memberLevel,
+                cidLevel: cidLevel,
+                memberLevel: memberLevel,
                 checked: badge.checked,
               ),
             ),

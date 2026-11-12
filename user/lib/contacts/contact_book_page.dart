@@ -671,10 +671,6 @@ class _ContactCard extends StatelessWidget {
                   userImageSet: profileResolved
                       ? profile?.avatarKey?.trim().isNotEmpty == true
                       : true,
-                  cidLevel: profile?.cidLevel,
-                  memberLevel: profile?.memberLevel,
-                  membergateActive: profile?.membergateActive ?? false,
-                  showBadge: profileResolved,
                   borderRadius: 14,
                 ),
                 SizedBox(width: AppLayout.scaled(context, 12)),

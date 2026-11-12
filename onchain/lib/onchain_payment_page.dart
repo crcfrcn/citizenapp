@@ -1,3 +1,4 @@
+import 'package:citizen_widgets/chain_balance_scope.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:citizen_storage/user_isar.dart' as wallet_store show Entry;
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -219,10 +220,6 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     return value == null ? '—' : formatFen(value.freeFen);
   }
 
-  void _onBalanceChanged() {
-    if (mounted) setState(() {});
-  }
-
   bool _loadingWallet = true;
   bool _submitting = false;
   String? _recipientCid;
@@ -274,7 +271,6 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
         AppLog.d('[Transaction] 链上支付 watcher 停止失败: $error\n$stackTrace');
       }),
     );
-    _walletBalance?.removeListener(_onBalanceChanged);
     _walletLoadGeneration += 1;
     _accountSecurity?.revision.removeListener(_onWalletsChanged);
     _remarkController.removeListener(_onRemarkChanged);
@@ -373,7 +369,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
       )
       .length;
 
-  Future<void> _reloadWallet({bool forceBalance = false}) async {
+  Future<void> _reloadWallet() async {
     final generation = ++_walletLoadGeneration;
     CitizenWalletStateAccount? wallet;
     CitizenBalanceState<CitizenAccountBalance>? balance;
@@ -403,7 +399,6 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
           testBalance = await injected(wallet.accountId);
         } else {
           final store = context.read<CitizenSdk>().balances;
-          await store.restore([wallet.accountId]);
           balance = store.accountState(wallet.accountId);
         }
       }
@@ -416,9 +411,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     if (!mounted || generation != _walletLoadGeneration) return;
     final nextAccountId = _accountIdOf(wallet);
     final changed = nextAccountId != _accountIdOf(_currentWallet);
-    _walletBalance?.removeListener(_onBalanceChanged);
     _walletBalance = balance;
-    _walletBalance?.addListener(_onBalanceChanged);
     setState(() {
       _currentWallet = wallet;
       _testBalance = testBalance;
@@ -426,13 +419,6 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
       if (changed) _localTxRecords = [];
     });
     startTxAutoRefresh(nextAccountId);
-    // 普通进入先显示本地快照；首次缺失在共享状态中补齐，主动刷新才等待网络。
-    final refresh = balance?.load(forceRefresh: forceBalance);
-    if (forceBalance) {
-      await refresh;
-    } else if (refresh != null) {
-      unawaited(refresh);
-    }
   }
 
   Future<BigInt> _loadFinalizedBalance(
@@ -446,8 +432,8 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     return balance.freeFen;
   }
 
-  Future<void> _reloadWalletAndLocalRecords({bool forceBalance = false}) async {
-    await _reloadWallet(forceBalance: forceBalance);
+  Future<void> _reloadWalletAndLocalRecords() async {
+    await _reloadWallet();
     await _loadLocalRecords();
   }
 
@@ -456,7 +442,11 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
   Future<void> _onPullRefresh() async {
     if (mounted) setState(() => _refreshing = true);
     try {
-      await _reloadWalletAndLocalRecords(forceBalance: true);
+      await _reloadWalletAndLocalRecords();
+      final account = _currentWallet;
+      if (account != null && widget.balanceLoader == null) {
+        await context.read<CitizenSdk>().getAccountBalance(account.accountId);
+      }
     } finally {
       if (mounted) setState(() => _refreshing = false);
     }
@@ -527,13 +517,13 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
         amountRaw.isEmpty) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(
-        const SnackBar(content: Text('请先选择收款人或填写收款地址，再填写金额')),
-      );
+      ).showSnackBar(const SnackBar(content: Text('请先选择收款人或填写收款地址，再填写金额')));
       return;
     }
     final amountFen = parseFen(amountRaw);
-    if (amountFen == null || amountFen <= BigInt.zero || amountFen.bitLength > 128) {
+    if (amountFen == null ||
+        amountFen <= BigInt.zero ||
+        amountFen.bitLength > 128) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('金额格式不正确')));
@@ -565,9 +555,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
       if (remarkBytes > remarkLimit) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              '转账备注不能超过 $remarkLimit 字节，当前 $remarkBytes 字节',
-            ),
+            content: Text('转账备注不能超过 $remarkLimit 字节，当前 $remarkBytes 字节'),
           ),
         );
         return;
@@ -600,7 +588,6 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
           _currentWallet?.accountId != balanceAccountId) {
         return;
       }
-
     } on FormatException catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -751,7 +738,6 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
       _recipientCid = null;
       _amountController.clear();
       _remarkController.clear();
-
     } on AccountSecurityException catch (e) {
       if (!mounted) {
         return;
@@ -1080,6 +1066,16 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
 
   @override
   Widget build(BuildContext context) {
+    if (widget.balanceLoader != null) return _buildBalanceView(context);
+    return ChainBalanceScope(
+      accountIds: _currentWallet == null
+          ? const <String>[]
+          : [_currentWallet!.accountId],
+      builder: (context, _) => _buildBalanceView(context),
+    );
+  }
+
+  Widget _buildBalanceView(BuildContext context) {
     return Scaffold(
       body: SafeArea(
         child: Column(

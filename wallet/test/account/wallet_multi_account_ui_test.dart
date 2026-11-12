@@ -340,10 +340,6 @@ void main() {
         isNull,
       );
       var queries = 0;
-      _scenario.balanceAction = (_) {
-        queries++;
-        throw StateError('禁止重复余额查询');
-      };
       _scenario.balancesAction = (_) {
         queries++;
         throw StateError('禁止重复余额查询');
@@ -679,10 +675,8 @@ void main() {
     await tester.runAsync(() => saveIdentity(identity(null).snapshot));
     await tester.pumpWidget(_walletTabHost(() async => state));
     await _settleWallet(tester);
-    await _pumpUntil(
-      tester,
-      () => _scenario.calls.contains('getAccountBalances'),
-    );
+    // 热账户行不展示金额，不应为徽标或目录读取发起余额查询。
+    expect(_scenario.calls.contains('getAccountBalances'), isFalse);
     expect(find.text('身份钱包'), findsNothing);
     await tester.runAsync(() => saveIdentity(identity(voting()).snapshot));
     _security.revision.value++;
@@ -2360,7 +2354,6 @@ class _WalletScenario {
       read: UserIsar.instance.readBalance,
       write: UserIsar.instance.writeBalance,
     ),
-    getAccountBalance: balance,
     getAccountBalances: balanceMany,
   );
   FutureOr<CitizenWalletState> Function()? stateAction;
@@ -2384,7 +2377,6 @@ class _WalletScenario {
     bool diagnostic,
   )?
   renameWalletAction;
-  FutureOr<CitizenAccountBalance> Function(String)? balanceAction;
   FutureOr<List<CitizenAccountBalance>> Function(List<String>)? balancesAction;
   FutureOr<CitizenChainSyncStatus> Function()? syncAction;
   FutureOr<List<CitizenSdkDiagnostic>> Function()? diagnosticAction;
@@ -2488,22 +2480,6 @@ class _WalletScenario {
     return prepareAction!(source, call);
   }
 
-  Future<CitizenAccountBalance> balance(String id) async {
-    calls.add('getAccountBalance');
-    return await balanceAction?.call(id) ??
-        CitizenAccountBalance(
-          accountId: id,
-          block: CitizenBlockRef(
-            hash: '0x${'00' * 32}',
-            number: BigInt.one,
-            finality: CitizenBlockFinality.finalized,
-          ),
-          freeFen: BigInt.from(100),
-          reservedFen: BigInt.zero,
-          totalFen: BigInt.from(100),
-        );
-  }
-
   Future<List<CitizenAccountBalance>> balanceMany(List<String> ids) async {
     calls.add('getAccountBalances');
     return await balancesAction?.call(ids) ??
@@ -2516,9 +2492,9 @@ class _WalletScenario {
                 number: BigInt.one,
                 finality: CitizenBlockFinality.finalized,
               ),
-              freeFen: BigInt.zero,
+              freeFen: BigInt.from(100),
               reservedFen: BigInt.zero,
-              totalFen: BigInt.zero,
+              totalFen: BigInt.from(100),
             ),
         ];
   }

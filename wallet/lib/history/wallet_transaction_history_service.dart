@@ -18,10 +18,6 @@ final class WalletTransactionHistoryService {
     CitizenSdk? chain,
     CitizenSdk? wallet,
     required Stream<CitizenSdkEvent> events,
-    CitizenBalances? balances,
-    Future<CitizenAccountBalance> Function(String accountId)? getAccountBalance,
-    Future<List<CitizenAccountBalance>> Function(List<String> accountIds)?
-    getAccountBalances,
     Future<CitizenTransactionHistoryPage> Function()? syncTransactionHistory,
     Future<CitizenTransactionHistoryPage> Function({
       String? beforeExecutionId,
@@ -41,15 +37,6 @@ final class WalletTransactionHistoryService {
     Future<CitizenBlockBody> Function(CitizenBlockRef block)? getBlockBody,
     CitizenSdkOperation<CitizenWalletState> Function()? getWalletState,
   }) : _sdkEvents = events,
-       _balances =
-           balances ??
-           chain?.balances ??
-           CitizenBalances(
-             getAccountBalance:
-                 getAccountBalance ?? (_) => throw StateError('未配置余额读取'),
-             getAccountBalances:
-                 getAccountBalances ?? (_) => throw StateError('未配置批量余额读取'),
-           ),
        _syncTransactionHistory =
            syncTransactionHistory ??
            history?.syncTransactionHistory ??
@@ -108,8 +95,6 @@ final class WalletTransactionHistoryService {
   final Future<List<CitizenSystemEvent>> Function(CitizenBlockRef block) _getFinalizedEvents;
   final Future<CitizenBlockBody> Function(CitizenBlockRef block) _getBlockBody;
   final CitizenSdkOperation<CitizenWalletState> Function() _getWalletState;
-
-  final CitizenBalances _balances;
 
   final Stream<CitizenSdkEvent> _sdkEvents;
   StreamSubscription<CitizenSdkEvent>? _events;
@@ -290,19 +275,6 @@ final class WalletTransactionHistoryService {
 
   Future<void> _applyExecution(CitizenTransactionHistoryRecord record) async {
     await LocalTxStore.applyExecution(record);
-    final accountId = record.sourceAccountId;
-    final block = record.block;
-    if (_active &&
-        _foreground &&
-        block != null &&
-        (record.status == CitizenTransactionHistoryStatus.finalizedSuccess ||
-            record.status == CitizenTransactionHistoryStatus.finalizedFailed)) {
-      try {
-        await _balances.afterFinalized(block, [accountId]);
-      } catch (_) {
-        // 交易的链上结果已确认；余额刷新失败不得把结果降为失败或清空原快照。
-      }
-    }
   }
 
   Future<bool> _syncPass(int epoch) async {
@@ -377,17 +349,7 @@ final class WalletTransactionHistoryService {
       for (final cursor in participants) {
         cursor.cursorBlock = number;
       }
-      // 历史补齐不逐块刷新余额，只有最新块影响钱包时通知余额唯一入口。
-      if (number == target && records.isNotEmpty && _current(epoch)) {
-        try {
-          await _balances.afterFinalized(
-            block,
-            records.map((r) => r.accountId).toSet(),
-          );
-        } catch (_) {
-          // 余额失败不撤销交易记录，也不清空原快照。
-        }
-      }
+
     }
     return cursors.values.any((c) => c.cursorBlock < target);
   }

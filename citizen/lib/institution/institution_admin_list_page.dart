@@ -1,3 +1,4 @@
+import 'package:citizen_widgets/chain_balance_scope.dart';
 import 'dart:async';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -51,52 +52,11 @@ class AdminListPage extends StatefulWidget {
 
 class _AdminListPageState extends State<AdminListPage> {
   late Set<String> _activatedAccountIds;
-  Map<String, BigInt> _balanceByAccountId = const {};
 
   @override
   void initState() {
     super.initState();
     _activatedAccountIds = Set.of(widget.activatedAccountIds);
-    unawaited(_loadBalances());
-  }
-
-  @override
-  void didUpdateWidget(covariant AdminListPage oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.admins != widget.admins) {
-      unawaited(_loadBalances());
-    }
-  }
-
-  static String _balanceKey(String accountId) {
-    if (!isCitizenAccountId(accountId)) {
-      throw const FormatException('account_id 必须为小写 0x + 64 位十六进制');
-    }
-    return accountId;
-  }
-
-  Future<void> _loadBalances() async {
-    final accountIds = {
-      for (final view in widget.admins) _balanceKey(view.admin.accountId),
-    }.where((accountId) => accountId.isNotEmpty).toList(growable: false);
-    if (accountIds.isEmpty) {
-      if (mounted) setState(() => _balanceByAccountId = const {});
-      return;
-    }
-    try {
-      final snapshots = await context.read<CitizenSdk>().getAccountBalances(
-        accountIds,
-        forceRefresh: false,
-      );
-      final balances = <String, BigInt>{
-        for (final snapshot in snapshots) snapshot.accountId: snapshot.freeFen,
-      };
-      if (!mounted) return;
-      setState(() => _balanceByAccountId = balances);
-    } catch (_) {
-      // 余额展示失败不影响管理员激活流程,卡片保留“余额”标签且值为空。
-      if (mounted) setState(() => _balanceByAccountId = const {});
-    }
   }
 
   void _onAdminActivated(String accountId) {
@@ -107,7 +67,12 @@ class _AdminListPageState extends State<AdminListPage> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ChainBalanceScope(
+    accountIds: widget.admins.map((view) => view.admin.accountId),
+    builder: _buildBalanceView,
+  );
+
+  Widget _buildBalanceView(BuildContext context, CitizenBalances balances) {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -171,7 +136,7 @@ class _AdminListPageState extends State<AdminListPage> {
                 institution: widget.institution,
                 accountIdentity: widget.accountIdentity,
                 onActivated: () => _onAdminActivated(accountId),
-                balanceFen: _balanceByAccountId[_balanceKey(accountId)],
+                balanceFen: balances.accountState(accountId).value?.freeFen,
               );
             }),
         ],

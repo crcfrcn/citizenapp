@@ -18,20 +18,11 @@ class InstitutionAccountRow {
     required this.label,
     required this.accountId,
     required this.accountAddress,
-    this.balanceFen,
   });
 
   final String label;
   final String accountId;
   final String accountAddress;
-  final BigInt? balanceFen;
-
-  InstitutionAccountRow withBalance(BigInt? fen) => InstitutionAccountRow(
-    label: label,
-    accountId: accountId,
-    accountAddress: accountAddress,
-    balanceFen: fen,
-  );
 }
 
 /// 由机构构造全部账户行:固定治理档用 china 固定账户,普通机构本地派生。

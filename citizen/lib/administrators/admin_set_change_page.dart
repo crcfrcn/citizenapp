@@ -1,3 +1,4 @@
+import 'package:citizen_widgets/chain_balance_scope.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:async';
@@ -40,7 +41,6 @@ class _AdminsChangePageState extends State<AdminsChangePage> {
   final _thresholdController = TextEditingController();
   AdminAccountState? _subject;
   List<AdminPerson> _admins = const [];
-  Map<String, BigInt> _balanceByAccountId = const {};
   CitizenWalletStateAccount? _selectedWallet;
   bool _loading = true;
   bool _submitting = false;
@@ -87,7 +87,6 @@ class _AdminsChangePageState extends State<AdminsChangePage> {
         if (account != null) _syncThresholdInput(account, _admins.length);
         _loading = false;
       });
-      unawaited(_loadBalances(account?.admins ?? const <AdminPerson>[]));
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -98,8 +97,24 @@ class _AdminsChangePageState extends State<AdminsChangePage> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ChainBalanceScope(
+    accountIds: [
+      ...?_subject?.admins,
+      ..._admins,
+    ].map((admin) => admin.accountId),
+    builder: _buildBalanceView,
+  );
+
+  Widget _buildBalanceView(BuildContext context, CitizenBalances balances) {
     final account = _subject;
+    final balanceByAccountId = <String, BigInt>{
+      for (final admin in [...?_subject?.admins, ..._admins])
+        if (balances.accountState(admin.accountId).value != null)
+          admin.accountId: balances
+              .accountState(admin.accountId)
+              .value!
+              .freeFen,
+    };
     return Scaffold(
       appBar: AppBar(title: const Text('更换管理员')),
       body: _loading
@@ -115,7 +130,7 @@ class _AdminsChangePageState extends State<AdminsChangePage> {
                 SizedBox(height: AppLayout.scaled(context, 12)),
                 AdminSetEditor(
                   admins: _admins,
-                  balances: _balanceByAccountId,
+                  balances: balanceByAccountId,
                   onChanged: (value) => _setNewAdmins(account, value),
                 ),
                 SizedBox(height: AppLayout.scaled(context, 12)),
@@ -124,7 +139,7 @@ class _AdminsChangePageState extends State<AdminsChangePage> {
                 AdminSetDiffCard(
                   currentAdmins: account.admins,
                   admins: _admins,
-                  balances: _balanceByAccountId,
+                  balances: balanceByAccountId,
                 ),
                 if (_error != null) ...[
                   SizedBox(height: AppLayout.scaled(context, 12)),
@@ -163,32 +178,6 @@ class _AdminsChangePageState extends State<AdminsChangePage> {
       _admins = value;
       _syncThresholdInput(account, value.length);
     });
-    unawaited(_loadBalances(value));
-  }
-
-  static String _balanceKey(String accountId) => accountId;
-
-  Future<void> _loadBalances(List<AdminPerson> admins) async {
-    final accountIds = {
-      for (final admin in admins) _balanceKey(admin.accountId),
-    }.where((accountId) => accountId.isNotEmpty).toList(growable: false);
-    if (accountIds.isEmpty) {
-      if (mounted) setState(() => _balanceByAccountId = const {});
-      return;
-    }
-    try {
-      final snapshots = await context.read<CitizenSdk>().getAccountBalances(
-        accountIds,
-        forceRefresh: false,
-      );
-      final balances = <String, BigInt>{
-        for (final snapshot in snapshots) snapshot.accountId: snapshot.freeFen,
-      };
-      if (mounted) setState(() => _balanceByAccountId = balances);
-    } catch (_) {
-      // 管理员更换编辑态余额读取失败不影响集合修改,余额值留空。
-      if (mounted) setState(() => _balanceByAccountId = const {});
-    }
   }
 
   Widget _buildThresholdCard(AdminAccountState account) {

@@ -1,25 +1,19 @@
-import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_widgets/chain_balance_scope.dart';
 import 'package:flutter/material.dart';
 
 import 'package:citizen_citizen/institution/institution.dart';
 import 'package:citizen_citizen/institution/institution_accounts.dart';
-import 'package:citizen_citizen/institution/institution_chain_state.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
 /// 统一机构「全部账户」页(ADR-028 决策 2)——替代公权/治理两套账户页。
 ///
 /// 账户行由 [institutionAccountIdRows] 统一构造(固定治理档用 china 固定
-/// 账户、普通机构本地派生);余额经统一链态服务批量补(ADR-018 R2 精确整键批量)。
+/// 账户、普通机构本地派生);余额由 SDK 统一订阅服务批量读取(ADR-018 R2 精确整键批量)。
 class InstitutionAccountsPage extends StatefulWidget {
-  const InstitutionAccountsPage({
-    super.key,
-    required this.institution,
-    required this.chainState,
-  });
+  const InstitutionAccountsPage({super.key, required this.institution});
 
   final Institution institution;
-  final InstitutionChainState chainState;
 
   @override
   State<InstitutionAccountsPage> createState() =>
@@ -30,32 +24,6 @@ class _InstitutionAccountsPageState extends State<InstitutionAccountsPage> {
   late List<InstitutionAccountRow> _rows = institutionAccountIdRows(
     widget.institution,
   );
-  bool _balanceLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadBalances();
-  }
-
-  Future<void> _loadBalances() async {
-    try {
-      final balances = await widget.chainState.balances(
-        _rows.map((r) => r.accountId).toList(),
-      );
-      if (!mounted) return;
-      setState(() {
-        _rows = _rows
-            .map((r) => r.withBalance(balances[r.accountId]))
-            .toList(growable: false);
-        _balanceLoading = false;
-      });
-    } on Exception {
-      if (!mounted) return;
-      setState(() => _balanceLoading = false);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -71,18 +39,16 @@ class _InstitutionAccountsPageState extends State<InstitutionAccountsPage> {
         itemCount: _rows.length,
         separatorBuilder: (_, _) =>
             SizedBox(height: AppLayout.scaled(context, 10)),
-        itemBuilder: (context, i) =>
-            _AccountCard(row: _rows[i], balanceLoading: _balanceLoading),
+        itemBuilder: (context, i) => _AccountCard(row: _rows[i]),
       ),
     );
   }
 }
 
 class _AccountCard extends StatelessWidget {
-  const _AccountCard({required this.row, required this.balanceLoading});
+  const _AccountCard({required this.row});
 
   final InstitutionAccountRow row;
-  final bool balanceLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -107,12 +73,8 @@ class _AccountCard extends StatelessWidget {
                   color: AppTheme.textPrimary,
                 ),
               ),
-              Text(
-                balanceLoading
-                    ? '—'
-                    : (row.balanceFen == null
-                          ? '未激活'
-                          : '${formatFen(row.balanceFen!)} 元'),
+              ChainBalanceText(
+                accountId: row.accountId,
                 style: TextStyle(
                   fontSize: AppLayout.scaled(context, 13.5),
                   fontWeight: FontWeight.w600,

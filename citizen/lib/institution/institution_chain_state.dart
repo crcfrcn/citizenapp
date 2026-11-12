@@ -1,9 +1,9 @@
 // 统一机构链态读服务(ADR-028 决策 2)——合并公权 `LivePublicInstitutionChainData`
-// 与治理侧 admins 读取为一套:按机构 CID 过滤提案,按具体机构账户读余额。
+// 与治理侧 admins 读取为一套:按机构 CID 读取名册和过滤提案，余额由 SDK 独立管理。
 //
 //
 // - 管理员身份统一按机构 CID 路由，机构码只用于选择对应 admins pallet。
-// - 读取遵守 ADR-018:余额走精确整键批量,提案走当年共享缓存客户端过滤,不长前缀扫描。
+// - 读取遵守 ADR-018:提案走当年共享缓存客户端过滤,不长前缀扫描。
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_citizen/institution/institution.dart';
@@ -38,9 +38,6 @@ class InstitutionProposalSummary {
 
 /// 统一机构链态读服务接口(可注入 fake 单测)。
 abstract interface class InstitutionChainState {
-  /// 批量余额(hex→元);精确整键 + ChainReadCache。
-  Future<Map<String, BigInt>> balances(List<String> accountIds);
-
   /// 完整管理员人员集合左连接岗位任职；无岗位管理员仍保留。
   Future<List<InstitutionAdminView>> adminViews(Institution institution);
 
@@ -55,8 +52,7 @@ class LiveInstitutionChainState implements InstitutionChainState {
     required CitizenSdk transactions,
     InstitutionAdminService? adminService,
     MultisigTransferProposalFeed? feed,
-  }) : _chain = chain,
-       _adminService = adminService ?? InstitutionAdminService(chain: chain),
+  }) : _adminService = adminService ?? InstitutionAdminService(chain: chain),
        _feed =
            feed ??
            MultisigTransferProposalFeed(
@@ -66,21 +62,8 @@ class LiveInstitutionChainState implements InstitutionChainState {
              ),
            );
 
-  final CitizenSdk _chain;
   final InstitutionAdminService _adminService;
   final MultisigTransferProposalFeed _feed;
-
-  @override
-  Future<Map<String, BigInt>> balances(List<String> accountIds) async {
-    if (accountIds.isEmpty) return Future.value(const {});
-    final snapshots = await _chain.getAccountBalances(
-      accountIds,
-      forceRefresh: false,
-    );
-    return <String, BigInt>{
-      for (final snapshot in snapshots) snapshot.accountId: snapshot.freeFen,
-    };
-  }
 
   @override
   Future<List<InstitutionAdminView>> adminViews(Institution institution) {

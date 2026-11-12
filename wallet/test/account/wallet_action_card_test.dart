@@ -12,7 +12,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:citizen_wallet/account/wallet_action_card.dart';
 import 'package:citizen_wallet/core/navigation.dart';
 import 'package:citizen_wallet/account/wallet_identity_card.dart';
-import 'package:citizen_wallet/core/wallet_onchain_balance_card.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_offchain/clearing_bank_directory.dart';
 import 'package:citizen_offchain/clearing_bank_prefs.dart';
@@ -31,11 +30,12 @@ void main() {
   final opened = <String>[];
   final openedPetty = <String>[];
   Completer<bool?>? waiting;
-  var paidRefreshes = 0;
-  Future<void> pumpCard(WidgetTester tester, { _BankDirectory? directory }) async {
+  Future<void> pumpCard(
+    WidgetTester tester, {
+    _BankDirectory? directory,
+  }) async {
     opened.clear();
     openedPetty.clear();
-    paidRefreshes = 0;
     final navigation = WalletNavigation(
       history: ({required accountAddress, required accountId}) =>
           const SizedBox.shrink(),
@@ -54,20 +54,13 @@ void main() {
       MultiProvider(
         providers: [
           Provider.value(value: navigation),
-          Provider<ClearingBankDirectory>.value(value: directory ?? _BankDirectory()),
+          Provider<ClearingBankDirectory>.value(
+            value: directory ?? _BankDirectory(),
+          ),
         ],
         child: MaterialApp(
           home: Scaffold(
-            body: ListView(
-              children: [
-                WalletActionCard(
-                  accountId: accountId,
-                  onTopupPaid: () async {
-                    paidRefreshes++;
-                  },
-                ),
-              ],
-            ),
+            body: ListView(children: [WalletActionCard(accountId: accountId)]),
           ),
         ),
       ),
@@ -117,16 +110,17 @@ void main() {
     await tester.pumpAndSettle();
     waiting = null;
   });
-  testWidgets('到账后只刷新发起充值账户的链上余额', (tester) async {
+  testWidgets('充值返回释放入口，下一次仍准确使用发起账户', (tester) async {
     waiting = Completer<bool?>();
     await pumpCard(tester);
-    final before = paidRefreshes;
     await tester.tap(find.text('充值/USDC'));
     waiting!.complete(true);
     await tester.pumpAndSettle();
-    expect(paidRefreshes, before + 1);
     expect(opened, ['$accountId:USDC']);
     waiting = null;
+    await tester.tap(find.text('充值/USDC'));
+    await tester.pumpAndSettle();
+    expect(opened, ['$accountId:USDC', '$accountId:USDC']);
   });
   testWidgets('充值区无重复链上金额，三图标与两条40短线居中', (tester) async {
     await pumpCard(tester);
@@ -199,14 +193,26 @@ void main() {
       );
     final current = directory.binding!.endpoint.wssUrl;
     await tester.runAsync(() async {
-      await UserIsar.instance.writeClearingBalance(accountId, current, BigInt.from(425));
-      await UserIsar.instance.writeClearingBalance(accountId, binding.wssUrl, BigInt.from(900));
-      await ClearingBalances.instance.state(accountId: accountId, wssUrl: current).load();
+      await UserIsar.instance.writeClearingBalance(
+        accountId,
+        current,
+        BigInt.from(425),
+      );
+      await UserIsar.instance.writeClearingBalance(
+        accountId,
+        binding.wssUrl,
+        BigInt.from(900),
+      );
+      await ClearingBalances.instance
+          .state(accountId: accountId, wssUrl: current)
+          .load();
     });
     addTearDown(ClearingBalances.instance.invalidateAll);
     await pumpCard(tester, directory: directory);
     expect(find.text('4.25 元'), findsOneWidget);
-    await tester.runAsync(() => ClearingBankPrefs.saveSnapshot(accountId, binding));
+    await tester.runAsync(
+      () => ClearingBankPrefs.saveSnapshot(accountId, binding),
+    );
     await tester.tap(find.byIcon(Icons.account_balance_wallet_outlined));
     await tester.pumpAndSettle();
     expect(openedPetty, [accountId]);
@@ -315,7 +321,6 @@ void main() {
           name: account.name,
           onNameChanged: (_) async {},
           onRefresh: () async {},
-          balanceKey: GlobalKey<WalletOnchainBalanceCardState>(),
           actionKey: GlobalKey<WalletActionCardState>(),
           records: const [],
           balanceLoader: (id) async => CitizenAccountBalance(

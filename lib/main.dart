@@ -1,3 +1,4 @@
+import 'package:citizen_widgets/chain_balance_scope.dart';
 import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_user/contacts/contact_service.dart';
 import 'package:citizen_topup/topup_api.dart';

@@ -1,3 +1,4 @@
+import 'package:citizen_widgets/chain_balance_scope.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:citizen_storage/user_isar.dart' as wallet_store show Account;
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -48,9 +49,7 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
   final _remarkController = TextEditingController();
   late final TextEditingController _proposerRoleCodeController;
 
-  bool _loadingBalance = true;
   bool _submitting = false;
-  BigInt? _availableBalance;
 
   BigInt? _estimatedFee;
   String? _addressError;
@@ -69,7 +68,6 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
       text: defaultInstitutionProposerRoleCode(widget.institution),
     );
     _fromSs58 = citizenSs58FromAccountId(widget.institution.mainAccountId);
-    _fetchBalance();
     _amountController.addListener(_onAmountChanged);
   }
 
@@ -83,31 +81,12 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
   }
 
   /// 页面进入读取 wallet 持久余额，交易前校验由既有余额守卫强制刷新。
-  Future<bool> _fetchBalance({bool forceRefresh = false}) async {
-    if (forceRefresh && mounted) setState(() => _loadingBalance = true);
-    try {
-      final snapshot = await context.read<CitizenSdk>().getAccountBalance(
-        widget.institution.mainAccountId,
-        forceRefresh: forceRefresh,
-      );
-      if (!mounted) return false;
-      setState(() {
-        _availableBalance = snapshot.freeFen;
-        _loadingBalance = false;
-      });
-      return true;
-    } catch (_) {
-      if (mounted) {
-        setState(() => _loadingBalance = false);
-        if (forceRefresh) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('余额校验失败，请刷新后重试')));
-        }
-      }
-      return false;
-    }
-  }
+  CitizenBalanceState<CitizenAccountBalance> get _balance => context
+      .read<CitizenSdk>()
+      .balances
+      .accountState(widget.institution.mainAccountId);
+  BigInt? get _availableBalance => _balance.value?.freeFen;
+  bool get _loadingBalance => _balance.value == null && !_balance.hasError;
 
   void _onAmountChanged() {
     if (_estimatedFee != null || _amountError != null) {
@@ -198,7 +177,10 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
 
     setState(() => _submitting = true);
     try {
-      if (!await _fetchBalance(forceRefresh: true) || !mounted) return;
+      await context.read<CitizenSdk>().getAccountBalance(
+        widget.institution.mainAccountId,
+      );
+      if (!mounted) return;
       final fees = await sdk.getFeeSnapshot(amountFen: amountFen);
       if (!mounted ||
           _amountController.text != amountText ||
@@ -377,7 +359,11 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ChainBalanceScope(
+    accountIds: [widget.institution.mainAccountId],
+    builder: _buildBalanceView,
+  );
+  Widget _buildBalanceView(BuildContext context, CitizenBalances balances) {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(

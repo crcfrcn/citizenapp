@@ -1,3 +1,4 @@
+import 'package:citizen_widgets/chain_balance_scope.dart';
 import 'package:provider/provider.dart';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -99,9 +100,6 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
 
   List<InstitutionAccountRow> _accounts = const [];
   String _areaPath = '';
-
-  BigInt? _mainBalanceFen;
-  bool _mainBalanceLoading = true;
 
   List<InstitutionAdminView> _adminViews = const [];
   bool _adminsLoaded = false;
@@ -253,27 +251,11 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
     await Future.wait<void>([
       _loadAdmins(force: force),
       _loadRole(force: force),
-      _loadBalance(),
       if (_isGovernance)
         _loadGovernanceProposals(force: force)
       else
         _loadPublicProposals(inst),
     ]);
-  }
-
-  Future<void> _loadBalance() async {
-    final mainHex = _accounts.isNotEmpty ? _accounts.first.accountId : '';
-    try {
-      final balances = await _chainState.balances([mainHex]);
-      if (mounted) {
-        setState(() {
-          _mainBalanceFen = balances[mainHex];
-          _mainBalanceLoading = false;
-        });
-      }
-    } on Object {
-      if (mounted) setState(() => _mainBalanceLoading = false);
-    }
   }
 
   Future<void> _reloadAdmins() async {
@@ -525,7 +507,15 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
             _infoTile(
               icon: Icons.payments_outlined,
               label: '主账户余额',
-              value: _mainBalanceLabel(),
+              value: '',
+              valueWidget: ChainBalanceText(
+                accountId: _accounts.first.accountId,
+                style: TextStyle(
+                  fontSize: AppLayout.scaledValue(13),
+                  color: AppTheme.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
             Divider(height: AppLayout.scaledValue(18)),
             _infoTile(
@@ -554,13 +544,6 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
     );
   }
 
-  String _mainBalanceLabel() {
-    if (_mainBalanceLoading) return '读取中...';
-    final yuan = _mainBalanceFen;
-    if (yuan == null) return '未激活';
-    return '${formatFen(yuan)} 元';
-  }
-
   // ──── ② 机构账户入口 ────
 
   Widget _accountsEntry(Institution inst) {
@@ -570,10 +553,7 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
       subtitle: '共 ${_accounts.length} 个账户',
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => InstitutionAccountsPage(
-            institution: inst,
-            chainState: _chainState,
-          ),
+          builder: (_) => InstitutionAccountsPage(institution: inst),
         ),
       ),
     );
@@ -914,8 +894,9 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
     final proposal = await _resolveProposalDetail(summary);
     if (!mounted) return;
     if (proposal == null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('提案详情读取失败，请稍后重试')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('提案详情读取失败，请稍后重试')));
       return;
     }
     final proposalId = proposal.meta.proposalId;
@@ -952,8 +933,9 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
         ),
       );
     } else {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('该联合提案详情页正在开发中')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('该联合提案详情页正在开发中')));
       return;
     }
     if (mounted) unawaited(_loadDynamics(force: true));
@@ -990,6 +972,7 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
     required IconData icon,
     required String label,
     required String value,
+    Widget? valueWidget,
   }) {
     return Row(
       children: [
@@ -1020,14 +1003,15 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
                 ),
               ),
               SizedBox(height: AppLayout.scaledValue(2)),
-              Text(
-                value,
-                style: TextStyle(
-                  fontSize: AppLayout.scaledValue(13),
-                  color: AppTheme.textPrimary,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+              valueWidget ??
+                  Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: AppLayout.scaledValue(13),
+                      color: AppTheme.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
             ],
           ),
         ),

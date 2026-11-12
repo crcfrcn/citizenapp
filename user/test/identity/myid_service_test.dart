@@ -284,6 +284,127 @@ void main() {
     expect(wallet.identityNotifications, 1);
   });
 
+  test('相同绑定的重复身份刷新保留会话和身份版本', () async {
+    final wallet = _FakeWalletManager(_aliceWallet);
+    final identity = _registeredIdentity(_validAccountId);
+    final sessions = _SyncSessions(identity);
+    final current = _InvalidationCountingIdentityCache();
+    final service = testService(
+      wallet: wallet,
+      identityResolver: _SyncResolver(identity),
+      sessionProvider: sessions,
+      currentUserContext: current,
+    );
+    await service.refreshState();
+    final revision = wallet.revision.value;
+    final invalidations = current.invalidateCalls;
+    await service.refreshState();
+    await service.synchronizeIdentity(identity);
+    expect(wallet.revision.value, revision);
+    expect(wallet.identityNotifications, 1);
+    expect(wallet.bindings, hasLength(1));
+    expect(sessions.invalidatedAccounts, isEmpty);
+    expect(current.invalidateCalls, invalidations);
+    expect(service.sync.value?.state.cidNumber, identity.snapshot!.cidNumber);
+  });
+
+  test('绑定不变的身份等级更新仍刷新展示，不清会话或增加版本', () async {
+    final identity = _registeredIdentity(_validAccountId);
+    final updated = FinalizedIdentity(
+      accountId: identity.accountId,
+      accountAddress: identity.accountAddress,
+      snapshot: CitizenIdentityChainSnapshot(
+        cidNumber: identity.snapshot!.cidNumber,
+        accountId: identity.snapshot!.accountId,
+        bindRev: identity.snapshot!.bindRev,
+        votingIdentity: _encodeVoting(
+          from: 20260101,
+          until: 20310101,
+          status: 0,
+          province: 'GD',
+          city: '001',
+          town: '001',
+        ),
+      ),
+    );
+    final wallet = _FakeWalletManager(_aliceWallet);
+    final sessions = _SyncSessions(identity);
+    final store = IdentityBadgeSnapshotStore();
+    final resolver = _SyncResolver(identity);
+    final service = testService(
+      wallet: wallet,
+      identityResolver: resolver,
+      sessionProvider: sessions,
+      badgeSnapshotStore: store,
+    );
+    expect((await service.refreshState()).tier, MyIdTier.visitor);
+    final revision = wallet.revision.value;
+    resolver.identity = updated;
+    expect((await service.refreshState()).tier, MyIdTier.voting);
+    expect(
+      (await store.readForAccountId(identity.accountId))?.cidLevel,
+      'voting',
+    );
+    expect(wallet.revision.value, revision);
+    expect(sessions.invalidatedAccounts, isEmpty);
+  });
+
+  test('绑定代次实际变化只失效一次，再次刷新同代次保持会话', () async {
+    final identity = _registeredIdentity(_validAccountId);
+    final updated = _registeredIdentity(_validAccountId, bindRev: 2);
+    final wallet = _FakeWalletManager(_aliceWallet);
+    final sessions = _SyncSessions(identity);
+    final resolver = _SyncResolver(identity);
+    final service = testService(
+      wallet: wallet,
+      identityResolver: resolver,
+      sessionProvider: sessions,
+    );
+    await service.refreshState();
+    resolver.identity = updated;
+    await service.refreshState();
+    final revision = wallet.revision.value;
+    expect(wallet.identityNotifications, 2);
+    expect(sessions.invalidatedAccounts, [identity.accountId]);
+    await service.refreshState();
+    expect(wallet.revision.value, revision);
+    expect(wallet.bindings, hasLength(2));
+    expect(sessions.invalidatedAccounts, [identity.accountId]);
+  });
+
+  test('激活绑定已经发出身份通知时不重复增加版本', () async {
+    final wallet = _NotifyingWalletManager(_aliceWallet);
+    final service = testService(
+      wallet: wallet,
+      identityResolver: _SyncResolver(_registeredIdentity(_validAccountId)),
+    );
+    await service.refreshState();
+    expect(wallet.revision.value, 1);
+    expect(wallet.identityNotifications, 1);
+    await service.refreshState();
+    expect(wallet.revision.value, 1);
+    expect(wallet.identityNotifications, 1);
+  });
+
+  test('相同绑定的展示缓存写入失败也保留会话和身份版本', () async {
+    final identity = _registeredIdentity(_validAccountId);
+    final wallet = _FakeWalletManager(_aliceWallet);
+    final sessions = _SyncSessions(identity);
+    final store = _FailingBadgeStore();
+    final service = testService(
+      wallet: wallet,
+      identityResolver: _SyncResolver(identity),
+      sessionProvider: sessions,
+      badgeSnapshotStore: store,
+    );
+    await service.refreshState();
+    final revision = wallet.revision.value;
+    store.fail = true;
+    expect((await service.refreshState()).status, MyIdStatus.queryFailed);
+    expect(wallet.revision.value, revision);
+    expect(sessions.invalidatedAccounts, isEmpty);
+  });
+
   test('排队时默认账户变化不能把新账户结果作为旧任务成功，重试才接管', () async {
     final wallet = _FakeWalletManager(_aliceWallet);
     final resolver = _SyncResolver(_registeredIdentity(_validAccountId))
@@ -426,7 +547,8 @@ void main() {
     final current = CurrentUser(
       account: _aliceWallet,
       binding: const IdentityBinding(
-        genesisHash: '0x0000000000000000000000000000000000000000000000000000000000000000',
+        genesisHash:
+            '0x0000000000000000000000000000000000000000000000000000000000000000',
         cidNumber: 'CID-LOCAL-TEST',
         bindRev: 1,
         accountId: _validAccountId,
@@ -578,8 +700,9 @@ void main() {
     ).refreshState();
     expect(expired.status, MyIdStatus.expired);
 
-    final revoked = await buildService(voting: voting(status: 1))
-        .refreshState();
+    final revoked = await buildService(
+      voting: voting(status: 1),
+    ).refreshState();
     expect(revoked.status, MyIdStatus.revoked);
   });
 
@@ -1044,6 +1167,26 @@ class _FakeWalletManager extends TestWalletReads
   }
 }
 
+class _NotifyingWalletManager extends _FakeWalletManager {
+  _NotifyingWalletManager(super.wallet);
+
+  @override
+  Future<void> activateIdentityBinding({
+    required String genesisHash,
+    required String cidNumber,
+    required int bindRev,
+    required String accountId,
+  }) async {
+    await super.activateIdentityBinding(
+      genesisHash: genesisHash,
+      cidNumber: cidNumber,
+      bindRev: bindRev,
+      accountId: accountId,
+    );
+    notifyIdentityBindingChanged();
+  }
+}
+
 class _UnusedChatHost implements ChatRuntimeFixture {
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -1352,6 +1495,19 @@ class _FakeBadgeStore extends IdentityBadgeSnapshotStore {
   Future<IdentityBadgeSnapshot?> read(String cidNumber) async => null;
 }
 
+class _FailingBadgeStore extends _FakeBadgeStore {
+  bool fail = false;
+
+  @override
+  Future<void> writeVerified({
+    required String accountId,
+    required CitizenIdentityChainSnapshot? identity,
+    required bool Function() isCurrent,
+  }) async {
+    if (fail) throw StateError('synthetic display cache failure');
+  }
+}
+
 class _LocalCurrentUser implements CurrentUserContext {
   _LocalCurrentUser(this.current);
   final CurrentUser? current;
@@ -1374,7 +1530,7 @@ class _BindingRuntime extends TestChatRuntime {
 /// 公开同步用例仍核对每次本机代际；错误不会触发第二次链读取。
 class _SyncResolver implements FinalizedIdentityResolver {
   _SyncResolver(this.identity, {this.failure = false, this.changed = false});
-  final FinalizedIdentity identity;
+  FinalizedIdentity identity;
   bool failure, changed;
   Completer<FinalizedIdentity?>? pending;
   int reads = 0;
@@ -1398,8 +1554,10 @@ class _SyncSessions implements SquareSessionProvider {
   _SyncSessions(this.identity);
   final FinalizedIdentity identity;
   int registrations = 0;
+  final invalidatedAccounts = <String>[];
   @override
-  void invalidateAccount(String accountId) {}
+  void invalidateAccount(String accountId) =>
+      invalidatedAccounts.add(accountId);
   @override
   Future<SquareSession?> registerCurrentDevice() async {
     registrations++;

@@ -340,6 +340,7 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
       ],
       child: MaterialApp(
         navigatorKey: appNavigatorKey,
+        navigatorObservers: [chainBalanceRoutes],
         title: '公民',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,
@@ -1078,7 +1079,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     _tabCache[_currentIndex] ??= _buildTab(_currentIndex);
     return List<Widget>.generate(
       _tabCount,
-      (i) => _tabCache[i] ?? const SizedBox.shrink(),
+      (i) => ChainBalanceVisibility(
+        active: i == _currentIndex,
+        child: _tabCache[i] ?? const SizedBox.shrink(),
+      ),
     );
   }
 

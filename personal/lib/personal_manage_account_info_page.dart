@@ -1,3 +1,4 @@
+import 'package:citizen_widgets/chain_balance_scope.dart';
 import 'package:citizen_personal/personal_local_store.dart';
 import 'package:citizen_storage/user_isar.dart'
     as wallet_store
@@ -62,7 +63,15 @@ class _PersonalManageAccountInfoPageState
 
   /// 账户余额(元):Active 来自链上 freeFen,Pending 来自本机 Isar
   /// action.snapshot_data.amount_fen(发起人承诺入金)。
-  BigInt? _balanceFen;
+  BigInt? _pendingAmountFen;
+  BigInt? get _balanceFen => _isClosed
+      ? null
+      : _localStatus == PersonalMultisigLocalState.statusActive
+      ? _chain.balances
+            .accountState(widget.institution.accountId)
+            .value
+            ?.freeFen
+      : _pendingAmountFen;
 
   @override
   void initState() {
@@ -91,9 +100,7 @@ class _PersonalManageAccountInfoPageState
     await _loadFromLocal();
     if (_shouldRefreshDetail()) {
       unawaited(_refreshChainDetail());
-    } else {
-      unawaited(_refreshBalanceIfNeeded());
-    }
+    } else {}
   }
 
   Future<void> _loadFromLocal() async {
@@ -143,14 +150,6 @@ class _PersonalManageAccountInfoPageState
               admins: normalizedAdmins,
               status: statusEnum,
             );
-      final balanceSnapshot = await _chain.balances.read(
-        widget.institution.accountId,
-      );
-      final balance = isClosed
-          ? null
-          : statusEnum == MultisigStatus.active
-          ? balanceSnapshot?.freeFen
-          : local.pendingBalance ?? balanceSnapshot?.freeFen;
 
       if (!mounted) return;
       setState(() {
@@ -158,7 +157,7 @@ class _PersonalManageAccountInfoPageState
         _accountInfo = accountInfo;
         _admins = normalizedAdmins;
         _isClosed = isClosed;
-        _balanceFen = balance;
+        _pendingAmountFen = local.pendingBalance;
         _lastDetailRefreshAtMillis =
             local.detail?.syncedAt ?? local.status?.syncedAt;
       });
@@ -179,22 +178,6 @@ class _PersonalManageAccountInfoPageState
     return DateTime.now().difference(lastSyncAt) >= ttl;
   }
 
-  /// 余额刷新策略只由 wallet 决定，详情不再另存余额值和刷新时间。
-  Future<void> _refreshBalanceIfNeeded({bool force = false}) async {
-    if (_localStatus != PersonalMultisigLocalState.statusActive) return;
-    try {
-      final snapshot = await _chain.getAccountBalance(
-        widget.institution.accountId,
-        forceRefresh: force,
-      );
-      if (mounted) {
-        setState(() => _balanceFen = snapshot.freeFen);
-      }
-    } catch (_) {
-      // 刷新失败保留最近成功显示；不能把失败写成零余额。
-    }
-  }
-
   Future<void> _refreshChainDetail({bool force = false}) async {
     if (!force && !_shouldRefreshDetail()) return;
     try {
@@ -205,9 +188,6 @@ class _PersonalManageAccountInfoPageState
       final status = info == null
           ? PersonalMultisigLocalState.statusClosed
           : _localStatusFromInfo(info.status);
-      final balance = info == null
-          ? null
-          : await _resolveBalance(info.status, force: force);
       final now = DateTime.now().millisecondsSinceEpoch;
 
       await UserIsar.instance.writeTxn((isar) async {
@@ -241,30 +221,11 @@ class _PersonalManageAccountInfoPageState
         _isClosed = status == PersonalMultisigLocalState.statusClosed;
         _accountInfo = info;
         _admins = _normalizeAdmins(info?.admins);
-        _balanceFen = _isClosed ? null : balance ?? _balanceFen;
         _lastDetailRefreshAtMillis = now;
       });
     } catch (_) {
       // 链上刷新失败只保留本地详情，不弹进度提示或全屏失败。
     }
-  }
-
-  Future<BigInt?> _resolveBalance(
-    MultisigStatus? status, {
-    bool force = false,
-  }) async {
-    if (status == MultisigStatus.active) {
-      try {
-        final snapshot = await _chain.getAccountBalance(
-          widget.institution.accountId,
-          forceRefresh: force,
-        );
-        return snapshot.freeFen;
-      } catch (_) {
-        return null;
-      }
-    }
-    return UserIsar.instance.read(_readPendingBalanceFromIsar);
   }
 
   Future<BigInt?> _readPendingBalanceFromIsar(Isar isar) async {
@@ -556,7 +517,13 @@ class _PersonalManageAccountInfoPageState
   // ──── UI ────
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ChainBalanceScope(
+    accountIds: _localStatus == PersonalMultisigLocalState.statusActive
+        ? [widget.institution.accountId]
+        : const <String>[],
+    builder: _buildBalanceView,
+  );
+  Widget _buildBalanceView(BuildContext context, CitizenBalances balances) {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(

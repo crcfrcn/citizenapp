@@ -88,8 +88,6 @@ void main() {
         getSystemEvents: reads1.getSystemEvents,
         getRuntimeContext: reads1.getRuntimeContext,
         getBlockBody: reads1.getBlockBody,
-        getAccountBalance: reads1.getAccountBalance,
-        getAccountBalances: reads1.getAccountBalances,
         getWalletState: reads2.getWalletState,
         events: events.stream,
       );
@@ -361,8 +359,6 @@ WalletTransactionHistoryService _service(
     getStorage: chain.getStorage,
     getFinalizedEvents: chain.getFinalizedEvents,
     getBlockBody: chain.getBlockBody,
-    getAccountBalance: chain.getAccountBalance,
-    getAccountBalances: chain.getAccountBalances,
     getWalletState: wallet.getWalletState,
     events: const Stream<CitizenSdkEvent>.empty(),
   );

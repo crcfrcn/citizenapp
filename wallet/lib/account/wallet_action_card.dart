@@ -15,17 +15,10 @@ import 'package:citizen_system/theme/app_theme.dart';
 /// 冷热账户共用双币充值与零钱包入口，余额和目标始终绑定精确account_id。
 /// USDT/USDC都直接打开套餐弹窗；零钱包仍使用原清算行绑定与余额查询。
 class WalletActionCard extends StatefulWidget {
-  const WalletActionCard({
-    super.key,
-    required this.accountId,
-    this.onTopupPaid,
-  });
+  const WalletActionCard({super.key, required this.accountId});
 
   /// 该账户链账户主键(0x+64hex):充值目标、清算行绑定查询、按账户签名均以它为准。
   final String accountId;
-
-  /// 到账后由详情页刷新顶部余额和记录，操作区不再保存链上金额显示状态。
-  final Future<void> Function()? onTopupPaid;
 
   @override
   State<WalletActionCard> createState() => WalletActionCardState();
@@ -160,16 +153,11 @@ class WalletActionCardState extends State<WalletActionCard> {
     _topupOpening = true;
     final account = widget.accountId;
     try {
-      final paid = await context.read<WalletNavigation>().topup(
+      await context.read<WalletNavigation>().topup(
         context,
         accountId: account,
         token: token,
       );
-      if (mounted && widget.accountId == account) {
-        if (paid == true) {
-          await widget.onTopupPaid?.call();
-        }
-      }
     } finally {
       _topupOpening = false;
     }
@@ -190,8 +178,9 @@ class WalletActionCardState extends State<WalletActionCard> {
       await Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) =>
-              context.read<WalletNavigation>().pettyWallet(accountId: accountId),
+          builder: (_) => context.read<WalletNavigation>().pettyWallet(
+            accountId: accountId,
+          ),
         ),
       );
       if (mounted && widget.accountId == accountId) {

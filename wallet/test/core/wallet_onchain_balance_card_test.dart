@@ -1,3 +1,4 @@
+import 'package:provider/provider.dart';
 import 'package:citizen_storage/user_isar.dart';
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 
@@ -22,7 +23,6 @@ void main() {
           read: UserIsar.instance.readBalance,
           write: UserIsar.instance.writeBalance,
         ),
-        getAccountBalance: reads.getAccountBalance,
         getAccountBalances: reads.getAccountBalances,
       );
     })();
@@ -33,7 +33,6 @@ void main() {
         read: UserIsar.instance.readBalance,
         write: UserIsar.instance.writeBalance,
       ),
-      getAccountBalance: chain.getAccountBalance,
       getAccountBalances: chain.getAccountBalances,
     );
     final other = '0x${'bc' * 32}';
@@ -62,7 +61,6 @@ void main() {
         read: UserIsar.instance.readBalance,
         write: UserIsar.instance.writeBalance,
       ),
-      getAccountBalance: chain.getAccountBalance,
       getAccountBalances: chain.getAccountBalances,
     );
     final state = store.accountState(_balanceAccount);
@@ -90,7 +88,6 @@ void main() {
         read: UserIsar.instance.readBalance,
         write: UserIsar.instance.writeBalance,
       ),
-      getAccountBalance: chain.getAccountBalance,
       getAccountBalances: chain.getAccountBalances,
     );
     final first = await store.getAccountBalance(_balanceAccount);
@@ -109,7 +106,6 @@ void main() {
         read: UserIsar.instance.readBalance,
         write: UserIsar.instance.writeBalance,
       ),
-      getAccountBalance: nextChain.getAccountBalance,
       getAccountBalances: nextChain.getAccountBalances,
     ).getAccountBalance(_balanceAccount);
     expect(nextChain.calls, 0);
@@ -124,11 +120,12 @@ void main() {
         read: UserIsar.instance.readBalance,
         write: UserIsar.instance.writeBalance,
       ),
-      getAccountBalance: chain.getAccountBalance,
       getAccountBalances: chain.getAccountBalances,
     );
     final notifications = <String>[];
-    final subscription = store.changes.listen(notifications.add);
+    final state = store.accountState(_balanceAccount);
+    void changed() => notifications.add(_balanceAccount);
+    state.addListener(changed);
     final first = store.getAccountBalance(_balanceAccount, forceRefresh: true);
     final second = store.getAccountBalance(_balanceAccount, forceRefresh: true);
     await chain.started.future;
@@ -137,7 +134,7 @@ void main() {
     await Future.wait([first, second]);
     await Future<void>.delayed(Duration.zero);
     expect(notifications, [_balanceAccount]);
-    await subscription.cancel();
+    state.removeListener(changed);
   });
 
   test('刷新失败保留持久成功余额，另一账户不能读到该余额', () async {
@@ -147,7 +144,6 @@ void main() {
         read: UserIsar.instance.readBalance,
         write: UserIsar.instance.writeBalance,
       ),
-      getAccountBalance: chain.getAccountBalance,
       getAccountBalances: chain.getAccountBalances,
     );
     final first = await store.getAccountBalance(_balanceAccount);
@@ -172,7 +168,6 @@ void main() {
         read: UserIsar.instance.readBalance,
         write: UserIsar.instance.writeBalance,
       ),
-      getAccountBalance: chain.getAccountBalance,
       getAccountBalances: chain.getAccountBalances,
     );
     final first = await store.getAccountBalance(_balanceAccount);
@@ -187,19 +182,25 @@ void main() {
     chain.gate!.complete();
     await refresh;
     final confirmed = (await store.read(_balanceAccount))!.block;
-    await store.afterFinalized(confirmed, [_balanceAccount, _balanceAccount]);
+    store.finalized(confirmed);
+    final release = store.watch([_balanceAccount]);
+    await Future<void>.delayed(Duration.zero);
     expect(chain.calls, 2);
     chain.height = 3;
-    await store.afterFinalized(
+    store.finalized(
       CitizenBlockRef(
-        hash: '0x${'11' * 32}',
+        hash: '0x' + List.filled(32, '11').join(),
         number: BigInt.from(3),
         finality: CitizenBlockFinality.finalized,
       ),
-      [_balanceAccount],
     );
+    for (var i = 0; i < 10; i++) {
+      await Future<void>.delayed(Duration.zero);
+    }
     expect(chain.calls, 3);
     expect((await store.read(_balanceAccount))!.block.number, BigInt.from(3));
+    release();
+    await store.close();
   });
 
   test('未最终确认或总数不一致的余额不进入持久快照', () async {
@@ -209,7 +210,6 @@ void main() {
         read: UserIsar.instance.readBalance,
         write: UserIsar.instance.writeBalance,
       ),
-      getAccountBalance: chain.getAccountBalance,
       getAccountBalances: chain.getAccountBalances,
     );
     await expectLater(
@@ -234,7 +234,6 @@ void main() {
         read: UserIsar.instance.readBalance,
         write: UserIsar.instance.writeBalance,
       ),
-      getAccountBalance: chain.getAccountBalance,
       getAccountBalances: chain.getAccountBalances,
     );
     await store.getAccountBalance(_balanceAccount);
@@ -267,7 +266,6 @@ void main() {
         read: UserIsar.instance.readBalance,
         write: UserIsar.instance.writeBalance,
       ),
-      getAccountBalance: chain.getAccountBalance,
       getAccountBalances: chain.getAccountBalances,
     );
     final other = '0x${'bc' * 32}';
@@ -343,26 +341,29 @@ void main() {
   });
 
   testWidgets('首次失败点击重试；total含reserved；之后失败保留原金额', (tester) async {
-    final key = GlobalKey<WalletOnchainBalanceCardState>();
     var failRead = true;
     final base = await loadBalance(wallet.accountId);
+    final store = CitizenBalances(
+      getAccountBalances: (ids) async {
+        if (failRead) throw StateError('合成余额失败');
+        return [
+          for (final id in ids)
+            CitizenAccountBalance(
+              accountId: id,
+              block: base.block,
+              freeFen: BigInt.from(100),
+              reservedFen: BigInt.from(250),
+              totalFen: BigInt.from(350),
+            ),
+        ];
+      },
+    );
+    addTearDown(store.close);
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: WalletOnchainBalanceCard(
-            key: key,
-            wallet: wallet,
-            balanceLoader: (_) async {
-              if (failRead) throw StateError('合成余额失败');
-              return CitizenAccountBalance(
-                accountId: base.accountId,
-                block: base.block,
-                freeFen: BigInt.from(100),
-                reservedFen: BigInt.from(250),
-                totalFen: BigInt.from(350),
-              );
-            },
-          ),
+      Provider<CitizenBalances>.value(
+        value: store,
+        child: MaterialApp(
+          home: Scaffold(body: WalletOnchainBalanceCard(wallet: wallet)),
         ),
       ),
     );
@@ -375,10 +376,17 @@ void main() {
     expect(find.text('1.00'), findsNothing);
     expect(find.text('元'), findsOneWidget);
     failRead = true;
-    await key.currentState!.refresh();
+    await tester.runAsync(
+      () => expectLater(
+        store.getAccountBalance(wallet.accountId, forceRefresh: true),
+        throwsStateError,
+      ),
+    );
     await tester.pumpAndSettle();
     expect(find.text('3.50'), findsOneWidget);
+    expect(find.text('更新失败，显示最近余额'), findsOneWidget);
     expect(find.text('查询失败，点击刷新'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 
   testWidgets('余额卡保留标题、单一单位且没有内部刷新按钮', (tester) async {
@@ -395,24 +403,6 @@ void main() {
     expect(find.text('链上余额'), findsOneWidget);
     expect(find.text('元'), findsOneWidget);
     expect(find.byType(IconButton), findsNothing);
-  });
-
-  testWidgets('外层仍可通过 GlobalKey 触发刷新', (tester) async {
-    final key = GlobalKey<WalletOnchainBalanceCardState>();
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: WalletOnchainBalanceCard(
-            key: key,
-            wallet: wallet,
-            balanceLoader: loadBalance,
-          ),
-        ),
-      ),
-    );
-    expect(key.currentState, isNotNull);
-    await key.currentState!.refresh();
-    await tester.pump();
   });
 
   testWidgets('切换账户后迟到的旧请求不能覆盖新账户余额', (tester) async {
