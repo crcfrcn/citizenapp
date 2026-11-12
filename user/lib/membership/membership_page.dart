@@ -73,11 +73,13 @@ class _MembershipPageState extends State<MembershipPage>
         });
   }
 
+  VoidCallback? _releasePrices;
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_dependenciesReady) return;
     _chainData = widget._chainData ?? context.read<ChainDataService?>();
+    _releasePrices = _chainData?.watchPrices();
     _chainData?.addListener(_onChainData);
     _sessionProvider =
         widget._sessionProvider ?? context.read<SquareSessionProvider>();
@@ -86,11 +88,11 @@ class _MembershipPageState extends State<MembershipPage>
     } else {
       final sdk = context.read<CitizenSdk>();
       _subscriptionService = SubscriptionService(
+        chainData: _chainData,
         wallet: sdk,
         chain: sdk,
         transactions: sdk,
         identityResolver: context.read<FinalizedIdentityResolver>(),
-        sessionProvider: _sessionProvider,
       );
     }
     _accountSecurity = context.read<AccountSecurityService?>();
@@ -101,6 +103,7 @@ class _MembershipPageState extends State<MembershipPage>
 
   @override
   void dispose() {
+    _releasePrices?.call();
     _chainData?.removeListener(_onChainData);
     _accountSecurity?.revision.removeListener(_onIdentityChanged);
     _snapController.dispose();
@@ -181,7 +184,7 @@ class _MembershipPageState extends State<MembershipPage>
     try {
       final source = _chainData;
       if (source == null) throw StateError('轻节点会员数据尚未就绪');
-      final data = await source.refresh();
+      final data = await source.ensurePrices();
       if (!mounted) return;
       if (data == null) {
         _loadFailure = '请先添加钱包账户';
@@ -275,7 +278,7 @@ class _MembershipPageState extends State<MembershipPage>
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      final data = await _chainData?.refresh();
+      final data = await _chainData?.ensurePrices();
       if (data == null || _chainData!.isStale || data.ownCid == null)
         throw const SubscriptionException('当前轻节点身份尚未就绪');
       if (!mounted) return;
@@ -290,7 +293,7 @@ class _MembershipPageState extends State<MembershipPage>
       } else {
         await _subscriptionService.subscribe(level, price!, context: context);
       }
-      await _chainData!.refresh();
+      await _chainData!.ensurePrices();
       if (mounted) _onChainData();
     } on Object catch (e) {
       if (mounted)

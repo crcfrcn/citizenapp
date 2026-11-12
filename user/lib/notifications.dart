@@ -175,8 +175,6 @@ class Notifications extends ChangeNotifier {
   bool isCurrent(NotificationScope? owner) => owner != null && owner == scope;
   String get cidNumber => _cidNumber;
   int get receivedAt => (_state['_received_at'] as int?) ?? 0;
-  int get creatorReceivedAt =>
-      (_state['_creator_received_at'] as int?) ?? receivedAt;
   int get unread => (_state['square_unread'] as int?) ?? 0;
   int get notificationUnread =>
       (_state['notifications_unread'] as int?) ??
@@ -185,10 +183,6 @@ class Notifications extends ChangeNotifier {
   int get through => (_state['through'] as int?) ?? 0;
   int get followingUnread => (_state['following_unread'] as int?) ?? 0;
   int get noticeRev => (_state['notice_rev'] as int?) ?? 0;
-  Map<String, dynamic>? creatorFor(String cidNumber) =>
-      cidNumber == _cidNumber && _state['creator'] is Map<String, dynamic>
-      ? _state['creator'] as Map<String, dynamic>
-      : null;
   void configure({
     required SquareApiClient api,
     required SquareSessionProvider sessions,
@@ -299,19 +293,27 @@ class Notifications extends ChangeNotifier {
             value['bind_rev'] == owner.bindRev) {
           bindingMatches = true;
           final baseline = valid(value, owner.cidNumber);
-          final partial =
-              !value.containsKey('notice_rev') &&
-              value['creator'] is Map<String, dynamic> &&
-              value['creator_rev'] is int &&
-              (value['creator_rev'] as int) > 0;
-          if (baseline || partial) {
-            value.remove('membergate');
-            if (value['creator'] case final Map<String, dynamic> creator) {
-              value['creator'] = Map<String, dynamic>.from(creator)
-                ..remove('plan');
-            }
-            _state = value;
-            _known = baseline;
+          if (baseline) {
+            const fields = {
+              'cid_number',
+              'bind_rev',
+              'notice_rev',
+              'through',
+              'floor',
+              'square_unread',
+              'following_unread',
+              'interaction_unread',
+              'notifications_unread',
+              'square_sequence',
+              'interaction_sequence',
+              'state',
+              '_received_at',
+            };
+            _state = {
+              for (final key in fields)
+                if (value.containsKey(key)) key: value[key],
+            };
+            _known = true;
           }
         }
       } on FormatException {
@@ -394,24 +396,6 @@ class Notifications extends ChangeNotifier {
       final n = value[key];
       if (n is! int || n < 0 || n > 9007199254740991) return false;
     }
-    for (final (section, version, present) in [
-      (
-        value['creator'],
-        value['creator_rev'],
-        value.containsKey('creator_rev'),
-      ),
-    ]) {
-      if (present &&
-          (version is! int || version < 0 || version > 9007199254740991)) {
-        return false;
-      }
-      if (section != null &&
-          (section is! Map<String, dynamic> ||
-              version is! int ||
-              version <= 0)) {
-        return false;
-      }
-    }
     return (value['interaction_sequence'] as int) <=
             (value['through'] as int) &&
         (value['notifications_unread'] == null ||
@@ -453,11 +437,7 @@ class Notifications extends ChangeNotifier {
     final counter = (value['notice_rev'] as int) > noticeRev || !_known;
     final interaction =
         (value['interaction_sequence'] as int) > interactionSequence;
-    final creator =
-        value['creator'] is Map &&
-        ((value['creator_rev'] as int?) ?? 0) >
-            ((_state['creator_rev'] as int?) ?? 0);
-    if (!counter && !creator && !interaction) {
+    if (!counter && !interaction) {
       // 保存失败不能把内存版本当作已落盘版本；同版本允许补存并更新页面。
       if (_cacheDirty &&
           await _persist(owner) &&
@@ -488,12 +468,6 @@ class Notifications extends ChangeNotifier {
           value['notifications_unread'] ?? value['interaction_unread'];
       _known = true;
     }
-    if (creator) {
-      merged['creator'] = Map<String, dynamic>.from(value['creator'] as Map)
-        ..remove('plan');
-      merged['creator_rev'] = value['creator_rev'];
-      merged['_creator_received_at'] = now;
-    }
     merged['interaction_sequence'] = interaction
         ? value['interaction_sequence']
         : interactionSequence;
@@ -514,41 +488,6 @@ class Notifications extends ChangeNotifier {
     }
     if (isCurrent(owner)) notifyListeners();
     return isCurrent(owner);
-  }
-
-  Future<void> acceptCreator(
-    String cidNumber,
-    int version,
-    Map<String, dynamic> creator, {
-    required SquareSession session,
-  }) async {
-    if (!await restore()) return;
-    final owner = scope!;
-    await session.validateCurrent();
-    if (!isCurrent(owner) ||
-        cidNumber != owner.cidNumber ||
-        session.cidNumber != cidNumber ||
-        session.bindRev != owner.bindRev ||
-        session.accountId != owner.accountId) {
-      return;
-    }
-    if (version <= ((_state['creator_rev'] as int?) ?? 0)) {
-      if (_cacheDirty &&
-          await _persist(owner) &&
-          isCurrent(owner) &&
-          !_cacheDirty) {
-        notifyListeners();
-      }
-      return;
-    }
-    _state['cid_number'] = cidNumber;
-    _state['bind_rev'] = owner.bindRev;
-    _state['creator_rev'] = version;
-    _state['creator'] = Map<String, dynamic>.from(creator)..remove('plan');
-    _state['_creator_received_at'] = DateTime.now().millisecondsSinceEpoch;
-    if (await _persist(owner) && isCurrent(owner) && !_cacheDirty) {
-      notifyListeners();
-    }
   }
 
   Future<bool> _persist(NotificationScope owner) async {

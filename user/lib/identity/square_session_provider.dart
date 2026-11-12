@@ -77,9 +77,7 @@ class SquareSessionResolution {
       switch (errorCode) {
         'identity_local_missing' => '身份信息暂不可用，请在身份页刷新后重试',
         'device_not_registered' => '公民服务准备未完成，请重试',
-        'identity_not_reported' => '链上身份已存在，服务同步尚未完成',
         'chain_rpc_budget_exceeded' => '公共链查询次数已达服务端限额，请稍后重试',
-        'mls_challenge_limit_reached' ||
         'request_rate_exceeded' => '请求过于频繁，请稍后重试',
         'authenticationRequired' => '首次设备登记授权尚未完成',
         'authenticationCancelled' => '设备授权已取消，可再次主动发起',
@@ -110,8 +108,7 @@ class SquareSessionResolution {
       final status = switch (error.errorCode) {
         'identity_unregistered' => SquareSessionStatus.identityUnbound,
         'identity_local_missing' ||
-        'cid_not_bound' ||
-        'identity_not_reported' => SquareSessionStatus.identityUnavailable,
+        'cid_not_bound' => SquareSessionStatus.identityUnavailable,
         'cid_binding_changed' => SquareSessionStatus.identityChanged,
         'network_unavailable' => SquareSessionStatus.networkUnavailable,
         'device_not_registered' ||
@@ -128,7 +125,6 @@ class SquareSessionResolution {
         'identity_unregistered',
         'identity_local_missing',
         'cid_not_bound',
-        'identity_not_reported',
         'identity_projection_unavailable',
         'cid_binding_changed',
         'network_unavailable',
@@ -140,7 +136,6 @@ class SquareSessionResolution {
         'stale_device_binding',
         'device_proof_invalid',
         'device_proof_storage',
-        'mls_challenge_limit_reached',
         'request_rate_exceeded',
         'chain_rpc_budget_exceeded',
       };
@@ -511,18 +506,6 @@ class SquareSessionProvider {
         SquareSessionStatus.ready,
         session: session,
       );
-    } on SquareApiException catch (error) {
-      if (error.errorCode == 'cid_not_bound' ||
-          error.errorCode == 'identity_not_reported') {
-        // 本机已有 finalized 绑定时，Worker 的 cid_not_bound 只能视为投影未同步。
-        return SquareSessionResolution(
-          SquareSessionStatus.identityUnavailable,
-          errorCode: error.errorCode,
-          statusCode: error.statusCode,
-          stage: error.stage,
-        );
-      }
-      return SquareSessionResolution.fromError(error);
     } on Object catch (error) {
       // 未知Error同样失败关闭，不能穿透到会员页面或输出原始异常。
       return SquareSessionResolution.fromError(error);
@@ -532,7 +515,7 @@ class SquareSessionProvider {
   /// Worker 明确返回 401 后清除当前身份账户的本地缓存并重新握手一次。
   ///
   /// 仅供已经收到未授权响应的前台请求调用；普通首次加载仍走 [ensureSession] 的缓存与
-  /// in-flight 去重，避免把每次页面进入都放大成新的登录挑战。
+  /// in-flight 去重，避免把每次页面进入都放大成新的会话请求。
   Future<SquareSession?> refreshSession() async {
     final current = await _currentUser.resolve();
     if (current == null) return null;

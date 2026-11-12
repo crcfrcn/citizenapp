@@ -80,12 +80,13 @@ void main() {
       },
     );
   });
-  test('同一最终块合并绑定闭环、会员、三档价格与链时间，键只取一次', () async {
+  test('明确价格消费者合并绑定、会员、三档价格与链时间，键只取一次', () async {
     final data = await reader.read(
       genesisHash: f.hash(0),
       accountId: owner,
       block: at,
       citizens: {f.cidA},
+      prices: true,
     );
     expect(data.ownCid, f.cidA);
     expect(data.memberActive(f.cidA), isTrue);
@@ -94,6 +95,93 @@ void main() {
     final keys = calls.expand((e) => e).toList();
     expect(keys.toSet().length, keys.length);
     expect(calls.first.length, greaterThan(4));
+    expect(data.pricesLoaded, isTrue);
+    expect(data.own!.creatorTiers, isNull);
+  });
+  test('普通关注不读取创作者档位或三档价格，覆盖状态明确', () async {
+    final data = await reader.read(
+      genesisHash: f.hash(0),
+      accountId: owner,
+      block: at,
+      citizens: {f.cidA},
+    );
+    expect(data.pricesLoaded, isFalse);
+    expect(data.prices, isEmpty);
+    expect(data.own!.creatorTiers, isNull);
+    final keys = calls.expand((v) => v).toSet();
+    expect(
+      keys,
+      isNot(
+        contains(
+          id(
+            runtime.storageKey('SquarePost', 'CreatorPlans', [
+              (
+                scale: CitizenIdentityChainReader.encodeBoundedBytes(
+                  utf8.encode(f.cidA),
+                ),
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
+    for (final level in ['freedom', 'democracy', 'spark']) {
+      expect(
+        keys,
+        isNot(
+          contains(
+            id(
+              runtime.storageKey('SquarePost', 'PlatformPrice', [
+                SubscriptionChain.membershipLevelVariant(level),
+              ]),
+            ),
+          ),
+        ),
+      );
+    }
+  });
+  test('登记集合的统计固定一个最终块，只计有效订阅并按周期估算', () async {
+    Uint8List row(int until) => Uint8List.fromList([
+      1,
+      ...CitizenIdentityChainReader.encodeBoundedBytes(utf8.encode('t1')),
+      1,
+      ...number(1, 8),
+      ...number(1, 8),
+      ...number(1200, 16),
+      ...number(until, 8),
+      0,
+      ...number(1200, 16),
+      0,
+    ]);
+    values[id(
+      SubscriptionChain.buildSubscriptionStorageKey(runtime, f.cidA, f.cidA),
+    )] = row(
+      2000,
+    );
+    values[id(
+      SubscriptionChain.buildSubscriptionStorageKey(runtime, f.cidB, f.cidA),
+    )] = row(
+      500,
+    );
+    final result = await reader.creatorSummary(
+      block: at,
+      creator: f.cidA,
+      candidates: {f.cidA, f.cidB},
+    );
+    expect(result.subscribers, 1);
+    expect(result.monthly, BigInt.from(400));
+    expect(result.block.hash, at.hash);
+    final keys = calls.expand((v) => v).toList();
+    expect(
+      keys.where((k) => k == id(runtime.storageKey('Timestamp', 'Now'))).length,
+      1,
+    );
+    expect(keys.toSet().length, keys.length);
+    values[id(runtime.storageKey('Timestamp', 'Now'))] = Uint8List(8);
+    await expectLater(
+      reader.creatorSummary(block: at, creator: f.cidA, candidates: {}),
+      throwsFormatException,
+    );
   });
   test('链上键不存在才表示无会员，失败不能变成无会员', () async {
     values.remove(

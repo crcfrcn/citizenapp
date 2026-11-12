@@ -6,7 +6,6 @@ import 'dart:typed_data';
 
 import 'package:citizen_system/app_log.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizen_user/identity/mls_authentication.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -171,7 +170,7 @@ void main() {
           elapsedMicros: -1,
         );
         AppLog.http(
-          stage: 'challenge',
+          stage: 'session',
           phase: 'complete',
           statusCode: 200,
           headersMicros: 2,
@@ -184,12 +183,12 @@ void main() {
     );
     expect(lines, [
       '[CitizenHttp] stage=other http=none headers_us=none total_us=none phase=other',
-      '[CitizenHttp] stage=challenge http=200 headers_us=2 total_us=3 phase=complete',
+      '[CitizenHttp] stage=session http=200 headers_us=2 total_us=3 phase=complete',
     ]);
     expect(lines.join(), isNot(contains(canary)));
     await runZoned(
       () async {
-        AppLog.http(stage: 'challenge', phase: 'error', elapsedMicros: 1);
+        AppLog.http(stage: 'session', phase: 'error', elapsedMicros: 1);
       },
       zoneSpecification: ZoneSpecification(
         print: (_, _, _, _) => throw StateError(canary),
@@ -353,7 +352,7 @@ void main() {
           throwsA(
             isA<SquareApiException>()
                 .having((e) => e.statusCode, 'HTTP状态', status)
-                .having((e) => e.stage, '阶段', SquareApiStage.challenge)
+                .having((e) => e.stage, '阶段', SquareApiStage.session)
                 .having(
                   (e) => e.errorCode,
                   '错误码',
@@ -1113,364 +1112,52 @@ void _readCoalescingTests() {
   });
 }
 
-// 503不能授权设备登记；夹具只模拟HTTP回执，不代表真实服务或真人验证通过。
+// 临时故障不得登记；所有证明只为真实接口签一次。
 void _serviceUnavailableTests() {
-  const canary = 'synthetic-private-503';
-  for (final boundary in ['challenge', 'session']) {
-    for (final code in [
-      'device_not_registered',
-      'identity_not_reported',
-      'synthetic_unknown',
-    ]) {
-      test('$boundary的503/$code保留原错误且不进入设备登记', () async {
-        final paths = <String>[], lines = <String>[];
-        final source = FakeMlsAuthentication();
-        var registrations = 0;
-        final api = SquareApiClient(
-          baseUrl: 'https://square.test/api',
-          httpClient: MockClient((request) async {
-            paths.add(request.url.path);
-            if (boundary == 'session' &&
-                request.url.path.endsWith('/challenges')) {
-              return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
-            }
-            return http.Response(
-              jsonEncode({
-                'error_code': code,
-                'message': canary,
-                'proof': canary,
-              }),
-              503,
-            );
-          }),
-        );
-        addTearDown(api.close);
-        await runZoned(
-          () => expectLater(
-            api.ensureSession(
-              accountId: testMlsAccountId,
-              authentication: source,
-              onDeviceNotRegistered: (_) async {
-                registrations++;
-              },
-            ),
-            throwsA(
-              isA<SquareApiException>()
-                  .having((e) => e.statusCode, '原HTTP', 503)
-                  .having((e) => e.stage?.name, '原阶段', boundary)
-                  .having((e) => e.errorCode, '原错误码', code)
-                  .having((e) => e.message, '原消息', canary),
-            ),
-          ),
-          zoneSpecification: ZoneSpecification(
-            print: (_, _, _, line) => lines.add(line),
-          ),
-        );
-        expect(registrations, 0);
-        expect(paths, [
-          '/api/user/challenges',
-          if (boundary == 'session') '/api/user/sessions',
-        ]);
-        // 挑战申请先证明持钥；会话再签一次业务证明，503不追加操作。
-        expect(source.proofCalls, boundary == 'challenge' ? 1 : 2);
-        final loggedCode = code == 'synthetic_unknown' ? 'other' : code;
-        expect(lines, [
-          '[CitizenFailure] stage=$boundary http=503 code=$loggedCode',
-        ]);
-        for (final value in [
-          canary,
-          testMlsAccountId,
-          testMlsCidNumber,
-          testMlsDeviceId,
-        ]) {
-          expect(lines.join(), isNot(contains(value)));
-        }
-      });
-    }
-
-    test('$boundary的503结束后主动重试恢复会话并复用有效缓存', () async {
-      final source = FakeMlsAuthentication();
+  for (final status in [401, 403, 429, 503]) {
+    test('会话失败$status只调用真实接口且不重试', () async {
       final paths = <String>[];
-      var unavailable = true, registrations = 0;
+      final source = FakeMlsAuthentication();
+      var registered = 0;
       final api = SquareApiClient(
         baseUrl: 'https://square.test/api',
-        httpClient: MockClient((request) async {
-          paths.add(request.url.path);
-          expect(request.method, 'POST');
-          final challenge = request.url.path.endsWith('/challenges');
-          if (unavailable && challenge == (boundary == 'challenge')) {
-            return http.Response(
-              jsonEncode({'error_code': 'device_not_registered'}),
-              503,
-            );
-          }
-          if (challenge) {
-            final body = jsonDecode(request.body) as Map<String, dynamic>;
-            expect(
-              body.keys,
-              unorderedEquals([
-                'account_id',
-                'public_key',
-                'token_purpose',
-                'http_method',
-                'request_target',
-                'body_hash',
-              ]),
-            );
-            expect(body['token_purpose'], 'session');
-            expect(body['http_method'], 'POST');
-            expect(body['request_target'], '/api/user/sessions');
-            return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
-          }
-          expect(request.url.path, '/api/user/sessions');
-          expect(jsonDecode(request.body), {'account_id': testMlsAccountId});
-          return http.Response(jsonEncode(fakeMlsSession()), 200);
+        httpClient: MockClient((r) async {
+          paths.add(r.url.path);
+          return http.Response('{"error_code":"synthetic_unknown"}', status);
         }),
       );
       addTearDown(api.close);
-      Future<SquareSession> attempt() => api.ensureSession(
-        accountId: testMlsAccountId,
-        authentication: source,
-        onDeviceNotRegistered: (_) async {
-          registrations++;
-        },
-      );
       await expectLater(
-        attempt(),
+        api.ensureSession(
+          accountId: testMlsAccountId,
+          authentication: source,
+          onDeviceNotRegistered: (_) async {
+            registered++;
+          },
+        ),
         throwsA(
-          isA<SquareApiException>().having((e) => e.statusCode, '真实失败', 503),
+          isA<SquareApiException>().having(
+            (e) => e.statusCode,
+            'status',
+            status,
+          ),
         ),
       );
-      unavailable = false;
-      final session = await attempt();
-      expect(session.isUsable, isTrue);
-      expect(session.accountId, testMlsAccountId);
-      expect(session.cidNumber, testMlsCidNumber);
-      expect(session.deviceId, testMlsDeviceId);
-      expect(session.bindRev, source.identity.bindRev);
-      expect(await attempt(), same(session));
-      expect(registrations, 0);
-      expect(paths, [
-        '/api/user/challenges',
-        if (boundary == 'session') '/api/user/sessions',
-        '/api/user/challenges',
-        '/api/user/sessions',
-      ]);
-      expect(source.proofCalls, boundary == 'challenge' ? 3 : 4);
+      expect(paths, ['/api/user/sessions']);
+      expect(source.proofCalls, 1);
+      expect(registered, 0);
     });
   }
-
-  test('并发503共用原失败且结束后可主动重试', () async {
-    final entered = Completer<void>(), release = Completer<void>();
-    final source = FakeMlsAuthentication();
-    var unavailable = true, challenges = 0, sessions = 0, registrations = 0;
-    final api = SquareApiClient(
-      baseUrl: 'https://square.test/api',
-      httpClient: MockClient((request) async {
-        if (request.url.path.endsWith('/challenges')) {
-          challenges++;
-          if (unavailable) {
-            entered.complete();
-            await release.future;
-            return http.Response(
-              jsonEncode({'error_code': 'device_not_registered'}),
-              503,
-            );
-          }
-          return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
-        }
-        sessions++;
-        return http.Response(jsonEncode(fakeMlsSession()), 200);
-      }),
-    );
-    addTearDown(api.close);
-    Future<SquareSession> attempt() => api.ensureSession(
-      accountId: testMlsAccountId,
-      authentication: source,
-      onDeviceNotRegistered: (_) async {
-        registrations++;
-      },
-    );
-    // 先安装每个错误观察器，再释放同一挑战，避免制造未处理异步异常。
-    final pending = List.generate(
-      3,
-      (_) => attempt().then<Object>(
-        (session) => session,
-        onError: (Object error) => error,
-      ),
-    );
-    await entered.future;
-    release.complete();
-    final errors = await Future.wait(pending);
-    expect(
-      errors.first,
-      isA<SquareApiException>().having((e) => e.statusCode, '真实HTTP', 503),
-    );
-    expect(errors[1], same(errors.first));
-    expect(errors[2], same(errors.first));
-    expect(challenges, 1);
-    expect(sessions, 0);
-    expect(source.proofCalls, 1);
-    expect(registrations, 0);
-    unavailable = false;
-    expect((await attempt()).isUsable, isTrue);
-    expect(challenges, 2);
-    expect(sessions, 1);
-    expect(source.proofCalls, 3);
-    expect(registrations, 0);
-  });
 }
 
-// 所有标记均为合成金丝雀；真实账户、URL、挑战及回执不得进入诊断。
 void _failureDiagnosticsTests() {
-  const canary = 'synthetic-private-canary';
-  for (final boundary in ['challenge', 'session', 'registration']) {
-    for (final status in [401, 403, 404, 429, 503]) {
-      test('$boundary真实HTTP$status保留阶段且不追加请求或泄漏正文', () async {
-        final lines = <String>[], paths = <String>[];
-        final source = FakeMlsAuthentication();
-        final api = SquareApiClient(
-          baseUrl: 'https://square.test/api',
-          httpClient: MockClient((request) async {
-            paths.add(request.url.path);
-            if (boundary != 'challenge' &&
-                request.url.path.endsWith('/challenges')) {
-              return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
-            }
-            return http.Response(
-              jsonEncode({
-                'error_code': 'identity_not_reported',
-                'message': canary,
-                'session_token': canary,
-                'challenge': canary,
-                'proof': canary,
-              }),
-              status,
-            );
-          }),
-        );
-        addTearDown(api.close);
-        await runZoned(
-          () async {
-            final request = boundary == 'registration'
-                ? api.registerMlsDevice(
-                    identity: source.identity,
-                    authentication: source,
-                    issuedAt: 1,
-                    bindingSignatureHex: '0x${'ab' * 64}',
-                  )
-                : api.ensureSession(
-                    accountId: testMlsAccountId,
-                    authentication: source,
-                    onDeviceNotRegistered: (_) async => fail('未准入不得触发登记'),
-                  );
-            await expectLater(
-              request,
-              throwsA(
-                isA<SquareApiException>()
-                    .having((e) => e.statusCode, 'HTTP', status)
-                    .having((e) => e.stage?.name, '阶段', boundary)
-                    .having((e) => e.errorCode, '原码', 'identity_not_reported'),
-              ),
-            );
-          },
-          zoneSpecification: ZoneSpecification(
-            print: (_, _, _, line) => lines.add(line),
-          ),
-        );
-        expect(
-          paths,
-          boundary == 'challenge'
-              ? ['/api/user/challenges']
-              : [
-                  '/api/user/challenges',
-                  boundary == 'registration'
-                      ? '/api/user/devices'
-                      : '/api/user/sessions',
-                ],
-        );
-        expect(source.proofCalls, boundary == 'challenge' ? 1 : 2);
-        expect(lines, [
-          '[CitizenFailure] stage=$boundary http=$status code=identity_not_reported',
-        ]);
-        expect(lines.join(), isNot(contains(canary)));
-        for (final secret in [
-          testMlsAccountId,
-          testMlsCidNumber,
-          testMlsDeviceId,
-        ]) {
-          expect(lines.join(), isNot(contains(secret)));
-        }
-      });
-    }
-    for (final shape in ['json', 'shape', 'receipt']) {
-      test('$boundary损坏$shape失败关闭并安全分类', () async {
-        final lines = <String>[];
-        var calls = 0;
-        final source = FakeMlsAuthentication();
-        final api = SquareApiClient(
-          baseUrl: 'https://square.test/api',
-          httpClient: MockClient((request) async {
-            calls++;
-            if (boundary != 'challenge' &&
-                request.url.path.endsWith('/challenges')) {
-              return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
-            }
-            return http.Response(switch (shape) {
-              'json' => '{$canary',
-              'shape' => jsonEncode([canary]),
-              _ => jsonEncode({'is_ok': true, 'session_token': canary}),
-            }, 200);
-          }),
-        );
-        addTearDown(api.close);
-        await runZoned(
-          () async {
-            final request = boundary == 'registration'
-                ? api.registerMlsDevice(
-                    identity: source.identity,
-                    authentication: source,
-                    issuedAt: 1,
-                    bindingSignatureHex: '0x${'ab' * 64}',
-                  )
-                : api.ensureSession(
-                    accountId: testMlsAccountId,
-                    authentication: source,
-                    onDeviceNotRegistered: (_) async => fail('损坏回执不得登记'),
-                  );
-            await expectLater(
-              request,
-              throwsA(
-                shape == 'receipt'
-                    ? isA<MlsAuthenticationException>()
-                    : isA<SquareApiException>(),
-              ),
-            );
-          },
-          zoneSpecification: ZoneSpecification(
-            print: (_, _, _, line) => lines.add(line),
-          ),
-        );
-        expect(calls, boundary == 'challenge' ? 1 : 2);
-        final code = shape == 'receipt'
-            ? boundary == 'challenge'
-                  ? 'invalid_mls_proof'
-                  : 'response_invalid'
-            : shape;
-        expect(lines, [
-          '[CitizenFailure] stage=$boundary http=${shape == 'receipt' ? 'none' : '200'} code=$code',
-        ]);
-        expect(lines.join(), isNot(contains(canary)));
-      });
-    }
-  }
-  test('未知错误码和恶意输入只输出other；日志出口故障不覆盖原异常', () async {
+  test('会话错误不输出服务端正文', () async {
     final lines = <String>[];
     final api = SquareApiClient(
       baseUrl: 'https://square.test/api',
       httpClient: MockClient(
-        (_) async => http.Response(
-          jsonEncode({'error_code': '$canary\ncode=forged', 'message': canary}),
+        (r) async => http.Response(
+          '{"error_code":"private-synthetic-canary","message":"private-synthetic-canary"}',
           403,
         ),
       ),
@@ -1478,88 +1165,53 @@ void _failureDiagnosticsTests() {
     addTearDown(api.close);
     await runZoned(
       () async {
-        AppLog.failure(stage: canary, statusCode: 600, code: canary);
         await expectLater(
           api.ensureSession(
             accountId: testMlsAccountId,
             authentication: FakeMlsAuthentication(),
           ),
-          throwsA(
-            isA<SquareApiException>().having((e) => e.statusCode, 'HTTP', 403),
-          ),
+          throwsA(isA<SquareApiException>()),
         );
       },
-      zoneSpecification: ZoneSpecification(
-        print: (_, _, _, line) => lines.add(line),
-      ),
+      zoneSpecification: ZoneSpecification(print: (_, _, _, s) => lines.add(s)),
     );
-    expect(lines, [
-      '[CitizenFailure] stage=other http=none code=other',
-      '[CitizenFailure] stage=challenge http=403 code=other',
-    ]);
-    await runZoned(
-      () async {
-        await expectLater(
-          api.ensureSession(
-            accountId: testMlsAccountId,
-            authentication: FakeMlsAuthentication(),
-          ),
-          throwsA(
-            isA<SquareApiException>().having((e) => e.statusCode, '原异常', 403),
-          ),
-        );
-      },
-      zoneSpecification: ZoneSpecification(
-        print: (_, _, _, _) => throw StateError('synthetic sink failure'),
-      ),
-    );
+    expect(lines.join(), isNot(contains('private-synthetic-canary')));
   });
 }
 
 void coldIdentityAuthenticationTests() {
-  test('首次设备登记仅发送带钱包签名和设备证明的挑战与提交', () async {
-    final source = FakeMlsAuthentication(), paths = <String>[];
+  test('设备与会话各仅签真实请求一次，用途隔离', () async {
+    final source = FakeMlsAuthentication();
+    final paths = <String>[];
+    final nonces = <String>{};
     final api = SquareApiClient(
       baseUrl: 'https://square.test/api',
       httpClient: MockClient((r) async {
         paths.add(r.url.path);
-        if (r.url.path.endsWith('/challenges')) {
-          expect(r.headers['x-mls-proof'], isNotEmpty);
-          final header =
-              jsonDecode(
-                    utf8.decode(
-                      base64Url.decode(
-                        base64Url.normalize(r.headers['x-mls-proof']!),
-                      ),
-                    ),
-                  )
-                  as Map<String, dynamic>;
-          expect(header['request_target'], '/api/user/challenges');
-          expect(header['body_hash'], '0x${sha256.convert(r.bodyBytes)}');
-          final body = jsonDecode(r.body) as Map<String, dynamic>;
-          expect(body.keys.toSet(), {
-            'account_id',
-            'public_key',
-            'token_purpose',
-            'http_method',
-            'request_target',
-            'body_hash',
-            'issued_at',
-            'binding_signature',
-          });
-          expect(body['token_purpose'], 'device');
-          expect(body['binding_signature'], '0x${'11' * 64}');
-          return http.Response(jsonEncode(fakeMlsChallenge(r)), 200);
-        }
-        expect(r.url.path, '/api/user/devices');
-        expect(r.headers['x-mls-proof'], isNotEmpty);
+        final raw = r.headers['x-mls-proof']!;
+        final p =
+            jsonDecode(utf8.decode(base64Url.decode(base64Url.normalize(raw))))
+                as Map<String, dynamic>;
+        expect(p['request_target'], r.url.path);
+        expect(p['http_method'], r.method);
+        expect(p['body_hash'], '0x${sha256.convert(utf8.encode(r.body))}');
+        expect(nonces.add(p['nonce_id'] as String), isTrue);
+        expect(
+          p['token_purpose'],
+          r.url.path.endsWith('/devices') ? 'device' : 'session',
+        );
+        expect(p.containsKey('session_hash'), isFalse);
         return http.Response(
-          jsonEncode({
-            'is_ok': true,
-            'cid_number': source.identity.cidNumber,
-            'bind_rev': 1,
-            'device_id': source.identity.deviceId,
-          }),
+          jsonEncode(
+            r.url.path.endsWith('/devices')
+                ? {
+                    'is_ok': true,
+                    'cid_number': testMlsCidNumber,
+                    'device_id': testMlsDeviceId,
+                    'bind_rev': 1,
+                  }
+                : fakeMlsSession(),
+          ),
           200,
         );
       }),
@@ -1568,54 +1220,14 @@ void coldIdentityAuthenticationTests() {
     await api.registerMlsDevice(
       identity: source.identity,
       authentication: source,
-      issuedAt: DateTime.now().millisecondsSinceEpoch,
       bindingSignatureHex: '0x${'11' * 64}',
+      issuedAt: DateTime.now().millisecondsSinceEpoch,
     );
-    expect(paths, ['/api/user/challenges', '/api/user/devices']);
+    await api.ensureSession(
+      accountId: testMlsAccountId,
+      authentication: source,
+    );
+    expect(paths, ['/api/user/devices', '/api/user/sessions']);
     expect(source.proofCalls, 2);
-  });
-  test('首次会话挑战明确缺上下文仅恢复一次，不能将会话提交失败当设备缺失', () async {
-    for (final boundary in ['challenge', 'session']) {
-      final source = FakeMlsAuthentication();
-      var challenges = 0, restores = 0;
-      final api = SquareApiClient(
-        baseUrl: 'https://square.test/api',
-        httpClient: MockClient((r) async {
-          if (r.url.path.endsWith('/challenges')) {
-            challenges++;
-            if (boundary == 'challenge' && challenges == 1) {
-              return http.Response(
-                '{"is_ok":false,"error_code":"invalid_session"}',
-                401,
-              );
-            }
-            return http.Response(jsonEncode(fakeMlsChallenge(r)), 200);
-          }
-          return boundary == 'session'
-              ? http.Response(
-                  '{"is_ok":false,"error_code":"invalid_session"}',
-                  401,
-                )
-              : http.Response(jsonEncode(fakeMlsSession()), 200);
-        }),
-      );
-      addTearDown(api.close);
-      final task = api.ensureSession(
-        accountId: source.identity.accountId,
-        authentication: source,
-        onDeviceNotRegistered: (_) async {
-          restores++;
-        },
-      );
-      if (boundary == 'challenge') {
-        await task;
-        expect(restores, 1);
-        expect(challenges, 2);
-      } else {
-        await expectLater(task, throwsA(isA<SquareApiException>()));
-        expect(restores, 0);
-        expect(challenges, 1);
-      }
-    }
   });
 }

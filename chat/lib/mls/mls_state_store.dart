@@ -173,6 +173,8 @@ class MlsStateStore {
       'account_id': accountId,
       'bind_rev': bindingRevision,
       'service_origin': request.serviceOrigin,
+      'token_purpose': request.tokenPurpose,
+      if (request.sessionHash != null) 'session_hash': request.sessionHash!,
       'nonce_id': request.nonceId,
       'expires_at': request.expiresAt,
       'http_method': request.httpMethod,

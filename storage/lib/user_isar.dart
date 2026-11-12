@@ -414,7 +414,7 @@ class Admin {
   late String bodyData;
 }
 
-/// 不可变交易证明只保存一份；pending_kind只表示尚待镜像的业务，不复制证明数组。
+/// 仅保存尚未完成的创作者关系登记目标，不保存链上交易证明或会员镜像。
 @Name('member')
 @collection
 class Member {
@@ -436,111 +436,76 @@ class Member {
         ))?.bodyData,
       );
 
-  static Future<void> writeState(
-    Member row, {
-    bool Function()? isCurrent,
-    Object? staleError,
-  }) => UserIsar.instance.writeTxn((db) async {
-    if (isCurrent != null && !isCurrent()) return;
-    await db.members.putByCidNumberStateKind(row);
-    if (isCurrent != null && !isCurrent()) {
-      throw staleError ?? StateError('会员上下文已变化');
-    }
-  });
-
-  static List<Map<String, dynamic>> _proofs(String? raw) {
-    if (raw == null) return [];
+  static Future<Map<String, int>> pendingCreators(String cid) async {
+    final raw = await readState(cid, 'registration');
+    if (raw == null) return {};
     final value = jsonDecode(raw);
-    if (value is! List ||
-        value.any(
-          (row) =>
-              row is! Map<String, dynamic> ||
-              row['tx_hash'] is! String ||
-              (row['tx_hash'] as String).isEmpty,
-        )) {
-      throw const FormatException('交易证明记录无效');
-    }
-    return value.cast<Map<String, dynamic>>().toList(growable: true);
+    if (value is! Map<String, dynamic> ||
+        value.values.any((v) => v is! int || v < 0))
+      throw const FormatException('登记待办无效');
+    return value.cast<String, int>();
   }
 
-  static Future<List<Map<String, dynamic>>> readProofs(
-    String cidNumber, {
-    String? pendingKind,
-  }) async {
-    final rows = _proofs(await readState(cidNumber, 'proof'));
-    final selected = pendingKind == null && rows.length > 50
-        ? rows.skip(rows.length - 50)
-        : rows;
-    return selected
-        .where(
-          (row) => pendingKind == null || row['pending_kind'] == pendingKind,
-        )
-        .map((row) => Map<String, dynamic>.of(row)..remove('pending_kind'))
-        .toList(growable: false);
-  }
-
-  static void _retainProofs(List<Map<String, dynamic>> rows) {
-    final cutoff = rows.length - 50;
-    var position = 0;
-    rows.removeWhere(
-      (row) => position++ < cutoff && row['pending_kind'] == null,
-    );
-  }
-
-  /// 同一事务提交证明和待镜像状态；保留最近50条历史及所有未完成证明。
-  static Future<void> storeProof(
-    String cidNumber,
-    Map<String, dynamic> proof, {
-    String? pendingKind,
-    bool replacePending = false,
-  }) => UserIsar.instance.writeTxn((db) async {
-    if (proof['tx_hash'] is! String ||
-        (proof['tx_hash'] as String).isEmpty ||
-        proof.containsKey('pending_kind')) {
-      throw const FormatException('交易证明无效');
-    }
-    final row =
-        await db.members.getByCidNumberStateKind(cidNumber, 'proof') ??
-        (Member()
-          ..cidNumber = cidNumber
-          ..stateKind = 'proof'
-          ..bodyData = '[]');
-    final rows = _proofs(row.bodyData);
-    if (replacePending) {
-      for (final item in rows) {
-        if (item['pending_kind'] == pendingKind) item.remove('pending_kind');
-      }
-    }
-    rows.removeWhere((item) => item['tx_hash'] == proof['tx_hash']);
-    rows.add({...proof, 'pending_kind': ?pendingKind});
-    _retainProofs(rows);
-    row.bodyData = jsonEncode(rows);
-    await db.members.putByCidNumberStateKind(row);
-  });
-
-  static Future<void> finishProof(
-    String cidNumber,
-    String txHash,
-    String pendingKind,
-  ) => UserIsar.instance.writeTxn((db) async {
-    final row = await db.members.getByCidNumberStateKind(cidNumber, 'proof');
-    if (row == null) return;
-    final rows = _proofs(row.bodyData);
-    for (final proof in rows) {
-      if (proof['tx_hash'] == txHash && proof['pending_kind'] == pendingKind) {
-        proof.remove('pending_kind');
-      }
-    }
-    _retainProofs(rows);
-    row.bodyData = jsonEncode(rows);
-    await db.members.put(row);
-  });
+  static Future<void> pendCreator(String cid, String creator, int block) =>
+      UserIsar.instance.writeTxn((db) async {
+        final row =
+            await db.members.getByCidNumberStateKind(cid, 'registration') ??
+            (Member()
+              ..cidNumber = cid
+              ..stateKind = 'registration'
+              ..bodyData = '{}');
+        final value = (jsonDecode(row.bodyData) as Map<String, dynamic>);
+        final old = value[creator] as int?;
+        if (old != null && old >= block) return;
+        value[creator] = block;
+        row.bodyData = jsonEncode(value);
+        await db.members.putByCidNumberStateKind(row);
+      });
+  static Future<void> finishCreator(String cid, String creator) =>
+      UserIsar.instance.writeTxn((db) async {
+        final row = await db.members.getByCidNumberStateKind(
+          cid,
+          'registration',
+        );
+        if (row == null) return;
+        final value = jsonDecode(row.bodyData) as Map<String, dynamic>;
+        if (!value.containsKey(creator)) return;
+        value.remove(creator);
+        if (value.isEmpty) {
+          await db.members.delete(row.rowId);
+        } else {
+          row.bodyData = jsonEncode(value);
+          await db.members.put(row);
+        }
+      });
 }
 
 /// 创作者展示快照；待确认计划直接引用member中的唯一交易证明。
 @Name('creator')
 @collection
 class Creator {
+  static Future<Map<String, dynamic>?> readSummary(String cid) =>
+      UserIsar.instance.read((db) async {
+        final row = await db.creators.getByCidNumber(cid);
+        return row == null
+            ? null
+            : (jsonDecode(row.bodyData) as Map<String, dynamic>);
+      });
+  static Future<void> saveSummary(
+    String cid,
+    Map<String, dynamic> value,
+    bool Function() current,
+  ) => UserIsar.instance.writeTxn((db) async {
+    if (!current()) return;
+    final encoded = jsonEncode(value);
+    final row =
+        await db.creators.getByCidNumber(cid) ?? (Creator()..cidNumber = cid);
+    if (row.rowId != Isar.autoIncrement && row.bodyData == encoded) return;
+    row.bodyData = encoded;
+    if (!current()) return;
+    await db.creators.putByCidNumber(row);
+    if (!current()) throw StateError('统计归属变化');
+  });
   @Name('id')
   Id rowId = Isar.autoIncrement;
   @Name('cid_number')

@@ -119,7 +119,8 @@ class CreatorPlan {
 }
 
 /// 将轻节点已核验的链上档位转换为页面模型；金额越界直接拒绝。
-CreatorPlan creatorPlanFromChain(List<ChainCreatorTier> tiers) {
+CreatorPlan creatorPlanFromChain(List<ChainCreatorTier>? tiers) {
+  if (tiers == null) throw const FormatException('创作者档位尚未读取');
   int? price(ChainCreatorTier t, String period) {
     final value = t.pricesFen[period];
     if (value == null) return null;

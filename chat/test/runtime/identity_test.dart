@@ -316,6 +316,9 @@ Map<String, dynamic> _nativeResponse(Map<String, Object?> input) {
     ...identity,
     'account_id': input['account_id'],
     'bind_rev': input['bind_rev'],
+    'token_purpose': request['token_purpose'],
+    if (request['session_hash'] != null)
+      'session_hash': request['session_hash'],
     'service_origin': request['service_origin'],
     'nonce_id': request['nonce_id'],
     'expires_at': request['expires_at'],

@@ -1,12 +1,11 @@
+import 'package:citizen_testing/membergate_fixture.dart';
 import 'package:flutter/services.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
-import 'package:citizen_storage/user_isar.dart' as wallet_store show Member;
 import 'package:http/http.dart' as http;
 
 import 'package:citizen_testing/mls_authentication_fixture.dart';
 
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:citizen_user/identity/identity_binding.dart';
@@ -81,15 +80,9 @@ void main() {
         expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
       ),
     );
-    SubscriptionService.setChatAuthorizationForTesting(
-      _ownerUserId,
-      10 * 1024 * 1024,
-    );
+    setChatLightData(_ownerUserId, 10 * 1024 * 1024);
   });
-  tearDown(
-    () =>
-        SubscriptionService.setChatAuthorizationForTesting(_ownerUserId, null),
-  );
+  tearDown(() => setChatLightData(_ownerUserId, null));
 
   testWidgets('根首帧及账户/前台变化自动准备，挂起不阻止导航也不提前启动聊天', (tester) async {
     final sessions = _PendingPreparationSessions(),
@@ -138,12 +131,8 @@ void main() {
     await tester.pump();
     security.revision.dispose();
   });
-  test('聊天投影/设备故障不提示再次注册或真人验证', () {
-    for (final code in [
-      'cid_not_bound',
-      'identity_not_reported',
-      'device_not_registered',
-    ]) {
+  test('链上绑定/设备故障不提示再次注册或真人验证', () {
+    for (final code in ['cid_not_bound', 'device_not_registered']) {
       final message = chatUserErrorMessage(
         SquareApiException('synthetic', errorCode: code),
       );
@@ -180,17 +169,7 @@ void main() {
 
   group('聊天构造期不恢复会员交易', () {
     useIsolatedIsar();
-    testWidgets('真实默认服务在打开及重连时保留待同步证明，网络和链均为零', (tester) async {
-      final proof = jsonEncode([
-        {'tx_hash': '0x${'a' * 64}', 'block_hash': '0x${'b' * 64}'},
-      ]);
-      await tester.runAsync(() async {
-        await wallet_store.Member.storeProof(
-          _ownerUserId,
-          (jsonDecode(proof) as List).single as Map<String, dynamic>,
-          pendingKind: 'member',
-        );
-      });
+    testWidgets('真实默认服务打开及重连时不读取会员或确认交易', (tester) async {
       final security = _UnusedSecurity(),
           sessions = _FakeProfileSessionProvider(),
           resolver = _NoChatChainRecovery();
@@ -232,17 +211,6 @@ void main() {
           AppLifecycleState.resumed,
         );
         await tester.pump(const Duration(milliseconds: 100));
-        await tester.runAsync(() async {
-          expect(
-            jsonEncode(
-              await wallet_store.Member.readProofs(
-                _ownerUserId,
-                pendingKind: 'member',
-              ),
-            ),
-            proof,
-          );
-        });
         expect(network.requests, 0);
         expect(resolver.reads, 0);
         expect(core.fixture.calls, ['open']);
@@ -252,7 +220,7 @@ void main() {
     });
   });
 
-  testWidgets('打开聊天列表及窗口零会员GET，附件动作才请求授权', (tester) async {
+  testWidgets('打开与附件动作均不预查云端会员，未知本机规则明确失败', (tester) async {
     final service = _AttachmentOnlySubscription();
     final provider = _FakeProfileSessionProvider();
     final store = _FakeChatStore(
@@ -304,7 +272,7 @@ void main() {
       ),
       throwsA(isA<SquareApiException>()),
     );
-    expect(service.requests, 1);
+    expect(service.requests, 0);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
@@ -325,7 +293,7 @@ void main() {
       accountId: provider.value.accountId,
       displayName: 'A',
     );
-    SubscriptionService.setChatAuthorizationForTesting(_ownerUserId, null);
+    setChatLightData(_ownerUserId, null);
     expect(
       await capability.prepareAttachment(
         account,
@@ -337,10 +305,7 @@ void main() {
     expect(provider.calls, 0);
     expect(await host.canSend(_ownerUserId), isTrue);
     expect(provider.calls, 1);
-    SubscriptionService.setChatAuthorizationForTesting(
-      _ownerUserId,
-      10 * 1024 * 1024,
-    );
+    setChatLightData(_ownerUserId, 10 * 1024 * 1024);
     expect(
       await capability.prepareAttachment(
         account,

@@ -83,9 +83,6 @@ SquareApiClient client(Future<http.Response> Function(http.Request) business) =>
     SquareApiClient(
       baseUrl: 'https://square.test/api',
       httpClient: MockClient((request) async {
-        if (request.url.path == '/api/user/challenges') {
-          return json(fakeMlsChallenge(request, cidNumber: _cidNumber));
-        }
         if (request.url.path == '/api/user/sessions') {
           return json(
             fakeMlsSession(
@@ -119,148 +116,160 @@ void main() {
     );
   });
 
-  test('submit requires MLS, returns pending, then wallet-only status recovers completion', () async {
-    final submitted = <String>[];
-    final signed = <Uint8List>[];
-    final payloads = <String>[];
-    final api = client((request) async {
-      submitted.add(request.url.path);
-      if (request.url.path == '/api/user/deletion/challenges') {
-        expect(request.headers['authorization'], 'Bearer sqs_test');
-        expect(request.headers['x-mls-proof'], isNotNull);
-        expect(jsonDecode(request.body), {});
-        final c = challenge('delete');
-        payloads.add(c['sign_hex'] as String);
-        return json(c);
+  test(
+    'submit requires MLS, returns pending, then wallet-only status recovers completion',
+    () async {
+      final submitted = <String>[];
+      final signed = <Uint8List>[];
+      final payloads = <String>[];
+      final api = client((request) async {
+        submitted.add(request.url.path);
+        if (request.url.path == '/api/user/deletion/challenges') {
+          expect(request.headers['authorization'], 'Bearer sqs_test');
+          expect(request.headers['x-mls-proof'], isNotNull);
+          expect(jsonDecode(request.body), {});
+          final c = challenge('delete');
+          payloads.add(c['sign_hex'] as String);
+          return json(c);
+        }
+        if (request.url.path == '/api/user/deletion') {
+          expect(request.headers['x-mls-proof'], isNotNull);
+          expect(jsonDecode(request.body), {
+            'nonce_id': _nonce,
+            'signature': '0xSIG',
+          });
+          return json(receipt('pending'), 202);
+        }
+        if (request.url.path == '/api/user/deletion/status/challenges') {
+          expect(request.headers['authorization'], isNull);
+          expect(request.headers['x-mls-proof'], isNull);
+          expect(jsonDecode(request.body), {
+            'cid_number': _cidNumber,
+            'account_id': _accountId,
+          });
+          final c = challenge('status');
+          payloads.add(c['sign_hex'] as String);
+          return json(c);
+        }
+        if (request.url.path == '/api/user/deletion/status') {
+          expect(request.headers['authorization'], isNull);
+          return json(receipt('complete'));
+        }
+        return http.Response('not found', 404);
+      });
+      await login(api);
+      Future<String> signer(Uint8List message) async {
+        signed.add(message);
+        return '0xSIG';
       }
-      if (request.url.path == '/api/user/deletion') {
-        expect(request.headers['x-mls-proof'], isNotNull);
-        expect(jsonDecode(request.body), {
-          'nonce_id': _nonce,
-          'signature': '0xSIG',
-        });
-        return json(receipt('pending'), 202);
-      }
-      if (request.url.path == '/api/user/deletion/status/challenges') {
-        expect(request.headers['authorization'], isNull);
-        expect(request.headers['x-mls-proof'], isNull);
-        expect(jsonDecode(request.body), {
-          'cid_number': _cidNumber,
-          'account_id': _accountId,
-        });
-        final c = challenge('status');
-        payloads.add(c['sign_hex'] as String);
-        return json(c);
-      }
-      if (request.url.path == '/api/user/deletion/status') {
-        expect(request.headers['authorization'], isNull);
-        return json(receipt('complete'));
-      }
-      return http.Response('not found', 404);
-    });
-    await login(api);
-    Future<String> signer(Uint8List message) async {
-      signed.add(message);
-      return '0xSIG';
-    }
 
-    await expectLater(
-      api.deleteAccount(binding: _binding, signAction: signer),
-      throwsA(isA<SquareAccountDeletionPendingException>()),
-    );
-    await api.deleteAccount(binding: _binding, signAction: signer);
-    expect(submitted, [
-      '/api/user/deletion/challenges',
-      '/api/user/deletion',
-      '/api/user/deletion/status/challenges',
-      '/api/user/deletion/status',
-    ]);
-    for (var i = 0; i < signed.length; i++) {
-      final expected = await CitizenSdk.encodePayload(
-        CitizenSigningPayload.message(
-          opTag: kOpSignSquareAction,
-          scalePayload: hexToBytes(payloads[i]),
-        ),
-      );
-      expect(bytesToHex(signed[i]), bytesToHex(expected));
-    }
-    expect(bytesToHex(signed[0]), isNot(bytesToHex(signed[1])));
-  });
-
-  test('a new client recovers pending without a session and never creates a deletion', () async {
-    final paths = <String>[];
-    final api = client((request) async {
-      paths.add(request.url.path);
-      if (request.url.path.endsWith('/challenges')) {
-        return json(challenge('status'));
-      }
-      return json(receipt('pending'));
-    });
-    await expectLater(
-      api.deleteAccount(binding: _binding, signAction: (_) async => '0xSIG'),
-      throwsA(isA<SquareAccountDeletionPendingException>()),
-    );
-    expect(paths, [
-      '/api/user/deletion/status/challenges',
-      '/api/user/deletion/status',
-    ]);
-  });
-
-  test('lost acceptance with a stale session switches only to read-only wallet recovery', () async {
-    final paths = <String>[];
-    final api = client((request) async {
-      paths.add(request.url.path);
-      if (request.url.path == '/api/user/deletion/challenges') {
-        return json({'error_code': 'invalid_session'}, 401);
-      }
-      if (request.url.path == '/api/user/deletion/status/challenges') {
-        return json(challenge('status'));
-      }
-      return json(receipt('complete'));
-    });
-    await login(api);
-    await api.deleteAccount(
-      binding: _binding,
-      signAction: (_) async => '0xSIG',
-    );
-    expect(paths, [
-      '/api/user/deletion/challenges',
-      '/api/user/deletion/status/challenges',
-      '/api/user/deletion/status',
-    ]);
-  });
-
-  test('foreign binding, scope, purpose, expiry and opaque payload are rejected before signing', () async {
-    final changes = <Map<String, Object?>>[
-      {'cid_number': 'OTHER-CID'},
-      {'account_id': '0x${List.filled(32, '22').join()}'},
-      {'bind_rev': 2},
-      {'chain_scope': '0x${List.filled(32, '44').join()}'},
-      {'service_origin': 'https://other.test'},
-      {'token_purpose': 'delete'},
-      {'expires_at': 1},
-      {'sign_hex': '0x00'},
-      {'op_tag': 0x99},
-      {'nonce_id': '../other'},
-    ];
-    for (final change in changes) {
-      var signed = false;
-      final api = client(
-        (_) async => json({...challenge('status'), ...change}),
-      );
       await expectLater(
-        api.deleteAccount(
-          binding: _binding,
-          signAction: (_) async {
-            signed = true;
-            return '0xSIG';
-          },
-        ),
-        throwsA(isA<SquareApiException>()),
+        api.deleteAccount(binding: _binding, signAction: signer),
+        throwsA(isA<SquareAccountDeletionPendingException>()),
       );
-      expect(signed, isFalse);
-    }
-  });
+      await api.deleteAccount(binding: _binding, signAction: signer);
+      expect(submitted, [
+        '/api/user/deletion/challenges',
+        '/api/user/deletion',
+        '/api/user/deletion/status/challenges',
+        '/api/user/deletion/status',
+      ]);
+      for (var i = 0; i < signed.length; i++) {
+        final expected = await CitizenSdk.encodePayload(
+          CitizenSigningPayload.message(
+            opTag: kOpSignSquareAction,
+            scalePayload: hexToBytes(payloads[i]),
+          ),
+        );
+        expect(bytesToHex(signed[i]), bytesToHex(expected));
+      }
+      expect(bytesToHex(signed[0]), isNot(bytesToHex(signed[1])));
+    },
+  );
+
+  test(
+    'a new client recovers pending without a session and never creates a deletion',
+    () async {
+      final paths = <String>[];
+      final api = client((request) async {
+        paths.add(request.url.path);
+        if (request.url.path.endsWith('/challenges')) {
+          return json(challenge('status'));
+        }
+        return json(receipt('pending'));
+      });
+      await expectLater(
+        api.deleteAccount(binding: _binding, signAction: (_) async => '0xSIG'),
+        throwsA(isA<SquareAccountDeletionPendingException>()),
+      );
+      expect(paths, [
+        '/api/user/deletion/status/challenges',
+        '/api/user/deletion/status',
+      ]);
+    },
+  );
+
+  test(
+    'lost acceptance with a stale session switches only to read-only wallet recovery',
+    () async {
+      final paths = <String>[];
+      final api = client((request) async {
+        paths.add(request.url.path);
+        if (request.url.path == '/api/user/deletion/challenges') {
+          return json({'error_code': 'invalid_session'}, 401);
+        }
+        if (request.url.path == '/api/user/deletion/status/challenges') {
+          return json(challenge('status'));
+        }
+        return json(receipt('complete'));
+      });
+      await login(api);
+      await api.deleteAccount(
+        binding: _binding,
+        signAction: (_) async => '0xSIG',
+      );
+      expect(paths, [
+        '/api/user/deletion/challenges',
+        '/api/user/deletion/status/challenges',
+        '/api/user/deletion/status',
+      ]);
+    },
+  );
+
+  test(
+    'foreign binding, scope, purpose, expiry and opaque payload are rejected before signing',
+    () async {
+      final changes = <Map<String, Object?>>[
+        {'cid_number': 'OTHER-CID'},
+        {'account_id': '0x${List.filled(32, '22').join()}'},
+        {'bind_rev': 2},
+        {'chain_scope': '0x${List.filled(32, '44').join()}'},
+        {'service_origin': 'https://other.test'},
+        {'token_purpose': 'delete'},
+        {'expires_at': 1},
+        {'sign_hex': '0x00'},
+        {'op_tag': 0x99},
+        {'nonce_id': '../other'},
+      ];
+      for (final change in changes) {
+        var signed = false;
+        final api = client(
+          (_) async => json({...challenge('status'), ...change}),
+        );
+        await expectLater(
+          api.deleteAccount(
+            binding: _binding,
+            signAction: (_) async {
+              signed = true;
+              return '0xSIG';
+            },
+          ),
+          throwsA(isA<SquareApiException>()),
+        );
+        expect(signed, isFalse);
+      }
+    },
+  );
 
   test(
     'binding changed during wallet signing prevents submitting the old intent',
@@ -291,25 +300,31 @@ void main() {
     },
   );
 
-  test('wrong completion receipt never permits local cleanup; absent is not complete', () async {
-    for (final result in [
-      receipt('complete')..['cid_number'] = 'OTHER-CID',
-      receipt('complete')..['deletion_id'] = 'bad',
-      receipt('absent'),
-    ]) {
-      final api = client(
-        (request) async => json(
-          request.url.path.endsWith('/challenges')
-              ? challenge('status')
-              : result,
-        ),
-      );
-      await expectLater(
-        api.deleteAccount(binding: _binding, signAction: (_) async => '0xSIG'),
-        throwsA(isA<SquareApiException>()),
-      );
-    }
-  });
+  test(
+    'wrong completion receipt never permits local cleanup; absent is not complete',
+    () async {
+      for (final result in [
+        receipt('complete')..['cid_number'] = 'OTHER-CID',
+        receipt('complete')..['deletion_id'] = 'bad',
+        receipt('absent'),
+      ]) {
+        final api = client(
+          (request) async => json(
+            request.url.path.endsWith('/challenges')
+                ? challenge('status')
+                : result,
+          ),
+        );
+        await expectLater(
+          api.deleteAccount(
+            binding: _binding,
+            signAction: (_) async => '0xSIG',
+          ),
+          throwsA(isA<SquareApiException>()),
+        );
+      }
+    },
+  );
   test('finalized 换绑立即清除旧会话，并拒绝换绑后才返回的旧握手', () async {
     const newAccountId =
         '0x2222222222222222222222222222222222222222222222222222222222222222';
@@ -321,12 +336,6 @@ void main() {
     final cachedClient = SquareApiClient(
       baseUrl: 'https://square.test/api',
       httpClient: MockClient((request) async {
-        if (request.url.path == '/api/user/challenges') {
-          return http.Response(
-            jsonEncode(fakeMlsChallenge(request, cidNumber: _cidNumber)),
-            200,
-          );
-        }
         return http.Response(
           jsonEncode(
             fakeMlsSession(
@@ -352,12 +361,6 @@ void main() {
     final lateClient = SquareApiClient(
       baseUrl: 'https://square.test/api',
       httpClient: MockClient((request) async {
-        if (request.url.path == '/api/user/challenges') {
-          return http.Response(
-            jsonEncode(fakeMlsChallenge(request, cidNumber: _cidNumber)),
-            200,
-          );
-        }
         sessionRequested.complete();
         return sessionResponse.future;
       }),

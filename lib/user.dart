@@ -1,3 +1,4 @@
+import 'package:citizen_chain/citizen_chain.dart';
 import 'package:provider/provider.dart';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -162,11 +163,11 @@ class _ProfilePageState extends State<MyTab> {
     _subscriptionService =
         widget.subscriptionService ??
         SubscriptionService(
+          chainData: context.read<ChainDataService?>(),
           wallet: _wallet,
           chain: sdk,
           transactions: sdk,
           identityResolver: context.read<FinalizedIdentityResolver>(),
-          sessionProvider: _sessionProvider,
           api: widget.squareApi ?? SquareApiClient(),
         );
     // 本页常驻 IndexedStack；SDK 账户目录或 finalized CID 绑定变化后重读身份。

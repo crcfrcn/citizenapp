@@ -16,12 +16,9 @@ import 'package:provider/provider.dart';
 import 'package:citizen_user/notifications.dart';
 import 'package:citizen_user/identity/current_user_context.dart';
 import 'package:citizen_user/identity/identity_binding.dart';
-import 'package:citizen_user/creator/creator_api.dart';
+import 'package:citizen_user/creator/creator_overview.dart';
 import 'package:citizen_user/membership/subscription_service.dart';
 import 'package:citizen_testing/mls_authentication_fixture.dart';
-import 'package:http/http.dart' as http;
-import 'package:http/testing.dart';
-import 'dart:convert';
 
 class _BusinessGate implements CidBusinessGate {
   _BusinessGate(this.result);
@@ -81,14 +78,20 @@ class _User implements CurrentUserContext {
 }
 
 class _OverviewService implements CreatorService {
-  _OverviewService(this.api, this.session);
-  final CreatorApiHttp api;
+  @override
+  Future<CreatorOverview?> cachedOverview(String cid) async => null;
+  _OverviewService(this.session);
   final SquareSession session;
   final result = Completer<CreatorPageData>();
   @override
   Future<CreatorPageData> load({String? expectedCidNumber}) => result.future;
   Future<void> resolve() async {
-    final overview = await api.fetchOverview(session);
+    final overview = CreatorOverview(
+      subscriberCount: 42,
+      monthlyIncomeFen: BigInt.from(1234),
+      blockNumber: 103,
+      blockHash: '0x${"11" * 32}',
+    );
     result.complete(CreatorPageData.active(overview: overview));
   }
 
@@ -100,7 +103,7 @@ void main() {
   useIsolatedIsar();
   for (final notificationReady in [false, true]) {
     for (final decision in MembershipDisplayDecision.values) {
-      testWidgets('概览HTTP响应在通知就绪=$notificationReady、入口=$decision时正常展示', (
+      testWidgets('轻节点概览结果在通知就绪=$notificationReady、入口=$decision时正常展示', (
         tester,
       ) async {
         final user = _User()..cid = notificationReady ? _cid : '';
@@ -121,28 +124,11 @@ void main() {
           expiresAt: 9999999999999,
           authenticateRequest: fakeMlsRequestHeaders,
         );
-        final api = CreatorApiHttp(
-          baseUrl: 'https://review.test/api',
-          httpClient: MockClient((request) async {
-            return http.Response(
-              jsonEncode({
-                'is_ok': true,
-                'creator_rev': 100,
-                'overview': {
-                  'subscriber_count': 42,
-                  'monthly_income_fen': 1234,
-                  'tier_count': 1,
-                },
-              }),
-              200,
-            );
-          }),
-        );
         addTearDown(() {
           Notifications.instance.invalidate();
           squareApi.close();
         });
-        final service = _OverviewService(api, session);
+        final service = _OverviewService(session);
         await tester.pumpWidget(
           _creatorApp(
             home: CreatorPage(

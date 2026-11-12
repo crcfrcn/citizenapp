@@ -302,6 +302,7 @@ fn authentication_request(a: &Fixture) -> serde_json::Value {
         "state_store_dir":a.dir, "user_id":a.user, "action":"sign_authentication",
         "account_id":format!("0x{}", "11".repeat(32)), "bind_rev":1,
         "request":{
+            "token_purpose":"request","session_hash":"44".repeat(32),
             "service_origin":"https://api.example.test",
             "nonce_id":format!("0x{}", "22".repeat(32)),
             "expires_at":now_millis().unwrap() + 120_000,
@@ -319,7 +320,8 @@ fn verify_authentication(proof: &serde_json::Value, label: &str) -> bool {
     if text("device_id") != hex::encode(&public) {
         return false;
     }
-    let mut content = Vec::new();
+    let mut content = vec![match text("token_purpose"){"device"=>0,"session"=>1,"request"=>2,_=>return false}];
+    if text("token_purpose")=="request"{content.extend(bytes("session_hash"));}
     VLBytes::from(text("user_id").as_bytes().to_vec())
         .tls_serialize(&mut content)
         .unwrap();
@@ -359,7 +361,7 @@ fn authentication_reuses_persistent_identity_without_mutating_chat_state() {
     let proof = invoke(identity_json, request.clone()).unwrap();
     assert_eq!(proof["user_id"], a.user);
     assert_eq!(proof["device_id"], a.device);
-    assert_eq!(proof.as_object().unwrap().len(), 12);
+    assert_eq!(proof.as_object().unwrap().len(), 14);
     assert!(verify_authentication(&proof, AUTHENTICATION_LABEL));
     // 每次FFI重新load已提交状态，重建后仍由同一身份签相同结构。
     assert_eq!(proof, invoke(identity_json, request).unwrap());
@@ -378,6 +380,8 @@ fn authentication_binds_every_field_and_is_separate_from_mls_protocol_labels() {
     let a = Fixture::new("user-a");
     let proof = invoke(identity_json, authentication_request(&a)).unwrap();
     for (field, value) in [
+        ("token_purpose",json!("device")),
+        ("session_hash",json!("55".repeat(32))),
         ("user_id", json!("other")),
         ("device_id", json!("33".repeat(32))),
         ("public_key", json!(format!("0x{}", "33".repeat(32)))),

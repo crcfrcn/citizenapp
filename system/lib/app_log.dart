@@ -144,7 +144,6 @@ class AppLog {
   }) {
     const stages = {
       'identity',
-      'challenge',
       'proof',
       'registration',
       'session',
@@ -173,7 +172,6 @@ class AppLog {
       'identity_projection_unavailable',
       'cid_binding_changed',
       'network_unavailable',
-      'identity_not_reported',
       'identity_not_finalized',
       'identity_binding_conflict',
       'identity_binding_mismatch',
@@ -186,7 +184,6 @@ class AppLog {
       'stale_device_binding',
       'device_proof_invalid',
       'device_proof_storage',
-      'mls_challenge_limit_reached',
       'request_rate_exceeded',
       'chain_rpc_budget_exceeded',
       'identityChanged',
@@ -281,7 +278,6 @@ class AppLog {
   }) {
     const stages = {
       'bootstrap',
-      'challenge',
       'session',
       'registration',
       'membergate',
@@ -471,9 +467,9 @@ class AppLog {
       if (Platform.isIOS) {
         // iOS新版工具不再读取Flutter的旧syslog；只交付闭集阶段到原生OSLog。
         unawaited(
-          const MethodChannel('citizenapp/metamask')
-              .invokeMethod<void>('phase', state)
-              .catchError((Object _) {}),
+          const MethodChannel(
+            'citizenapp/metamask',
+          ).invokeMethod<void>('phase', state).catchError((Object _) {}),
         );
       } else {
         debugPrintSynchronously('[CitizenTopup] stage=payment state=$state');

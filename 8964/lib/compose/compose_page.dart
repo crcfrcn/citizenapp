@@ -1,3 +1,4 @@
+import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_user/identity/account_security_service.dart';
 import 'dart:async';
 
@@ -681,7 +682,7 @@ class _SquareComposePageState extends State<SquareComposePage>
           chain: sdk,
           transactions: sdk,
           identityResolver: context.read<FinalizedIdentityResolver>(),
-          sessionProvider: context.read<SquareSessionProvider>(),
+          chainData: context.read<ChainDataService>(),
         ),
       ),
     );

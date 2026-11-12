@@ -120,7 +120,6 @@ void main() {
         paths.add(request.url.path);
         final now = DateTime.now().millisecondsSinceEpoch;
         final response = switch (request.url.path) {
-          '/api/user/challenges' => fakeMlsChallenge(request),
           '/api/user/sessions' => fakeMlsSession(
             deviceId: proof['device_id'] as String,
           ),
@@ -181,12 +180,7 @@ void main() {
     expect(devices, {identity.deviceId});
     expect(transport.published.single.deviceId, identity.deviceId);
     expect(transport.access!.accessToken, 'synthetic-chat-token');
-    expect(paths, [
-      '/api/user/challenges',
-      '/api/user/sessions',
-      '/api/user/challenges',
-      '/api/chat/access',
-    ]);
+    expect(paths, ['/api/user/sessions', '/api/chat/access']);
     expect(
       await chat.MlsStateStore(
         state,

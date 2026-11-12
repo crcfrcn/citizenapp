@@ -1,3 +1,4 @@
+import 'package:citizen_testing/membergate_fixture.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_user/membership/subscription_service.dart';
@@ -21,10 +22,10 @@ void main() {
         expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
       ),
     );
-    SubscriptionService.setChatAuthorizationForTesting(_cidNumber, 100 * mib);
+    setChatLightData(_cidNumber, 100 * mib);
   });
   tearDown(() {
-    SubscriptionService.setChatAuthorizationForTesting(_cidNumber, null);
+    setChatLightData(_cidNumber, null);
     SubscriptionService.nowForTesting = null;
   });
 
@@ -50,17 +51,17 @@ void main() {
   });
 
   test('非会员保留有效公民基础聊天，附件额度为0仍禁止附件', () {
-    SubscriptionService.setChatAuthorizationForTesting(_cidNumber, 0);
+    setChatLightData(_cidNumber, 0);
     expect(SubscriptionService.chatAuthorizedFor(_cidNumber), isTrue);
     expect(SubscriptionService.chatFileMaxBytesFor(_cidNumber), 0);
     expect(policy.exceedsForKind(ChatMessageKind.file, 1), isTrue);
     expect(policy.exceedsForKind(ChatMessageKind.text, 1 << 40), isFalse);
   });
-  test('唯一缓存60秒到期立即收回附件，展示事实和基础会话不被会员查询替代', () {
+  test('轻节点快照失效立即收回附件提示，不创建会员HTTP请求', () {
     final now = DateTime.now().millisecondsSinceEpoch;
     SubscriptionService.nowForTesting = () => now;
-    SubscriptionService.setChatAuthorizationForTesting(_cidNumber, 100 * mib);
-    SubscriptionService.nowForTesting = () => now + 60000;
+    setChatLightData(_cidNumber, 100 * mib);
+    setChatLightData(_cidNumber, null);
     expect(SubscriptionService.chatFileMaxBytesFor(_cidNumber), 0);
     expect(policy.exceedsForKind(ChatMessageKind.file, 1), isTrue);
   });

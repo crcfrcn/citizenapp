@@ -615,12 +615,6 @@ void main() {
       baseUrl: 'https://square.test/api',
       httpClient: MockClient((request) async {
         expect(store.entries, hasLength(1));
-        if (request.url.path.endsWith('/challenges')) {
-          final body = jsonDecode(request.body) as Map<String, dynamic>;
-          expect(body['token_purpose'], 'device');
-          expect(body['public_key'], source.identity.publicKey);
-          return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
-        }
         requests.add(jsonDecode(request.body) as Map<String, dynamic>);
         expect(request.headers['x-mls-proof'], isNotEmpty);
         return http.Response(jsonEncode(_receipt()), 200);
@@ -667,9 +661,6 @@ void main() {
     final api = SquareApiClient(
       baseUrl: 'https://square.test/api',
       httpClient: MockClient((request) async {
-        if (request.url.path.endsWith('/challenges')) {
-          return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
-        }
         final body = jsonDecode(request.body) as Map<String, dynamic>;
         bodies.add(body);
         if (failNetwork) throw StateError('合成回执丢失');
@@ -705,7 +696,7 @@ void main() {
     expect(bodies[1].containsKey('turnstile_token'), false);
     expect(bodies.last['binding_signature'], bodies.first['binding_signature']);
     expect(bodies.last['issued_at'], bodies.first['issued_at']);
-    expect(source.proofCalls, 4);
+    expect(source.proofCalls, 2);
   });
 
   test('授权保存失败，不发网络请求', () async {
@@ -756,9 +747,6 @@ void main() {
     final api = SquareApiClient(
       baseUrl: 'https://square.test/api',
       httpClient: MockClient((request) async {
-        if (request.url.path.endsWith('/challenges')) {
-          return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
-        }
         final body = jsonDecode(request.body);
         expect(body['public_key'], source.identity.publicKey);
         expect(body['binding_signature'], '0x${'bb' * 64}');
@@ -821,9 +809,6 @@ void main() {
     final api = SquareApiClient(
       baseUrl: 'https://square.test/api',
       httpClient: MockClient((request) async {
-        if (request.url.path.endsWith('/challenges')) {
-          return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
-        }
         body = jsonDecode(request.body) as Map<String, dynamic>;
         return http.Response(jsonEncode(_receipt()), 200);
       }),

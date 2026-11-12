@@ -111,6 +111,7 @@ typedef FinalizedSubscriptionTransaction = ({
   String txHash,
   int usedNonce,
   String blockHash,
+  int blockNumber,
 });
 
 /// SquarePost 订阅 SCALE 与标准热钱包 extrinsic 入口。
@@ -470,6 +471,7 @@ class SubscriptionChain {
       txHash: _hexPrefixed(completed.transactionHash),
       usedNonce: prepared.nonce.toInt(),
       blockHash: completed.execution!.block.hash,
+      blockNumber: completed.execution!.block.number.toInt(),
     );
   }
 

@@ -103,13 +103,39 @@ class ChainDataService extends ChangeNotifier {
     if (_foreground) unawaited(refresh().catchError((Object _) => _snapshot));
   }
 
+  int _priceWatchers = 0;
+  VoidCallback watchPrices() {
+    _priceWatchers++;
+    if (_snapshot?.pricesLoaded != true) {
+      _again = true;
+      if (_foreground && _started) _backgroundRefresh();
+    }
+    var released = false;
+    return () {
+      if (!released) {
+        released = true;
+        _priceWatchers--;
+      }
+    };
+  }
+
+  Future<ChainDataSnapshot?> ensurePrices() async {
+    final release = watchPrices();
+    try {
+      return await refresh();
+    } finally {
+      release();
+    }
+  }
+
   VoidCallback watchCitizen(String cid) => _watch(_citizens, cid);
   VoidCallback watchCreator(String cid) => _watch(_creators, cid);
   VoidCallback _watch(Map<String, int> values, String cid) {
     if (cid.trim().isEmpty) throw ArgumentError('CID为空');
     values[cid] = (values[cid] ?? 0) + 1;
     final covered = identical(values, _creators)
-        ? _snapshot?.subscriptions.containsKey(cid) == true
+        ? _snapshot?.subscriptions.containsKey(cid) == true &&
+              _snapshot?.citizens[cid]?.creatorTiers != null
         : _snapshot?.citizens.containsKey(cid) == true;
     if (!covered || isStale) {
       _again = true;
@@ -125,6 +151,21 @@ class ChainDataService extends ChangeNotifier {
       else
         values[cid] = count;
     };
+  }
+
+  Future<({int subscribers, BigInt monthly, CitizenBlockRef block})>
+  creatorSummary(String creator, Set<String> candidates) async {
+    final owner = _generation;
+    final account = _activeAccount;
+    final head = await _head();
+    final summary = await _reader.creatorSummary(
+      block: head,
+      creator: creator,
+      candidates: candidates,
+    );
+    if (_closed || owner != _generation || account != _activeAccount)
+      throw StateError('统计期间账户变化');
+    return summary;
   }
 
   Future<ChainDataSnapshot> ensureCitizen(
@@ -291,6 +332,7 @@ class ChainDataService extends ChangeNotifier {
             if (_snapshot?.ownCid != null) _snapshot!.ownCid!,
           },
           creators: _creators.keys.toSet(),
+          prices: _priceWatchers > 0,
         );
         if (!current()) continue;
         final changed =

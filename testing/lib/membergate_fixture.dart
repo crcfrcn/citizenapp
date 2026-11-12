@@ -1,3 +1,8 @@
+import 'dart:typed_data';
+import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_chain/citizen_chain.dart';
+import 'package:citizen_user/identity/finalized_identity_resolver.dart';
+import 'package:citizen_user/membership/subscription_service.dart';
 import 'package:citizen_user/square_api_client.dart';
 
 // 原有公共会员样本只定义一次；不注册业务测试，也不替代服务端真源。
@@ -203,4 +208,85 @@ Map<String, dynamic> resourceAuthorizationFixture({
     'storage_cleanup_notice': null,
     'gate': {'valid_until': validUntil},
   };
+}
+
+_LightMembership? _lightMembership;
+void setChatLightData(String cid, int? maximum) {
+  if (maximum == null) {
+    _lightMembership?.stale = true;
+    return;
+  }
+  final session = SubscriptionService.currentSession!;
+  final source = _LightMembership(session, maximum > 0);
+  _lightMembership = source;
+  SubscriptionService(chainData: source, identityResolver: _UnusedIdentity());
+  final plan = membergatePlanFixture('freedom')..remove('price_fen');
+  (plan['plan'] as Map)['file_limit'] = maximum;
+  SubscriptionService.resourceGate.observe('https://fixture.test', session, {
+    'gate': {
+      ...preflightGateFixture(session),
+      'plans': [
+        plan,
+        for (final level in ['democracy', 'spark'])
+          membergatePlanFixture(level)..remove('price_fen'),
+      ],
+    },
+  });
+}
+
+class _UnusedIdentity implements FinalizedIdentityResolver {
+  @override
+  dynamic noSuchMethod(Invocation i) =>
+      throw UnimplementedError('UI hint does not resolve identity');
+}
+
+class _LightMembership implements ChainDataService {
+  _LightMembership(SquareSession s, bool active)
+    : snapshot = ChainDataSnapshot(
+        genesisHash: '0x${'00' * 32}',
+        accountId: s.accountId,
+        block: CitizenBlockRef(
+          hash: '0x${'11' * 32}',
+          number: BigInt.one,
+          finality: CitizenBlockFinality.finalized,
+        ),
+        chainNowMs: 1000,
+        ownCid: s.cidNumber,
+        citizens: {
+          s.cidNumber: ChainCitizenData(
+            cidNumber: s.cidNumber,
+            identity: CitizenIdentityChainSnapshot(
+              cidNumber: s.cidNumber,
+              accountId: Uint8List(32),
+              bindRev: s.bindRev,
+              votingIdentity: null,
+            ),
+            platform: active
+                ? ChainSubscriptionState(
+                    plan: const ChainSubscriptionPlan.platform('freedom'),
+                    startedAt: 1,
+                    chargeAt: 1,
+                    chargeFen: BigInt.one,
+                    paidUntil: DateTime.now().millisecondsSinceEpoch + 60000,
+                    subState: 'active',
+                    priceFen: BigInt.one,
+                    suspendReason: null,
+                  )
+                : null,
+            creatorTiers: null,
+          ),
+        },
+        subscriptions: const {},
+        prices: const {},
+      );
+  @override
+  Future<ChainDataSnapshot?> refresh() async => snapshot;
+  bool stale = false;
+  @override
+  bool get isStale => stale;
+  @override
+  final ChainDataSnapshot snapshot;
+  @override
+  dynamic noSuchMethod(Invocation i) =>
+      throw UnimplementedError('unused light boundary');
 }

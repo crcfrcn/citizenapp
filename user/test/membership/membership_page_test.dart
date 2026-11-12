@@ -114,26 +114,6 @@ void main() {
     expect(requests.single.headers['authorization'], 'Bearer resource-token');
     expect(requests.single.headers['x-mls-proof'], isNotEmpty);
   });
-  test('确认会员交易只发送原交易锚并要求三字段回执', () async {
-    final sessions = _Sessions();
-    final tx = '0x${'11' * 32}', block = '0x${'22' * 32}';
-    final api = SquareApiClient(
-      baseUrl: 'https://square.test/api',
-      httpClient: MockClient((request) async {
-        expect(jsonDecode(request.body), {'tx_hash': tx, 'block_hash': block});
-        return http.Response(
-          jsonEncode({'is_ok': true, 'tx_hash': tx, 'block_hash': block}),
-          200,
-        );
-      }),
-    );
-    addTearDown(api.close);
-    await api.confirmPlatformSubscription(
-      session: sessions.session,
-      txHash: tx,
-      blockHash: block,
-    );
-  });
   test('同一会话合并并行资源请求并复用有效许可', () async {
     final sessions = _Sessions();
     final response = Completer<http.Response>();
@@ -147,10 +127,8 @@ void main() {
     );
     final service = SubscriptionService(
       identityResolver: _Identity(),
-      sessionProvider: sessions,
       getWalletState: () => throw StateError('资源预检不读钱包'),
       api: api,
-      resumePendingTransactions: false,
     );
     addTearDown(api.close);
     final one = service.authorizeResources(sessions.session);
@@ -184,10 +162,8 @@ void main() {
     );
     final service = SubscriptionService(
       identityResolver: _Identity(),
-      sessionProvider: sessions,
       getWalletState: () => throw StateError('资源预检不读钱包'),
       api: api,
-      resumePendingTransactions: false,
     );
     addTearDown(() {
       api.close();
@@ -219,10 +195,8 @@ void main() {
     );
     final service = SubscriptionService(
       identityResolver: _Identity(),
-      sessionProvider: sessions,
       getWalletState: () => throw StateError('资源预检不读钱包'),
       api: api,
-      resumePendingTransactions: false,
     );
     addTearDown(api.close);
     final pending = service.authorizeResources(sessions.session);

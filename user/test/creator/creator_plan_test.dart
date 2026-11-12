@@ -67,6 +67,8 @@ Widget _creatorApp({required Widget home, CidBusinessGate? gate}) =>
     );
 
 class _PendingCreatorService implements CreatorService {
+  @override
+  Future<CreatorOverview?> cachedOverview(String cid) async => null;
   final Completer<CreatorPageData> completer = Completer<CreatorPageData>();
   int loadCalls = 0;
   String? lastSnapshotCid;
@@ -83,6 +85,8 @@ class _PendingCreatorService implements CreatorService {
 
 /// 主动刷新失败不能清掉已显示的本地数据。
 class _FailingCreatorService implements CreatorService {
+  @override
+  Future<CreatorOverview?> cachedOverview(String cid) async => null;
   int loadCalls = 0;
 
   @override

@@ -33,6 +33,8 @@ class ChatDevice {
 class MlsAuthenticationRequest {
   MlsAuthenticationRequest({
     required this.serviceOrigin,
+    required this.tokenPurpose,
+    this.sessionHash,
     required this.nonceId,
     required this.expiresAt,
     required this.httpMethod,
@@ -41,6 +43,8 @@ class MlsAuthenticationRequest {
   }) : bodyBytes = List<int>.unmodifiable(bodyBytes);
 
   final String serviceOrigin;
+  final String tokenPurpose;
+  final String? sessionHash;
   final String nonceId;
   final int expiresAt;
   final String httpMethod;
@@ -62,6 +66,12 @@ class MlsAuthenticationRequest {
 
   /// Dart提前拒绝无效结构；原生重复校验，FFI直接调用也不能绕过。
   void validate() {
+    if (!const {'device', 'session', 'request'}.contains(tokenPurpose) ||
+        (tokenPurpose == 'request') != (sessionHash != null) ||
+        sessionHash != null &&
+            !RegExp(r'^[0-9a-f]{64}$').hasMatch(sessionHash!)) {
+      throw ArgumentError('MLS用途或会话绑定无效');
+    }
     final origin = Uri.tryParse(serviceOrigin);
     if (origin == null ||
         origin.scheme != 'https' ||
@@ -102,6 +112,8 @@ class MlsAuthenticationRequest {
   /// 仅供固定身份JSON入口消费；不接收签名标签或原始待签内容。
   Map<String, Object> toJson() => {
     'service_origin': serviceOrigin,
+    'token_purpose': tokenPurpose,
+    if (sessionHash != null) 'session_hash': sessionHash!,
     'nonce_id': nonceId,
     'expires_at': expiresAt,
     'http_method': httpMethod,
@@ -115,7 +127,7 @@ class MlsAuthenticationRequest {
 class MlsAuthenticationProof {
   MlsAuthenticationProof.fromJson(Map<String, Object> fields)
     : _fields = Map<String, Object>.unmodifiable(fields) {
-    const names = {
+    final names = {
       'user_id',
       'device_id',
       'public_key',
@@ -127,9 +139,16 @@ class MlsAuthenticationProof {
       'http_method',
       'request_target',
       'body_hash',
+      'token_purpose',
+      if (fields['token_purpose'] == 'request') 'session_hash',
       'signature',
     };
-    if (_fields.length != names.length ||
+    if (!const {
+          'device',
+          'session',
+          'request',
+        }.contains(fields['token_purpose']) ||
+        _fields.length != names.length ||
         !_fields.keys.every(names.contains) ||
         _fields.entries.any(
           (entry) =>

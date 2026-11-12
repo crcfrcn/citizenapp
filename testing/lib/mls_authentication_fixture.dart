@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import 'package:citizen_user/square_api_client.dart';
 import 'package:crypto/crypto.dart';
-import 'package:http/http.dart' as http;
 import 'package:chat/chat.dart' as chat;
 import 'package:citizen_user/identity/mls_authentication.dart';
 import 'package:citizen_network/square_request_signer.dart';
@@ -82,30 +81,10 @@ chat.MlsAuthenticationProof _fakeProof(
   'http_method': request.httpMethod,
   'request_target': request.requestTarget,
   'body_hash': '0x${sha256.convert(request.bodyBytes)}',
+  'token_purpose': request.tokenPurpose,
+  if (request.sessionHash != null) 'session_hash': request.sessionHash!,
   'signature': '0x${List.filled(64, 'ab').join()}',
 });
-
-Map<String, Object> fakeMlsChallenge(
-  http.Request request, {
-  String cidNumber = testMlsCidNumber,
-  int bindRev = 1,
-}) {
-  final body = jsonDecode(request.body) as Map<String, dynamic>;
-  return {
-    'is_ok': true,
-    'cid_number': cidNumber,
-    'account_id': body['account_id'] as String,
-    'bind_rev': bindRev,
-    'public_key': body['public_key'] as String,
-    'device_id': (body['public_key'] as String).substring(2),
-    'service_origin': request.url.origin,
-    'nonce_id': '0x${List.filled(32, 'cd').join()}',
-    'expires_at': DateTime.now().millisecondsSinceEpoch + 240000,
-    'http_method': body['http_method'] as String,
-    'request_target': body['request_target'] as String,
-    'body_hash': body['body_hash'] as String,
-  };
-}
 
 Map<String, Object> fakeMlsSession({
   String cidNumber = testMlsCidNumber,
@@ -132,6 +111,8 @@ Future<Map<String, String>> fakeMlsRequestHeaders({
 }) async {
   final source = FakeMlsAuthentication();
   final request = chat.MlsAuthenticationRequest(
+    tokenPurpose: 'request',
+    sessionHash: sha256.convert(utf8.encode(sessionToken)).toString(),
     serviceOrigin: uri.origin,
     httpMethod: method,
     requestTarget: uri.path + (uri.hasQuery ? '?${uri.query}' : ''),

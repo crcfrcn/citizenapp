@@ -135,8 +135,6 @@ class Api extends SquareApiClient {
     'interaction_unread': post,
     'through': sequence,
     'interaction_sequence': sequence,
-    'member_rev': 0,
-    'creator_rev': 0,
     'membergate': null,
     'creator': null,
   };

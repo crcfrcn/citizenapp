@@ -26,6 +26,7 @@ MlsAuthenticationRequest createAuthenticationRequest({
   int? expiry,
   List<int> body = const [1, 2, 3],
 }) => MlsAuthenticationRequest(
+  tokenPurpose: 'device',
   serviceOrigin: origin,
   nonceId: challenge ?? '0x${List.filled(32, '22').join()}',
   expiresAt: expiry ?? DateTime.now().millisecondsSinceEpoch + 120000,

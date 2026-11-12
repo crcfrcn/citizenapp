@@ -13,7 +13,7 @@ final class ChainCitizenData {
   final String cidNumber;
   final CitizenIdentityChainSnapshot? identity;
   final ChainSubscriptionState? platform;
-  final List<ChainCreatorTier> creatorTiers;
+  final List<ChainCreatorTier>? creatorTiers;
   String identityLevelAt(int millis) {
     final voting = identity?.votingIdentity;
     if (voting == null ||
@@ -43,6 +43,7 @@ final class ChainDataSnapshot {
     required Map<String, ChainCitizenData> citizens,
     required Map<String, ChainSubscriptionState?> subscriptions,
     required Map<String, int> prices,
+    this.pricesLoaded = false,
   }) : citizens = Map.unmodifiable(citizens),
        subscriptions = Map.unmodifiable(subscriptions),
        prices = Map.unmodifiable(prices);
@@ -54,6 +55,7 @@ final class ChainDataSnapshot {
   final Map<String, ChainCitizenData> citizens;
   final Map<String, ChainSubscriptionState?> subscriptions;
   final Map<String, int> prices;
+  final bool pricesLoaded;
   ChainCitizenData? get own => citizens[ownCid];
   String? identityLevel(String cid) =>
       citizens[cid]?.identityLevelAt(chainNowMs);
@@ -76,29 +78,33 @@ final class ChainDataSnapshot {
     }),
   );
   Map<String, Object?> toJson() => {
-    'schema': 1,
+    'schema': 2,
     'genesis': genesisHash,
     'account': accountId,
     'block': {'hash': block.hash, 'number': block.number.toString()},
     'chain_now': chainNowMs,
     'own_cid': ownCid,
     'prices': prices,
+    'prices_loaded': pricesLoaded,
     'citizens': {
       for (final e in citizens.entries)
         e.key: {
           'identity': _identityJson(e.value.identity),
           'platform': _subscriptionJson(e.value.platform),
-          'tiers': [
-            for (final t in e.value.creatorTiers)
-              {
-                'id': t.tierId,
-                'name': t.tierName,
-                'prices': {
-                  for (final p in t.pricesFen.entries)
-                    p.key: p.value.toString(),
-                },
-              },
-          ],
+          'tiers': e.value.creatorTiers == null
+              ? null
+              : [
+                  for (final t
+                      in e.value.creatorTiers ?? const <ChainCreatorTier>[])
+                    {
+                      'id': t.tierId,
+                      'name': t.tierName,
+                      'prices': {
+                        for (final p in t.pricesFen.entries)
+                          p.key: p.value.toString(),
+                      },
+                    },
+                ],
         },
     },
     'subscriptions': {
@@ -110,7 +116,7 @@ final class ChainDataSnapshot {
     final v = jsonDecode(raw) as Map<String, dynamic>,
         b = v['block'] as Map<String, dynamic>;
     final hash = RegExp(r'^0x[0-9a-f]{64}$');
-    if (v['schema'] != 1 ||
+    if (v['schema'] != 2 ||
         v['genesis'] != genesis ||
         v['account'] != account ||
         !hash.hasMatch(genesis) ||
@@ -130,18 +136,20 @@ final class ChainDataSnapshot {
         cidNumber: e.key,
         identity: identity,
         platform: _subscriptionFrom(value['platform']),
-        creatorTiers: List.unmodifiable([
-          for (final t in value['tiers'] as List)
-            ChainCreatorTier(
-              tierId: t['id'] as String,
-              tierName: t['name'] as String?,
-              pricesFen: Map.unmodifiable(
-                (t['prices'] as Map<String, dynamic>).map(
-                  (k, v) => MapEntry(k, _amount(v)),
-                ),
-              ),
-            ),
-        ]),
+        creatorTiers: value['tiers'] == null
+            ? null
+            : List.unmodifiable([
+                for (final t in value['tiers'] as List)
+                  ChainCreatorTier(
+                    tierId: t['id'] as String,
+                    tierName: t['name'] as String?,
+                    pricesFen: Map.unmodifiable(
+                      (t['prices'] as Map<String, dynamic>).map(
+                        (k, v) => MapEntry(k, _amount(v)),
+                      ),
+                    ),
+                  ),
+              ]),
       );
     }
     final ownCid = v['own_cid'] as String?;
@@ -165,6 +173,7 @@ final class ChainDataSnapshot {
       subscriptions: (v['subscriptions'] as Map<String, dynamic>).map(
         (k, v) => MapEntry(k, _subscriptionFrom(v)),
       ),
+      pricesLoaded: v['prices_loaded'] == true,
       prices: (v['prices'] as Map<String, dynamic>).map(
         (k, v) => MapEntry(k, v as int),
       ),

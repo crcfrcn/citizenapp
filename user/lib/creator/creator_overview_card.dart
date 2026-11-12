@@ -78,7 +78,7 @@ class CreatorOverviewCard extends StatelessWidget {
             children: [
               Expanded(
                 child: _stat(
-                  '订阅人数',
+                  '已登记订阅人数',
                   resolved ? overview.subscriberCount.toString() : '--',
                   AppTheme.primary,
                 ),
@@ -86,9 +86,9 @@ class CreatorOverviewCard extends StatelessWidget {
               SizedBox(width: AppLayout.scaled(context, 12)),
               Expanded(
                 child: _stat(
-                  '本月已收入',
+                  '预计月收入',
                   resolved
-                      ? '${formatFen(BigInt.from(overview.monthlyIncomeFen), group: false, trimZeros: true)} 元'
+                      ? '${formatFen(overview.monthlyIncomeFen, group: false, trimZeros: true)} 元'
                       : '--',
                   AppTheme.gold,
                 ),
@@ -97,7 +97,7 @@ class CreatorOverviewCard extends StatelessWidget {
           ),
           SizedBox(height: AppLayout.scaled(context, 10)),
           Text(
-            '数据来自链上扣款投影 · 完整收入台账随税务功能上线',
+            '按已登记订阅的最终块状态估算，不代表结算收入',
             style: TextStyle(
               fontSize: AppLayout.scaled(context, 11),
               color: AppTheme.textTertiary,

@@ -74,8 +74,9 @@ void main() {
       expect(result.message, isNot(contains('synthetic-private-path')));
     }
     expect(
-      SquareSessionResolution.fromError(StateError('synthetic internal error'))
-          .status,
+      SquareSessionResolution.fromError(
+        StateError('synthetic internal error'),
+      ).status,
       SquareSessionStatus.serviceUnavailable,
     );
   });
@@ -116,7 +117,7 @@ void main() {
         final failure = SquareSessionResolution.fromError(error);
         expect(failure.status, SquareSessionStatus.serviceUnavailable);
         expect(failure.statusCode, status);
-        expect(failure.stage, SquareApiStage.challenge);
+        expect(failure.stage, SquareApiStage.session);
         expect(failure.errorCode, isNull);
       }
     });
@@ -141,7 +142,7 @@ void main() {
       } on SquareApiException catch (failure) {
         final resolution = SquareSessionResolution.fromError(failure);
         expect(resolution.status, SquareSessionStatus.networkUnavailable);
-        expect(resolution.stage, SquareApiStage.challenge);
+        expect(resolution.stage, SquareApiStage.session);
         expect(resolution.errorCode, 'network_unavailable');
       }
     });
@@ -180,12 +181,8 @@ void main() {
   });
   // 与CitizenServe现行错误码联测：限流与配置故障属于服务，真人验证拒绝属于认证。
   for (final entry in {
-    'mls_challenge_limit_reached': (
-      429,
-      SquareSessionStatus.serviceUnavailable,
-    ),
     'request_rate_exceeded': (429, SquareSessionStatus.serviceUnavailable),
-    'identity_not_reported': (409, SquareSessionStatus.identityUnavailable),
+    'cid_not_bound': (409, SquareSessionStatus.identityUnavailable),
     'invalid_binding_signature': (401, SquareSessionStatus.deviceUnavailable),
   }.entries) {
     test('真实HTTP错误码${entry.key}保留类别、状态与阶段', () async {
@@ -211,7 +208,7 @@ void main() {
         expect(failure.status, entry.value.$2);
         expect(failure.statusCode, entry.value.$1);
         expect(failure.errorCode, entry.key);
-        expect(failure.stage, SquareApiStage.challenge);
+        expect(failure.stage, SquareApiStage.session);
         expect(failure.message, isNot(contains('合成服务正文')));
       }
     });
@@ -220,14 +217,14 @@ void main() {
     final failure = SquareSessionResolution.fromError(
       const SquareApiException(
         '合成拒绝',
-        errorCode: 'identity_not_reported',
+        errorCode: 'cid_not_bound',
         stage: SquareApiStage.registration,
       ),
     );
     expect(failure.status, SquareSessionStatus.identityUnavailable);
     expect(failure.statusCode, isNull);
     expect(failure.stage, SquareApiStage.registration);
-    expect(failure.message, '链上身份已存在，服务同步尚未完成');
+    expect(failure.message, SquareSessionStatus.identityUnavailable.message);
   });
   for (final error in [
     'invalid_mls_signature',
@@ -240,9 +237,6 @@ void main() {
       final client = SquareApiClient(
         baseUrl: 'https://worker.test/api',
         httpClient: MockClient((request) async {
-          if (request.url.path.endsWith('/challenges')) {
-            return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
-          }
           sessionCalls++;
           return http.Response(
             jsonEncode({'error_code': error, 'message': '拒绝'}),
@@ -276,9 +270,6 @@ void main() {
       final client = SquareApiClient(
         baseUrl: 'https://worker.test/api',
         httpClient: MockClient((request) async {
-          if (request.url.path.endsWith('/challenges')) {
-            return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
-          }
           sessionCalls++;
           if (sessionCalls == 1 || !success) {
             return http.Response(
@@ -319,7 +310,7 @@ void main() {
       }
       expect(registerCalls, 1);
       expect(sessionCalls, 2);
-      expect(source.proofCalls, 4);
+      expect(source.proofCalls, 2);
     });
   }
 }
@@ -474,18 +465,14 @@ class _DiagnosticSecurity implements AccountSecurityService {
 }
 
 void _preparationDiagnosticsTests() {
-  for (final code in ['identity_not_reported', 'device_not_registered']) {
+  for (final code in ['cid_not_bound', 'device_not_registered']) {
     test('已有CID的$code仅明确设备未登记恢复一次且不进入注册或真人验证', () async {
       final security = _DiagnosticSecurity(), current = _DiagnosticCurrent();
       final source = FakeMlsAuthentication(), lines = <String>[];
-      var sessions = 0, challenges = 0;
+      var sessions = 0;
       final client = SquareApiClient(
         baseUrl: 'https://worker.test/api',
         httpClient: MockClient((request) async {
-          if (request.url.path.endsWith('/challenges')) {
-            challenges++;
-            return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
-          }
           expect(request.url.path, '/api/user/sessions');
           sessions++;
           return http.Response(
@@ -510,7 +497,7 @@ void _preparationDiagnosticsTests() {
           final result = await provider.resolveSession();
           expect(
             result.status,
-            code == 'identity_not_reported'
+            code == 'cid_not_bound'
                 ? SquareSessionStatus.identityUnavailable
                 : SquareSessionStatus.deviceUnavailable,
           );
@@ -526,8 +513,7 @@ void _preparationDiagnosticsTests() {
       expect(security.deviceRegistrations, attempts - 1);
       expect(security.unexpected, isEmpty); // 零CID注册、零Turnstile、零其它钱包操作。
       expect(sessions, attempts);
-      expect(challenges, attempts);
-      expect(source.proofCalls, attempts * 2);
+      expect(source.proofCalls, attempts);
       expect(
         lines,
         List.filled(
@@ -590,9 +576,6 @@ void _preparationDiagnosticsTests() {
     final client = SquareApiClient(
       baseUrl: 'https://worker.test/api',
       httpClient: MockClient((request) async {
-        if (request.url.path.endsWith('/challenges')) {
-          return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
-        }
         sessions++;
         reached.complete();
         return response.future;
@@ -614,6 +597,6 @@ void _preparationDiagnosticsTests() {
     expect(security.deviceRegistrations, 0);
     expect(security.unexpected, isEmpty);
     expect(sessions, 1);
-    expect(source.proofCalls, 2);
+    expect(source.proofCalls, 1);
   });
 }

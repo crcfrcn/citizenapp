@@ -139,7 +139,7 @@ SDK继续唯一拥有P2P、最终性、runtime metadata与存储证明验证；c
 缓存包含schema、最终块号／hash、链时间及关注主体，旧server display不导入。恢复缓存仅供陈旧展示，仍需轻节点核验；
 缺失键表示无记录，链读取／证明／解码失败保留最后成功状态并标记失败。账户切换使旧代次立即失效，
 新账户不等待旧账户未返回的读取；关闭先阻止写回与通知，不以无法取消的SDK读取阻塞SDK停止。
-链上数据和链下资料分别组合展示，服务端资源授权、规则、用量及概览不覆盖链上身份或会员。
+链上数据和链下资料分别组合展示，服务端资源授权、规则及用量不覆盖链上身份或会员。
 
 
 CitizenApp 提供钱包和轻节点 UI。钱包目录、签名、交易和轻节点能力由 CitizenSDK 提供，CID、广场、会员、通讯录及聊天由 App 的业务包拥有。
@@ -1960,9 +1960,7 @@ UserIsar中独立保存图片实际字节、用途、对象位置、资料版本
 “我的”头部头像与公开用户主页统一为 80 逻辑像素，右下角身份/会员徽章必须超出头像边界显示；
 “个人服务”固定按“创作者 → 通讯录 → 会员｜订阅”排列，随后是设置入口。
 
-进入创作者页时只传递永久 `cid_number` 展示提示，当前身份仍由本机身份门禁核对。链上档位和订阅由根目录 citizen_chain 包提供，不读取服务端会员展示快照。用户点击刷新或下拉刷新时读取服务端链下概览；概览通知只更新同一CID的统计，不推进身份代次或作废当前刷新。刷新失败保留已显示统计，原交易签名及服务端RPC鉴权保留。
-主页各分类空态统一为“暂无xx内容，请在广场发布”，xx取公文、竞选、视频、文章；读取或刷新异常统一为“内容加载失败，请下拉刷新”。
-会员页展示服务端已记录的存储清理提醒和期限。会员结果只有有效或无效；缓存尚未建立只是当前身份会话读取尚未完成，不得保存第三种会员态。
+进入创作者页只传永久cid_number提示，身份由本机门禁核对；档位来自根目录citizen_chain。用户主动刷新先分页取得本人已登记订阅CID集合，再由轻节点在一个最终块读取这些订阅，计算有效人数和预计月收入。只统计已登记集合，不宣称全链发现或已结算收入。统计保存于Creator现有本地行；失败保留最后成功内容。通知不回填统计，身份/账户代次检查继续生效。
 
 “我的”页钱包/身份两行入口的 411×914 设计高度为 70px，个人服务单行入口的设计高度为
 64px；实际高度统一乘以全 App 视口倍率，辅助字号只允许按真实行高增加必要高度。通讯录卡
@@ -2128,7 +2126,8 @@ Release合同核验正式锁定SDK公开QR方法的准确返回类型、参数�
 
 注册 HTTP 使用既有人验接口。本机记录保存原链交易检查点和最终结果。首次设备挑战使用已有钱包授权和 MLS 证明。充值恢复字段属于独立付款合同，不与注册数据混用。
 
-认证HTTP挑战消费cid_number/bind_rev/nonce_id/expires_at/http_method/body_hash/token_purpose；SDK证明构造与序列化沿其真实公开接口，App不另写证明编码器。资料与通知缓存正文不重复自然索引CID，评论恢复不转换旧分页或待发字段；校验失败撤销操作入口，刷新重读完整快照，不覆盖并发新记录。上传准备和完成仅持有content_hash一份正文摘要，新manifest直接使用post_title/body_hash/pixel_width/pixel_height/video_secs，已冻结的manifest与签名字节不重编码。
+认证HTTP直接签署token_purpose、nonce_id、expires_at及真实方法/目标/正文；request绑定当前session_hash。chat/mls拥有证明编码，服务端独立验签。资料与通知缓存正文不重复自然索引CID，评论恢复不转换旧分页或待发字段；校验失败撤销操作入口。
+
 
 详情直接读取既有post索引与manifest正文，清单schema/作者/类型须与索引一致；不接受旧内联正文，也不重编码清单计算链哈希。上传完成删除无上游、无消费者的storageState要求，上传就绪由 Serve 的 R2 发布控制记录判定。发布确认校验响应中的区块、交易和内容摘要。读取失败时保留原 finalized 恢复记录。
 
@@ -2175,14 +2174,14 @@ App第一方使用统一用户库27个集合与广场库10个集合，共37个�
 | user.group | id, account_id, state, synced_at, data  | 本机多签生命周期和独立链详情快照 |
 | user.law | id, state_key, state_hex  | SDK读取的原始链存储键与十六进制值 |
 | user.list | id, cid_number, proposal_ids, synced_at  | 机构提案索引与同步时间 |
-| user.member | id, cid_number, kind, data  | 展示及唯一finalized证明，待同步标记不复制证明 |
+| user.member | id, cid_number, kind, data  | 仅尚未完成的创作者关系登记目标和最低最终高度 |
 | user.proposal | id, kind, proposal_id, data  | 自然类型/ID下的唯一详情快照 |
 | user.scan | id, wallet_hash  | 钱包目录反向发现边界 |
 | user.summary | id, proposal_id, data  | 提案列表展示摘要；正文不重复索引ID |
 
 region、follow、draft、cleanup、proposal、contact与member使用真实自然字段定位。媒体关联沿Isar最多三列复合索引的官方约束，复用内容三元索引及同事务内序号/用途筛选，重复槽位失败关闭。广场媒体全链路只使用bodyHash，删除同值media_id；描述、分块和槽位关联不再维护第二套标识。原CID串行、写事务、迟到解绑、失败重试、字节哈希及完成验证保持。
 
-member的每笔finalized证明只保存一次，pending_kind记录尚待确认的业务；保留最近50条历史及所有未完成证明，迟到确认不得清除后继。CreatorSubscribe不再保存SharedPreferences证明副本；创作者月收入直接消费monthly_income_fen。会员只保留active，生命周期使用sub_state，价格和扣款分别使用price_fen、charge_at/charge_fen；独立展示采样时间继续由其真实读取推进。
+Member仅保留registration待办：creator CID→最低最终高度，登记完成删除目标；没有平台/档位确认、交易证明历史或订阅镜像。CreatorSubscribe只在首次订阅后发PUT关系登记，失败只重试幂等登记，不重签链交易；取消和换档不发云端确认。平台订阅、取消、换档和档位编辑以原轻节点finalized结果完成。
 
 身份局部徽章只保存级别，完整验真只保存原布局与bind_rev；级别由布局得出，局部写入不能覆盖完整事实。公开绑定以同一受保护数组保存，CID仅在每份绑定出现一次；读取与CAS复用同一严格解码，重复CID与旧对象索引拒绝。余额只持久化区块、free_fen/reserved_fen，总额以整数分相加，进入存储前仍校验SDK的finalized与总额一致性。
 
@@ -2192,15 +2191,16 @@ entry以账户/准确tx_hash或账户/block_hash/event_index在原事务定位�
 
 资料图片准备使用upload_kind/content_type/byte_size/content_hash，授权读取http_method；请求摘要不再回抄为返回模型字段。PUT 保留真实 MIME 头并核对授权原对象键；资料更新只传图片哈希。资料图片由字节识别类型和长度，临时文件可再生；显式安全擦除覆盖原媒体目录，普通读取不迁移或清理旧结构。
 
-通知使用notice_rev/member_rev/creator_rev/bind_rev；scope只有cidNumber/accountId/bindRev与原generation。独立接收时刻、跨域补写恢复、同版本补存和已读意图保持，推送端点发送apns_env。ResourceUsage与MLS证明属于当前固定SDK公开合同，按真实接口消费；后续所有者变更时须同步跨端合同并重新联调，不能在App添加兼容映射。
+通知只持有真实事件、未读状态和notice_rev；scope仍为cidNumber/accountId/bindRev及原generation。独立已读进度、持久意图、同版本补存和推送端点apns_env保持。ResourceUsage归现有Proto，MLS请求证明归App自有chat/mls和CitizenServe公开合同。
 
-MLS 认证证明统一归 chat/mls 原生 Serde 编码：user_id/device_id/public_key/account_id/bind_rev/service_origin/nonce_id/expires_at/http_method/request_target/body_hash/signature。user_id在公民服务边界直接核对当前CID；原签名域、字段顺序、毫秒单位和签名字节保持。Dart证明只持有原生唯一字段集，宿主验证而不回抄另一份证明。ResourceUsage/ResourceCounter沿原Proto编号与类型，HTTP直接序列化生成类型，不维护另一套计量模型。
+MLS认证证明统一归chat/mls原生Serde：user_id/device_id/public_key/account_id/bind_rev/service_origin/nonce_id/expires_at/http_method/request_target/body_hash/token_purpose/signature，request额外包含session_hash。Dart严格核对唯一字段集、身份和实际请求上下文；应用域为CitizenRequestV2。
+
 
 ## 关注、评论、创作者与订单合同
 
 关注目标在请求、列表、模型及自然关系中使用peer_cid/peerCid；列表缺失目标或时间非法必须失败，不能形成空身份。评论的唯一幂等操作标识为op_id/opId，待发送恢复与重试使用同一原值；正文、回复目标及操作ID都由实际HTTP字节参加认证。
 
-创作者档位只有tiers，属主由已认证本人请求、目标路径或本地自然键持有；他人响应creator_cid必须匹配所请求目标。档位保留tier_id、tier_name、month_fen、quarter_fen、year_fen，未开通周期为null；金额为正整数分且不超过9007199254740991。自有Dart成员按同一词根使用monthFen/quarterFen/yearFen。API、通知及本地缓存不保存价格Map、属主副本或占位更新时间；固定链协议的周期数组仅在原SCALE边界编码。概览条件读取使用creator_rev，原会话及通知身份围栏保持。
+创作者档位只由轻节点读取，属主由自然CID持有。保留tier_id、tier_name、month_fen、quarter_fen、year_fen，未开通周期为null；金额为正整数分。概览只在本机保存已登记订阅人数、预计月收入及最终块号/hash，金额按大整数分计算；不使用远端版本回填。
 
 充值订单只由TopupProgress表示pending、paid、completed；验款成功并保存才是已支付，发币请求和完成结果由App根层处理，页面关闭不能取消已支付后的请求。
 
@@ -2430,4 +2430,12 @@ onchain、multisig、personal、offchain、topup 是独立 workspace 包。钱�
 
 ## chat当前实现
 
-chat 是 App 普通本地包。HTTP 路径为 /api/chat，实时连接使用 /api/chat/realtime 和 WebSocket 子协议 chat。MLS 实现归 chat/mls；Android为libmls.so，iOS为MLS.framework，C接口为mls_*。应用认证域为ChatAuthentication。聊天数据库保持独立，直接使用当前目录布局；目录保护、关闭和擦除按本域生命周期执行。
+chat 是 App 普通本地包。HTTP 路径为 /api/chat，实时连接使用 /api/chat/realtime 和 WebSocket 子协议 chat。MLS 实现归 chat/mls；Android为libmls.so，iOS为MLS.framework，C接口为mls_*。应用认证域为CitizenRequestV2。聊天数据库保持独立，直接使用当前目录布局；目录保护、关闭和擦除按本域生命周期执行。
+
+## 直接请求证明与按需链读取
+
+SquareApiClient不申请普通MLS挑战。每个真实设备/会话/业务请求安全随机生成32字节nonce和30秒期限，由chat/mls签署真实方法、含查询的目标、正文摘要及token_purpose；业务request另绑定实际会话令牌SHA256。标签为MLS 1.0 CitizenRequestV2，没有另一套认证域或回退。服务端验签/鉴权后条件创建已用nonce；注销钱包意图和只读恢复挑战独立保留。
+
+ChainDataReader按关注范围取键：普通头像不取CreatorPlans；只有创作者消费者取档位和本人对应订阅；只有会员价格消费者取三档PlatformPrice。未请求的tiers为null，pricesLoaded明确覆盖状态，不能把未知当无记录。统一快照schema为2，仍按创世链和账户隔离，contentKey排除仅高度/时间变化，实际业务不变不写库。
+
+普通聊天、通讯录、浏览和构造服务不前置GET会员，不恢复会员交易。附件提示复用唯一ChainDataService快照及会话响应下发的静态计划；用户明确附件动作只刷新同一轻节点读模型，不发会员预检HTTP。真实资源许可、额度、撤销和最新链鉴权由服务端独立RPC决定；未知本机用量不伪造0。

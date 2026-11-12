@@ -1,4 +1,3 @@
-import 'package:citizen_user/creator/creator_overview.dart';
 import 'package:citizen_testing/mls_authentication_fixture.dart';
 
 import 'dart:convert';
@@ -21,16 +20,6 @@ import 'package:citizen_testing/fake_citizen_sdk.dart';
 
 void main() {
   useIsolatedIsar();
-  const session = SquareSession(
-    deviceId: testMlsDeviceId,
-    sessionToken: 't',
-    cidNumber: "CN220-CTZN2-198805200-2026",
-    bindRev: 1,
-    accountId:
-        '0x7777777777777777777777777777777777777777777777777777777777777777',
-    expiresAt: 9999999999999,
-  );
-
   const tier = CreatorTier(
     tierId: 't1',
     tierName: '铁杆粉丝',
@@ -39,143 +28,62 @@ void main() {
     yearFen: null,
   );
 
-  test('FakeCreatorApi 只接收已 finalized 交易哈希，不再触发第二次业务签名', () async {
-    final api = FakeCreatorApi();
-
-    await api.saveMyPlan(
-      session: session,
-      txHash: '0x${List.filled(64, 'a').join()}',
-      blockHash: '0x${List.filled(64, 'b').join()}',
-    );
-
-    expect(api.lastSaveTxHash, '0x${List.filled(64, 'a').join()}');
-  });
-
-  test('finalized确认只发送原交易锚，不附带档位展示', () async {
-    final requests = <http.Request>[];
-    final tx = '0x${'aa' * 32}', block = '0x${'bb' * 32}';
+  test('关系登记只发送最低最终高度，不发送交易或会员镜像', () async {
+    final sent = <http.Request>[];
     final api = CreatorApiHttp(
       baseUrl: 'https://creator.test/api',
-      httpClient: MockClient((request) async {
-        requests.add(request);
-        expect(request.headers['x-mls-proof'], isNotEmpty);
-        if (request.method == 'POST') {
-          expect(jsonDecode(request.body), {
-            'tx_hash': tx,
-            'block_hash': block,
-          });
-          return http.Response(
-            jsonEncode({'is_ok': true, 'tx_hash': tx, 'block_hash': block}),
-            200,
-          );
-        }
+      httpClient: MockClient((r) async {
+        sent.add(r);
         return http.Response(
-          jsonEncode({
-            'is_ok': true,
-            'creator_rev': 1,
-            'plan': {
-              'tiers': [
-                {
-                  'tier_id': 't1',
-                  'tier_name': '铁杆粉丝',
-                  'month_fen': 990,
-                  'quarter_fen': null,
-                  'year_fen': null,
-                },
-              ],
-            },
-            'overview': {
-              'subscriber_count': 0,
-              'monthly_income_fen': 0,
-              'tier_count': 1,
-            },
-          }),
+          jsonEncode(
+            r.method == 'GET'
+                ? {
+                    'is_ok': true,
+                    'cid_numbers': [_creatorCid],
+                    'next_cursor': null,
+                  }
+                : {'is_ok': true},
+          ),
           200,
-          headers: {"content-type": "application/json; charset=utf-8"},
         );
       }),
     );
-    final authorized = SquareSession(
-      deviceId: session.deviceId,
-      sessionToken: session.sessionToken,
-      cidNumber: session.cidNumber,
-      bindRev: 1,
-      accountId: session.accountId,
-      expiresAt: session.expiresAt,
-      authenticateRequest: fakeMlsRequestHeaders,
+    addTearDown(api.close);
+    final owner = fakeSquareSession(_accountId, cidNumber: _creatorCid);
+    await api.registerSubscription(
+      session: owner,
+      creatorCid: 'CID2',
+      finalBlock: 103,
     );
-    await api.saveMyPlan(session: authorized, txHash: tx, blockHash: block);
-    expect(requests.map((r) => r.url.path), ['/api/membergate/creators/plans']);
-    await api.confirmCreatorSubscription(
-      session: authorized,
-      creatorCid: 'CN220-CTZN2-100000001-2026',
-      txHash: tx,
-      blockHash: block,
-    );
-    expect(
-      requests.last.url.path,
-      '/api/membergate/creators/CN220-CTZN2-100000001-2026/subscription/confirm',
-    );
+    expect(jsonDecode(sent.single.body), {'final_block': 103});
+    expect(sent.single.method, 'PUT');
+    expect(sent.single.url.path, '/api/membergate/creators/CID2/subscription');
+    final page = await api.fetchSubscribers(owner);
+    expect(page.cidNumbers, [_creatorCid]);
+    expect(sent.last.url.path, '/api/membergate/creator/subscribers');
+    expect(sent.last.headers['x-mls-proof'], isNotEmpty);
   });
-
-  test('服务端明确拒绝会员资格仍返回创作者门禁，临时故障继续报错', () async {
-    for (final status in [403, 503]) {
-      final service = CreatorService(
-        api: _DeniedCreatorApi(status),
-        subscriptionChain: _FakeSubscriptionChain(),
-        identityResolver: _FakeIdentityCache(),
-        sessionProvider: _FakeSessionProvider(),
+  test('登记列表拒绝畸形数据和服务端失败', () async {
+    for (final response in [
+      http.Response('{"is_ok":true,"cid_numbers":[42]}', 200),
+      http.Response('{"is_ok":false}', 503),
+    ]) {
+      final api = CreatorApiHttp(
+        baseUrl: 'https://creator.test/api',
+        httpClient: MockClient((_) async => response),
       );
-      if (status == 403) {
-        expect((await service.load()).gated, isTrue);
-      } else {
-        await expectLater(service.load(), throwsA(isA<CreatorException>()));
-      }
+      addTearDown(api.close);
+      await expectLater(
+        api.fetchSubscribers(
+          fakeSquareSession(_accountId, cidNumber: _creatorCid),
+        ),
+        throwsA(isA<CreatorApiException>()),
+      );
     }
   });
-
-  test('FakeCreatorApi 概览默认按档位数', () async {
-    final api = FakeCreatorApi(initialPlan: const CreatorPlan(tiers: [tier]));
-    final overview = await api.fetchOverview(session);
-    expect(overview.tierCount, 1);
-    expect(overview.subscriberCount, 0);
-  });
-
-  test('链上 finalized 后 Cloudflare 失败只重试投影确认，不产生第二次链上签名', () async {
-    final api = _FlakyCreatorApi()..failSave = true;
-    final rpc = _FakeSubscriptionChain();
-    final sessionProvider = _FakeSessionProvider();
-    final service = (() {
-      final reads0 = _FakeWallet();
-      return CreatorService(
-        api: api,
-        subscriptionChain: rpc,
-        getWalletState: reads0.getWalletState,
-        identityResolver: _FakeIdentityCache(),
-        sessionProvider: sessionProvider,
-      );
-    })();
-
-    final saved = await service.saveTiers(const [tier]);
-    expect(saved.tiers.single.tierName, '铁杆粉丝');
-    expect(rpc.setPlansCount, 1);
-    expect(rpc.signCount, 1);
-    expect(api.saveCount, 1);
-
-    // 同一 CID 已换绑到新钱包账户；待提交证明仍必须由新会话接续处理。
-    sessionProvider.accountId = _reboundAccountId;
-    api.failSave = false;
-    await service.load();
-    expect(api.saveCount, 2, reason: '再次进入页面只重试 Cloudflare 查询投影');
-    expect(rpc.setPlansCount, 1, reason: '同一业务不得再次提交链上交易');
-    expect(rpc.signCount, 1, reason: '同一业务不得再次账户签名');
-  });
-
   test('仅改档位名只提交 call_index 6，不重写价格计划', () async {
     final rpc = _FakeSubscriptionChain();
-    final api = FakeCreatorApi(
-      initialPlan: CreatorPlan(tiers: [tier.copyWith(tierName: '核心支持者')]),
-    );
+    final api = FakeCreatorApi();
     final service = (() {
       final reads0 = _FakeWallet();
       return CreatorService(
@@ -197,15 +105,13 @@ void main() {
     expect(rpc.renameCount, 1);
     expect(rpc.setPlansCount, 0);
     expect(rpc.signCount, 1);
-    expect(api.lastSaveTxHash, '0x${List.filled(64, 'e').join()}');
+    expect(api.registered, isEmpty);
   });
 }
 
 const _signerSs58Address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
 const _accountId =
     '0x0000000000000000000000000000000000000000000000000000000000000000';
-const _reboundAccountId =
-    '0x1111111111111111111111111111111111111111111111111111111111111111';
 const _creatorCid = 'CN220-CTZN2-198805200-2026';
 
 class _FakeSessionProvider implements SquareSessionProvider {
@@ -320,6 +226,7 @@ class _FakeSubscriptionChain extends SubscriptionChain {
     signCount++;
     return (
       txHash: '0x${List.filled(64, 'c').join()}',
+      blockNumber: 103,
       usedNonce: 1,
       blockHash: '0x${List.filled(64, 'd').join()}',
     );
@@ -340,6 +247,7 @@ class _FakeSubscriptionChain extends SubscriptionChain {
     currentTierName = tierName;
     return (
       txHash: '0x${List.filled(64, 'e').join()}',
+      blockNumber: 103,
       usedNonce: 2,
       blockHash: '0x${List.filled(64, 'f').join()}',
     );
@@ -364,38 +272,5 @@ class _FakeSubscriptionChain extends SubscriptionChain {
   ) {
     lastPlansBlockHash = block.hash;
     return fetchCreatorPlans(creatorCid);
-  }
-}
-
-class _FlakyCreatorApi extends FakeCreatorApi {
-  bool failSave = false;
-  int saveCount = 0;
-
-  @override
-  Future<void> saveMyPlan({
-    required SquareSession session,
-    required String txHash,
-    required String blockHash,
-  }) async {
-    saveCount++;
-    if (failSave) throw const CreatorApiException('temporary');
-    return super.saveMyPlan(
-      session: session,
-      txHash: txHash,
-      blockHash: blockHash,
-    );
-  }
-}
-
-class _DeniedCreatorApi extends FakeCreatorApi {
-  _DeniedCreatorApi(this.status);
-  final int status;
-  @override
-  Future<CreatorOverview> fetchOverview(SquareSession session) async {
-    throw CreatorApiException(
-      'synthetic',
-      statusCode: status,
-      errorCode: 'membergate_required',
-    );
   }
 }

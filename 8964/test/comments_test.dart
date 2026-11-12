@@ -93,8 +93,6 @@ Map<String, dynamic> _notice(int revision) => {
   'interaction_unread': 0,
   'interaction_sequence': 0,
   'through': revision,
-  'member_rev': 0,
-  'creator_rev': 0,
   'membergate': null,
   'creator': null,
 };
@@ -250,8 +248,9 @@ void main() {
       expect(() => SquareComment.fromJson(value), throwsFormatException);
     }
     expect(
-      SquareComment.fromJson(_comment(replyText: '', state: 'deleted'))
-          .replyState,
+      SquareComment.fromJson(
+        _comment(replyText: '', state: 'deleted'),
+      ).replyState,
       'deleted',
     );
   });

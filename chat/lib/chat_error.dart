@@ -38,7 +38,6 @@ String chatUserErrorMessage(
     return switch (error.errorCode) {
       'cid_not_bound' => '公民身份同步失败，请重试',
       'identity_unregistered' => '当前默认账户尚未注册公民号，无法使用聊天',
-      'identity_not_reported' => '链上身份已存在，服务同步尚未完成',
       'device_not_registered' ||
       'chat_device_not_registered' ||
       'invalid_mls_signature' ||

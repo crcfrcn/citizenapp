@@ -184,12 +184,11 @@ class _ChatTabState extends State<ChatTab> {
     _subscriptionService =
         widget.subscriptionService ??
         SubscriptionService(
-          resumePendingTransactions: false,
+          chainData: context.read<ChainDataService?>(),
           wallet: _wallet!,
           chain: runtime,
           transactions: runtime,
           identityResolver: identityResolver,
-          sessionProvider: _sessionProvider!,
         );
     _contactService =
         widget.contactService ??

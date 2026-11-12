@@ -35,7 +35,7 @@ const ERROR_SIGNER_MISSING: &str = "CHAT_MLS_SIGNER_MISSING";
 const MAX_PENDING_RESULTS: usize = 256;
 const RECEIPT_LIFETIME_MILLIS: u64 = 7 * 24 * 60 * 60 * 1000;
 // RFC9420应用认证扩展域；调用方不能自选标签，也不能签任意原始字节。
-const AUTHENTICATION_LABEL: &str = "ChatAuthentication";
+const AUTHENTICATION_LABEL: &str = "CitizenRequestV2";
 const MAX_AUTHENTICATION_BODY_BYTES: usize = 1024 * 1024;
 const MAX_JSON_INTEGER: u64 = (1 << 53) - 1;
 const AUTHENTICATION_LIFETIME_MILLIS: u64 = 5 * 60 * 1000;
@@ -79,6 +79,8 @@ enum IdentityRequest {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AuthenticationRequest {
+    token_purpose:String,
+    session_hash:Option<String>,
     service_origin: String,
     nonce_id: String,
     expires_at: u64,
@@ -90,6 +92,9 @@ struct AuthenticationRequest {
 /// 只返回公开证明；正文和私钥均不进入响应或持久化结果。
 #[derive(Clone, Serialize)]
 struct AuthenticationProof {
+    token_purpose:String,
+    #[serde(skip_serializing_if="Option::is_none")]
+    session_hash:Option<String>,
     user_id: String,
     device_id: String,
     public_key: String,
@@ -457,6 +462,8 @@ fn authentication_proof(
     validate_authentication_origin(&request.service_origin)?;
     validate_authentication_target(&request.request_target)?;
     let now = now_millis()?;
+    if !matches!(request.token_purpose.as_str(),"device"|"session"|"request") || (request.token_purpose=="request")!=request.session_hash.is_some(){return Err(authentication_error());}
+    if let Some(h)=&request.session_hash{authentication_hex(&format!("0x{h}"))?;}
     if bind_rev > MAX_JSON_INTEGER
         || request.expires_at > MAX_JSON_INTEGER
         || request.expires_at <= now
@@ -480,6 +487,7 @@ fn authentication_proof(
         .hash(HashType::Sha2_256, &body)
         .map_err(|_| authentication_error())?;
     let mut proof = AuthenticationProof {
+        token_purpose:request.token_purpose.clone(),session_hash:request.session_hash.clone(),
         user_id: provider.device.user_id.clone(),
         device_id: provider.device.device_id.clone(),
         public_key: provider.device.public_key.clone(),
@@ -518,7 +526,8 @@ fn authentication_proof(
 }
 
 fn authentication_content(proof: &AuthenticationProof) -> Result<Vec<u8>, String> {
-    let mut content = Vec::new();
+    let mut content=vec![match proof.token_purpose.as_str(){"device"=>0,"session"=>1,"request"=>2,_=>return Err(authentication_error())}];
+    if let Some(h)=&proof.session_hash{content.extend(authentication_hex(&format!("0x{h}"))?);}
     fn text(content: &mut Vec<u8>, value: &str) -> Result<(), String> {
         VLBytes::from(value.as_bytes().to_vec())
             .tls_serialize(content)

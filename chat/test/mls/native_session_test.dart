@@ -43,6 +43,7 @@ void main() {
       accountId: '0x${List.filled(32, '11').join()}',
       bindingRevision: 1,
       request: MlsAuthenticationRequest(
+        tokenPurpose: 'device',
         serviceOrigin: 'https://api.example.test',
         nonceId: '0x${List.filled(32, '22').join()}',
         expiresAt: DateTime.now().millisecondsSinceEpoch + 120000,

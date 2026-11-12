@@ -23,14 +23,7 @@ import 'package:citizen_network/square_request_signer.dart';
 import 'package:citizen_system/notifications/app_push_token.dart';
 
 /// 仅记录产品固定请求阶段，禁止将URL、账户或请求正文当成诊断字段。
-enum SquareApiStage {
-  identity,
-  challenge,
-  proof,
-  registration,
-  session,
-  request,
-}
+enum SquareApiStage { identity, proof, registration, session, request }
 
 class SquareApiException implements Exception {
   const SquareApiException(
@@ -642,10 +635,7 @@ class SquareApiClient
       } on SquareApiException catch (error) {
         // 服务不可用必须保留原失败，即使响应携带未登记码也不能触发设备登记。
         if (error.statusCode == 503 ||
-            !(error.errorCode == 'device_not_registered' ||
-                (error.errorCode == 'invalid_session' &&
-                    error.statusCode == 401 &&
-                    error.stage == SquareApiStage.challenge)) ||
+            error.errorCode != 'device_not_registered' ||
             onDeviceNotRegistered == null) {
           rethrow;
         }
@@ -705,73 +695,20 @@ class SquareApiClient
       }
       final bytes = List<int>.unmodifiable(body);
       await _requireAuthenticationCurrent(identity, authentication, generation);
-      stage = 'challenge';
-      final challengeFields = <String, Object?>{
-        'account_id': identity.accountId,
-        'public_key': identity.publicKey,
-        'token_purpose': purpose,
-        'http_method': method,
-        'request_target': uri.path + (uri.hasQuery ? '?${uri.query}' : ''),
-        'body_hash': '0x${sha256.convert(bytes)}',
-      };
-      if (purpose == 'device') {
-        final device = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
-        challengeFields['issued_at'] = device['issued_at'];
-        challengeFields['binding_signature'] = device['binding_signature'];
-      }
-      final challengeBody = jsonEncode(challengeFields);
-      Future<Map<String, dynamic>> issue() async {
-        await _requireAuthenticationCurrent(
-          identity,
-          authentication,
-          generation,
-        );
-        final random = Random.secure();
-        final request = mls.MlsAuthenticationRequest(
-          serviceOrigin: baseUri.origin,
-          nonceId:
-              '0x${bytesToHex(List<int>.generate(32, (_) => random.nextInt(256)))}',
-          expiresAt: DateTime.now().millisecondsSinceEpoch + 30000,
-          httpMethod: 'POST',
-          requestTarget: _uri('/user/challenges').path,
-          bodyBytes: utf8.encode(challengeBody),
-        );
-        stage = 'proof';
-        final proof = await authentication.createProof(
-          identity: identity,
-          request: request,
-        );
-        validateMlsProofMatches(identity, request, proof);
-        await _requireAuthenticationCurrent(
-          identity,
-          authentication,
-          generation,
-        );
-        stage = 'challenge';
-        return _postAuthentication(
-          '/user/challenges',
-          challengeBody,
-          sessionToken: sessionToken,
-          proofHeaders: mlsProofHeaders(proof),
-        );
-      }
-
-      final challenge = await issue();
-      await _requireAuthenticationCurrent(identity, authentication, generation);
-      final nonce = challenge['nonce_id'];
-      final expiry = challenge['expires_at'];
-      if (nonce is! String || expiry is! int) {
-        throw const MlsAuthenticationException('MLS挑战响应不完整');
-      }
+      final random = Random.secure();
       final request = mls.MlsAuthenticationRequest(
         serviceOrigin: uri.origin,
-        nonceId: nonce,
-        expiresAt: expiry,
+        tokenPurpose: purpose,
+        sessionHash: purpose == 'request'
+            ? sha256.convert(utf8.encode(sessionToken!)).toString()
+            : null,
+        nonceId:
+            '0x${bytesToHex(List<int>.generate(32, (_) => random.nextInt(256)))}',
+        expiresAt: DateTime.now().millisecondsSinceEpoch + 30000,
         httpMethod: method,
         requestTarget: uri.path + (uri.hasQuery ? '?${uri.query}' : ''),
         bodyBytes: bytes,
       );
-      validateMlsChallenge(identity, request, challenge);
       stage = 'proof';
       final proof = await authentication.createProof(
         identity: identity,
@@ -805,7 +742,6 @@ class SquareApiClient
     Map<String, String> proofHeaders = const {},
   }) async {
     final stage = switch (path) {
-      '/user/challenges' => SquareApiStage.challenge,
       '/user/sessions' => SquareApiStage.session,
       '/user/devices' => SquareApiStage.registration,
       _ => SquareApiStage.request,
@@ -1117,7 +1053,7 @@ class SquareApiClient
     return payload;
   }
 
-  /// 钱包授权已持久保存；每次登记提交仍使用同一MLS身份的新鲜挑战。
+  /// 钱包授权已持久保存；每次登记直接使用同一MLS身份签署带随机nonce的真实请求。
   Future<void> registerMlsDevice({
     required MlsAuthenticationIdentity identity,
     required MlsAuthenticationSource authentication,
@@ -1308,28 +1244,6 @@ class SquareApiClient
       throw const SquareApiException('会员存储清理提醒无效');
     }
     return value['cleanup_after'] as int;
-  }
-
-  /// 确认原交易锚，回执不交付链上订阅展示状态。
-  Future<void> confirmPlatformSubscription({
-    required SquareSession session,
-    required String txHash,
-    required String blockHash,
-  }) async {
-    final hash = RegExp(r'^0x[0-9a-f]{64}$');
-    if (!hash.hasMatch(txHash) || !hash.hasMatch(blockHash)) {
-      throw const SquareApiException('会员确认交易或块无效');
-    }
-    final data = await _postJson('/membergate/confirm', {
-      'tx_hash': txHash,
-      'block_hash': blockHash,
-    }, session: session);
-    if (data.length != 3 ||
-        data['is_ok'] != true ||
-        data['tx_hash'] != txHash ||
-        data['block_hash'] != blockHash) {
-      throw const SquareApiException('会员确认回执与本次交易不一致');
-    }
   }
 
   /// 联系人逐条备份；完整分页列表只用于明确下拉同步。

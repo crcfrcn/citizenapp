@@ -24,6 +24,7 @@ class ChainDataReader {
     required CitizenBlockRef block,
     Set<String> citizens = const {},
     Set<String> creators = const {},
+    bool prices = false,
   }) async {
     if (block.finality != CitizenBlockFinality.finalized)
       throw StateError('只接受最终区块');
@@ -50,12 +51,14 @@ class ChainDataReader {
       runtime.storageKey('Timestamp', 'Now'),
     );
     const levels = ['freedom', 'democracy', 'spark'];
-    final pricesFuture = batch.read(block, [
-      for (final level in levels)
-        runtime.storageKey('SquarePost', 'PlatformPrice', [
-          SubscriptionChain.membershipLevelVariant(level),
-        ]),
-    ]);
+    final pricesFuture = prices
+        ? batch.read(block, [
+            for (final level in levels)
+              runtime.storageKey('SquarePost', 'PlatformPrice', [
+                SubscriptionChain.membershipLevelVariant(level),
+              ]),
+          ])
+        : Future.value(<Uint8List?>[]);
     final data = <String, Future<ChainCitizenData>>{};
     Future<ChainCitizenData> citizen(
       String cid, [
@@ -66,13 +69,17 @@ class ChainDataReader {
             ? identities.readByCidNumber(cid, at: block)
             : Future.value(own),
         subscriptions.fetchSubscriptionSnapshot(cidNumber: cid, at: block),
-        subscriptions.fetchCreatorPlansAtBlock(cid, block),
+        creators.contains(cid)
+            ? subscriptions.fetchCreatorPlansAtBlock(cid, block)
+            : Future.value(null),
       ]);
       return ChainCitizenData(
         cidNumber: cid,
         identity: values[0] as CitizenIdentityChainSnapshot?,
         platform: (values[1] as FinalizedSubscriptionSnapshot).state,
-        creatorTiers: List.unmodifiable(values[2] as List<ChainCreatorTier>),
+        creatorTiers: values[2] == null
+            ? null
+            : List.unmodifiable(values[2] as List<ChainCreatorTier>),
       );
     }
 
@@ -112,15 +119,16 @@ class ChainDataReader {
     final chainNow = CitizenScale.readUnsigned(now, 0, 8).toInt();
     if (chainNow <= 0 || chainNow > 9007199254740991)
       throw const FormatException('链时间越界');
-    final rawPrices = resolved[2] as List<Uint8List?>, prices = <String, int>{};
-    for (var i = 0; i < levels.length; i++) {
+    final rawPrices = resolved[2] as List<Uint8List?>,
+        decodedPrices = <String, int>{};
+    for (var i = 0; prices && i < levels.length; i++) {
       final bytes = rawPrices[i];
       if (bytes == null) continue;
       if (bytes.length != 16) throw const FormatException('链上价格布局无效');
       final amount = CitizenScale.readUnsigned(bytes, 0, 16);
       if (amount <= BigInt.zero || amount > BigInt.from(9007199254740991))
         throw const FormatException('链上价格越界');
-      prices[levels[i]] = amount.toInt();
+      decodedPrices[levels[i]] = amount.toInt();
     }
     return ChainDataSnapshot(
       genesisHash: genesisHash,
@@ -130,8 +138,67 @@ class ChainDataReader {
       ownCid: own?.cidNumber,
       citizens: Map.fromEntries(entries),
       subscriptions: subscribed,
-      prices: prices,
+      prices: decodedPrices,
+      pricesLoaded: prices,
     );
+  }
+
+  Future<({int subscribers, BigInt monthly, CitizenBlockRef block})>
+  creatorSummary({
+    required CitizenBlockRef block,
+    required String creator,
+    required Set<String> candidates,
+  }) async {
+    if (block.finality != CitizenBlockFinality.finalized)
+      throw StateError('统计只接受最终块');
+    final runtime = await getRuntimeContext(block);
+    if (runtime.block.hash != block.hash ||
+        runtime.block.number != block.number)
+      throw StateError('统计Runtime错块');
+    final batch = _BlockStorage(block, getStorageBatch);
+    final subs = SubscriptionChain(
+      getFinalizedHead: () async => block,
+      getRuntimeContext: (_) async => runtime,
+      getStorageBatch: batch.read,
+      getStorage: batch.single,
+    );
+    final time = await batch.single(
+      block,
+      runtime.storageKey('Timestamp', 'Now'),
+    );
+    if (time == null || time.length != 8)
+      throw const FormatException('统计链时间无效');
+    final now = CitizenScale.readUnsigned(time, 0, 8).toInt();
+    if (now <= 0 || now > 9007199254740991)
+      throw const FormatException('统计链时间越界');
+    var count = 0;
+    var monthly = BigInt.zero;
+    final ids = candidates.toList();
+    for (var offset = 0; offset < ids.length; offset += 32) {
+      final rows = await Future.wait([
+        for (final cid in ids.skip(offset).take(32))
+          subs.fetchSubscriptionSnapshot(
+            cidNumber: cid,
+            creatorCid: creator,
+            at: block,
+          ),
+      ]);
+      for (final row in rows) {
+        final value = row.state;
+        if (value == null || !value.isEffectiveAt(now)) continue;
+        if (value.plan.kind != 'creator')
+          throw const FormatException('统计订阅用途错误');
+        final months = switch (value.plan.billingPeriod) {
+          'monthly' => 1,
+          'quarterly' => 3,
+          'yearly' => 12,
+          _ => throw const FormatException('统计周期无效'),
+        };
+        count++;
+        monthly += value.priceFen ~/ BigInt.from(months);
+      }
+    }
+    return (subscribers: count, monthly: monthly, block: block);
   }
 }
 

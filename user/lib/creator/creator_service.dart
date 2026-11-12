@@ -1,4 +1,4 @@
-import 'package:citizen_storage/user_isar.dart' as wallet_store show Member;
+import 'package:citizen_storage/user_isar.dart' as wallet_store show Creator;
 
 import 'dart:async';
 import 'dart:typed_data';
@@ -109,7 +109,7 @@ class CreatorService {
   final SquareSessionProvider _session;
   final Map<SquareSession, Future<CreatorPageData>> _loads = {};
 
-  /// 主动刷新读取服务端链下概览；链上档位由统一轻节点读模型提供。
+  /// 主动刷新取得登记CID集合；档位和统计由统一轻节点读模型提供。
   ///
   /// 页面首帧不等待本方法；[expectedCidNumber] 防止旧会话结果写入新身份页面。
   Future<CreatorPageData> load({String? expectedCidNumber}) async {
@@ -139,43 +139,50 @@ class CreatorService {
   }
 
   Future<CreatorPageData> _loadSession(SquareSession session) async {
-    // 已finalized的待确认投影先补交，再读取本人快照；不再提交链上交易。
-    await _retryPendingProjection(session);
     await session.validateCurrent();
-    // 本人概览自身执行当前会员门禁；展示刷新不再前置GET会员。
-    // 读取失败不覆盖页面已经显示的统计。
-    try {
-      final overview = await _api.fetchOverview(session);
+    final source = _chainData;
+    if (source == null) throw const CreatorException('轻节点统计尚未就绪');
+    final data = await source.ensureCitizen(session.cidNumber, creator: true);
+    if (data.accountId != session.accountId ||
+        data.own?.identity?.bindRev != session.bindRev)
+      throw const CreatorException('统计身份已变化');
+    if (!data.memberActive(session.cidNumber)) return CreatorPageData.gated();
+    final ids = <String>{};
+    String? cursor;
+    final cursors = <String>{};
+    do {
+      final page = await _api.fetchSubscribers(session, cursor: cursor);
       await session.validateCurrent();
-      final data = await _chainData?.refresh();
-      if (_chainData != null &&
-          (data?.ownCid != session.cidNumber ||
-              data?.accountId != session.accountId ||
-              data?.own?.identity?.bindRev != session.bindRev ||
-              _chainData.isStale)) {
-        throw const CreatorException('轻节点创作者状态尚未核验');
-      }
-      if (data != null && !data.memberActive(session.cidNumber))
-        return CreatorPageData.gated();
-      return CreatorPageData.active(
-        overview: overview,
-        plan: data == null
-            ? null
-            : creatorPlanFromChain(data.own!.creatorTiers),
-      );
-    } on CreatorApiException catch (error) {
-      if (error.statusCode != 403 || error.errorCode != 'membergate_required') {
-        rethrow;
-      }
-      await session.validateCurrent();
-      if (_chainData != null) {
-        throw const CreatorException('云端概览权限尚未就绪，链上档位仍由轻节点显示');
-      }
-      return CreatorPageData.gated();
-    }
+      ids.addAll(page.cidNumbers);
+      cursor = page.nextCursor;
+      if (cursor != null && !cursors.add(cursor))
+        throw const CreatorException('登记分页循环');
+    } while (cursor != null);
+    final summary = await source.creatorSummary(session.cidNumber, ids);
+    await session.validateCurrent();
+    final overview = CreatorOverview(
+      subscriberCount: summary.subscribers,
+      monthlyIncomeFen: summary.monthly,
+      blockNumber: summary.block.number.toInt(),
+      blockHash: summary.block.hash,
+    );
+    await wallet_store.Creator.saveSummary(
+      session.cidNumber,
+      overview.toJson(),
+      () => session.isUsable,
+    );
+    return CreatorPageData.active(
+      plan: creatorPlanFromChain(data.own!.creatorTiers),
+      overview: overview,
+    );
   }
 
-  /// 覆盖式保存档位：一次链上签名原子写入名称与价格，再确认 finalized 投影。
+  Future<CreatorOverview?> cachedOverview(String cid) async {
+    final value = await wallet_store.Creator.readSummary(cid);
+    return value == null ? null : CreatorOverview.fromJson(value);
+  }
+
+  /// 覆盖式保存档位：一次链上签名原子写入名称与价格，等待轻节点确认 finalized。
   Future<CreatorPlan> saveTiers(
     List<CreatorTier> tiers, {
     BuildContext? context,
@@ -185,31 +192,17 @@ class CreatorService {
     }
     final identity = await _requireIdentity();
     await _requireSigningAccount(identity.accountId);
-    final session = await _session.ensureSession();
-    if (session == null) {
-      throw const CreatorException('会话不可用，请稍后重试');
-    }
-    if (session.accountId != identity.accountId) {
-      throw const CreatorException('当前会话与默认钱包账户不一致，请重新登录');
-    }
     try {
       final data = await _chainData?.refresh();
-      final local = data == null
-          ? await _subscriptionChain.fetchSubscriptionSnapshot(
-              cidNumber: session.cidNumber,
-            )
-          : null;
-      if (_chainData != null &&
-          (data?.accountId != session.accountId ||
-              data?.own?.identity?.bindRev != session.bindRev ||
-              _chainData.isStale)) {
+      if (data == null ||
+          _chainData!.isStale ||
+          data.accountId != identity.accountId ||
+          data.ownCid != identity.snapshot!.cidNumber ||
+          data.own?.identity?.bindRev != identity.snapshot!.bindRev)
         throw const CreatorException('轻节点会员状态尚未核验');
-      }
-      final active =
-          data?.memberActive(session.cidNumber) ??
-          (local?.state?.isEffectiveAt(local.chainNowMs) == true);
-      if (!active) throw const CreatorException('需要当前有效的平台会员才能设置创作者会员档');
-      final result = await _subscriptionChain.setCreatorPlans(
+      if (!data.memberActive(data.ownCid!))
+        throw const CreatorException('需要当前有效的平台会员才能设置创作者会员档');
+      await _subscriptionChain.setCreatorPlans(
         signerPublicKey: citizenAccountIdBytes(identity.accountId),
         tiers: tiers
             .map(
@@ -230,14 +223,7 @@ class CreatorService {
             .toList(growable: false),
         externalSigning: (pending) => _showExternalSigning(context, pending),
       );
-      return await _completeFinalizedSave(
-        session: session,
-        accountId: identity.accountId,
-        creatorCid: session.cidNumber,
-        txHash: result.txHash,
-        blockHash: result.blockHash,
-        tiers: tiers,
-      );
+      return CreatorPlan(tiers: tiers);
     } on CreatorApiException catch (e) {
       throw CreatorException(e.message);
     } on Exception catch (e) {
@@ -254,44 +240,15 @@ class CreatorService {
   }) async {
     final identity = await _requireIdentity();
     await _requireSigningAccount(identity.accountId);
-    final session = await _session.ensureSession();
-    if (session == null || session.accountId != identity.accountId) {
-      throw const CreatorException('当前会话与默认钱包账户不一致，请重新登录');
-    }
     final index = currentTiers.indexWhere((tier) => tier.tierId == tierId);
     if (index < 0) throw const CreatorException('要改名的会员档不存在');
     try {
-      final result = await _subscriptionChain.updateCreatorTierName(
+      await _subscriptionChain.updateCreatorTierName(
         signerPublicKey: citizenAccountIdBytes(identity.accountId),
         tierId: tierId,
         tierName: tierName,
         externalSigning: (pending) => _showExternalSigning(context, pending),
       );
-      try {
-        await _appendLocalTransaction(
-          creatorCid: session.cidNumber,
-          accountId: identity.accountId,
-          action: 'update_creator_tier_name',
-          txHash: result.txHash,
-          blockHash: result.blockHash,
-        );
-      } on Exception {
-        // 链上已经 finalized；本地审计缓存失败不得诱导用户再次签名。
-      }
-      try {
-        await _api.saveMyPlan(
-          session: session,
-          txHash: result.txHash,
-          blockHash: result.blockHash,
-        );
-        await wallet_store.Member.finishProof(
-          session.cidNumber,
-          result.txHash,
-          'plan',
-        );
-      } on Exception {
-        // 保留同一 finalized 交易，下次进入创作者页只重试投影确认。
-      }
       final localTiers = List<CreatorTier>.from(currentTiers);
       localTiers[index] = localTiers[index].copyWith(tierName: tierName);
       final localPlan = CreatorPlan(tiers: List.unmodifiable(localTiers));
@@ -302,7 +259,7 @@ class CreatorService {
   }
 
   /// 当前默认账户经 finalized 闭环验证后，才可签名 `set_creator_plans` 链上
-  /// 交易的唯一签名者。档位与待提交证明归属永久 CID，账户只记录签名事实。
+  /// 交易的唯一签名者。档位归属永久 CID，账户只记录签名事实。
   Future<FinalizedIdentity> _requireIdentity() async {
     final identity = await _identityResolver.resolve();
     if (identity == null || !identity.isRegistered) {
@@ -331,87 +288,5 @@ class CreatorService {
       throw const CreatorException('当前身份与默认钱包账户不一致，已拒绝签名');
     }
     return account;
-  }
-
-  Future<void> _retryPendingProjection(SquareSession session) async {
-    try {
-      final pending = await wallet_store.Member.readProofs(
-        session.cidNumber,
-        pendingKind: 'plan',
-      );
-      if (pending.isEmpty) return;
-      final decoded = pending.single;
-      final txHash = decoded['tx_hash'];
-      final blockHash = decoded['block_hash'];
-      if (txHash is! String || blockHash is! String) {
-        return;
-      }
-      await _api.saveMyPlan(
-        session: session,
-        txHash: txHash,
-        blockHash: blockHash,
-      );
-      await wallet_store.Member.finishProof(session.cidNumber, txHash, 'plan');
-    } on Exception {
-      // 保留待同步记录；下次只重试同一交易确认。
-    }
-  }
-
-  /// 进入本方法时链上业务已经 finalized；之后任何边缘或本地缓存失败都不得要求用户重签。
-  Future<CreatorPlan> _completeFinalizedSave({
-    required SquareSession session,
-    required String accountId,
-    required String creatorCid,
-    required String txHash,
-    required String blockHash,
-    required List<CreatorTier> tiers,
-  }) async {
-    final localPlan = CreatorPlan(tiers: tiers);
-    try {
-      await _appendLocalTransaction(
-        creatorCid: creatorCid,
-        accountId: accountId,
-        action: 'set_creator_plans',
-        txHash: txHash,
-        blockHash: blockHash,
-      );
-    } on Exception {
-      // 继续立即提交 Cloudflare；链上已成功，禁止把本地缓存异常变成第二次签名。
-    }
-
-    try {
-      await _api.saveMyPlan(
-        session: session,
-        txHash: txHash,
-        blockHash: blockHash,
-      );
-      await wallet_store.Member.finishProof(creatorCid, txHash, 'plan');
-    } on Exception {
-      // 保留待同步记录；下次进入创作者页只重试 HTTP。
-    }
-
-    return localPlan;
-  }
-
-  /// 本地按永久 CID 保留有限条 finalized 交易证明；签名账户留在证明内部作为
-  /// 不可变交易事实，Cloudflare 成功后也不删除链上交易记录。
-  Future<void> _appendLocalTransaction({
-    required String creatorCid,
-    required String accountId,
-    required String action,
-    required String txHash,
-    required String blockHash,
-  }) async {
-    await wallet_store.Member.storeProof(
-      creatorCid,
-      {
-        'action': action,
-        'tx_hash': txHash,
-        'block_hash': blockHash,
-        'signer_account_id': accountId,
-      },
-      pendingKind: 'plan',
-      replacePending: true,
-    );
   }
 }

@@ -88,8 +88,6 @@ Map<String, dynamic> _state(
   'interaction_unread': 0,
   'interaction_sequence': 0,
   'through': 10,
-  'member_rev': 0,
-  'creator_rev': 0,
   'membergate': null,
   'creator': null,
 };
@@ -478,32 +476,6 @@ void main() {
     expect(api.reads, 1);
     expect(service.unread, 2);
   });
-  test('紧凑帖子帧先到时，同版本完整帧仍补齐展示，旧创作者段不覆盖新段', () async {
-    await service.accept(_state(3, 5));
-    final creator = {'gated': true};
-    await service.accept({
-      ..._state(3, 5),
-      'creator_rev': 2,
-      'creator': creator,
-    });
-    expect(service.creatorFor(_cid), creator);
-    await service.acceptCreator(_cid, 4, {
-      'gated': false,
-    }, session: (await sessions.ensureSession())!);
-    await service.accept({
-      ..._state(5, 1),
-      'creator_rev': 3,
-      'creator': creator,
-    });
-    expect(service.unread, 1);
-    expect(service.creatorFor(_cid), {'gated': false});
-    await service.accept({
-      ..._state(6, 9),
-      'creator_rev': 'bad',
-      'creator': creator,
-    });
-    expect(service.unread, 1);
-  });
   test('坏校准响应不标成功基线，下次明确准备仍可请求', () async {
     api.value = {..._state(1, 2), 'square_unread': -1};
     await service.calibrate();
@@ -620,16 +592,6 @@ void main() {
     await service.read(owner: owner, scope: 'square', through: through);
     expect(api.readThrough.single, 10);
     expect(service.unread, 1);
-  });
-  test('旧会员通知不回填链上状态，未读计数继续同步', () async {
-    await service.accept({
-      ..._state(3, 2),
-      'member_rev': 3,
-      'membergate': {'active': true, 'paid_until': 9999999999999},
-    });
-    expect(service.unread, 2);
-    expect(service.scope, isNotNull);
-    expect(api.reads, 0);
   });
   test('互动序号覆盖同批多帖，已读计数和重复快照不反复刷新', () async {
     await service.accept(_state(5, 2));

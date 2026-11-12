@@ -48,7 +48,6 @@ void main() {
     }
   });
 
-
   test('正文冻结并保留完整/api路径、查询和DELETE正文', () async {
     final input = Uint8List.fromList(utf8.encode('{"说明":"公民"}'));
     final snapshot = input.toList();
@@ -98,21 +97,7 @@ void main() {
       baseUrl: 'https://worker.test/api',
       httpClient: MockClient((request) async {
         requests++;
-        if (request.url.path == '/api/user/challenges') {
-          final body = jsonDecode(request.body) as Map<String, dynamic>;
-          expect(body.keys.toSet(), {
-            'account_id',
-            'public_key',
-            'token_purpose',
-            'http_method',
-            'request_target',
-            'body_hash',
-          });
-          if (body['token_purpose'] == 'request') {
-            expect(request.headers['authorization'], 'Bearer tok');
-          }
-          return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
-        }
+
         final proof = _proof(request.headers);
         expect(proof['device_id'], source.identity.deviceId);
         expect(proof['public_key'], source.identity.publicKey);
@@ -152,8 +137,8 @@ void main() {
       'expires_at',
     });
     expect(pushBody!['push_token'], 'fcm-token-1234567890');
-    expect(requests, 4);
-    expect(source.proofCalls, 4);
+    expect(requests, 2);
+    expect(source.proofCalls, 2);
     expect(
       identical(
         await client.ensureSession(
@@ -164,47 +149,8 @@ void main() {
       ),
       true,
     );
-    expect(requests, 4);
+    expect(requests, 2);
   });
-  for (final field in [
-    'cid_number',
-    'device_id',
-    'public_key',
-    'account_id',
-    'bind_rev',
-    'service_origin',
-    'http_method',
-    'request_target',
-    'body_hash',
-    'extra',
-  ]) {
-    test('挑战$field被改动后不签业务证明或提交会话', () async {
-      final source = FakeMlsAuthentication();
-      var submits = 0;
-      final client = SquareApiClient(
-        baseUrl: 'https://worker.test/api',
-        httpClient: MockClient((request) async {
-          if (request.url.path.endsWith('/challenges')) {
-            final challenge = fakeMlsChallenge(request)
-              ..[field] = field == 'bind_rev' ? 2 : 'tampered';
-            return http.Response(jsonEncode(challenge), 200);
-          }
-          submits++;
-          return http.Response(jsonEncode(fakeMlsSession()), 200);
-        }),
-      );
-      addTearDown(client.close);
-      await expectLater(
-        client.ensureSession(
-          accountId: testMlsAccountId,
-          authentication: source,
-        ),
-        throwsA(isA<MlsAuthenticationException>()),
-      );
-      expect(source.proofCalls, 1);
-      expect(submits, 0);
-    });
-  }
   test('签名期间关闭认证，拒绝提交会话', () async {
     final source = FakeMlsAuthentication();
     source.beforeProof = () async {
@@ -214,9 +160,6 @@ void main() {
     final client = SquareApiClient(
       baseUrl: 'https://worker.test/api',
       httpClient: MockClient((request) async {
-        if (request.url.path.endsWith('/challenges')) {
-          return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
-        }
         submits++;
         return http.Response(jsonEncode(fakeMlsSession()), 200);
       }),
@@ -235,9 +178,6 @@ void main() {
     final client = SquareApiClient(
       baseUrl: 'https://worker.test/api',
       httpClient: MockClient((request) async {
-        if (request.url.path.endsWith('/challenges')) {
-          return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
-        }
         calls++;
         if (calls == 1) {
           entered.complete();
@@ -279,9 +219,6 @@ void main() {
     final client = SquareApiClient(
       baseUrl: 'https://worker.test/api',
       httpClient: MockClient((request) async {
-        if (request.url.path.endsWith('/challenges')) {
-          return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
-        }
         if (request.url.path.endsWith('/sessions')) {
           return http.Response(jsonEncode(fakeMlsSession()), 200);
         }
@@ -306,30 +243,6 @@ void main() {
       throwsA(isA<MlsAuthenticationException>()),
     );
   });
-  test('过期业务挑战不能继续签名或提交会话', () async {
-    final source = FakeMlsAuthentication();
-    var submits = 0;
-    final client = SquareApiClient(
-      baseUrl: 'https://worker.test/api',
-      httpClient: MockClient((request) async {
-        if (request.url.path.endsWith('/challenges')) {
-          final value = fakeMlsChallenge(request)
-            ..['expires_at'] = DateTime.now().millisecondsSinceEpoch - 1;
-          return http.Response(jsonEncode(value), 200);
-        }
-        submits++;
-        return http.Response(jsonEncode(fakeMlsSession()), 200);
-      }),
-    );
-    addTearDown(client.close);
-    await expectLater(
-      client.ensureSession(accountId: testMlsAccountId, authentication: source),
-      throwsArgumentError,
-    );
-    expect(source.proofCalls, 1);
-    expect(submits, 0);
-  });
-
   for (final field in ['device_id', 'extra', 'account_id', 'bind_rev']) {
     test('会话响应$field与当前公开身份不符或多字段时拒绝缓存', () async {
       final source = FakeMlsAuthentication();
@@ -337,9 +250,6 @@ void main() {
       final client = SquareApiClient(
         baseUrl: 'https://worker.test/api',
         httpClient: MockClient((request) async {
-          if (request.url.path.endsWith('/challenges')) {
-            return http.Response(jsonEncode(fakeMlsChallenge(request)), 200);
-          }
           calls++;
           final response = fakeMlsSession()
             ..[field] = field == 'bind_rev' ? 2 : 'tampered';
@@ -416,9 +326,7 @@ void _httpTimingTests() {
       expect(lines.join(), isNot(contains(entry.key)));
     }
   });
-  final uri = Uri.parse(
-    'https://www.crcfrcn.com/api/user/challenges?q=$canary',
-  );
+  final uri = Uri.parse('https://www.crcfrcn.com/api/user/sessions?q=$canary');
   Future<List<String>> capture(Future<void> Function() action) async {
     final lines = <String>[];
     await runZoned(
@@ -478,7 +386,7 @@ void _httpTimingTests() {
       expect(inner.closed, isTrue);
     });
     expect(lines.length, 2);
-    expect(lines.first, contains('stage=challenge http=206'));
+    expect(lines.first, contains('stage=session http=206'));
     expect(lines.first, endsWith('phase=headers'));
     expect(lines.last, endsWith('phase=complete'));
     final timing = RegExp(
@@ -531,7 +439,7 @@ void _httpTimingTests() {
       final response = await client.send(
         http.Request(
           'GET',
-          Uri.parse('https://other.invalid/api/user/challenges'),
+          Uri.parse('https://other.invalid/api/user/sessions'),
         ),
       );
       expect(response, same(original));

@@ -139,46 +139,6 @@ class MlsAuthentication implements MlsAuthenticationSource {
   }
 }
 
-const mlsChallengeFields = {
-  'is_ok',
-  'cid_number',
-  'device_id',
-  'public_key',
-  'account_id',
-  'bind_rev',
-  'service_origin',
-  'nonce_id',
-  'expires_at',
-  'http_method',
-  'request_target',
-  'body_hash',
-};
-
-void validateMlsChallenge(
-  MlsAuthenticationIdentity identity,
-  mls.MlsAuthenticationRequest request,
-  Map<String, dynamic> challenge,
-) {
-  identity.validate();
-  request.validate();
-  if (challenge.length != mlsChallengeFields.length ||
-      !challenge.keys.every(mlsChallengeFields.contains) ||
-      challenge['is_ok'] != true ||
-      challenge['cid_number'] != identity.cidNumber ||
-      challenge['device_id'] != identity.deviceId ||
-      challenge['public_key'] != identity.publicKey ||
-      challenge['account_id'] != identity.accountId ||
-      challenge['bind_rev'] != identity.bindRev ||
-      challenge['service_origin'] != request.serviceOrigin ||
-      challenge['nonce_id'] != request.nonceId ||
-      challenge['expires_at'] != request.expiresAt ||
-      challenge['http_method'] != request.httpMethod ||
-      challenge['request_target'] != request.requestTarget ||
-      challenge['body_hash'] != '0x${sha256.convert(request.bodyBytes)}') {
-    throw const MlsAuthenticationException('MLS挑战与实际请求或当前身份不一致');
-  }
-}
-
 void validateMlsProofMatches(
   MlsAuthenticationIdentity identity,
   mls.MlsAuthenticationRequest request,
@@ -195,6 +155,8 @@ void validateMlsProofMatches(
     'account_id': identity.accountId,
     'bind_rev': identity.bindRev,
     'service_origin': request.serviceOrigin,
+    'token_purpose': request.tokenPurpose,
+    if (request.sessionHash != null) 'session_hash': request.sessionHash!,
     'nonce_id': request.nonceId,
     'expires_at': request.expiresAt,
     'http_method': request.httpMethod,

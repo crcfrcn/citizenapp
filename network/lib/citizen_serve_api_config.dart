@@ -157,7 +157,6 @@ String? _httpStage(Uri uri) {
   }
   final path = uri.path.substring(4);
   return switch (path) {
-    '/user/challenges' => 'challenge',
     '/user/sessions' => 'session',
     '/user/devices' => 'registration',
     '/user/contacts' => 'contacts',

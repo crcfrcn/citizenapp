@@ -7,6 +7,7 @@ import 'package:chat/mls/mls_state_store.dart';
 import 'package:citizen_testing/mls_test_env.dart';
 
 MlsAuthenticationRequest _authenticationRequest() => MlsAuthenticationRequest(
+  tokenPurpose: 'device',
   serviceOrigin: 'https://api.example.test',
   nonceId: '0x${List.filled(32, '22').join()}',
   expiresAt: DateTime.now().millisecondsSinceEpoch + 120000,
@@ -138,6 +139,7 @@ void main() {
         'public_key',
         'account_id',
         'bind_rev',
+        'token_purpose',
         'service_origin',
         'nonce_id',
         'expires_at',
@@ -220,8 +222,9 @@ void main() {
     final store = MlsStateStore(root, ownerUserId: 'phase-user');
     final first = await store.prepareIdentity();
     final before = await File('${root.path}/state.bin').readAsBytes();
-    await File('${root.path}/state.lock')
-        .writeAsString('initializing\n', flush: true);
+    await File(
+      '${root.path}/state.lock',
+    ).writeAsString('initializing\n', flush: true);
     expect((await store.prepareIdentity()).deviceId, first.deviceId);
     expect(await File('${root.path}/state.bin').readAsBytes(), before);
     await File('${root.path}/state.bin').delete();

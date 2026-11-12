@@ -1,34 +1,38 @@
-/// 创作者概览：按当前有效订阅和周期摊算预计月收入，与服务端同一口径。
-///
-/// 金额一律以「分」为后端口径；展示层换算「元」（分÷100，全仓约定）。
+/// 同一最终块、已登记集合的有效人数与预计月收入；不代表结算收入。
 class CreatorOverview {
   const CreatorOverview({
     required this.subscriberCount,
     required this.monthlyIncomeFen,
-    required this.tierCount,
+    required this.blockNumber,
+    required this.blockHash,
   });
-
-  /// 订阅人数（活跃订阅者去重计数）。
   final int subscriberCount;
-
-  /// 预计月收入（分）：当前有效订阅按周期折算，不代表已结算收入。
-  final int monthlyIncomeFen;
-
-  /// 档位数（= 当前计划档位数量）。
-  final int tierCount;
-
-  static const CreatorOverview zero = CreatorOverview(
+  final BigInt monthlyIncomeFen;
+  final int blockNumber;
+  final String blockHash;
+  static final zero = CreatorOverview(
     subscriberCount: 0,
-    monthlyIncomeFen: 0,
-    tierCount: 0,
+    monthlyIncomeFen: BigInt.zero,
+    blockNumber: 0,
+    blockHash: '',
   );
-
-  factory CreatorOverview.fromJson(Map<String, dynamic> json) {
-    int asInt(Object? value) => value is int ? value : 0;
+  Map<String, dynamic> toJson() => {
+    'subscriber_count': subscriberCount,
+    'monthly_income_fen': monthlyIncomeFen.toString(),
+    'final_block': blockNumber,
+    'final_hash': blockHash,
+  };
+  factory CreatorOverview.fromJson(Map<String, dynamic> value) {
+    if (value['subscriber_count'] is! int ||
+        value['monthly_income_fen'] is! String ||
+        value['final_block'] is! int ||
+        value['final_hash'] is! String)
+      throw const FormatException('轻节点统计快照无效');
     return CreatorOverview(
-      subscriberCount: asInt(json['subscriber_count']),
-      monthlyIncomeFen: asInt(json['monthly_income_fen']),
-      tierCount: asInt(json['tier_count']),
+      subscriberCount: value['subscriber_count'] as int,
+      monthlyIncomeFen: BigInt.parse(value['monthly_income_fen'] as String),
+      blockNumber: value['final_block'] as int,
+      blockHash: value['final_hash'] as String,
     );
   }
 }

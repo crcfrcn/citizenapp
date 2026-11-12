@@ -78,6 +78,7 @@ class Reader extends ChainDataReader {
     required CitizenBlockRef block,
     Set<String> citizens = const {},
     Set<String> creators = const {},
+    bool prices = false,
   }) async {
     calls.add((accountId, block.number.toInt()));
     return behavior == null

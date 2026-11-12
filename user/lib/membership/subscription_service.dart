@@ -1,5 +1,3 @@
-import 'package:citizen_storage/user_isar.dart' as wallet_store show Member;
-
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -31,14 +29,13 @@ class SubscriptionException implements Exception {
 /// 根据共识时间戳完成。CitizenApp 不提交续费或周期确认。
 class SubscriptionService {
   SubscriptionService({
+    ChainDataService? chainData,
     CitizenSdk? wallet,
     CitizenSdk? chain,
     CitizenSdk? transactions,
     required FinalizedIdentityResolver identityResolver,
-    required SquareSessionProvider sessionProvider,
     SubscriptionChain? subscriptionChain,
     SquareApiClient? api,
-    bool resumePendingTransactions = true,
     CitizenSdkOperation<CitizenWalletState> Function()? getWalletState,
     Future<CitizenBlockRef> Function()? getFinalizedHead,
     Future<List<Uint8List?>> Function(
@@ -78,46 +75,29 @@ class SubscriptionService {
                  consumePreparedTransactionQrResponse,
            ),
        _identityResolver = identityResolver,
-       _session = sessionProvider,
        _api = api ?? SquareApiClient(),
        _getWalletState =
            getWalletState ??
            wallet?.getWalletState ??
            (() => throw StateError('未配置getWalletState')) {
-    // 会员调用方保留原交易恢复；聊天明确关闭构造期补发，不能间接触发服务端查链。
-    if (resumePendingTransactions) {
-      // 获准的会员调用方建立服务时恢复finalized待同步交易；失败仍留在原tx_hash队列，
-      // 后续状态刷新再次重试，不把恢复职责塞进广场发布流程。
-      unawaited(
-        _retryPendingMirrorsForCurrentSession().catchError((
-          Object error,
-          StackTrace stackTrace,
-        ) {
-          // 构造期恢复是后台收敛，不得把暂时关闭的本地库等错误泄漏成未处理异常；
-          // 原 tx_hash 队列保持不变，下一次状态刷新仍会重试。
-          debugPrint(
-            '[Membership] pending mirror recovery deferred: $error\n$stackTrace',
-          );
-        }),
-      );
-    }
+    if (chainData != null) _chainSource = chainData;
   }
   final CitizenSdkOperation<CitizenWalletState> Function() _getWalletState;
 
   final SubscriptionChain _subscriptionChain;
 
   final FinalizedIdentityResolver _identityResolver;
-  final SquareSessionProvider _session;
   final SquareApiClient _api;
 
   /// 唯一预检实例：规则/用量来自服务端，未决预留只在本进程存活。
   static final MembershipResourceGate resourceGate = MembershipResourceGate();
-  bool _mirrorSyncPending = false;
 
   /// 唯一请求/权限缓存；离线展示快照不参与授权。所有消费者共用同一个进行中Future。
   static final Map<String, _ResourceAuthorization> _authorizations = {};
   static String? _currentAuthorizedCidNumber;
   static final Map<String, SquareSession> _citizenSessions = {};
+  static ChainDataService? _chainSource;
+  static final Map<String, Map<String, SquareMembershipPlan>> _plans = {};
 
   /// 图片渲染只读取已有会话，不触发登录、设备登记、PIN或会员请求。
   static SquareSession? get currentSession {
@@ -172,6 +152,7 @@ class SubscriptionService {
         (old != null && !_sameSession(old, session))) {
       _cacheGeneration++;
       _authorizations.clear();
+      _plans.clear();
     }
     _citizenSessions.removeWhere((key, _) => key != cid);
     _citizenSessions[cid] = session;
@@ -208,22 +189,24 @@ class SubscriptionService {
   static bool _activeBusinessMembership(SquareResourceAuthorization state) =>
       state.allowed && state.validUntil > _now();
 
+  static SquareMembershipPlan? _lightPlan(SquareSession session) {
+    final source = _chainSource, data = source?.snapshot;
+    if (source == null ||
+        source.isStale ||
+        data == null ||
+        !session.isUsable ||
+        data.accountId != session.accountId ||
+        data.ownCid != session.cidNumber ||
+        data.own?.identity?.bindRev != session.bindRev)
+      return null;
+    if (data.own?.platform?.isEffectiveAt(_now()) != true) return null;
+    final level = data.memberLevel(session.cidNumber);
+    return level == null ? null : _plans[session.cidNumber]?[level];
+  }
+
   static int chatFileMaxBytesFor(String cidNumber) {
-    final cid = cidNumber.trim(),
-        entry = _authorizations[cid],
-        session = _citizenSessions[cid];
-    if (entry == null ||
-        session == null ||
-        !_sameSession(entry.session, session) ||
-        !_currentEntry(entry) ||
-        entry.failed ||
-        _now() < entry.checkedAt ||
-        _now() >= entry.deadline ||
-        entry.resolved == null) {
-      return 0;
-    }
-    final state = entry.resolved!;
-    return _activeBusinessMembership(state) ? state.plan?.fileLimit ?? 0 : 0;
+    final session = _citizenSessions[cidNumber];
+    return session == null ? 0 : _lightPlan(session)?.fileLimit ?? 0;
   }
 
   static int get currentChatFileMaxBytes => _currentAuthorizedCidNumber == null
@@ -236,6 +219,7 @@ class SubscriptionService {
   static void markAttachmentAuthorizationUnavailable(String cidNumber) {
     _currentAuthorizedCidNumber = cidNumber.trim();
     invalidateBusinessMembership(cidNumber);
+    _plans.remove(cidNumber);
   }
 
   /// SDK异步附件钩子使用同一入口；文字/表情/打开聊天不调用。
@@ -243,24 +227,15 @@ class SubscriptionService {
     SquareSession session, {
     SubscriptionService? service,
   }) async {
-    final SquareResourceAuthorization state;
-    if (service != null) {
-      state = await service.authorizeResources(session);
-    } else {
-      final client = SquareApiClient();
-      try {
-        state = await _authorizeSession(session, client: client);
-      } finally {
-        client.close();
-      }
-    }
     await _validateSession(session);
-    if (!_activeBusinessMembership(state) ||
-        (state.plan?.fileLimit ?? 0) <= 0) {
+    rememberCitizenSession(session);
+    // 明确附件动作复用同一轻节点读模型；不建立云端会员预检请求。
+    await _chainSource?.refresh();
+    await _validateSession(session);
+    if (currentChatFileMaxBytes <= 0) {
       throw const SquareApiException(
-        '需要有效会员才能发送附件',
-        statusCode: 403,
-        errorCode: 'attachment_membergate_required',
+        '附件规则尚未取得',
+        errorCode: 'resource_rules_unknown',
       );
     }
   }
@@ -272,93 +247,19 @@ class SubscriptionService {
     required int bindRev,
     String? expectedDeviceId,
   }) async {
-    final entry = _authorizations[cidNumber.trim()];
-    bool current() =>
-        entry != null &&
-        _currentEntry(entry) &&
-        !entry.pending &&
-        !entry.failed &&
-        entry.session.accountId == accountId &&
-        entry.session.bindRev == bindRev &&
-        (expectedDeviceId == null ||
-            entry.session.deviceId == expectedDeviceId) &&
-        chatFileMaxBytesFor(cidNumber) > 0;
-    if (!current()) return false;
-    await _validateSession(entry!.session);
-    return current();
-  }
-
-  @visibleForTesting
-  static void setChatAuthorizationForTesting(String cidNumber, int? fileLimit) {
-    final cid = cidNumber.trim();
-    _authorizations.remove(cid);
-    if (fileLimit == null) return;
-    final now = _now(), end = now + 60000;
-    final session =
-        _citizenSessions[cid] ??
-        SquareSession(
-          deviceId: 'test-device',
-          sessionToken: 'test-session',
-          cidNumber: cid,
-          bindRev: 1,
-          accountId: 'test-account',
-          expiresAt: end,
-        );
-    rememberCitizenSession(session);
-    final state = SquareResourceAuthorization(
-      allowed: fileLimit > 0,
-      validUntil: end,
-
-      plan: SquareMembershipPlan(
-        memberLevel: 'freedom',
-        displayName: '测试夹具',
-        fileLimit: fileLimit,
-        chat: const SquareChatQuota(
-          textEnabled: true,
-          emojiEnabled: true,
-          stickerEnabled: true,
-          imageEnabled: true,
-          voiceSecs: 180,
-          videoSecs: 180,
-          voiceCallEnabled: true,
-          videoCallEnabled: true,
-        ),
-        document: const SquareDocumentQuota(
-          textMaxChars: 300,
-          imageQuality: 'sd',
-          maxImages: 1,
-        ),
-        video: const SquareVideoQuota(
-          textMaxChars: 300,
-          videoQuality: 'sd',
-          videoMaxSeconds: 180,
-          videoMaxBytes: 1,
-        ),
-        article: const SquareArticleQuota(
-          titleMinChars: 1,
-          titleMaxChars: 80,
-          bodyMaxChars: 1,
-          coverQuality: 'sd',
-          imageQuality: 'sd',
-          maxImages: 1,
-          maxVideos: 0,
-        ),
-        usage: const SquareMembershipUsageQuota(storageBytes: 1),
-      ),
-    );
-    final entry = _ResourceAuthorization(session, _cacheGeneration);
-    _authorizations[cid] = entry;
-    _install(entry, state);
-    entry.pending = false;
-    entry.state = Future.value(state);
+    final s = _citizenSessions[cidNumber];
+    if (s == null ||
+        s.accountId != accountId ||
+        s.bindRev != bindRev ||
+        expectedDeviceId != null && s.deviceId != expectedDeviceId ||
+        chatFileMaxBytesFor(cidNumber) <= 0)
+      return false;
+    await _validateSession(s);
+    return chatFileMaxBytesFor(cidNumber) > 0;
   }
 
   static String _chatFileSizeLabel(int bytes) =>
       SquareMembershipPlan.formatBytes(bytes);
-
-  /// 最近一次平台订阅动作已经 finalized，但 Worker 镜像仍等待确认。
-  ///
-  bool get mirrorSyncPending => _mirrorSyncPending;
 
   /// 会员页、附件、上传共用此入口；强刷也必须合并进行中请求并尊重失败退避。
   Future<SquareResourceAuthorization> authorizeResources(
@@ -457,17 +358,14 @@ class SubscriptionService {
     await _requireSigningAccount(identity.accountId);
     final cidNumber = identity.snapshot!.cidNumber;
     try {
-      final result = await _subscriptionChain.subscribePlatform(
+      await _subscriptionChain.subscribePlatform(
         signerPublicKey: citizenAccountIdBytes(identity.accountId),
         level: level,
         expectedPriceFen: BigInt.from(expectedPriceFen),
         externalSigning: (pending) => _showExternalSigning(context, pending),
       );
-      await _confirm(
-        cidNumber: cidNumber,
-        txHash: result.txHash,
-        blockHash: result.blockHash,
-      );
+      MembershipRevision.instance.notifyChanged(cidNumber);
+      invalidateBusinessMembership(cidNumber);
     } on Exception catch (e) {
       throw SubscriptionException('订阅失败：$e');
     }
@@ -479,15 +377,12 @@ class SubscriptionService {
     await _requireSigningAccount(identity.accountId);
     final cidNumber = identity.snapshot!.cidNumber;
     try {
-      final result = await _subscriptionChain.cancelPlatform(
+      await _subscriptionChain.cancelPlatform(
         signerPublicKey: citizenAccountIdBytes(identity.accountId),
         externalSigning: (pending) => _showExternalSigning(context, pending),
       );
-      await _confirm(
-        cidNumber: cidNumber,
-        txHash: result.txHash,
-        blockHash: result.blockHash,
-      );
+      MembershipRevision.instance.notifyChanged(cidNumber);
+      invalidateBusinessMembership(cidNumber);
     } on Exception catch (e) {
       throw SubscriptionException('取消失败：$e');
     }
@@ -503,17 +398,14 @@ class SubscriptionService {
     await _requireSigningAccount(identity.accountId);
     final cidNumber = identity.snapshot!.cidNumber;
     try {
-      final result = await _subscriptionChain.changePlatformPlan(
+      await _subscriptionChain.changePlatformPlan(
         signerPublicKey: citizenAccountIdBytes(identity.accountId),
         level: level,
         expectedPriceFen: BigInt.from(expectedPriceFen),
         externalSigning: (pending) => _showExternalSigning(context, pending),
       );
-      await _confirm(
-        cidNumber: cidNumber,
-        txHash: result.txHash,
-        blockHash: result.blockHash,
-      );
+      MembershipRevision.instance.notifyChanged(cidNumber);
+      invalidateBusinessMembership(cidNumber);
     } on Exception catch (e) {
       throw SubscriptionException('更换订阅失败：$e');
     }
@@ -548,96 +440,6 @@ class SubscriptionService {
       throw const SubscriptionException('请先注册并绑定公民 CID');
     }
     return identity;
-  }
-
-  /// finalized 定位按永久 CID 落本地，只保存 tx_hash 与 block_hash。HTTP 失败只重试
-  Future<void> _confirm({
-    required String cidNumber,
-    required String txHash,
-    required String blockHash,
-  }) async {
-    final proof = <String, dynamic>{'tx_hash': txHash, 'block_hash': blockHash};
-    try {
-      await wallet_store.Member.storeProof(
-        cidNumber,
-        proof,
-        pendingKind: 'member',
-      );
-    } on Exception {
-      // 链上已 finalized；本地缓存异常不能让用户重新签名。
-    }
-    _mirrorSyncPending = !await _syncProof(cidNumber: cidNumber, proof: proof);
-  }
-
-  Future<void> _retryPendingMirrorsForCurrentSession() async {
-    try {
-      final session = await _session.ensureSession();
-      if (session == null) return;
-      final cidNumber = session.cidNumber;
-      final pending = await wallet_store.Member.readProofs(
-        cidNumber,
-        pendingKind: 'member',
-      );
-      for (final proof in List<Map<String, dynamic>>.from(pending)) {
-        await _syncProof(cidNumber: cidNumber, proof: proof);
-      }
-      _mirrorSyncPending = (await wallet_store.Member.readProofs(
-        cidNumber,
-        pendingKind: 'member',
-      )).isNotEmpty;
-    } on Exception {
-      // 保留未完成证明；链上订阅与自动续费不依赖 Cloudflare。
-    }
-  }
-
-  /// 用已 finalized 的交易证明推进 Worker 会员记录；失败只保留本地证明并重试，
-  /// 发布与资料读取不承担链上重建职责，也不产生第二次签名。
-  Future<bool> _syncProof({
-    required String cidNumber,
-    required Map<String, dynamic> proof,
-  }) async {
-    final txHash = proof['tx_hash'];
-    final blockHash = proof['block_hash'];
-    if (txHash is! String || blockHash is! String) {
-      return false;
-    }
-
-    final SquareSession? session;
-    try {
-      session = await _session.ensureSession();
-    } on Exception {
-      return false;
-    }
-    if (session == null || session.cidNumber.trim() != cidNumber.trim()) {
-      return false;
-    }
-
-    final generation = _cacheGeneration;
-    final previousEntry = _authorizations[cidNumber];
-    try {
-      await _api.confirmPlatformSubscription(
-        session: session,
-        txHash: txHash,
-        blockHash: blockHash,
-      );
-      await _validateSession(session);
-      final current = _citizenSessions[cidNumber];
-      if (generation != _cacheGeneration ||
-          !identical(_authorizations[cidNumber], previousEntry) ||
-          (current != null && !_sameSession(current, session))) {
-        return false;
-      }
-      invalidateBusinessMembership(cidNumber);
-    } on Exception {
-      return false;
-    }
-
-    try {
-      await wallet_store.Member.finishProof(cidNumber, txHash, 'member');
-    } on Exception {
-      // Worker 镜像已经确认；本地删除失败只会导致后续幂等重试，不能撤销成功事实。
-    }
-    return true;
   }
 }
 
@@ -812,8 +614,6 @@ class _MembershipBusinessGateState extends State<MembershipBusinessGate> {
 final class MembershipResourceGate implements SquareResourceGate {
   static const _stockMetrics = {'storage_bytes', 'attachment_bytes'};
   final Map<String, _ResourceScope> _scopes = {};
-  final Map<String, Future<void>> _refreshes = {};
-  final Map<String, int> _retryAt = {};
   String _key(String origin, SquareSession s) =>
       jsonEncode([origin, s.cidNumber, s.accountId, s.bindRev, s.deviceId]);
 
@@ -879,12 +679,18 @@ final class MembershipResourceGate implements SquareResourceGate {
         raw['profile_media'] is! Map) {
       return;
     }
+    SubscriptionService.rememberCitizenSession(session);
+    if (raw['plans'] is List) {
+      final plans = SquareApiClient.decodeMembershipPlans(raw['plans']);
+      SubscriptionService._plans[session.cidNumber] = {
+        for (final p in plans) p.memberLevel: p,
+      };
+    }
     final key = _key(origin, session);
     var scope = _scopes[key];
     if (scope != null && now < scope.anchor) {
       return;
     }
-    SubscriptionService.rememberCitizenSession(session);
     scope ??= _ResourceScope(session);
     _scopes[key] = scope;
     scope.session = session;
@@ -905,8 +711,6 @@ final class MembershipResourceGate implements SquareResourceGate {
     if (data['authorization'] is Map) {
       try {
         final member = SquareApiClient.decodeResourceAuthorization(data);
-        scope.member = member;
-        scope.memberDeadline = end;
         final u = member.usageState;
         // 在途变更可能已经包含在快照中，不能把快照再与其预留相加。
         // 变更结束前继续使用原基线；结束后只接受本代次发起的新采样。
@@ -914,7 +718,6 @@ final class MembershipResourceGate implements SquareResourceGate {
         final pendingStock = scope.holds.any(
           (h) => h.amounts.keys.any((k) => _stockMetrics.contains(k.$1)),
         );
-        if (!currentSample) scope.memberDeadline = 0;
         if (u != null && currentSample && !pendingStock) {
           scope.gauges = {'storage_bytes': u.usedBytes + u.reservedBytes};
         }
@@ -931,42 +734,13 @@ final class MembershipResourceGate implements SquareResourceGate {
           }
         }
       } on Object {
-        scope.memberDeadline = 0;
+        scope.gauges.clear();
       }
     }
-  }
-
-  Future<void> _refresh(String origin, SquareSession session) async {
-    final key = _key(origin, session);
-    final existing = _refreshes[key];
-    if (existing != null) return existing;
-    if ((_retryAt[key] ?? 0) > DateTime.now().millisecondsSinceEpoch) {
-      return;
-    }
-    late final Future<void> work;
-    work = () async {
-      final client = SquareApiClient(baseUrl: '$origin/api');
-      try {
-        await client.fetchResourceAuthorization(session);
-        final scope = _scopes[key];
-        if (scope == null || scope.memberDeadline <= scope.now) {
-          _retryAt[key] = DateTime.now().millisecondsSinceEpoch + 5000;
-        }
-      } on Object {
-        _retryAt[key] = DateTime.now().millisecondsSinceEpoch + 5000;
-      } finally {
-        client.close();
-        if (identical(_refreshes[key], work)) {
-          _refreshes.remove(key);
-        }
-      }
-    }();
-    _refreshes[key] = work;
-    return work;
   }
 
   /// 规则未知时不伪造会员或零用量；普通操作仍到原服务端校验。
-  /// 只有需要付费规则且缓存失效时合并一次按需刷新，基础聊天不依赖价格。
+  /// 会员规则来自同一轻节点快照和静态规则；未知用量仍交真实接口核验。
   @override
   Future<SquareResourceLease> reserve({
     required String origin,
@@ -979,20 +753,7 @@ final class MembershipResourceGate implements SquareResourceGate {
   }) async {
     await session.validateCurrent();
     final key = _key(origin, session);
-    var scope = _scopes[key];
-    final own = target == null || target == session.cidNumber;
-    Map? rule() => scope?.gate['rules'] is Map
-        ? (scope!.gate['rules'] as Map)[operation] as Map?
-        : null;
-    if ((rule()?[own ? 'self' : 'other'] == 'member' ||
-            (scope?.member?.allowed == true &&
-                actions.containsKey('profile_read'))) &&
-        scope != null &&
-        scope.now >= scope.memberDeadline) {
-      await _refresh(origin, session);
-      await session.validateCurrent();
-      scope = _scopes[key];
-    }
+    final scope = _scopes[key];
     if (!session.isUsable) {
       throw const SquarePreflightException('当前公民会话已失效', 'session_expired');
     }
@@ -1000,15 +761,7 @@ final class MembershipResourceGate implements SquareResourceGate {
       return _LocalResourceLease(null, const {}, null);
     }
     final current = scope;
-    final requiresMember = rule()?[own ? 'self' : 'other'] == 'member';
-    if (requiresMember &&
-        current.memberDeadline > current.now &&
-        current.member?.allowed != true) {
-      throw const SquarePreflightException('此操作需要有效会员', 'membergate_required');
-    }
-    final plan = current.memberDeadline > current.now
-        ? current.member?.plan
-        : null;
+    final plan = SubscriptionService._lightPlan(session);
     final limits = <String, int>{};
     _copyNumbers(current.gate['daily_limits'], limits);
     if (plan != null) {
@@ -1151,7 +904,7 @@ final class MembershipResourceGate implements SquareResourceGate {
 final class _ResourceScope {
   _ResourceScope(this.session);
   SquareSession session;
-  int anchor = 0, deadline = 0, memberDeadline = 0;
+  int anchor = 0, deadline = 0;
   Stopwatch clock = Stopwatch();
   int receivedAt = DateTime.now().millisecondsSinceEpoch;
   int get now {
@@ -1161,7 +914,6 @@ final class _ResourceScope {
   }
 
   Map<String, dynamic> gate = {};
-  SquareResourceAuthorization? member;
   bool attachmentAvailable = false;
   Map<String, int> gauges = {};
   final Map<(String, int), int> confirmed = {};
@@ -1171,7 +923,6 @@ final class _ResourceScope {
   void invalidateStock() {
     stockRevision++;
     gauges.clear();
-    memberDeadline = 0;
     SubscriptionService._authorizations.remove(session.cidNumber);
   }
 

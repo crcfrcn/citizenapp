@@ -169,11 +169,11 @@ class _UserProfilePageState extends State<UserProfilePage> {
       final identityResolver = context.read<FinalizedIdentityResolver?>();
       if (sdk != null && identityResolver != null) {
         _subscriptionService = SubscriptionService(
+          chainData: context.read<ChainDataService?>(),
           wallet: sdk,
           chain: sdk,
           transactions: sdk,
           identityResolver: identityResolver,
-          sessionProvider: _sessionProvider,
         );
       }
     }

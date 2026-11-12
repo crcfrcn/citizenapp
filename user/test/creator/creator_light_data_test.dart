@@ -1,3 +1,4 @@
+import 'package:citizen_user/creator/creator_overview.dart';
 import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_testing/chain_data_fixture.dart' as f;
 import 'package:citizen_user/creator/creator_page.dart';
@@ -14,6 +15,8 @@ class _Gate extends Fake implements CidBusinessGate {
 }
 
 class _Service extends Fake implements CreatorService {
+  @override
+  Future<CreatorOverview?> cachedOverview(String cid) async => null;
   int calls = 0;
   @override
   Future<CreatorPageData> load({String? expectedCidNumber}) async {

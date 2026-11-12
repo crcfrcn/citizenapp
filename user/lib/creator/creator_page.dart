@@ -1,6 +1,5 @@
 import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_user/membership/subscription_service.dart';
-import 'package:citizen_user/notifications.dart';
 import 'package:provider/provider.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
@@ -77,7 +76,6 @@ class _CreatorPageState extends State<CreatorPage> {
       ),
     };
     MembershipRevision.instance.listenable.addListener(_onMembershipChanged);
-    Notifications.instance.addListener(_onNotificationChanged);
   }
 
   @override
@@ -110,10 +108,10 @@ class _CreatorPageState extends State<CreatorPage> {
 
   @override
   void dispose() {
+    _releaseCreator?.call();
     _chainData?.removeListener(_onChainData);
     _accountSecurity?.revision.removeListener(_onIdentityChanged);
     MembershipRevision.instance.listenable.removeListener(_onMembershipChanged);
-    Notifications.instance.removeListener(_onNotificationChanged);
     super.dispose();
   }
 
@@ -122,6 +120,8 @@ class _CreatorPageState extends State<CreatorPage> {
     if (mounted) unawaited(_bootstrap());
   }
 
+  VoidCallback? _releaseCreator;
+  String? _watchedCreator;
   void _onChainData() {
     final data = _chainData?.snapshot;
     if (mounted && data == null && _chainData != null) {
@@ -135,7 +135,8 @@ class _CreatorPageState extends State<CreatorPage> {
         !_businessReady ||
         data == null ||
         _chainData!.isStale ||
-        data.ownCid != _cidNumber)
+        data.ownCid != _cidNumber ||
+        data.own?.creatorTiers == null)
       return;
     setState(
       () => _data = data.memberActive(_cidNumber)
@@ -147,31 +148,6 @@ class _CreatorPageState extends State<CreatorPage> {
     );
   }
 
-  void _onNotificationChanged() {
-    if (!mounted || !_businessReady || _data?.gated == true) return;
-    final raw = Notifications.instance.creatorFor(_cidNumber)?['overview'];
-    if (raw is! Map<String, dynamic> ||
-        ['subscriber_count', 'monthly_income_fen', 'tier_count'].any(
-          (key) =>
-              raw[key] is! int || raw[key] < 0 || raw[key] > 9007199254740991,
-        ))
-      return;
-    final overview = CreatorOverview.fromJson(raw);
-    final wasResolved = _overviewResolved;
-    _overviewResolved = true;
-    final previous = _data?.overview;
-    if (wasResolved &&
-        previous?.subscriberCount == overview.subscriberCount &&
-        previous?.monthlyIncomeFen == overview.monthlyIncomeFen &&
-        previous?.tierCount == overview.tierCount)
-      return;
-    setState(
-      () =>
-          _data = CreatorPageData.active(plan: _data?.plan, overview: overview),
-    );
-  }
-
-  /// 会员动作确认后只刷新同一永久 CID；广播本身不直接授予页面能力。
   void _onMembershipChanged() {
     final event = MembershipRevision.instance.listenable.value;
     if (!mounted ||
@@ -183,7 +159,26 @@ class _CreatorPageState extends State<CreatorPage> {
     unawaited(_bootstrap());
   }
 
-  /// 身份变化才使当前请求失效；统计更新保留同一CID的请求代次。
+  Future<void> _restoreOverview() async {
+    final cid = _cidNumber;
+    CreatorOverview? value;
+    try {
+      value = await _service.cachedOverview(cid);
+    } on Exception {
+      return;
+    }
+    final restored = value;
+    if (!mounted ||
+        cid != _cidNumber ||
+        restored == null ||
+        _data?.gated == true)
+      return;
+    setState(() {
+      _overviewResolved = true;
+      _data = CreatorPageData.active(plan: _data?.plan, overview: restored);
+    });
+  }
+
   Future<void> _bootstrap() async {
     final generation = ++_loadGeneration;
     if (_identityConfirmed) setState(() => _identityConfirmed = false);
@@ -215,6 +210,11 @@ class _CreatorPageState extends State<CreatorPage> {
         return;
       }
 
+      if (_watchedCreator != cidNumber) {
+        _releaseCreator?.call();
+        _releaseCreator = _chainData?.watchCreator(cidNumber);
+        _watchedCreator = cidNumber;
+      }
       final cidChanged = cidNumber != _cidNumber;
       setState(() {
         _identityConfirmed = true;
@@ -228,6 +228,7 @@ class _CreatorPageState extends State<CreatorPage> {
         }
       });
       _onChainData();
+      await _restoreOverview();
     } on Exception catch (e) {
       if (!mounted || generation != _loadGeneration) return;
       setState(() {

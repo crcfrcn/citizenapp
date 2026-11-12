@@ -29,6 +29,7 @@ void main() {
     expect(
       request.toJson().keys,
       unorderedEquals([
+        'token_purpose',
         'service_origin',
         'nonce_id',
         'expires_at',
