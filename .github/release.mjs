@@ -37,18 +37,10 @@ export function releaseDownloadArgs({tag,repo,assets,label,output,uploaded=false
     return ['release','download',tag,'--repo',repo,'--pattern',matches[0].name,'--output',output];
 }
 
-export async function readVersion(platform,installed,environment=process.env,{read,readInitial}={}) {
+export async function readVersion(platform,environment=process.env,{read=path=>api(environment,path),readInitial}={}) {
     const tagPrefix=prefix(platform);
     const valid = value => typeof value === 'string' && /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u.test(value);
     const fits = value => value.split('.').every(part => BigInt(part) < 2n ** 64n);
-    if (installed) {
-      const local = {...environment,PATH:[environment.PATH,'/opt/homebrew/bin','/usr/local/bin'].filter(Boolean).join(':'),
-        GH_HOST:'github.com',GH_PROMPT_DISABLED:'1',GH_NO_UPDATE_NOTIFIER:'1',GH_DEBUG:''};
-      read ??= path => api(local,path,'crcfrcn/citizenapp',
-        (command,args,options)=>execFileSync(command,args,{...options,timeout:30000}));
-    } else {
-      read ??= path => api(environment,path);
-    }
     const releases = await readReleases(read,'公民');
     const candidates = releases.filter(row => row.draft === false && row.prerelease === false
       && typeof row.tag_name === 'string' && row.tag_name.startsWith(tagPrefix))
@@ -59,8 +51,7 @@ export async function readVersion(platform,installed,environment=process.env,{re
       try { proof = JSON.parse(release.body); } catch { continue; }
       if (proof?.product_id !== 'citizenapp' || proof.platform !== platform) continue;
       if (proof.schema !== 1 || !valid(proof.version) || release.tag_name !== tagPrefix + proof.version
-          || (!installed && !fits(proof.version))
-          || (installed && (!Number.isSafeInteger(proof.version_code) || proof.version_code <= 0))
+          || !fits(proof.version)
           || !Number.isSafeInteger(proof.run_id) || proof.run_id <= 0) throw Error('公民正式版本记录无效');
       const run = await read('actions/runs/' + proof.run_id);
       if (run.status !== 'completed' || run.conclusion !== 'success') continue;
@@ -70,19 +61,14 @@ export async function readVersion(platform,installed,environment=process.env,{re
       break;
     }
     const initial = () => /^version:\s*([^+\s]+)(?:\+(\d+))?/mu.exec(readInitial?.() ?? readFileSync(join(process.cwd(),'pubspec.yaml'),'utf8'));
-    if (installed) {
-      const base = selected ? [selected.version,String(selected.version_code)] : initial().slice(1);
-      return {version:base[0], buildNumber:base[1] || '1'};
-    } else {
-      let version = selected?.version || initial()[1];
-      if (selected) {
-        const parts = version.split('.');
-        parts[2] = String(BigInt(parts[2]) + 1n);
-        version = parts.join('.');
-      }
-      if (!valid(version) || !fits(version)) throw Error('公民本轮版本无效');
-      return version;
+    let version = selected?.version || initial()[1];
+    if (selected) {
+      const parts = version.split('.');
+      parts[2] = String(BigInt(parts[2]) + 1n);
+      version = parts.join('.');
     }
+    if (!valid(version) || !fits(version)) throw Error('公民本轮版本无效');
+    return version;
 }
 
 function release(platform,environment) {
@@ -316,8 +302,7 @@ async function main([step,platform],environment) {
     check(Object.hasOwn(platforms,platform),'未知公民发布平台：'+(platform||''));
     environment={...environment,PLATFORM:platform};
     switch(step){
-        case 'version': appendFileSync(environment.GITHUB_OUTPUT,'version='+await readVersion(platform,false,environment)+'\n'); break;
-        case 'installed': console.log(JSON.stringify(await readVersion(platform,true,environment))); break;
+        case 'version': appendFileSync(environment.GITHUB_OUTPUT,'version='+await readVersion(platform,environment)+'\n'); break;
         case 'prepare': prepare(platform,environment); break;
         case 'assemble': await (await import('../scripts/build.mjs')).assembleProject(environment); break;
         case 'test-inputs': testInputs(environment); break;

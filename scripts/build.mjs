@@ -94,8 +94,9 @@ export async function build(platform, options={}) {
     writeFileSync(activeMarker, JSON.stringify({pid: process.pid}), {flag: 'wx', mode: 0o600});
     try {
         const flutter = join(environment.FLUTTER_ROOT, 'bin/flutter');
-        const version = ['--build-name', environment.CITIZENAPP_VERSION, '--build-number',
-            options.local ? environment.CITIZENAPP_BUILD_NUMBER : environment.GITHUB_RUN_NUMBER];
+        // 本机由Flutter读取工程pubspec版本；只有塔塔自动化覆盖正式版号及构建号。
+        const version = options.local ? [] : ['--build-name', environment.CITIZENAPP_VERSION,
+            '--build-number', environment.GITHUB_RUN_NUMBER];
         const output = join(work, 'artifact');
         if (!options.local) mkdirSync(output);
         const title = `公民·${platform === 'ios' ? 'iOS' : 'Android'}·v${environment.CITIZENAPP_VERSION}`;
@@ -120,12 +121,6 @@ export async function build(platform, options={}) {
         // 成败不决定现场占用；只有编译进程组全部退出后才释放标记。
         if (!groups.size) rmSync(activeMarker);
     }
-}
-
-async function installedBuildVersion(platform) {
-    const result = await run(process.execPath, [join(root,'.github/release.mjs'),'installed',platform],
-        root,true,process.env,'读取公民正式版本');
-    return JSON.parse(result);
 }
 
 // SDK只在本轮开始时选择一次正式Release，之后固定准确来源。
@@ -539,16 +534,14 @@ export async function prepareFlutter(platform, environment = process.env, {
  }
 }
 
-export async function compile(platform,{prepare = prepareFlutter, readVersion = installedBuildVersion} = {}){
+export async function compile(platform,{prepare = prepareFlutter} = {}){
  const flutterRoot=await prepare(platform);
- const selected=await readVersion(platform);
  const parent=join(root,'target/build');mkdirSync(parent,{recursive:true});
  if(realpathSync(parent)!==parent)throw Error('本机编译现场经过链接');
  const work=mkdtempSync(join(parent,'local-'));let safe=true;
  const cache=join(root,'target/cache');mkdirSync(cache,{recursive:true});
- // 本机沿用本平台正式版本与构建号，安装仍归控制台。
+ // 本机保留pubspec版本声明，签名及设备安装仍归控制台。
  const environment={...process.env,GITHUB_ACTIONS:'false',GITHUB_WORKSPACE:root,WORK:work,PLATFORM:platform,
-  CITIZENAPP_VERSION:selected.version,CITIZENAPP_BUILD_NUMBER:selected.buildNumber,
   GIT_ALLOW_PROTOCOL:'file:https',
   FLUTTER_ROOT:flutterRoot,PUB_CACHE:process.env.PUB_CACHE||join(process.env.HOME,'.pub-cache'),GRADLE_USER_HOME:process.env.GRADLE_USER_HOME||join(dirname(flutterRoot),'gradle'),
   CARGO_TARGET_DIR:process.env.CARGO_TARGET_DIR||join(cache,'rust'),RUSTUP_TOOLCHAIN:'1.97.1',

@@ -1,7 +1,7 @@
 name: citizenapp
 description: CitizenApp mobile client using CitizenSDK blockchain capabilities.
 publish_to: "none"
-version: 1.0.0+40
+version: 1.0.0+52
 
 environment:
   sdk: ">=3.8.0 <4.0.0"

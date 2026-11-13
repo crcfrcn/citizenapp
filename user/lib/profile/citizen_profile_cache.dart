@@ -14,6 +14,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:citizen_storage/user_isar.dart';
 import 'package:citizen_user/profile/citizen_profile.dart';
+import 'package:citizen_system/app_log.dart';
 
 @immutable
 class CitizenProfileRevisionEvent {
@@ -190,9 +191,9 @@ class CitizenProfileCache {
     if (cidNumber.trim().isEmpty) return null;
     final cid = _cid(cidNumber);
     final raw = await UserIsar.instance.read(
-      (db) async =>
-          (await db.collection<user_store.Profile>().getByCidNumber(cid))
-              ?.profileData,
+      (db) async => (await db.collection<user_store.Profile>().getByCidNumber(
+        cid,
+      ))?.profileData,
     );
     if (raw == null) return null;
     try {
@@ -273,7 +274,15 @@ class CitizenProfileCache {
         if (data.containsKey('cid_number')) throw StateError('本地资料归属重复');
         final old = CitizenProfile.fromJson({'cid_number': cid, ...data});
         if (old.profileAt > profile.profileAt) {
-          throw StateError('旧资料不能覆盖较新的本地版本');
+          final error = StateError('旧资料不能覆盖较新的本地版本');
+          AppLog.profileLoadFailure(
+            stage: 'cache_version',
+            error: error,
+            stackTrace: StackTrace.current,
+            localVersion: old.profileAt,
+            remoteVersion: profile.profileAt,
+          );
+          throw error;
         }
       }
       var changed = current?.profileData != payload;

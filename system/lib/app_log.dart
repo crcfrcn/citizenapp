@@ -317,6 +317,78 @@ class AppLog {
     }
   }
 
+  /// 主页加载诊断只输出固定原因、资料版本和标准调用栈位置，不输出资料正文或凭据。
+  static void profileLoadFailure({
+    required String stage,
+    required Object error,
+    required StackTrace stackTrace,
+    int? localVersion,
+    int? remoteVersion,
+  }) {
+    const stages = {
+      'access',
+      'local_read',
+      'session',
+      'remote_profile',
+      'cache_write',
+      'cache_version',
+      'display',
+    };
+    const reasons = {
+      '旧资料不能覆盖较新的本地版本': 'profile_version_regression',
+      '本地资料归属重复': 'duplicate_profile_owner',
+      '资料恢复事实已变化': 'profile_update_changed',
+      '资料媒体与当前资料归属不一致': 'profile_media_owner_mismatch',
+      '用户主页响应缺少关系、内容分类统计或互关状态': 'profile_response_fields',
+    };
+    final type = switch (error) {
+      StateError() => 'StateError',
+      FormatException() => 'FormatException',
+      TypeError() => 'TypeError',
+      TimeoutException() => 'TimeoutException',
+      PlatformException() => 'PlatformException',
+      CitizenSdkException() => 'CitizenSdkException',
+      _ => 'other',
+    };
+    final message = switch (error) {
+      StateError() => error.message,
+      FormatException() => error.message,
+      _ => null,
+    };
+    String version(int? value) =>
+        value != null && value >= 0 && value <= 9007199254740991
+        ? '$value'
+        : 'none';
+    try {
+      debugPrintSynchronously(
+        '[CitizenProfile] stage=${stages.contains(stage) ? stage : 'other'} '
+        'type=$type reason=${reasons[message] ?? 'other'} '
+        'local_version=${version(localVersion)} remote_version=${version(remoteVersion)}',
+      );
+      // 只提取标准Dart包位置；未知栈文本不回显，避免自定义异常携带业务数据。
+      final location = RegExp(r'package:([A-Za-z0-9_./-]+):(\d+)(?::(\d+))?');
+      final address = RegExp(
+        r'^#\d+\s+abs\s+([0-9a-fA-F]+)\s+virt\s+([0-9a-fA-F]+)',
+      );
+      var index = 0;
+      for (final line in stackTrace.toString().split('\n').take(32)) {
+        final source = location.firstMatch(line);
+        final native = address.firstMatch(line);
+        if (source != null) {
+          debugPrintSynchronously(
+            '[CitizenProfileStack] frame=${index++} ${source.group(0)}',
+          );
+        } else if (native != null) {
+          debugPrintSynchronously(
+            '[CitizenProfileStack] frame=${index++} abs=${native.group(1)} virt=${native.group(2)}',
+          );
+        }
+      }
+    } on Object {
+      // 诊断失败不能替换原异常或改变页面状态。
+    }
+  }
+
   /// 提案读取只报告固定阶段和类别；不得读取异常原文或改变调用方的异常。
   static void proposalFailure({required String stage, required Object error}) {
     final code = switch (error) {

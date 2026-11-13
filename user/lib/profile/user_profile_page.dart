@@ -37,6 +37,7 @@ import 'package:citizen_user/membership/membership_revision.dart';
 import 'package:citizen_user/membership/subscription_service.dart';
 import 'package:citizen_scanner/qr_sign_session_page.dart';
 import 'package:citizen_system/theme/app_theme.dart';
+import 'package:citizen_system/app_log.dart';
 import 'package:citizen_network/hex_codec.dart' show bytesToHex;
 
 /// 推特式用户主页。
@@ -246,10 +247,15 @@ class _UserProfilePageState extends State<UserProfilePage> {
       if (current()) {
         setState(() => _accessReady = true);
       }
-    } on Object catch (error) {
+    } on Object catch (error, stackTrace) {
       if (!current()) {
         return;
       }
+      AppLog.profileLoadFailure(
+        stage: 'access',
+        error: error,
+        stackTrace: stackTrace,
+      );
       setState(() {
         _accessReady = true;
         _accessAllowed = false;
@@ -312,6 +318,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
     bool propagateFailure = false,
   }) async {
     final generation = ++_profileLoadGeneration;
+    var stage = 'local_read';
     try {
       if (!_accessAllowed) {
         return;
@@ -331,18 +338,27 @@ class _UserProfilePageState extends State<UserProfilePage> {
         return;
       }
       // 他人公开主页仍按用户本次访问读取远端；不将本人私有副本用于他人页面。
+      stage = 'session';
       final session = await _ensureSession();
+      stage = 'remote_profile';
       final fresh = await _api.fetchProfile(widget.cidNumber, session: session);
       if (!mounted || generation != _profileLoadGeneration) {
         return;
       }
+      stage = 'cache_write';
       await _cache.write(fresh);
       if (!mounted || generation != _profileLoadGeneration) {
         return;
       }
+      stage = 'display';
       setState(() => _profile = fresh);
       await _loadProfileMedia(fresh);
-    } catch (_) {
+    } catch (error, stackTrace) {
+      AppLog.profileLoadFailure(
+        stage: stage,
+        error: error,
+        stackTrace: stackTrace,
+      );
       if (propagateFailure) {
         rethrow;
       }

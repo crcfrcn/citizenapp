@@ -24,7 +24,7 @@ iOS 和 Android 塔塔自动化在各自原步骤调用 `.github/release.mjs` �
 
 工具使用官方渠道和原锁：Node25.2.1、Flutter3.47.2、Rust1.97.1、Temurin17.0.20.1+1、Gradle9.1.0、AGP9.0.1、KGP2.2.20、NDK28.2.13676358、BuildTools36.0.0、CMake3.31.6和CocoaPods1.17.0。setup-java固定官方v6提交b843ebf9b913146b38da2eaa7aeddf76074ae1ad。显式交付官方运行机Android SDK完整路径；Rust准备iOS真机/模拟器或Android交叉目标。CitizenSDK 的 Git 来源保持在 pubspec.yaml/pubspec.lock，ref统一为main，仓库锁的resolved-ref只记录基线，不再要求人工跟随SDK更新。App 每轮编译开始先固定 CitizenSDK 的来源，本地 chat 随 App 源码进入同轮工程。本机读取 CitizenSDK 本地仓库当前 HEAD 已提交 SHA 与该提交的版本声明，在独立现场冻结源码，调用各SDK既有编译入口；未提交修改不参与。GitHub 从 CitizenSDK 的 Release 列表按最高正式语义版本选择完整包，固定提交、Release ID、生产Run/attempt及产物摘要，再调用各SDK公开consume入口；不以Actions Artifact选版，也不要求SDK提交等于App仓库锁中的历史基线。App 与 SDK 共用 Release 分页、GitHub API 读取和附件下载参数。SDK 仅接收已上传且标签唯一的附件，正式包校验由 SDK 自己执行。准确来源写入本轮sdk-sources.json，并进入本机编译回执及App既有正式发布回执。CitizenSDK 取得组件后不重复编译；GitHub真实读取错误或完整Release缺失直接失败。只在本轮临时工程改写 CitizenSDK 路径与锁；普通工程完成后由官方Pub解析冻结SDK的真实内部依赖，既有锁记录必须保持，仅允许新增由官方package_config指向本轮SDK源码的path包，再以--enforce-lockfile严格消费。内部包清单由SDK声明与Pub解析确定，App不复制清单，不改正式pubspec.lock、不升级第三方；已有缓存优先复用，缺件按产品声明及原锁从官方来源获取。原记录变化直接失败。无可用正式版或真实获取、编译失败直接失败，不回退旧版本、不手填Run、不要求预置交付目录。普通工程视图与原生实现仍归SDK，控制台不参与版本选择。
 
-本机安装与自动化共用发布脚本的正式版本查询。本机复用已有的 gh 登录读取正式 Release 及对应成功 Run，使用原构建号。自动化按已成功版本递增。
+本机编译由Flutter直接读取本轮工程pubspec.yaml的版本号和构建号，不查询GitHub正式Release或Run。只有塔塔自动化通过发布脚本查询本平台已成功正式版本并递增。
 
 本机安装和两端塔塔自动化共用 `scripts/build.mjs` 的 Flutter 准备入口。先查显式 `FLUTTER_ROOT`、本仓 `target/cache/flutter`、系统路径和其它产品已有工具，核对官方 Flutter 3.47.2 固定提交。同版工具直接交官方 `flutter precache` 检查目标平台缓存并补件。只有缺少同版工具才从 Flutter 官方仓取固定版本，核对提交并准备成功后交付缓存。准备失败报告实际工具或校验错误，签名和设备安装继续归塔塔安装器。
 
@@ -2236,7 +2236,7 @@ SDK补传同次job实际产生的固定内部原因时，App按同一白名单�
 
 ## 本机编译资源与版本来源
 
-本机安装只准备对应平台编译产物，跳过 Dart 宿主测试目录和 macOS 宿主 MLS。本机compile读取本平台最新成功正式Release的产品版本及对应构建号；首次没有正式记录时才使用pubspec.yaml初始值。控制台任务号不作为产品版本输入。CitizenSDK 在编译开始固定本机当前 HEAD 已保存提交并调用其公开构建入口；chat 直接使用 App 本轮源码与 chat/mls 原锁，不解析外部聊天产品来源；Pub与npm按原锁装配。npm使用缓存优先模式，本机默认使用本仓target/cache/npm，调用方显式缓存配置优先，缺件按锁获取。塔塔自动化沿用其缓存环境。随后正常build由Flutter按Release刷新原生插件注册；不使用build --no-pub跳过该步骤。Git仅放行本地file与正式源码HTTPS，Cargo沿原锁和已声明的来源执行。塔塔自动化继续使用所属Workflow提供的Run构建号和正式SDK选择。
+本机安装只准备对应平台编译产物，跳过 Dart 宿主测试目录和 macOS 宿主 MLS。本机compile不查询GitHub正式版本或Run，不传--build-name或--build-number，由Flutter直接使用本轮工程中原pubspec.yaml的版本声明。控制台任务号不作为产品版本输入。CitizenSDK 在编译开始固定本机当前 HEAD 已保存提交并调用其公开构建入口；chat 直接使用 App 本轮源码与 chat/mls 原锁，不解析外部聊天产品来源；Pub与npm按原锁装配。npm使用缓存优先模式，本机默认使用本仓target/cache/npm，调用方显式缓存配置优先，缺件按锁获取。塔塔自动化沿用其缓存环境。随后正常build由Flutter按Release刷新原生插件注册；不使用build --no-pub跳过该步骤。Git仅放行本地file与正式源码HTTPS，Cargo沿原锁和已声明的来源执行。塔塔自动化继续使用所属Workflow提供的Run构建号和正式SDK选择。
 
 ## 包与测试归属重构
 
@@ -2376,7 +2376,7 @@ Base名称统一显示Base/贝斯链。两档固定价格为10 USDC或10 USDT购
 
 ### 公民App同平台版本与商店更新
 
-iOS、Android独立发行，软件版号由本平台最新成功正式Release确定下一候选补丁版，失败不增加正式版号；正式Flutter构建名称、安装包、Release和商店上传使用同一版号，系统构建号仅用于平台安装识别。本机安装沿用最新成功正式版本及对应构建号，无成功正式记录时使用pubspec初始值。设置页始终先读取设备真实安装版本；商店查询失败不改写本机版本。
+iOS、Android独立发行，软件版号由本平台最新成功正式Release确定下一候选补丁版，失败不增加正式版号；正式Flutter构建名称、安装包、Release和商店上传使用同一版号，系统构建号仅用于平台安装识别。本机安装使用pubspec.yaml声明的版本号和构建号，不依赖GitHub正式版本及Run状态。设置页始终先读取设备真实安装版本；商店查询失败不改写本机版本。
 
 Android通过Google官方app-update2.1.0查询当前设备可用更新，点击更新只打开本包Google Play商品页。iOS依据Info.plist公开AppStoreId6800953222及StoreKit真实地区，读取Apple公开上架商品版本，点击打开对应App Store商品页。准备提交、商店草稿、GitHub交付完成均不视为当前设备已可安装新版。已移除App内GitHub APK下载、摘要校验、未知应用安装权限、更新FileProvider及直接安装通道；GitHub正式产物证明仍服务于自动化归档和商店上传，不作为手机侧载入口。不改动应用商店审核/上架设置，不改变公民钱包。
 
