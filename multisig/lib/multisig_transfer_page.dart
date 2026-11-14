@@ -286,7 +286,7 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
   /// (`action`),让详情页"提案列表"区域立即看到。
   /// 机构多签的提案历史由其他模块负责,这里 silent skip。
   Future<void> _maybeRecordPersonalProposal({
-    required int proposalId,
+    required BigInt proposalId,
     required String beneficiary,
     required BigInt amountFen,
   }) async {

@@ -66,7 +66,7 @@ class PersonalAccountProposalView {
     this.snapshot,
   });
 
-  final int proposalId;
+  final BigInt proposalId;
   final String actionKind;
   final String proposalState;
   final int yesCount;
@@ -226,14 +226,14 @@ class PersonalProposalHistoryService {
 
   Future<void> _deleteProposalEntity({
     required String accountId,
-    required int proposalId,
+    required BigInt proposalId,
   }) async {
     await UserIsar.instance.writeTxn((isar) async {
       await isar
           .collection<wallet_store.Action>()
           .filter()
           .accountIdEqualTo(accountId)
-          .proposalIdEqualTo(proposalId)
+          .proposalIdTextEqualTo(proposalId.toString())
           .deleteAll();
     });
   }
@@ -243,7 +243,7 @@ class PersonalProposalHistoryService {
   /// [snapshot] 若非空将以 JSON 形式持久化(转账金额 / beneficiary / account_name 等)。
   Future<void> recordOrUpdate({
     required String accountId,
-    required int proposalId,
+    required BigInt proposalId,
     required String actionKind,
     required String status,
     required int yesCount,
@@ -257,7 +257,7 @@ class PersonalProposalHistoryService {
           .collection<wallet_store.Action>()
           .filter()
           .accountIdEqualTo(accountId)
-          .proposalIdEqualTo(proposalId)
+          .proposalIdTextEqualTo(proposalId.toString())
           .findFirst();
 
       final isFinal = status != PersonalProposalStatus.voting;
@@ -284,7 +284,7 @@ class PersonalProposalHistoryService {
 
   // ──── 内部 ─────────────────────────────────────────────
 
-  Future<List<int>> _safeFetchActiveProposalIds(String accountId) async {
+  Future<List<BigInt>> _safeFetchActiveProposalIds(String accountId) async {
     try {
       return await _proposalService.fetchActivePersonalProposalIds(accountId);
     } catch (_) {
@@ -294,7 +294,7 @@ class PersonalProposalHistoryService {
 
   Future<void> _syncActiveProposalToIsar(
     String accountId,
-    int proposalId,
+    BigInt proposalId,
   ) async {
     try {
       final chainStatus = await _proposalService.fetchProposalStatus(
@@ -308,7 +308,7 @@ class PersonalProposalHistoryService {
             .collection<wallet_store.Action>()
             .filter()
             .accountIdEqualTo(accountId)
-            .proposalIdEqualTo(proposalId)
+            .proposalIdTextEqualTo(proposalId.toString())
             .findFirst();
       });
 
@@ -388,7 +388,7 @@ class PersonalProposalHistoryService {
   }
 
   /// 读取 `VotingEngine.ProposalData[id]` 原始字节(`BoundedVec<u8>` SCALE 编码)。
-  Future<Uint8List?> _fetchProposalDataRaw(int proposalId) async {
+  Future<Uint8List?> _fetchProposalDataRaw(BigInt proposalId) async {
     try {
       return await _proposalService.fetchProposalData(proposalId);
     } catch (_) {

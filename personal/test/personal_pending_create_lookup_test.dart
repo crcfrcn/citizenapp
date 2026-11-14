@@ -40,7 +40,7 @@ void main() {
     })();
     await service.recordOrUpdate(
       accountId: personalAccount,
-      proposalId: 5,
+      proposalId: BigInt.from(5),
       actionKind: PersonalProposalAction.create,
       status: PersonalProposalStatus.executed,
       yesCount: 3,
@@ -48,7 +48,7 @@ void main() {
     );
     await service.recordOrUpdate(
       accountId: personalAccount,
-      proposalId: 6,
+      proposalId: BigInt.from(6),
       actionKind: PersonalProposalAction.create,
       status: PersonalProposalStatus.rejected,
       yesCount: 0,
@@ -73,7 +73,7 @@ void main() {
     })();
     await service.recordOrUpdate(
       accountId: personalAccount,
-      proposalId: 99,
+      proposalId: BigInt.from(99),
       actionKind: PersonalProposalAction.create,
       status: PersonalProposalStatus.voting,
       yesCount: 1,
@@ -81,7 +81,7 @@ void main() {
     );
 
     final lookup = PersonalPendingCreateLookup();
-    expect(await lookup.findActiveCreate(personalAccount), 99);
+    expect(await lookup.findActiveCreate(personalAccount), BigInt.from(99));
   });
 
   test('voting 但 action != create(如 transfer)不命中', () async {
@@ -98,7 +98,7 @@ void main() {
     })();
     await service.recordOrUpdate(
       accountId: personalAccount,
-      proposalId: 200,
+      proposalId: BigInt.from(200),
       actionKind: PersonalProposalAction.transfer,
       status: PersonalProposalStatus.voting,
       yesCount: 0,
@@ -125,7 +125,7 @@ void main() {
         '0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
     await service.recordOrUpdate(
       accountId: otherAccountId,
-      proposalId: 77,
+      proposalId: BigInt.from(77),
       actionKind: PersonalProposalAction.create,
       status: PersonalProposalStatus.voting,
       yesCount: 0,
@@ -134,6 +134,6 @@ void main() {
 
     final lookup = PersonalPendingCreateLookup();
     expect(await lookup.findActiveCreate(personalAccount), isNull);
-    expect(await lookup.findActiveCreate(otherAccountId), 77);
+    expect(await lookup.findActiveCreate(otherAccountId), BigInt.from(77));
   });
 }

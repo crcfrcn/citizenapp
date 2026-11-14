@@ -20,7 +20,7 @@ import 'package:citizen_citizen/proposal/proposal_query_service.dart';
 ///   委托本服务,避免多处构造相同的 call。
 ///
 /// Runtime 位置: `pallet_index=20, call_index=0`(InternalVote sub-pallet)。
-/// Call 编码: `[0x14][0x00][proposal_id:u64_le][ticket_claim][approve:bool]`。
+/// Call 编码: `[0x14][0x00][proposal_id:u128_le][ticket_claim][approve:bool]`。
 class InternalVoteService {
   InternalVoteService({
     CitizenSdk? chain,
@@ -103,7 +103,7 @@ class InternalVoteService {
   /// pallet/MODULE_TAG，投票引擎会按 ProposalData 前缀自动分派到对应
   /// `InternalVoteExecutor`；本次写入以同一 finalized 执行的准确事件证明，展示查询仍读取投票引擎 storage。
   Future<({String txHash, int usedNonce, String blockHash})> submit({
-    required int proposalId,
+    required BigInt proposalId,
     required bool approve,
     String? actorCidNumber,
     String? voterRoleCode,
@@ -151,11 +151,11 @@ class InternalVoteService {
 
   static Future<Uint8List> buildCallData({
     required CitizenCallBuilder buildCall,
-    required int proposalId,
+    required BigInt proposalId,
     String? voterRoleCode,
     required bool approve,
   }) {
-    if (proposalId < 0) throw ArgumentError('proposal_id不得为负');
+    if (proposalId.isNegative) throw ArgumentError('proposal_id不得为负');
     final CitizenScaleVariant ticket;
     if (voterRoleCode == null) {
       ticket = (variant: 'Personal', fields: const []);
@@ -205,7 +205,7 @@ class InternalVoteService {
   /// runtime 事件中的 who 是当前签名账户；历史票据的 canonical 账户可能不同。
   /// 只接受本次 finalized 交易的唯一投票事件，不用当前公钥猜历史 storage 主键。
   Future<void> _confirmRuntimeVote({
-    required int proposalId,
+    required BigInt proposalId,
     required CitizenExecution execution,
     required String? actorCidNumber,
     required String? voterRoleCode,
@@ -224,7 +224,7 @@ class InternalVoteService {
     if (matches.length != 1) throw StateError('执行块缺少唯一的本次内部投票事件');
     final event = matches.single;
     final fields = event.fields as Map<String, Object?>;
-    if (event.fieldUnsigned('proposal_id') != BigInt.from(proposalId) ||
+    if (event.fieldUnsigned('proposal_id') != proposalId ||
         fields['approve'] != approve ||
         _hexEncode(event.fieldBytes('who')) != _hexEncode(signerPublicKey) ||
         !ProposalQueryService.eventOptionalText(fields['voter_role_code'], voterRoleCode)) {

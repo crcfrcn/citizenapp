@@ -115,7 +115,7 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
   Set<String> _importedColdAccountIds = const {};
   Set<String> _activatedAccountIds = const {};
   List<LocalProposalSummary> _govProposals = const [];
-  Map<int, ProposalWithDetail> _govProposalDetailsById = const {};
+  Map<BigInt, ProposalWithDetail> _govProposalDetailsById = const {};
 
   // 公权路径专用(只读提案摘要)。
   List<InstitutionProposalSummary> _publicProposals = const [];

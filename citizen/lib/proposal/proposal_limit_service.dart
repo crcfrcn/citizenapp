@@ -17,7 +17,7 @@ class ProposalLimitService {
       ProposalQueryService.maxActiveProposalsPerSubject;
 
   /// 机构按 CID、个人多签按 AccountId 查询同一份 runtime 主体索引。
-  Future<List<int>> fetchActiveProposalIds(InstitutionInfo institution) {
+  Future<List<BigInt>> fetchActiveProposalIds(InstitutionInfo institution) {
     return _queryService.fetchActiveProposalIds(institution);
   }
 }

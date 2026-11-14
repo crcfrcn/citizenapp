@@ -195,7 +195,7 @@ class MultisigTransferProposalFeed {
   }
 
   /// 公民 tab「提案」统一流 id:默认公共机构码 + 当前钱包订阅机构 CID。
-  Future<List<int>> fetchCitizenProposalFeedIds({
+  Future<List<BigInt>> fetchCitizenProposalFeedIds({
     required Set<String> defaultCodes,
     required Set<String> subscribedInstitutionCidNumbers,
     bool forceRefresh = false,
@@ -209,7 +209,7 @@ class MultisigTransferProposalFeed {
   }
 
   /// 治理提案 id:从共享年缓存按机构码过滤,替代 3 次 `ProposalsByOrg` 查询。
-  Future<List<int>> fetchGovernanceProposalIds(
+  Future<List<BigInt>> fetchGovernanceProposalIds(
     Set<String> codes, {
     bool forceRefresh = false,
   }) async {
@@ -217,7 +217,7 @@ class MultisigTransferProposalFeed {
     return _service.filterGovernanceIds(all, codes);
   }
 
-  Future<List<ProposalWithDetail>> fetchProposalsByIds(List<int> ids) {
+  Future<List<ProposalWithDetail>> fetchProposalsByIds(List<BigInt> ids) {
     return _service.fetchProposalsByIds(ids);
   }
 

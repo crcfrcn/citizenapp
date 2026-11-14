@@ -28,7 +28,7 @@ class LegislationVotePage extends StatefulWidget {
     this.queryService,
   });
 
-  final int proposalId;
+  final BigInt proposalId;
 
   /// 当前公民登录态下可用于签名的管理员钱包(由上层注入)。
   final List<CitizenWalletStateAccount> adminWallets;

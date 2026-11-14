@@ -57,7 +57,7 @@ void main() {
             block: block,
           );
         })();
-    expect(await query.fetchAdminVote(7, account), null);
+    expect(await query.fetchAdminVote(BigInt.from(7), account), null);
     for (final value in [0, 1]) {
       chain.value = Uint8List.fromList([value]);
       expect(
@@ -67,7 +67,7 @@ void main() {
           getStorage: chain.getStorage,
           getStorageBatch: chain.getStorageBatch,
           block: block,
-        ).fetchAdminVote(7, account),
+        ).fetchAdminVote(BigInt.from(7), account),
         value == 1,
       );
     }
@@ -87,7 +87,7 @@ void main() {
           getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
           getStorage: chain.getStorage,
           getStorageBatch: chain.getStorageBatch,
-        ).fetchAdminVote(7, account),
+        ).fetchAdminVote(BigInt.from(7), account),
         throwsFormatException,
       );
     });
@@ -99,7 +99,7 @@ void main() {
       getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
       getStorage: chain.getStorage,
       getStorageBatch: chain.getStorageBatch,
-    ).fetchInstitutionTicketVote(7, '机构', '岗位', account);
+    ).fetchInstitutionTicketVote(BigInt.from(7), '机构', '岗位', account);
     final suffix = [
       1,
       utf8.encode('机构').length << 2,
@@ -121,7 +121,7 @@ void main() {
       getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
       getStorage: chain.getStorage,
       getStorageBatch: chain.getStorageBatch,
-    ).fetchAdminVotesBatch(7, [...accounts, accounts.first]);
+    ).fetchAdminVotesBatch(BigInt.from(7), [...accounts, accounts.first]);
     expect(result.length, 201);
     expect(chain.batches, 3);
     expect(chain.heads, 1);
@@ -137,7 +137,7 @@ void main() {
           getStorage: reads0.getStorage,
           getStorageBatch: reads0.getStorageBatch,
         );
-      })().fetchAdminVotesBatch(7, [account]),
+      })().fetchAdminVotesBatch(BigInt.from(7), [account]),
       throwsFormatException,
     );
   });
@@ -152,14 +152,14 @@ void main() {
             getStorageBatch: reads0.getStorageBatch,
           );
         })();
-    await expectLater(query.fetchAdminVote(7, '01'), throwsFormatException);
+    await expectLater(query.fetchAdminVote(BigInt.from(7), '01'), throwsFormatException);
     await expectLater(
       InternalVoteQueryService(
         getFinalizedHead: chain.getFinalizedHead,
         getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
         getStorage: chain.getStorage,
         getStorageBatch: chain.getStorageBatch,
-      ).fetchInstitutionTicketVote(7, 'CID', '', account),
+      ).fetchInstitutionTicketVote(BigInt.from(7), 'CID', '', account),
       throwsArgumentError,
     );
     await expectLater(
@@ -168,7 +168,7 @@ void main() {
         getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
         getStorage: chain.getStorage,
         getStorageBatch: chain.getStorageBatch,
-      ).fetchAdminVote(-1, account),
+      ).fetchAdminVote(BigInt.from(-1), account),
       throwsArgumentError,
     );
     expect(chain.refs, isEmpty);

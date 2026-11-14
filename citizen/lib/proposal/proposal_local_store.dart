@@ -1,3 +1,4 @@
+import 'package:isar_community/isar.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_storage/user_isar.dart'
     as wallet_store
@@ -39,14 +40,14 @@ class ProposalLocalStore {
     return readSummariesForIds(index.ids);
   }
 
-  Future<List<LocalProposalSummary>> readSummariesForIds(List<int> ids) {
+  Future<List<LocalProposalSummary>> readSummariesForIds(List<BigInt> ids) {
     if (ids.isEmpty) return Future.value(const []);
     return UserIsar.instance.read((isar) async {
       final result = <LocalProposalSummary>[];
       for (final id in ids) {
         final entity = await isar
             .collection<wallet_store.Summary>()
-            .getByProposalId(id);
+            .filter().proposalIdTextEqualTo(id.toString()).findFirst();
         final summary = entity == null
             ? null
             : LocalProposalSummary.fromJsonString(
@@ -61,7 +62,7 @@ class ProposalLocalStore {
     });
   }
 
-  Future<void> putInstitutionIndex(String cidNumber, List<int> ids) {
+  Future<void> putInstitutionIndex(String cidNumber, List<BigInt> ids) {
     return _putIndex(cidNumber, ids);
   }
 
@@ -70,12 +71,10 @@ class ProposalLocalStore {
     await UserIsar.instance.writeTxn((isar) async {
       for (final summary in summaries) {
         final entity =
-            await isar.collection<wallet_store.Summary>().getByProposalId(
-              summary.proposalId,
-            ) ??
+            await isar.collection<wallet_store.Summary>().filter().proposalIdTextEqualTo(summary.proposalId.toString()).findFirst() ??
             (wallet_store.Summary()..proposalId = summary.proposalId);
         entity.bodyData = jsonEncode(summary.toJson());
-        await isar.collection<wallet_store.Summary>().putByProposalId(entity);
+        await isar.collection<wallet_store.Summary>().put(entity);
       }
     });
   }
@@ -95,15 +94,15 @@ class ProposalLocalStore {
       return entity == null
           ? null
           : ProposalLocalIndex(
-              ids: List<int>.unmodifiable(entity.proposalIds),
+              ids: List<BigInt>.unmodifiable(entity.proposalIds),
               syncedAt: entity.syncedAt,
             );
     });
   }
 
-  Future<void> _putIndex(String cidNumber, List<int> ids) async {
+  Future<void> _putIndex(String cidNumber, List<BigInt> ids) async {
     final now = DateTime.now().millisecondsSinceEpoch;
-    final proposalIds = List<int>.unmodifiable(ids);
+    final proposalIds = List<BigInt>.unmodifiable(ids);
     await UserIsar.instance.writeTxn((isar) async {
       final entity =
           await isar.collection<wallet_store.ProposalList>().getByCidNumber(
@@ -121,7 +120,7 @@ class ProposalLocalStore {
 class ProposalLocalIndex {
   const ProposalLocalIndex({required this.ids, required this.syncedAt});
 
-  final List<int> ids;
+  final List<BigInt> ids;
   final int syncedAt;
 
   bool isFresh(Duration ttl) {
@@ -151,7 +150,7 @@ class LocalProposalSummary {
     this.fullName,
   });
 
-  final int proposalId;
+  final BigInt proposalId;
   final int kind;
   final int stage;
   final int status;
@@ -160,7 +159,7 @@ class LocalProposalSummary {
   final String? executionAccountId;
   final List<String> subjectCidNumbers;
   final int? displayYear;
-  final int? displaySeqInYear;
+  final BigInt? displaySeqInYear;
   final String? cidNumber;
   final String? fullName;
   final String title;
@@ -297,7 +296,7 @@ class LocalProposalSummary {
     'execution_account_id': executionAccountId,
     'subject_cid_numbers': subjectCidNumbers,
     'display_year': displayYear,
-    'display_seq_in_year': displaySeqInYear,
+    'display_seq_in_year': displaySeqInYear?.toString(),
     'cid_number': cidNumber,
     'cid_full_name': fullName,
     'title': title,
@@ -309,7 +308,7 @@ class LocalProposalSummary {
 
   static LocalProposalSummary? fromJsonString(
     String? raw, {
-    required int proposalId,
+    required BigInt proposalId,
   }) {
     if (raw == null || raw.isEmpty) return null;
     try {
@@ -344,7 +343,7 @@ class LocalProposalSummary {
         executionAccountId: _toNullableString(decoded['execution_account_id']),
         subjectCidNumbers: _toStringList(decoded['subject_cid_numbers']),
         displayYear: _toInt(decoded['display_year']),
-        displaySeqInYear: _toInt(decoded['display_seq_in_year']),
+        displaySeqInYear: BigInt.tryParse(decoded['display_seq_in_year'].toString()),
         cidNumber: _toNullableString(decoded['cid_number']),
         fullName: _toNullableString(decoded['cid_full_name']),
         title: title,

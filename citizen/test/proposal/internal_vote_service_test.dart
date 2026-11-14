@@ -88,13 +88,7 @@ Uint8List voteEvents({
     joint ? 21 : 20,
     0,
     id,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
+    ...List.filled(15, 0),
     if (joint) ...[utf8.encode(cid).length << 2, ...utf8.encode(cid)],
     ...List.filled(32, who),
     if (!joint) role == null ? 0 : 1,
@@ -132,7 +126,7 @@ class Chain extends TestChainReads {
     // 只交付真实提案元数据；若实现再用签名公钥查历史票据，此夹具立即失败。
     expect(key.sublist(0, 16), Hasher.twoxx128.hashString('VotingEngine'));
     expect(key.sublist(16, 32), Hasher.twoxx128.hashString('Proposals'));
-    expect(key.sublist(key.length - 8), [7, 0, 0, 0, 0, 0, 0, 0]);
+    expect(key.sublist(key.length - 16), [7, ...List.filled(15, 0)]);
     return Uint8List.fromList([
       0,
       0,
@@ -173,7 +167,7 @@ void main() {
               consumePreparedTransactionQrResponse:
                   tx.consumePreparedTransactionQrResponse,
             ).submit(
-              proposalId: 7,
+              proposalId: BigInt.from(7),
               approve: true,
               actorCidNumber: institutional ? 'CID-A' : null,
               voterRoleCode: institutional ? 'DIRECTOR' : null,
@@ -187,7 +181,8 @@ void main() {
         expect(chain.reads.every((ref) => identical(ref, block)), true);
         expect(tx.consumeCount, cold ? 1 : 0);
         expect(tx.callData!.last, 1);
-        expect(tx.callData![10], institutional ? 1 : 0);
+        final (_, idWidth) = CitizenScale.readCompact(tx.callData!, 2);
+        expect(tx.callData![2 + idWidth], institutional ? 1 : 0);
       });
     }
     for (final fields in [
@@ -221,7 +216,7 @@ void main() {
                   tx.consumePreparedTransactionQrResponse,
             );
           })().submit(
-            proposalId: 7,
+            proposalId: BigInt.from(7),
             approve: true,
             actorCidNumber: fields.$1,
             voterRoleCode: fields.$2,
@@ -288,7 +283,7 @@ void main() {
                   reads0.consumePreparedTransactionQrResponse,
             );
           })().submit(
-            proposalId: 7,
+            proposalId: BigInt.from(7),
             actorCidNumber: 'CID-A',
             voterRoleCode: 'DIRECTOR',
             approve: true,
@@ -324,7 +319,7 @@ void main() {
                   tx.consumePreparedTransactionQrResponse,
             );
           })().submit(
-            proposalId: 7,
+            proposalId: BigInt.from(7),
             approve: false,
             signerPublicKey: signer,
             externalSigning: (_) async {
@@ -367,7 +362,7 @@ void main() {
                 reads0.consumePreparedTransactionQrResponse,
           );
         })().submit(
-          proposalId: 7,
+          proposalId: BigInt.from(7),
           approve: true,
           signerPublicKey: signer,
           externalSigning: (_) async => null,
@@ -407,7 +402,7 @@ void main() {
                 tx.consumePreparedTransactionQrResponse,
           );
         })().submit(
-          proposalId: 7,
+          proposalId: BigInt.from(7),
           approve: true,
           signerPublicKey: signer,
           externalSigning: (_) async => null,
@@ -421,11 +416,17 @@ void main() {
   });
 }
 
-Future<Uint8List> _buildCall(String pallet, String method, Object fields) async {
-  final runtime = await CitizenSdkTestFixture.runtimeContext(CitizenBlockRef(
-    hash: '0x${'11' * 32}',
-    number: BigInt.one,
-    finality: CitizenBlockFinality.finalized,
-  ));
+Future<Uint8List> _buildCall(
+  String pallet,
+  String method,
+  Object fields,
+) async {
+  final runtime = await CitizenSdkTestFixture.runtimeContext(
+    CitizenBlockRef(
+      hash: '0x${'11' * 32}',
+      number: BigInt.one,
+      finality: CitizenBlockFinality.finalized,
+    ),
+  );
   return runtime.encodeCall(pallet, method, fields);
 }

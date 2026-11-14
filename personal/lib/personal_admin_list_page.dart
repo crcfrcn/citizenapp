@@ -82,7 +82,7 @@ class _PersonalAdminListPageState extends State<PersonalAdminListPage> {
 
   bool _loading = true;
   String? _error;
-  int? _proposalId;
+  BigInt? _proposalId;
   Map<String, bool?> _votes = const {};
 
   @override

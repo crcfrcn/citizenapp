@@ -107,4 +107,32 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
   }
+  for (final year in ['0000', '2026', '9999', '10000', '4294967295', '4294967296', '02026']) {
+    testWidgets('CID年份 $year 的头像身份订阅遵守u32边界', (tester) async {
+      final cid = 'CN000-CTZN0-000000001-$year';
+      final watched = <String>{};
+      final reader = f.Reader();
+      reader.behavior = (a, b, citizens, creators) async {
+        watched.addAll(citizens);
+        return f.snapshot(b, a, citizens: citizens, creators: creators);
+      };
+      final source = ChainDataService(
+        reader: reader, getFinalizedHead: () async => f.block(103),
+        getGenesisHash: () async => f.hash(0), getAccount: () async => f.account(1),
+      );
+      addTearDown(source.close);
+      await source.start();
+      await tester.pumpWidget(
+        ChangeNotifierProvider<ChainDataService>.value(
+          value: source, child: MaterialApp(home: Scaffold(body: ProfileAvatar(seed: cid, size: 80))),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final accepted = !['4294967296', '02026'].contains(year);
+      expect(watched.contains(cid), accepted);
+      expect(find.byType(IdentityBadge), accepted ? findsOneWidget : findsNothing);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
+
 }

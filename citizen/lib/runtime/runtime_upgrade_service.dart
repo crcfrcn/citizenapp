@@ -127,7 +127,7 @@ class RuntimeUpgradeService {
   /// 联合投票必须等待 finalized，并核对同一交易的完整 runtime 投票事件。
   /// tx_hash 只代表交易提交，不能代表投票已经生效。
   Future<({String txHash, int usedNonce, String blockHash})> submitJointVote({
-    required int proposalId,
+    required BigInt proposalId,
     required String actorCidNumber,
     required String voterRoleCode,
     required bool approve,
@@ -175,7 +175,7 @@ class RuntimeUpgradeService {
   ///   + code_hash: [u8;32] + expected_pow_params_hash: [u8;32]
   ///   + PowDifficultyParams 固定字段。真实状态只读取 VotingEngine::Proposals.status。
   Future<RuntimeUpgradeProposalInfo?> fetchRuntimeUpgradeProposal(
-    int proposalId,
+    BigInt proposalId,
   ) async {
     final raw = await _readStorage('VotingEngine', 'ProposalData', [proposalId]);
     if (raw == null || raw.isEmpty) return null;
@@ -187,7 +187,7 @@ class RuntimeUpgradeService {
   /// 分页列表会批量读取 ProposalData，随后在内存里按提案类型解码；
   /// 这里提供公共入口，避免不同页面各自复制一套 runtime 提案解码逻辑。
   RuntimeUpgradeProposalInfo? decodeRuntimeUpgradeStorageValue(
-    int proposalId,
+    BigInt proposalId,
     Uint8List raw,
   ) {
     try {
@@ -205,7 +205,7 @@ class RuntimeUpgradeService {
   /// 查询联合投票计数（JointTallies）。
   ///
   /// Value: VoteCountU32 { yes: u32, no: u32 } = 8 bytes。
-  Future<({int yes, int no})> fetchJointTally(int proposalId) async {
+  Future<({int yes, int no})> fetchJointTally(BigInt proposalId) async {
     final data = await _readStorage('JointVote', 'JointTallies', [proposalId]);
     if (data == null || data.length != 8) return (yes: 0, no: 0);
     // VoteCountU32: { yes: u32, no: u32 } — 4+4 bytes little-endian
@@ -219,7 +219,7 @@ class RuntimeUpgradeService {
   /// 双 map：blake2_128_concat(u64_le) + blake2_128_concat(CidNumber)。
   /// Value: `Option<bool>` — null=未投票，true=赞成，false=反对。
   Future<bool?> fetchJointVoteByInstitution(
-    int proposalId,
+    BigInt proposalId,
     String actorCidNumber,
   ) async {
     final data = await _readStorage('JointVote', 'JointVotesByInstitution', [proposalId, _cidBytes(actorCidNumber)]);
@@ -228,7 +228,7 @@ class RuntimeUpgradeService {
 
   /// 查询某机构在联合投票阶段的岗位选民票数统计。
   Future<({int yes, int no})> fetchJointInstitutionTally(
-    int proposalId,
+    BigInt proposalId,
     String actorCidNumber,
   ) async {
     final data = await _readStorage('JointVote', 'JointInstitutionTallies', [proposalId, _cidBytes(actorCidNumber)]);
@@ -238,7 +238,7 @@ class RuntimeUpgradeService {
 
   /// 查询某岗位快照选民在某机构联合投票中的投票记录。
   Future<bool?> fetchJointTicketVote(
-    int proposalId,
+    BigInt proposalId,
     String actorCidNumber,
     String voterRoleCode,
     String publicKey, {
@@ -262,7 +262,7 @@ class RuntimeUpgradeService {
   /// 协议升级详情页必须批量读取稳定 storage `JointVotesByTicket`，不能逐个
   /// 岗位选民发起 RPC；storage 旧名不构成管理员授权语义。
   Future<Map<String, bool?>> fetchJointTicketVotesBatch(
-    int proposalId,
+    BigInt proposalId,
     String actorCidNumber,
     String voterRoleCode,
     Iterable<String> accountIds,
@@ -295,16 +295,16 @@ class RuntimeUpgradeService {
   ///
   /// (ADR-018 R2):与内部投票同理,广场上多个联合投票提案合并成单次
   /// 分块读取,避免每提案一次 RPC。
-  Future<Map<int, Map<String, bool?>>> fetchJointTicketVotesForProposals(
+  Future<Map<BigInt, Map<String, bool?>>> fetchJointTicketVotesForProposals(
     Map<
-      int,
+      BigInt,
       ({String actorCidNumber, String voterRoleCode, List<String> accountIds})
     >
     byProposal,
   ) async {
     if (byProposal.values.every((item) => item.accountIds.isEmpty)) return const {};
     final runtime = await _finalizedRuntime();
-    final keyToCoord = <String, ({int pid, String accountId})>{};
+    final keyToCoord = <String, ({BigInt pid, String accountId})>{};
     for (final entry in byProposal.entries) {
       for (final accountId in entry.value.accountIds) {
         final normalizedAccountId = _requireAccountId(accountId);
@@ -321,7 +321,7 @@ class RuntimeUpgradeService {
     }
     if (keyToCoord.isEmpty) return const {};
     final values = await _fetchStorageBatchChunked(runtime.block, keyToCoord.keys);
-    final result = <int, Map<String, bool?>>{};
+    final result = <BigInt, Map<String, bool?>>{};
     keyToCoord.forEach((key, coord) {
       (result[coord.pid] ??= <String, bool?>{})[coord.accountId] =
           _decodeBoolVote(values[key]);
@@ -331,7 +331,7 @@ class RuntimeUpgradeService {
 
   Uint8List? _jointTicketVoteKey(
     CitizenRuntimeContext runtime,
-    int proposalId,
+    BigInt proposalId,
     String actorCidNumber,
     String voterRoleCode,
     String accountId,
@@ -358,7 +358,7 @@ class RuntimeUpgradeService {
   /// 查询联合公投计数（ReferendumTallies）。
   ///
   /// Value: VoteCountU64 { yes: u64, no: u64 } = 16 bytes。
-  Future<({int yes, int no})> fetchReferendumTally(int proposalId) async {
+  Future<({int yes, int no})> fetchReferendumTally(BigInt proposalId) async {
     final data = await _readStorage('JointVote', 'ReferendumTallies', [proposalId]);
     if (data == null || data.length != 16) return (yes: 0, no: 0);
     // VoteCountU64: { yes: u64, no: u64 } — 8+8 bytes little-endian
@@ -369,12 +369,12 @@ class RuntimeUpgradeService {
 
   /// 查询提案完整元数据（status + institution bytes）。
   /// 返回 null 表示提案不存在。
-  Future<ProposalMeta?> fetchProposalMeta(int proposalId) async {
+  Future<ProposalMeta?> fetchProposalMeta(BigInt proposalId) async {
     return _proposalQuery.fetchProposalMeta(proposalId);
   }
 
   /// 查询 NextProposalId（投票引擎全局递增 ID）。
-  Future<int> fetchNextProposalId() {
+  Future<BigInt> fetchNextProposalId() {
     return _proposalQuery.fetchNextProposalId();
   }
 
@@ -382,7 +382,7 @@ class RuntimeUpgradeService {
 
   /// 解码协议升级提案摘要 SCALE 数据。
   RuntimeUpgradeProposalInfo? _decodeRuntimeUpgradeAction(
-    int proposalId,
+    BigInt proposalId,
     Uint8List data,
   ) {
     try {
@@ -465,12 +465,12 @@ class RuntimeUpgradeService {
   // ──── 内部：extrinsic 编码 ────
 
   Future<Uint8List> _buildJointVoteCall({
-    required int proposalId,
+    required BigInt proposalId,
     required String actorCidNumber,
     required String voterRoleCode,
     required bool approve,
   }) {
-    if (proposalId < 0) throw ArgumentError('proposal_id不得为负');
+    if (proposalId.isNegative) throw ArgumentError('proposal_id不得为负');
     return _buildCall('JointVote', 'cast_admin', [
       proposalId,
       _cidBytes(actorCidNumber),
@@ -515,7 +515,7 @@ class RuntimeUpgradeService {
 
   /// who 为当前签名账户；换绑后不能据此猜测历史票据的 canonical storage 键。
   Future<void> _confirmRuntimeJointVote({
-    required int proposalId,
+    required BigInt proposalId,
     required String actorCidNumber,
     required String voterRoleCode,
     required bool approve,
@@ -533,7 +533,7 @@ class RuntimeUpgradeService {
     if (matches.length != 1) throw StateError('执行块缺少唯一的本次联合投票事件');
     final event = matches.single;
     final fields = event.fields as Map<String, Object?>;
-    if (event.fieldUnsigned('proposal_id') != BigInt.from(proposalId) ||
+    if (event.fieldUnsigned('proposal_id') != proposalId ||
         fields['approve'] != approve ||
         _hexEncode(event.fieldBytes('who')) != _hexEncode(signerPublicKey) ||
         utf8.decode(event.fieldBytes('cid_number')) != actorCidNumber ||

@@ -63,7 +63,7 @@ LawVersion _version(int value) => LawVersion(
   chapters: [LawChapter(number: 1, title: '合成章节$value', sections: const [])],
   contentHash: '0x${'01' * 32}',
   voteType: 0,
-  proposalId: 0,
+  proposalId: BigInt.from(0),
   publishedAt: 1,
   effectiveAt: value * 1000,
 );

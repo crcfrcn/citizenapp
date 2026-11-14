@@ -347,8 +347,20 @@ class Summary {
   Id rowId = Isar.autoIncrement;
 
   @Name('proposal_id')
-  @Index(unique: true, replace: true)
-  late int proposalId;
+  int? legacyProposalId;
+
+  /// 提案 ID 的无损十进制值；旧整数列仅供首次打开时回填。
+  @Name('proposal_id_text')
+  @Index()
+  String? proposalIdText;
+
+  @ignore
+  BigInt get proposalId => BigInt.parse(proposalIdText ?? legacyProposalId!.toString());
+  set proposalId(BigInt value) {
+    if (value.isNegative || value.bitLength > 128) throw ArgumentError('提案 ID 超出 u128');
+    proposalIdText = value.toString();
+  }
+
 
   @Name('data')
   late String bodyData;
@@ -366,7 +378,16 @@ class ProposalList {
   late String cidNumber;
 
   @Name('proposal_ids')
-  List<int> proposalIds = [];
+  List<int> legacyProposalIds = [];
+  @Name('proposal_id_texts')
+  List<String> proposalIdTexts = [];
+
+  @ignore
+  List<BigInt> get proposalIds => proposalIdTexts.map(BigInt.parse).toList();
+  set proposalIds(List<BigInt> values) {
+    if (values.any((id) => id.isNegative || id.bitLength > 128)) throw ArgumentError('提案 ID 超出 u128');
+    proposalIdTexts = values.map((id) => id.toString()).toList();
+  }
   @Name('synced_at')
   late int syncedAt;
 }
@@ -379,10 +400,23 @@ class Proposal {
   Id rowId = Isar.autoIncrement;
 
   @Name('kind')
-  @Index(composite: [CompositeIndex('proposalId')], unique: true, replace: true)
+  @Index()
   late String proposalKind;
   @Name('proposal_id')
-  late int proposalId;
+  int? legacyProposalId;
+
+  /// 提案 ID 的无损十进制值；旧整数列仅供首次打开时回填。
+  @Name('proposal_id_text')
+  @Index()
+  String? proposalIdText;
+
+  @ignore
+  BigInt get proposalId => BigInt.parse(proposalIdText ?? legacyProposalId!.toString());
+  set proposalId(BigInt value) {
+    if (value.isNegative || value.bitLength > 128) throw ArgumentError('提案 ID 超出 u128');
+    proposalIdText = value.toString();
+  }
+
 
   @Name('data')
   late String bodyData;
@@ -586,12 +620,25 @@ class Action {
 
   /// 个人多签规范 AccountId；复合索引键之一。
   @Name('account_id')
-  @Index(composite: [CompositeIndex('proposalId')], unique: true, replace: true)
+  @Index()
   late String accountId;
 
   /// 链上提案 ID。
   @Name('proposal_id')
-  late int proposalId;
+  int? legacyProposalId;
+
+  /// 提案 ID 的无损十进制值；旧整数列仅供首次打开时回填。
+  @Name('proposal_id_text')
+  @Index()
+  String? proposalIdText;
+
+  @ignore
+  BigInt get proposalId => BigInt.parse(proposalIdText ?? legacyProposalId!.toString());
+  set proposalId(BigInt value) {
+    if (value.isNegative || value.bitLength > 128) throw ArgumentError('提案 ID 超出 u128');
+    proposalIdText = value.toString();
+  }
+
 
   /// 提案动作:'create' / 'transfer' / 'close'。
   @Name('kind')
@@ -1314,6 +1361,24 @@ class UserIsar {
   }
 
   Future<Isar> _prepareOpened(Isar isar) async {
+    await isar.writeTxn(() async {
+      for (final row in await isar.collection<Summary>().filter().proposalIdTextIsNull().findAll()) {
+        if (row.legacyProposalId != null) { row.proposalIdText = row.legacyProposalId.toString(); await isar.collection<Summary>().put(row); }
+      }
+      for (final row in await isar.collection<Proposal>().filter().proposalIdTextIsNull().findAll()) {
+        if (row.legacyProposalId != null) { row.proposalIdText = row.legacyProposalId.toString(); await isar.collection<Proposal>().put(row); }
+      }
+      for (final row in await isar.collection<Action>().filter().proposalIdTextIsNull().findAll()) {
+        if (row.legacyProposalId != null) { row.proposalIdText = row.legacyProposalId.toString(); await isar.collection<Action>().put(row); }
+      }
+      for (final row in await isar.collection<ProposalList>().where().findAll()) {
+        if (row.legacyProposalIds.isNotEmpty) {
+          if (row.proposalIdTexts.isEmpty) row.proposalIdTexts = row.legacyProposalIds.map((id) => id.toString()).toList();
+          row.legacyProposalIds = [];
+          await isar.collection<ProposalList>().put(row);
+        }
+      }
+    });
     if (!IsarCoreBootstrap.isFlutterTest) {
       await SystemProtectedStorage.protectUserDatabase(
         await IsarCoreBootstrap.resolveDirectory(),

@@ -85,10 +85,15 @@ class _ProfileAvatarState extends State<ProfileAvatar> {
   void _bind() {
     _release?.call();
     _release = null;
+    final yearText = widget.seed.split('-').last;
+    final year = int.tryParse(yearText);
     if (widget.showBadge &&
         RegExp(
-          r'^[A-Z0-9]+-[A-Z0-9]+-[0-9]{9}-[0-9]{4}$',
-        ).hasMatch(widget.seed)) {
+          r'^[A-Z0-9]+-[A-Z0-9]+-[0-9]{9}-[0-9]{4,10}$',
+        ).hasMatch(widget.seed) &&
+        // CID 年份采用 u32 的规范十进制，旧四位年份保持不变。
+        year != null && year <= 0xffffffff &&
+        year.toString().padLeft(4, '0') == yearText) {
       _release = _source?.watchCitizen(widget.seed);
     }
   }

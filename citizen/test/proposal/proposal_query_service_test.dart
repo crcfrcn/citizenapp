@@ -83,13 +83,7 @@ Uint8List eventBytes({
   26,
   event,
   id,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
+  ...List.filled(15, 0),
   if (event == 1) ...[body, 0, 0, 0],
   ...List.filled(32, who),
   if (event == 1) ...[utf8.encode(role).length << 2, ...utf8.encode(role)],
@@ -122,6 +116,13 @@ class Chain extends TestChainReads {
 }
 
 void main() {
+  test('提案ID列表完整保留u128且拒绝旧宽度', () {
+    final id = (BigInt.one << 127) + BigInt.from(19);
+    final raw = Uint8List.fromList([4, ...CitizenScale.unsigned(id, 16)]);
+    expect(ProposalQueryService.decodeActiveProposalIds(raw), [id]);
+    expect(ProposalQueryService.decodeActiveProposalIds(Uint8List.fromList([4, ...List.filled(8, 0)])), isNull);
+  });
+
   test('绑定块查询，缺失与损坏提案严格区分', () async {
     final chain = Chain(),
         query = (() {
@@ -136,7 +137,7 @@ void main() {
             block: block,
           );
         })();
-    expect(await query.fetchProposalMeta(7), isNull);
+    expect(await query.fetchProposalMeta(BigInt.from(7)), isNull);
     chain.data = Uint8List.fromList([
       0,
       0,
@@ -156,7 +157,7 @@ void main() {
       getStorageBatch: chain.getStorageBatch,
       block: block,
     );
-    expect((await anchored.fetchProposalMeta(7))!.status, 0);
+    expect((await anchored.fetchProposalMeta(BigInt.from(7)))!.status, 0);
     expect(chain.reads.single, same(block));
     for (final value in [
       <int>[],
@@ -165,7 +166,7 @@ void main() {
       [0, 0, 9, ...chain.data!.skip(3)],
     ]) {
       chain.data = Uint8List.fromList(value);
-      await expectLater(anchored.fetchProposalMeta(7), throwsFormatException);
+      await expectLater(anchored.fetchProposalMeta(BigInt.from(7)), throwsFormatException);
     }
   });
   test('计票、阈值和NextProposalId损坏不伪装成零或缺失', () async {
@@ -182,7 +183,7 @@ void main() {
             block: block,
           );
         })();
-    expect(await query.fetchNextProposalId(), 0);
+    expect(await query.fetchNextProposalId(), BigInt.from(0));
     final anchored = ProposalQueryService(
       getSystemEvents: chain.getSystemEvents,
       getRuntimeContext: chain.getRuntimeContext,
@@ -193,9 +194,9 @@ void main() {
       block: block,
     );
     await expectLater(anchored.fetchNextProposalId(), throwsFormatException);
-    await expectLater(anchored.fetchVoteTally(7), throwsFormatException);
+    await expectLater(anchored.fetchVoteTally(BigInt.from(7)), throwsFormatException);
     await expectLater(
-      anchored.fetchInternalThresholdSnapshot(7),
+      anchored.fetchInternalThresholdSnapshot(BigInt.from(7)),
       throwsFormatException,
     );
   });

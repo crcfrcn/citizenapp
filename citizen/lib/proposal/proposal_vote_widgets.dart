@@ -546,7 +546,7 @@ class ProposalStatusBadge extends StatelessWidget {
   });
 
   final int? status;
-  final int proposalId;
+  final BigInt proposalId;
 
   @override
   Widget build(BuildContext context) {

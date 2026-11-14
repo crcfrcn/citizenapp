@@ -45,11 +45,11 @@ void main() {
           getRuntimeContext: chain.getRuntimeContext,
           getStorageBatch: chain.getStorageBatch,
         );
-    expect(await query.fetchRepresentativeMeta(7), null);
-    expect(await query.fetchLegislationMeta(7), null);
-    expect(await query.fetchRepresentativeTally(7, 0), (yes: 0, no: 0));
-    expect(await query.fetchReferendumTally(7), (yes: 0, no: 0));
-    expect(await query.fetchOverrideSigns(7), isEmpty);
+    expect(await query.fetchRepresentativeMeta(BigInt.from(7)), null);
+    expect(await query.fetchLegislationMeta(BigInt.from(7)), null);
+    expect(await query.fetchRepresentativeTally(BigInt.from(7), 0), (yes: 0, no: 0));
+    expect(await query.fetchReferendumTally(BigInt.from(7)), (yes: 0, no: 0));
+    expect(await query.fetchOverrideSigns(BigInt.from(7)), isEmpty);
     expect(chain.heads, 0);
   });
   for (final bytes in [
@@ -70,10 +70,10 @@ void main() {
         );
       })();
       await expectLater(
-        query.fetchRepresentativeMeta(7),
+        query.fetchRepresentativeMeta(BigInt.from(7)),
         throwsFormatException,
       );
-      await expectLater(query.fetchLegislationMeta(7), throwsFormatException);
+      await expectLater(query.fetchLegislationMeta(BigInt.from(7)), throwsFormatException);
     });
   }
   test('签署严格校验bool、数量、重复账户、截断和尾随字节', () async {
@@ -95,8 +95,8 @@ void main() {
           getStorageBatch: reads0.getStorageBatch,
         );
       })();
-      await expectLater(query.fetchOverrideSigns(7), throwsFormatException);
-      await expectLater(query.fetchGuardSigns(7), throwsFormatException);
+      await expectLater(query.fetchOverrideSigns(BigInt.from(7)), throwsFormatException);
+      await expectLater(query.fetchGuardSigns(BigInt.from(7)), throwsFormatException);
     }
   });
   test('账本准确保留反对方向，损坏计票与票据失败关闭', () async {
@@ -110,15 +110,15 @@ void main() {
       getRuntimeContext: chain.getRuntimeContext,
       getStorageBatch: chain.getStorageBatch,
     );
-    expect((await query.fetchOverrideSigns(7)).single.approve, false);
+    expect((await query.fetchOverrideSigns(BigInt.from(7))).single.approve, false);
     chain.value = Uint8List.fromList([2]);
     await expectLater(
-      query.fetchRepresentativeTally(7, 0),
+      query.fetchRepresentativeTally(BigInt.from(7), 0),
       throwsFormatException,
     );
-    await expectLater(query.fetchReferendumTally(7), throwsFormatException);
+    await expectLater(query.fetchReferendumTally(BigInt.from(7)), throwsFormatException);
     await expectLater(
-      query.fetchRepresentativeVote(7, 0, 'CID', 'ROLE', '0x${'01' * 32}'),
+      query.fetchRepresentativeVote(BigInt.from(7), 0, 'CID', 'ROLE', '0x${'01' * 32}'),
       throwsFormatException,
     );
   });

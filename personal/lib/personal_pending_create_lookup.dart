@@ -25,7 +25,7 @@ class PersonalPendingCreateLookup {
   /// 1. 多签已激活(创建提案已 EXECUTED,Account 已转 Active);
   /// 2. 创建提案被否决(Account 已删除);
   /// 3. 详情页未触发过历史服务同步,Isar 尚未填充(异常态,管理员子页应回退提示)。
-  Future<int?> findActiveCreate(String accountId) async {
+  Future<BigInt?> findActiveCreate(String accountId) async {
     final entity = await UserIsar.instance.read((isar) {
       return isar
           .collection<wallet_store.Action>()

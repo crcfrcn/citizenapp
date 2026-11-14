@@ -168,7 +168,7 @@ void main() {
       ..._u32(1), ..._s('款'), 0x00, // clause number/text/text_en
       ...List.filled(32, 0), // content_hash
       0x04, // vote_type=Special
-      ..._u64(0), // proposal_id
+      ...List.filled(16, 0), // proposal_id: u128
       ..._u64(10), // published_at
       ..._u64(20), // effective_at
     ]);

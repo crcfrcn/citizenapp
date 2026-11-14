@@ -19420,6 +19420,11 @@ const SummarySchema = CollectionSchema(
       name: r'proposal_id',
       type: IsarType.long,
     ),
+    r'proposal_id_text': PropertySchema(
+      id: 2,
+      name: r'proposal_id_text',
+      type: IsarType.string,
+    ),
   },
 
   estimateSize: _summaryEstimateSize,
@@ -19428,16 +19433,16 @@ const SummarySchema = CollectionSchema(
   deserializeProp: _summaryDeserializeProp,
   idName: r'id',
   indexes: {
-    r'proposal_id': IndexSchema(
-      id: -1697214643687574663,
-      name: r'proposal_id',
-      unique: true,
-      replace: true,
+    r'proposal_id_text': IndexSchema(
+      id: 3073509055988774594,
+      name: r'proposal_id_text',
+      unique: false,
+      replace: false,
       properties: [
         IndexPropertySchema(
-          name: r'proposal_id',
-          type: IndexType.value,
-          caseSensitive: false,
+          name: r'proposal_id_text',
+          type: IndexType.hash,
+          caseSensitive: true,
         ),
       ],
     ),
@@ -19458,6 +19463,12 @@ int _summaryEstimateSize(
 ) {
   var bytesCount = offsets.last;
   bytesCount += 3 + object.bodyData.length * 3;
+  {
+    final value = object.proposalIdText;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
   return bytesCount;
 }
 
@@ -19468,7 +19479,8 @@ void _summarySerialize(
   Map<Type, List<int>> allOffsets,
 ) {
   writer.writeString(offsets[0], object.bodyData);
-  writer.writeLong(offsets[1], object.proposalId);
+  writer.writeLong(offsets[1], object.legacyProposalId);
+  writer.writeString(offsets[2], object.proposalIdText);
 }
 
 Summary _summaryDeserialize(
@@ -19480,7 +19492,8 @@ Summary _summaryDeserialize(
   final object = Summary();
   object.bodyData = reader.readString(offsets[0]);
   object.rowId = id;
-  object.proposalId = reader.readLong(offsets[1]);
+  object.legacyProposalId = reader.readLongOrNull(offsets[1]);
+  object.proposalIdText = reader.readStringOrNull(offsets[2]);
   return object;
 }
 
@@ -19494,7 +19507,9 @@ P _summaryDeserializeProp<P>(
     case 0:
       return (reader.readString(offset)) as P;
     case 1:
-      return (reader.readLong(offset)) as P;
+      return (reader.readLongOrNull(offset)) as P;
+    case 2:
+      return (reader.readStringOrNull(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
   }
@@ -19512,75 +19527,10 @@ void _summaryAttach(IsarCollection<dynamic> col, Id id, Summary object) {
   object.rowId = id;
 }
 
-extension SummaryByIndex on IsarCollection<Summary> {
-  Future<Summary?> getByProposalId(int proposalId) {
-    return getByIndex(r'proposal_id', [proposalId]);
-  }
-
-  Summary? getByProposalIdSync(int proposalId) {
-    return getByIndexSync(r'proposal_id', [proposalId]);
-  }
-
-  Future<bool> deleteByProposalId(int proposalId) {
-    return deleteByIndex(r'proposal_id', [proposalId]);
-  }
-
-  bool deleteByProposalIdSync(int proposalId) {
-    return deleteByIndexSync(r'proposal_id', [proposalId]);
-  }
-
-  Future<List<Summary?>> getAllByProposalId(List<int> proposalIdValues) {
-    final values = proposalIdValues.map((e) => [e]).toList();
-    return getAllByIndex(r'proposal_id', values);
-  }
-
-  List<Summary?> getAllByProposalIdSync(List<int> proposalIdValues) {
-    final values = proposalIdValues.map((e) => [e]).toList();
-    return getAllByIndexSync(r'proposal_id', values);
-  }
-
-  Future<int> deleteAllByProposalId(List<int> proposalIdValues) {
-    final values = proposalIdValues.map((e) => [e]).toList();
-    return deleteAllByIndex(r'proposal_id', values);
-  }
-
-  int deleteAllByProposalIdSync(List<int> proposalIdValues) {
-    final values = proposalIdValues.map((e) => [e]).toList();
-    return deleteAllByIndexSync(r'proposal_id', values);
-  }
-
-  Future<Id> putByProposalId(Summary object) {
-    return putByIndex(r'proposal_id', object);
-  }
-
-  Id putByProposalIdSync(Summary object, {bool saveLinks = true}) {
-    return putByIndexSync(r'proposal_id', object, saveLinks: saveLinks);
-  }
-
-  Future<List<Id>> putAllByProposalId(List<Summary> objects) {
-    return putAllByIndex(r'proposal_id', objects);
-  }
-
-  List<Id> putAllByProposalIdSync(
-    List<Summary> objects, {
-    bool saveLinks = true,
-  }) {
-    return putAllByIndexSync(r'proposal_id', objects, saveLinks: saveLinks);
-  }
-}
-
 extension SummaryQueryWhereSort on QueryBuilder<Summary, Summary, QWhere> {
   QueryBuilder<Summary, Summary, QAfterWhere> anyRowId() {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(const IdWhereClause.any());
-    });
-  }
-
-  QueryBuilder<Summary, Summary, QAfterWhere> anyProposalId() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(
-        const IndexWhereClause.any(indexName: r'proposal_id'),
-      );
     });
   }
 }
@@ -19656,37 +19606,58 @@ extension SummaryQueryWhere on QueryBuilder<Summary, Summary, QWhereClause> {
     });
   }
 
-  QueryBuilder<Summary, Summary, QAfterWhereClause> proposalIdEqualTo(
-    int proposalId,
-  ) {
+  QueryBuilder<Summary, Summary, QAfterWhereClause> proposalIdTextIsNull() {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
-        IndexWhereClause.equalTo(
-          indexName: r'proposal_id',
-          value: [proposalId],
+        IndexWhereClause.equalTo(indexName: r'proposal_id_text', value: [null]),
+      );
+    });
+  }
+
+  QueryBuilder<Summary, Summary, QAfterWhereClause> proposalIdTextIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IndexWhereClause.between(
+          indexName: r'proposal_id_text',
+          lower: [null],
+          includeLower: false,
+          upper: [],
         ),
       );
     });
   }
 
-  QueryBuilder<Summary, Summary, QAfterWhereClause> proposalIdNotEqualTo(
-    int proposalId,
+  QueryBuilder<Summary, Summary, QAfterWhereClause> proposalIdTextEqualTo(
+    String? proposalIdText,
+  ) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IndexWhereClause.equalTo(
+          indexName: r'proposal_id_text',
+          value: [proposalIdText],
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Summary, Summary, QAfterWhereClause> proposalIdTextNotEqualTo(
+    String? proposalIdText,
   ) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'proposal_id',
+                indexName: r'proposal_id_text',
                 lower: [],
-                upper: [proposalId],
+                upper: [proposalIdText],
                 includeUpper: false,
               ),
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'proposal_id',
-                lower: [proposalId],
+                indexName: r'proposal_id_text',
+                lower: [proposalIdText],
                 includeLower: false,
                 upper: [],
               ),
@@ -19695,72 +19666,21 @@ extension SummaryQueryWhere on QueryBuilder<Summary, Summary, QWhereClause> {
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'proposal_id',
-                lower: [proposalId],
+                indexName: r'proposal_id_text',
+                lower: [proposalIdText],
                 includeLower: false,
                 upper: [],
               ),
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'proposal_id',
+                indexName: r'proposal_id_text',
                 lower: [],
-                upper: [proposalId],
+                upper: [proposalIdText],
                 includeUpper: false,
               ),
             );
       }
-    });
-  }
-
-  QueryBuilder<Summary, Summary, QAfterWhereClause> proposalIdGreaterThan(
-    int proposalId, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(
-        IndexWhereClause.between(
-          indexName: r'proposal_id',
-          lower: [proposalId],
-          includeLower: include,
-          upper: [],
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Summary, Summary, QAfterWhereClause> proposalIdLessThan(
-    int proposalId, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(
-        IndexWhereClause.between(
-          indexName: r'proposal_id',
-          lower: [],
-          upper: [proposalId],
-          includeUpper: include,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Summary, Summary, QAfterWhereClause> proposalIdBetween(
-    int lowerProposalId,
-    int upperProposalId, {
-    bool includeLower = true,
-    bool includeUpper = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(
-        IndexWhereClause.between(
-          indexName: r'proposal_id',
-          lower: [lowerProposalId],
-          includeLower: includeLower,
-          upper: [upperProposalId],
-          includeUpper: includeUpper,
-        ),
-      );
     });
   }
 }
@@ -19970,8 +19890,26 @@ extension SummaryQueryFilter
     });
   }
 
-  QueryBuilder<Summary, Summary, QAfterFilterCondition> proposalIdEqualTo(
-    int value,
+  QueryBuilder<Summary, Summary, QAfterFilterCondition>
+  legacyProposalIdIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'proposal_id'),
+      );
+    });
+  }
+
+  QueryBuilder<Summary, Summary, QAfterFilterCondition>
+  legacyProposalIdIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'proposal_id'),
+      );
+    });
+  }
+
+  QueryBuilder<Summary, Summary, QAfterFilterCondition> legacyProposalIdEqualTo(
+    int? value,
   ) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
@@ -19980,10 +19918,8 @@ extension SummaryQueryFilter
     });
   }
 
-  QueryBuilder<Summary, Summary, QAfterFilterCondition> proposalIdGreaterThan(
-    int value, {
-    bool include = false,
-  }) {
+  QueryBuilder<Summary, Summary, QAfterFilterCondition>
+  legacyProposalIdGreaterThan(int? value, {bool include = false}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.greaterThan(
@@ -19995,10 +19931,8 @@ extension SummaryQueryFilter
     });
   }
 
-  QueryBuilder<Summary, Summary, QAfterFilterCondition> proposalIdLessThan(
-    int value, {
-    bool include = false,
-  }) {
+  QueryBuilder<Summary, Summary, QAfterFilterCondition>
+  legacyProposalIdLessThan(int? value, {bool include = false}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.lessThan(
@@ -20010,9 +19944,9 @@ extension SummaryQueryFilter
     });
   }
 
-  QueryBuilder<Summary, Summary, QAfterFilterCondition> proposalIdBetween(
-    int lower,
-    int upper, {
+  QueryBuilder<Summary, Summary, QAfterFilterCondition> legacyProposalIdBetween(
+    int? lower,
+    int? upper, {
     bool includeLower = true,
     bool includeUpper = true,
   }) {
@@ -20025,6 +19959,170 @@ extension SummaryQueryFilter
           upper: upper,
           includeUpper: includeUpper,
         ),
+      );
+    });
+  }
+
+  QueryBuilder<Summary, Summary, QAfterFilterCondition> proposalIdTextIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'proposal_id_text'),
+      );
+    });
+  }
+
+  QueryBuilder<Summary, Summary, QAfterFilterCondition>
+  proposalIdTextIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'proposal_id_text'),
+      );
+    });
+  }
+
+  QueryBuilder<Summary, Summary, QAfterFilterCondition> proposalIdTextEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'proposal_id_text',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Summary, Summary, QAfterFilterCondition>
+  proposalIdTextGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'proposal_id_text',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Summary, Summary, QAfterFilterCondition> proposalIdTextLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'proposal_id_text',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Summary, Summary, QAfterFilterCondition> proposalIdTextBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'proposal_id_text',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Summary, Summary, QAfterFilterCondition>
+  proposalIdTextStartsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'proposal_id_text',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Summary, Summary, QAfterFilterCondition> proposalIdTextEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'proposal_id_text',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Summary, Summary, QAfterFilterCondition> proposalIdTextContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'proposal_id_text',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Summary, Summary, QAfterFilterCondition> proposalIdTextMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'proposal_id_text',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Summary, Summary, QAfterFilterCondition>
+  proposalIdTextIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'proposal_id_text', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Summary, Summary, QAfterFilterCondition>
+  proposalIdTextIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'proposal_id_text', value: ''),
       );
     });
   }
@@ -20049,15 +20147,27 @@ extension SummaryQuerySortBy on QueryBuilder<Summary, Summary, QSortBy> {
     });
   }
 
-  QueryBuilder<Summary, Summary, QAfterSortBy> sortByProposalId() {
+  QueryBuilder<Summary, Summary, QAfterSortBy> sortByLegacyProposalId() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'proposal_id', Sort.asc);
     });
   }
 
-  QueryBuilder<Summary, Summary, QAfterSortBy> sortByProposalIdDesc() {
+  QueryBuilder<Summary, Summary, QAfterSortBy> sortByLegacyProposalIdDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'proposal_id', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Summary, Summary, QAfterSortBy> sortByProposalIdText() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'proposal_id_text', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Summary, Summary, QAfterSortBy> sortByProposalIdTextDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'proposal_id_text', Sort.desc);
     });
   }
 }
@@ -20088,15 +20198,27 @@ extension SummaryQuerySortThenBy
     });
   }
 
-  QueryBuilder<Summary, Summary, QAfterSortBy> thenByProposalId() {
+  QueryBuilder<Summary, Summary, QAfterSortBy> thenByLegacyProposalId() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'proposal_id', Sort.asc);
     });
   }
 
-  QueryBuilder<Summary, Summary, QAfterSortBy> thenByProposalIdDesc() {
+  QueryBuilder<Summary, Summary, QAfterSortBy> thenByLegacyProposalIdDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'proposal_id', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Summary, Summary, QAfterSortBy> thenByProposalIdText() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'proposal_id_text', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Summary, Summary, QAfterSortBy> thenByProposalIdTextDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'proposal_id_text', Sort.desc);
     });
   }
 }
@@ -20111,9 +20233,20 @@ extension SummaryQueryWhereDistinct
     });
   }
 
-  QueryBuilder<Summary, Summary, QDistinct> distinctByProposalId() {
+  QueryBuilder<Summary, Summary, QDistinct> distinctByLegacyProposalId() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'proposal_id');
+    });
+  }
+
+  QueryBuilder<Summary, Summary, QDistinct> distinctByProposalIdText({
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(
+        r'proposal_id_text',
+        caseSensitive: caseSensitive,
+      );
     });
   }
 }
@@ -20132,9 +20265,15 @@ extension SummaryQueryProperty
     });
   }
 
-  QueryBuilder<Summary, int, QQueryOperations> proposalIdProperty() {
+  QueryBuilder<Summary, int?, QQueryOperations> legacyProposalIdProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'proposal_id');
+    });
+  }
+
+  QueryBuilder<Summary, String?, QQueryOperations> proposalIdTextProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'proposal_id_text');
     });
   }
 }
@@ -20155,13 +20294,18 @@ const ProposalListSchema = CollectionSchema(
       name: r'cid_number',
       type: IsarType.string,
     ),
-    r'proposal_ids': PropertySchema(
+    r'proposal_id_texts': PropertySchema(
       id: 1,
+      name: r'proposal_id_texts',
+      type: IsarType.stringList,
+    ),
+    r'proposal_ids': PropertySchema(
+      id: 2,
       name: r'proposal_ids',
       type: IsarType.longList,
     ),
     r'synced_at': PropertySchema(
-      id: 2,
+      id: 3,
       name: r'synced_at',
       type: IsarType.long,
     ),
@@ -20203,7 +20347,14 @@ int _proposalListEstimateSize(
 ) {
   var bytesCount = offsets.last;
   bytesCount += 3 + object.cidNumber.length * 3;
-  bytesCount += 3 + object.proposalIds.length * 8;
+  bytesCount += 3 + object.proposalIdTexts.length * 3;
+  {
+    for (var i = 0; i < object.proposalIdTexts.length; i++) {
+      final value = object.proposalIdTexts[i];
+      bytesCount += value.length * 3;
+    }
+  }
+  bytesCount += 3 + object.legacyProposalIds.length * 8;
   return bytesCount;
 }
 
@@ -20214,8 +20365,9 @@ void _proposalListSerialize(
   Map<Type, List<int>> allOffsets,
 ) {
   writer.writeString(offsets[0], object.cidNumber);
-  writer.writeLongList(offsets[1], object.proposalIds);
-  writer.writeLong(offsets[2], object.syncedAt);
+  writer.writeStringList(offsets[1], object.proposalIdTexts);
+  writer.writeLongList(offsets[2], object.legacyProposalIds);
+  writer.writeLong(offsets[3], object.syncedAt);
 }
 
 ProposalList _proposalListDeserialize(
@@ -20227,8 +20379,9 @@ ProposalList _proposalListDeserialize(
   final object = ProposalList();
   object.cidNumber = reader.readString(offsets[0]);
   object.rowId = id;
-  object.proposalIds = reader.readLongList(offsets[1]) ?? [];
-  object.syncedAt = reader.readLong(offsets[2]);
+  object.proposalIdTexts = reader.readStringList(offsets[1]) ?? [];
+  object.legacyProposalIds = reader.readLongList(offsets[2]) ?? [];
+  object.syncedAt = reader.readLong(offsets[3]);
   return object;
 }
 
@@ -20242,8 +20395,10 @@ P _proposalListDeserializeProp<P>(
     case 0:
       return (reader.readString(offset)) as P;
     case 1:
-      return (reader.readLongList(offset) ?? []) as P;
+      return (reader.readStringList(offset) ?? []) as P;
     case 2:
+      return (reader.readLongList(offset) ?? []) as P;
+    case 3:
       return (reader.readLong(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -20663,7 +20818,207 @@ extension ProposalListQueryFilter
   }
 
   QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
-  proposalIdsElementEqualTo(int value) {
+  proposalIdTextsElementEqualTo(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'proposal_id_texts',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  proposalIdTextsElementGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'proposal_id_texts',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  proposalIdTextsElementLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'proposal_id_texts',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  proposalIdTextsElementBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'proposal_id_texts',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  proposalIdTextsElementStartsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'proposal_id_texts',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  proposalIdTextsElementEndsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'proposal_id_texts',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  proposalIdTextsElementContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'proposal_id_texts',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  proposalIdTextsElementMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'proposal_id_texts',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  proposalIdTextsElementIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'proposal_id_texts', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  proposalIdTextsElementIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'proposal_id_texts', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  proposalIdTextsLengthEqualTo(int length) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(r'proposal_id_texts', length, true, length, true);
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  proposalIdTextsIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(r'proposal_id_texts', 0, true, 0, true);
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  proposalIdTextsIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(r'proposal_id_texts', 0, false, 999999, true);
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  proposalIdTextsLengthLessThan(int length, {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(r'proposal_id_texts', 0, true, length, include);
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  proposalIdTextsLengthGreaterThan(int length, {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'proposal_id_texts',
+        length,
+        include,
+        999999,
+        true,
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  proposalIdTextsLengthBetween(
+    int lower,
+    int upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'proposal_id_texts',
+        lower,
+        includeLower,
+        upper,
+        includeUpper,
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  legacyProposalIdsElementEqualTo(int value) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.equalTo(property: r'proposal_ids', value: value),
@@ -20672,7 +21027,7 @@ extension ProposalListQueryFilter
   }
 
   QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
-  proposalIdsElementGreaterThan(int value, {bool include = false}) {
+  legacyProposalIdsElementGreaterThan(int value, {bool include = false}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.greaterThan(
@@ -20685,7 +21040,7 @@ extension ProposalListQueryFilter
   }
 
   QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
-  proposalIdsElementLessThan(int value, {bool include = false}) {
+  legacyProposalIdsElementLessThan(int value, {bool include = false}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.lessThan(
@@ -20698,7 +21053,7 @@ extension ProposalListQueryFilter
   }
 
   QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
-  proposalIdsElementBetween(
+  legacyProposalIdsElementBetween(
     int lower,
     int upper, {
     bool includeLower = true,
@@ -20718,42 +21073,42 @@ extension ProposalListQueryFilter
   }
 
   QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
-  proposalIdsLengthEqualTo(int length) {
+  legacyProposalIdsLengthEqualTo(int length) {
     return QueryBuilder.apply(this, (query) {
       return query.listLength(r'proposal_ids', length, true, length, true);
     });
   }
 
   QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
-  proposalIdsIsEmpty() {
+  legacyProposalIdsIsEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.listLength(r'proposal_ids', 0, true, 0, true);
     });
   }
 
   QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
-  proposalIdsIsNotEmpty() {
+  legacyProposalIdsIsNotEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.listLength(r'proposal_ids', 0, false, 999999, true);
     });
   }
 
   QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
-  proposalIdsLengthLessThan(int length, {bool include = false}) {
+  legacyProposalIdsLengthLessThan(int length, {bool include = false}) {
     return QueryBuilder.apply(this, (query) {
       return query.listLength(r'proposal_ids', 0, true, length, include);
     });
   }
 
   QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
-  proposalIdsLengthGreaterThan(int length, {bool include = false}) {
+  legacyProposalIdsLengthGreaterThan(int length, {bool include = false}) {
     return QueryBuilder.apply(this, (query) {
       return query.listLength(r'proposal_ids', length, include, 999999, true);
     });
   }
 
   QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
-  proposalIdsLengthBetween(
+  legacyProposalIdsLengthBetween(
     int lower,
     int upper, {
     bool includeLower = true,
@@ -20908,7 +21263,15 @@ extension ProposalListQueryWhereDistinct
     });
   }
 
-  QueryBuilder<ProposalList, ProposalList, QDistinct> distinctByProposalIds() {
+  QueryBuilder<ProposalList, ProposalList, QDistinct>
+  distinctByProposalIdTexts() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'proposal_id_texts');
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QDistinct>
+  distinctByLegacyProposalIds() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'proposal_ids');
     });
@@ -20935,8 +21298,15 @@ extension ProposalListQueryProperty
     });
   }
 
+  QueryBuilder<ProposalList, List<String>, QQueryOperations>
+  proposalIdTextsProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'proposal_id_texts');
+    });
+  }
+
   QueryBuilder<ProposalList, List<int>, QQueryOperations>
-  proposalIdsProperty() {
+  legacyProposalIdsProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'proposal_ids');
     });
@@ -20967,6 +21337,11 @@ const ProposalSchema = CollectionSchema(
       name: r'proposal_id',
       type: IsarType.long,
     ),
+    r'proposal_id_text': PropertySchema(
+      id: 3,
+      name: r'proposal_id_text',
+      type: IsarType.string,
+    ),
   },
 
   estimateSize: _proposalEstimateSize,
@@ -20975,21 +21350,29 @@ const ProposalSchema = CollectionSchema(
   deserializeProp: _proposalDeserializeProp,
   idName: r'id',
   indexes: {
-    r'kind_proposal_id': IndexSchema(
-      id: -1114706425788016234,
-      name: r'kind_proposal_id',
-      unique: true,
-      replace: true,
+    r'kind': IndexSchema(
+      id: 1484550194077596484,
+      name: r'kind',
+      unique: false,
+      replace: false,
       properties: [
         IndexPropertySchema(
           name: r'kind',
           type: IndexType.hash,
           caseSensitive: true,
         ),
+      ],
+    ),
+    r'proposal_id_text': IndexSchema(
+      id: 3073509055988774594,
+      name: r'proposal_id_text',
+      unique: false,
+      replace: false,
+      properties: [
         IndexPropertySchema(
-          name: r'proposal_id',
-          type: IndexType.value,
-          caseSensitive: false,
+          name: r'proposal_id_text',
+          type: IndexType.hash,
+          caseSensitive: true,
         ),
       ],
     ),
@@ -21011,6 +21394,12 @@ int _proposalEstimateSize(
   var bytesCount = offsets.last;
   bytesCount += 3 + object.bodyData.length * 3;
   bytesCount += 3 + object.proposalKind.length * 3;
+  {
+    final value = object.proposalIdText;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
   return bytesCount;
 }
 
@@ -21022,7 +21411,8 @@ void _proposalSerialize(
 ) {
   writer.writeString(offsets[0], object.bodyData);
   writer.writeString(offsets[1], object.proposalKind);
-  writer.writeLong(offsets[2], object.proposalId);
+  writer.writeLong(offsets[2], object.legacyProposalId);
+  writer.writeString(offsets[3], object.proposalIdText);
 }
 
 Proposal _proposalDeserialize(
@@ -21035,7 +21425,8 @@ Proposal _proposalDeserialize(
   object.bodyData = reader.readString(offsets[0]);
   object.rowId = id;
   object.proposalKind = reader.readString(offsets[1]);
-  object.proposalId = reader.readLong(offsets[2]);
+  object.legacyProposalId = reader.readLongOrNull(offsets[2]);
+  object.proposalIdText = reader.readStringOrNull(offsets[3]);
   return object;
 }
 
@@ -21051,7 +21442,9 @@ P _proposalDeserializeProp<P>(
     case 1:
       return (reader.readString(offset)) as P;
     case 2:
-      return (reader.readLong(offset)) as P;
+      return (reader.readLongOrNull(offset)) as P;
+    case 3:
+      return (reader.readStringOrNull(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
   }
@@ -21067,124 +21460,6 @@ List<IsarLinkBase<dynamic>> _proposalGetLinks(Proposal object) {
 
 void _proposalAttach(IsarCollection<dynamic> col, Id id, Proposal object) {
   object.rowId = id;
-}
-
-extension ProposalByIndex on IsarCollection<Proposal> {
-  Future<Proposal?> getByProposalKindProposalId(
-    String proposalKind,
-    int proposalId,
-  ) {
-    return getByIndex(r'kind_proposal_id', [proposalKind, proposalId]);
-  }
-
-  Proposal? getByProposalKindProposalIdSync(
-    String proposalKind,
-    int proposalId,
-  ) {
-    return getByIndexSync(r'kind_proposal_id', [proposalKind, proposalId]);
-  }
-
-  Future<bool> deleteByProposalKindProposalId(
-    String proposalKind,
-    int proposalId,
-  ) {
-    return deleteByIndex(r'kind_proposal_id', [proposalKind, proposalId]);
-  }
-
-  bool deleteByProposalKindProposalIdSync(String proposalKind, int proposalId) {
-    return deleteByIndexSync(r'kind_proposal_id', [proposalKind, proposalId]);
-  }
-
-  Future<List<Proposal?>> getAllByProposalKindProposalId(
-    List<String> proposalKindValues,
-    List<int> proposalIdValues,
-  ) {
-    final len = proposalKindValues.length;
-    assert(
-      proposalIdValues.length == len,
-      'All index values must have the same length',
-    );
-    final values = <List<dynamic>>[];
-    for (var i = 0; i < len; i++) {
-      values.add([proposalKindValues[i], proposalIdValues[i]]);
-    }
-
-    return getAllByIndex(r'kind_proposal_id', values);
-  }
-
-  List<Proposal?> getAllByProposalKindProposalIdSync(
-    List<String> proposalKindValues,
-    List<int> proposalIdValues,
-  ) {
-    final len = proposalKindValues.length;
-    assert(
-      proposalIdValues.length == len,
-      'All index values must have the same length',
-    );
-    final values = <List<dynamic>>[];
-    for (var i = 0; i < len; i++) {
-      values.add([proposalKindValues[i], proposalIdValues[i]]);
-    }
-
-    return getAllByIndexSync(r'kind_proposal_id', values);
-  }
-
-  Future<int> deleteAllByProposalKindProposalId(
-    List<String> proposalKindValues,
-    List<int> proposalIdValues,
-  ) {
-    final len = proposalKindValues.length;
-    assert(
-      proposalIdValues.length == len,
-      'All index values must have the same length',
-    );
-    final values = <List<dynamic>>[];
-    for (var i = 0; i < len; i++) {
-      values.add([proposalKindValues[i], proposalIdValues[i]]);
-    }
-
-    return deleteAllByIndex(r'kind_proposal_id', values);
-  }
-
-  int deleteAllByProposalKindProposalIdSync(
-    List<String> proposalKindValues,
-    List<int> proposalIdValues,
-  ) {
-    final len = proposalKindValues.length;
-    assert(
-      proposalIdValues.length == len,
-      'All index values must have the same length',
-    );
-    final values = <List<dynamic>>[];
-    for (var i = 0; i < len; i++) {
-      values.add([proposalKindValues[i], proposalIdValues[i]]);
-    }
-
-    return deleteAllByIndexSync(r'kind_proposal_id', values);
-  }
-
-  Future<Id> putByProposalKindProposalId(Proposal object) {
-    return putByIndex(r'kind_proposal_id', object);
-  }
-
-  Id putByProposalKindProposalIdSync(Proposal object, {bool saveLinks = true}) {
-    return putByIndexSync(r'kind_proposal_id', object, saveLinks: saveLinks);
-  }
-
-  Future<List<Id>> putAllByProposalKindProposalId(List<Proposal> objects) {
-    return putAllByIndex(r'kind_proposal_id', objects);
-  }
-
-  List<Id> putAllByProposalKindProposalIdSync(
-    List<Proposal> objects, {
-    bool saveLinks = true,
-  }) {
-    return putAllByIndexSync(
-      r'kind_proposal_id',
-      objects,
-      saveLinks: saveLinks,
-    );
-  }
 }
 
 extension ProposalQueryWhereSort on QueryBuilder<Proposal, Proposal, QWhere> {
@@ -21268,26 +21543,25 @@ extension ProposalQueryWhere on QueryBuilder<Proposal, Proposal, QWhereClause> {
     });
   }
 
-  QueryBuilder<Proposal, Proposal, QAfterWhereClause>
-  proposalKindEqualToAnyProposalId(String proposalKind) {
+  QueryBuilder<Proposal, Proposal, QAfterWhereClause> proposalKindEqualTo(
+    String proposalKind,
+  ) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
-        IndexWhereClause.equalTo(
-          indexName: r'kind_proposal_id',
-          value: [proposalKind],
-        ),
+        IndexWhereClause.equalTo(indexName: r'kind', value: [proposalKind]),
       );
     });
   }
 
-  QueryBuilder<Proposal, Proposal, QAfterWhereClause>
-  proposalKindNotEqualToAnyProposalId(String proposalKind) {
+  QueryBuilder<Proposal, Proposal, QAfterWhereClause> proposalKindNotEqualTo(
+    String proposalKind,
+  ) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'kind_proposal_id',
+                indexName: r'kind',
                 lower: [],
                 upper: [proposalKind],
                 includeUpper: false,
@@ -21295,7 +21569,7 @@ extension ProposalQueryWhere on QueryBuilder<Proposal, Proposal, QWhereClause> {
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'kind_proposal_id',
+                indexName: r'kind',
                 lower: [proposalKind],
                 includeLower: false,
                 upper: [],
@@ -21305,7 +21579,7 @@ extension ProposalQueryWhere on QueryBuilder<Proposal, Proposal, QWhereClause> {
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'kind_proposal_id',
+                indexName: r'kind',
                 lower: [proposalKind],
                 includeLower: false,
                 upper: [],
@@ -21313,7 +21587,7 @@ extension ProposalQueryWhere on QueryBuilder<Proposal, Proposal, QWhereClause> {
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'kind_proposal_id',
+                indexName: r'kind',
                 lower: [],
                 upper: [proposalKind],
                 includeUpper: false,
@@ -21323,115 +21597,82 @@ extension ProposalQueryWhere on QueryBuilder<Proposal, Proposal, QWhereClause> {
     });
   }
 
-  QueryBuilder<Proposal, Proposal, QAfterWhereClause>
-  proposalKindProposalIdEqualTo(String proposalKind, int proposalId) {
+  QueryBuilder<Proposal, Proposal, QAfterWhereClause> proposalIdTextIsNull() {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
-        IndexWhereClause.equalTo(
-          indexName: r'kind_proposal_id',
-          value: [proposalKind, proposalId],
-        ),
+        IndexWhereClause.equalTo(indexName: r'proposal_id_text', value: [null]),
       );
     });
   }
 
   QueryBuilder<Proposal, Proposal, QAfterWhereClause>
-  proposalKindEqualToProposalIdNotEqualTo(String proposalKind, int proposalId) {
+  proposalIdTextIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IndexWhereClause.between(
+          indexName: r'proposal_id_text',
+          lower: [null],
+          includeLower: false,
+          upper: [],
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Proposal, Proposal, QAfterWhereClause> proposalIdTextEqualTo(
+    String? proposalIdText,
+  ) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IndexWhereClause.equalTo(
+          indexName: r'proposal_id_text',
+          value: [proposalIdText],
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Proposal, Proposal, QAfterWhereClause> proposalIdTextNotEqualTo(
+    String? proposalIdText,
+  ) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'kind_proposal_id',
-                lower: [proposalKind],
-                upper: [proposalKind, proposalId],
+                indexName: r'proposal_id_text',
+                lower: [],
+                upper: [proposalIdText],
                 includeUpper: false,
               ),
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'kind_proposal_id',
-                lower: [proposalKind, proposalId],
+                indexName: r'proposal_id_text',
+                lower: [proposalIdText],
                 includeLower: false,
-                upper: [proposalKind],
+                upper: [],
               ),
             );
       } else {
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'kind_proposal_id',
-                lower: [proposalKind, proposalId],
+                indexName: r'proposal_id_text',
+                lower: [proposalIdText],
                 includeLower: false,
-                upper: [proposalKind],
+                upper: [],
               ),
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'kind_proposal_id',
-                lower: [proposalKind],
-                upper: [proposalKind, proposalId],
+                indexName: r'proposal_id_text',
+                lower: [],
+                upper: [proposalIdText],
                 includeUpper: false,
               ),
             );
       }
-    });
-  }
-
-  QueryBuilder<Proposal, Proposal, QAfterWhereClause>
-  proposalKindEqualToProposalIdGreaterThan(
-    String proposalKind,
-    int proposalId, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(
-        IndexWhereClause.between(
-          indexName: r'kind_proposal_id',
-          lower: [proposalKind, proposalId],
-          includeLower: include,
-          upper: [proposalKind],
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Proposal, Proposal, QAfterWhereClause>
-  proposalKindEqualToProposalIdLessThan(
-    String proposalKind,
-    int proposalId, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(
-        IndexWhereClause.between(
-          indexName: r'kind_proposal_id',
-          lower: [proposalKind],
-          upper: [proposalKind, proposalId],
-          includeUpper: include,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Proposal, Proposal, QAfterWhereClause>
-  proposalKindEqualToProposalIdBetween(
-    String proposalKind,
-    int lowerProposalId,
-    int upperProposalId, {
-    bool includeLower = true,
-    bool includeUpper = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(
-        IndexWhereClause.between(
-          indexName: r'kind_proposal_id',
-          lower: [proposalKind, lowerProposalId],
-          includeLower: includeLower,
-          upper: [proposalKind, upperProposalId],
-          includeUpper: includeUpper,
-        ),
-      );
     });
   }
 }
@@ -21790,9 +22031,26 @@ extension ProposalQueryFilter
     });
   }
 
-  QueryBuilder<Proposal, Proposal, QAfterFilterCondition> proposalIdEqualTo(
-    int value,
-  ) {
+  QueryBuilder<Proposal, Proposal, QAfterFilterCondition>
+  legacyProposalIdIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'proposal_id'),
+      );
+    });
+  }
+
+  QueryBuilder<Proposal, Proposal, QAfterFilterCondition>
+  legacyProposalIdIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'proposal_id'),
+      );
+    });
+  }
+
+  QueryBuilder<Proposal, Proposal, QAfterFilterCondition>
+  legacyProposalIdEqualTo(int? value) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.equalTo(property: r'proposal_id', value: value),
@@ -21800,10 +22058,8 @@ extension ProposalQueryFilter
     });
   }
 
-  QueryBuilder<Proposal, Proposal, QAfterFilterCondition> proposalIdGreaterThan(
-    int value, {
-    bool include = false,
-  }) {
+  QueryBuilder<Proposal, Proposal, QAfterFilterCondition>
+  legacyProposalIdGreaterThan(int? value, {bool include = false}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.greaterThan(
@@ -21815,10 +22071,8 @@ extension ProposalQueryFilter
     });
   }
 
-  QueryBuilder<Proposal, Proposal, QAfterFilterCondition> proposalIdLessThan(
-    int value, {
-    bool include = false,
-  }) {
+  QueryBuilder<Proposal, Proposal, QAfterFilterCondition>
+  legacyProposalIdLessThan(int? value, {bool include = false}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.lessThan(
@@ -21830,9 +22084,10 @@ extension ProposalQueryFilter
     });
   }
 
-  QueryBuilder<Proposal, Proposal, QAfterFilterCondition> proposalIdBetween(
-    int lower,
-    int upper, {
+  QueryBuilder<Proposal, Proposal, QAfterFilterCondition>
+  legacyProposalIdBetween(
+    int? lower,
+    int? upper, {
     bool includeLower = true,
     bool includeUpper = true,
   }) {
@@ -21845,6 +22100,168 @@ extension ProposalQueryFilter
           upper: upper,
           includeUpper: includeUpper,
         ),
+      );
+    });
+  }
+
+  QueryBuilder<Proposal, Proposal, QAfterFilterCondition>
+  proposalIdTextIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'proposal_id_text'),
+      );
+    });
+  }
+
+  QueryBuilder<Proposal, Proposal, QAfterFilterCondition>
+  proposalIdTextIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'proposal_id_text'),
+      );
+    });
+  }
+
+  QueryBuilder<Proposal, Proposal, QAfterFilterCondition> proposalIdTextEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'proposal_id_text',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Proposal, Proposal, QAfterFilterCondition>
+  proposalIdTextGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'proposal_id_text',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Proposal, Proposal, QAfterFilterCondition>
+  proposalIdTextLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'proposal_id_text',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Proposal, Proposal, QAfterFilterCondition> proposalIdTextBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'proposal_id_text',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Proposal, Proposal, QAfterFilterCondition>
+  proposalIdTextStartsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'proposal_id_text',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Proposal, Proposal, QAfterFilterCondition>
+  proposalIdTextEndsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'proposal_id_text',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Proposal, Proposal, QAfterFilterCondition>
+  proposalIdTextContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'proposal_id_text',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Proposal, Proposal, QAfterFilterCondition> proposalIdTextMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'proposal_id_text',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Proposal, Proposal, QAfterFilterCondition>
+  proposalIdTextIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'proposal_id_text', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Proposal, Proposal, QAfterFilterCondition>
+  proposalIdTextIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'proposal_id_text', value: ''),
       );
     });
   }
@@ -21881,15 +22298,27 @@ extension ProposalQuerySortBy on QueryBuilder<Proposal, Proposal, QSortBy> {
     });
   }
 
-  QueryBuilder<Proposal, Proposal, QAfterSortBy> sortByProposalId() {
+  QueryBuilder<Proposal, Proposal, QAfterSortBy> sortByLegacyProposalId() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'proposal_id', Sort.asc);
     });
   }
 
-  QueryBuilder<Proposal, Proposal, QAfterSortBy> sortByProposalIdDesc() {
+  QueryBuilder<Proposal, Proposal, QAfterSortBy> sortByLegacyProposalIdDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'proposal_id', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Proposal, Proposal, QAfterSortBy> sortByProposalIdText() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'proposal_id_text', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Proposal, Proposal, QAfterSortBy> sortByProposalIdTextDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'proposal_id_text', Sort.desc);
     });
   }
 }
@@ -21932,15 +22361,27 @@ extension ProposalQuerySortThenBy
     });
   }
 
-  QueryBuilder<Proposal, Proposal, QAfterSortBy> thenByProposalId() {
+  QueryBuilder<Proposal, Proposal, QAfterSortBy> thenByLegacyProposalId() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'proposal_id', Sort.asc);
     });
   }
 
-  QueryBuilder<Proposal, Proposal, QAfterSortBy> thenByProposalIdDesc() {
+  QueryBuilder<Proposal, Proposal, QAfterSortBy> thenByLegacyProposalIdDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'proposal_id', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Proposal, Proposal, QAfterSortBy> thenByProposalIdText() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'proposal_id_text', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Proposal, Proposal, QAfterSortBy> thenByProposalIdTextDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'proposal_id_text', Sort.desc);
     });
   }
 }
@@ -21963,9 +22404,20 @@ extension ProposalQueryWhereDistinct
     });
   }
 
-  QueryBuilder<Proposal, Proposal, QDistinct> distinctByProposalId() {
+  QueryBuilder<Proposal, Proposal, QDistinct> distinctByLegacyProposalId() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'proposal_id');
+    });
+  }
+
+  QueryBuilder<Proposal, Proposal, QDistinct> distinctByProposalIdText({
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(
+        r'proposal_id_text',
+        caseSensitive: caseSensitive,
+      );
     });
   }
 }
@@ -21990,9 +22442,15 @@ extension ProposalQueryProperty
     });
   }
 
-  QueryBuilder<Proposal, int, QQueryOperations> proposalIdProperty() {
+  QueryBuilder<Proposal, int?, QQueryOperations> legacyProposalIdProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'proposal_id');
+    });
+  }
+
+  QueryBuilder<Proposal, String?, QQueryOperations> proposalIdTextProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'proposal_id_text');
     });
   }
 }
@@ -26606,9 +27064,14 @@ const ActionSchema = CollectionSchema(
       name: r'proposal_id',
       type: IsarType.long,
     ),
-    r'state': PropertySchema(id: 7, name: r'state', type: IsarType.string),
+    r'proposal_id_text': PropertySchema(
+      id: 7,
+      name: r'proposal_id_text',
+      type: IsarType.string,
+    ),
+    r'state': PropertySchema(id: 8, name: r'state', type: IsarType.string),
     r'yes_count': PropertySchema(
-      id: 8,
+      id: 9,
       name: r'yes_count',
       type: IsarType.long,
     ),
@@ -26620,21 +27083,29 @@ const ActionSchema = CollectionSchema(
   deserializeProp: _actionDeserializeProp,
   idName: r'id',
   indexes: {
-    r'account_id_proposal_id': IndexSchema(
-      id: 35444471039370691,
-      name: r'account_id_proposal_id',
-      unique: true,
-      replace: true,
+    r'account_id': IndexSchema(
+      id: 3848080515527097000,
+      name: r'account_id',
+      unique: false,
+      replace: false,
       properties: [
         IndexPropertySchema(
           name: r'account_id',
           type: IndexType.hash,
           caseSensitive: true,
         ),
+      ],
+    ),
+    r'proposal_id_text': IndexSchema(
+      id: 3073509055988774594,
+      name: r'proposal_id_text',
+      unique: false,
+      replace: false,
+      properties: [
         IndexPropertySchema(
-          name: r'proposal_id',
-          type: IndexType.value,
-          caseSensitive: false,
+          name: r'proposal_id_text',
+          type: IndexType.hash,
+          caseSensitive: true,
         ),
       ],
     ),
@@ -26701,6 +27172,12 @@ int _actionEstimateSize(
     }
   }
   bytesCount += 3 + object.actionKind.length * 3;
+  {
+    final value = object.proposalIdText;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
   bytesCount += 3 + object.proposalState.length * 3;
   return bytesCount;
 }
@@ -26717,9 +27194,10 @@ void _actionSerialize(
   writer.writeLong(offsets[3], object.finalAt);
   writer.writeString(offsets[4], object.actionKind);
   writer.writeLong(offsets[5], object.noCount);
-  writer.writeLong(offsets[6], object.proposalId);
-  writer.writeString(offsets[7], object.proposalState);
-  writer.writeLong(offsets[8], object.yesCount);
+  writer.writeLong(offsets[6], object.legacyProposalId);
+  writer.writeString(offsets[7], object.proposalIdText);
+  writer.writeString(offsets[8], object.proposalState);
+  writer.writeLong(offsets[9], object.yesCount);
 }
 
 Action _actionDeserialize(
@@ -26736,9 +27214,10 @@ Action _actionDeserialize(
   object.rowId = id;
   object.actionKind = reader.readString(offsets[4]);
   object.noCount = reader.readLong(offsets[5]);
-  object.proposalId = reader.readLong(offsets[6]);
-  object.proposalState = reader.readString(offsets[7]);
-  object.yesCount = reader.readLong(offsets[8]);
+  object.legacyProposalId = reader.readLongOrNull(offsets[6]);
+  object.proposalIdText = reader.readStringOrNull(offsets[7]);
+  object.proposalState = reader.readString(offsets[8]);
+  object.yesCount = reader.readLong(offsets[9]);
   return object;
 }
 
@@ -26762,10 +27241,12 @@ P _actionDeserializeProp<P>(
     case 5:
       return (reader.readLong(offset)) as P;
     case 6:
-      return (reader.readLong(offset)) as P;
+      return (reader.readLongOrNull(offset)) as P;
     case 7:
-      return (reader.readString(offset)) as P;
+      return (reader.readStringOrNull(offset)) as P;
     case 8:
+      return (reader.readString(offset)) as P;
+    case 9:
       return (reader.readLong(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -26782,122 +27263,6 @@ List<IsarLinkBase<dynamic>> _actionGetLinks(Action object) {
 
 void _actionAttach(IsarCollection<dynamic> col, Id id, Action object) {
   object.rowId = id;
-}
-
-extension ActionByIndex on IsarCollection<Action> {
-  Future<Action?> getByAccountIdProposalId(String accountId, int proposalId) {
-    return getByIndex(r'account_id_proposal_id', [accountId, proposalId]);
-  }
-
-  Action? getByAccountIdProposalIdSync(String accountId, int proposalId) {
-    return getByIndexSync(r'account_id_proposal_id', [accountId, proposalId]);
-  }
-
-  Future<bool> deleteByAccountIdProposalId(String accountId, int proposalId) {
-    return deleteByIndex(r'account_id_proposal_id', [accountId, proposalId]);
-  }
-
-  bool deleteByAccountIdProposalIdSync(String accountId, int proposalId) {
-    return deleteByIndexSync(r'account_id_proposal_id', [
-      accountId,
-      proposalId,
-    ]);
-  }
-
-  Future<List<Action?>> getAllByAccountIdProposalId(
-    List<String> accountIdValues,
-    List<int> proposalIdValues,
-  ) {
-    final len = accountIdValues.length;
-    assert(
-      proposalIdValues.length == len,
-      'All index values must have the same length',
-    );
-    final values = <List<dynamic>>[];
-    for (var i = 0; i < len; i++) {
-      values.add([accountIdValues[i], proposalIdValues[i]]);
-    }
-
-    return getAllByIndex(r'account_id_proposal_id', values);
-  }
-
-  List<Action?> getAllByAccountIdProposalIdSync(
-    List<String> accountIdValues,
-    List<int> proposalIdValues,
-  ) {
-    final len = accountIdValues.length;
-    assert(
-      proposalIdValues.length == len,
-      'All index values must have the same length',
-    );
-    final values = <List<dynamic>>[];
-    for (var i = 0; i < len; i++) {
-      values.add([accountIdValues[i], proposalIdValues[i]]);
-    }
-
-    return getAllByIndexSync(r'account_id_proposal_id', values);
-  }
-
-  Future<int> deleteAllByAccountIdProposalId(
-    List<String> accountIdValues,
-    List<int> proposalIdValues,
-  ) {
-    final len = accountIdValues.length;
-    assert(
-      proposalIdValues.length == len,
-      'All index values must have the same length',
-    );
-    final values = <List<dynamic>>[];
-    for (var i = 0; i < len; i++) {
-      values.add([accountIdValues[i], proposalIdValues[i]]);
-    }
-
-    return deleteAllByIndex(r'account_id_proposal_id', values);
-  }
-
-  int deleteAllByAccountIdProposalIdSync(
-    List<String> accountIdValues,
-    List<int> proposalIdValues,
-  ) {
-    final len = accountIdValues.length;
-    assert(
-      proposalIdValues.length == len,
-      'All index values must have the same length',
-    );
-    final values = <List<dynamic>>[];
-    for (var i = 0; i < len; i++) {
-      values.add([accountIdValues[i], proposalIdValues[i]]);
-    }
-
-    return deleteAllByIndexSync(r'account_id_proposal_id', values);
-  }
-
-  Future<Id> putByAccountIdProposalId(Action object) {
-    return putByIndex(r'account_id_proposal_id', object);
-  }
-
-  Id putByAccountIdProposalIdSync(Action object, {bool saveLinks = true}) {
-    return putByIndexSync(
-      r'account_id_proposal_id',
-      object,
-      saveLinks: saveLinks,
-    );
-  }
-
-  Future<List<Id>> putAllByAccountIdProposalId(List<Action> objects) {
-    return putAllByIndex(r'account_id_proposal_id', objects);
-  }
-
-  List<Id> putAllByAccountIdProposalIdSync(
-    List<Action> objects, {
-    bool saveLinks = true,
-  }) {
-    return putAllByIndexSync(
-      r'account_id_proposal_id',
-      objects,
-      saveLinks: saveLinks,
-    );
-  }
 }
 
 extension ActionQueryWhereSort on QueryBuilder<Action, Action, QWhere> {
@@ -26987,27 +27352,25 @@ extension ActionQueryWhere on QueryBuilder<Action, Action, QWhereClause> {
     });
   }
 
-  QueryBuilder<Action, Action, QAfterWhereClause> accountIdEqualToAnyProposalId(
+  QueryBuilder<Action, Action, QAfterWhereClause> accountIdEqualTo(
     String accountId,
   ) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
-        IndexWhereClause.equalTo(
-          indexName: r'account_id_proposal_id',
-          value: [accountId],
-        ),
+        IndexWhereClause.equalTo(indexName: r'account_id', value: [accountId]),
       );
     });
   }
 
-  QueryBuilder<Action, Action, QAfterWhereClause>
-  accountIdNotEqualToAnyProposalId(String accountId) {
+  QueryBuilder<Action, Action, QAfterWhereClause> accountIdNotEqualTo(
+    String accountId,
+  ) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'account_id_proposal_id',
+                indexName: r'account_id',
                 lower: [],
                 upper: [accountId],
                 includeUpper: false,
@@ -27015,7 +27378,7 @@ extension ActionQueryWhere on QueryBuilder<Action, Action, QWhereClause> {
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'account_id_proposal_id',
+                indexName: r'account_id',
                 lower: [accountId],
                 includeLower: false,
                 upper: [],
@@ -27025,7 +27388,7 @@ extension ActionQueryWhere on QueryBuilder<Action, Action, QWhereClause> {
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'account_id_proposal_id',
+                indexName: r'account_id',
                 lower: [accountId],
                 includeLower: false,
                 upper: [],
@@ -27033,7 +27396,7 @@ extension ActionQueryWhere on QueryBuilder<Action, Action, QWhereClause> {
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'account_id_proposal_id',
+                indexName: r'account_id',
                 lower: [],
                 upper: [accountId],
                 includeUpper: false,
@@ -27043,117 +27406,81 @@ extension ActionQueryWhere on QueryBuilder<Action, Action, QWhereClause> {
     });
   }
 
-  QueryBuilder<Action, Action, QAfterWhereClause> accountIdProposalIdEqualTo(
-    String accountId,
-    int proposalId,
-  ) {
+  QueryBuilder<Action, Action, QAfterWhereClause> proposalIdTextIsNull() {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
-        IndexWhereClause.equalTo(
-          indexName: r'account_id_proposal_id',
-          value: [accountId, proposalId],
+        IndexWhereClause.equalTo(indexName: r'proposal_id_text', value: [null]),
+      );
+    });
+  }
+
+  QueryBuilder<Action, Action, QAfterWhereClause> proposalIdTextIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IndexWhereClause.between(
+          indexName: r'proposal_id_text',
+          lower: [null],
+          includeLower: false,
+          upper: [],
         ),
       );
     });
   }
 
-  QueryBuilder<Action, Action, QAfterWhereClause>
-  accountIdEqualToProposalIdNotEqualTo(String accountId, int proposalId) {
+  QueryBuilder<Action, Action, QAfterWhereClause> proposalIdTextEqualTo(
+    String? proposalIdText,
+  ) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IndexWhereClause.equalTo(
+          indexName: r'proposal_id_text',
+          value: [proposalIdText],
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Action, Action, QAfterWhereClause> proposalIdTextNotEqualTo(
+    String? proposalIdText,
+  ) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'account_id_proposal_id',
-                lower: [accountId],
-                upper: [accountId, proposalId],
+                indexName: r'proposal_id_text',
+                lower: [],
+                upper: [proposalIdText],
                 includeUpper: false,
               ),
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'account_id_proposal_id',
-                lower: [accountId, proposalId],
+                indexName: r'proposal_id_text',
+                lower: [proposalIdText],
                 includeLower: false,
-                upper: [accountId],
+                upper: [],
               ),
             );
       } else {
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'account_id_proposal_id',
-                lower: [accountId, proposalId],
+                indexName: r'proposal_id_text',
+                lower: [proposalIdText],
                 includeLower: false,
-                upper: [accountId],
+                upper: [],
               ),
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'account_id_proposal_id',
-                lower: [accountId],
-                upper: [accountId, proposalId],
+                indexName: r'proposal_id_text',
+                lower: [],
+                upper: [proposalIdText],
                 includeUpper: false,
               ),
             );
       }
-    });
-  }
-
-  QueryBuilder<Action, Action, QAfterWhereClause>
-  accountIdEqualToProposalIdGreaterThan(
-    String accountId,
-    int proposalId, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(
-        IndexWhereClause.between(
-          indexName: r'account_id_proposal_id',
-          lower: [accountId, proposalId],
-          includeLower: include,
-          upper: [accountId],
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Action, Action, QAfterWhereClause>
-  accountIdEqualToProposalIdLessThan(
-    String accountId,
-    int proposalId, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(
-        IndexWhereClause.between(
-          indexName: r'account_id_proposal_id',
-          lower: [accountId],
-          upper: [accountId, proposalId],
-          includeUpper: include,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Action, Action, QAfterWhereClause>
-  accountIdEqualToProposalIdBetween(
-    String accountId,
-    int lowerProposalId,
-    int upperProposalId, {
-    bool includeLower = true,
-    bool includeUpper = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(
-        IndexWhereClause.between(
-          indexName: r'account_id_proposal_id',
-          lower: [accountId, lowerProposalId],
-          includeLower: includeLower,
-          upper: [accountId, upperProposalId],
-          includeUpper: includeUpper,
-        ),
-      );
     });
   }
 
@@ -28076,8 +28403,25 @@ extension ActionQueryFilter on QueryBuilder<Action, Action, QFilterCondition> {
     });
   }
 
-  QueryBuilder<Action, Action, QAfterFilterCondition> proposalIdEqualTo(
-    int value,
+  QueryBuilder<Action, Action, QAfterFilterCondition> legacyProposalIdIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'proposal_id'),
+      );
+    });
+  }
+
+  QueryBuilder<Action, Action, QAfterFilterCondition>
+  legacyProposalIdIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'proposal_id'),
+      );
+    });
+  }
+
+  QueryBuilder<Action, Action, QAfterFilterCondition> legacyProposalIdEqualTo(
+    int? value,
   ) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
@@ -28086,10 +28430,8 @@ extension ActionQueryFilter on QueryBuilder<Action, Action, QFilterCondition> {
     });
   }
 
-  QueryBuilder<Action, Action, QAfterFilterCondition> proposalIdGreaterThan(
-    int value, {
-    bool include = false,
-  }) {
+  QueryBuilder<Action, Action, QAfterFilterCondition>
+  legacyProposalIdGreaterThan(int? value, {bool include = false}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.greaterThan(
@@ -28101,8 +28443,8 @@ extension ActionQueryFilter on QueryBuilder<Action, Action, QFilterCondition> {
     });
   }
 
-  QueryBuilder<Action, Action, QAfterFilterCondition> proposalIdLessThan(
-    int value, {
+  QueryBuilder<Action, Action, QAfterFilterCondition> legacyProposalIdLessThan(
+    int? value, {
     bool include = false,
   }) {
     return QueryBuilder.apply(this, (query) {
@@ -28116,9 +28458,9 @@ extension ActionQueryFilter on QueryBuilder<Action, Action, QFilterCondition> {
     });
   }
 
-  QueryBuilder<Action, Action, QAfterFilterCondition> proposalIdBetween(
-    int lower,
-    int upper, {
+  QueryBuilder<Action, Action, QAfterFilterCondition> legacyProposalIdBetween(
+    int? lower,
+    int? upper, {
     bool includeLower = true,
     bool includeUpper = true,
   }) {
@@ -28131,6 +28473,170 @@ extension ActionQueryFilter on QueryBuilder<Action, Action, QFilterCondition> {
           upper: upper,
           includeUpper: includeUpper,
         ),
+      );
+    });
+  }
+
+  QueryBuilder<Action, Action, QAfterFilterCondition> proposalIdTextIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'proposal_id_text'),
+      );
+    });
+  }
+
+  QueryBuilder<Action, Action, QAfterFilterCondition>
+  proposalIdTextIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'proposal_id_text'),
+      );
+    });
+  }
+
+  QueryBuilder<Action, Action, QAfterFilterCondition> proposalIdTextEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'proposal_id_text',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Action, Action, QAfterFilterCondition> proposalIdTextGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'proposal_id_text',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Action, Action, QAfterFilterCondition> proposalIdTextLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'proposal_id_text',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Action, Action, QAfterFilterCondition> proposalIdTextBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'proposal_id_text',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Action, Action, QAfterFilterCondition> proposalIdTextStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'proposal_id_text',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Action, Action, QAfterFilterCondition> proposalIdTextEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'proposal_id_text',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Action, Action, QAfterFilterCondition> proposalIdTextContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'proposal_id_text',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Action, Action, QAfterFilterCondition> proposalIdTextMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'proposal_id_text',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Action, Action, QAfterFilterCondition> proposalIdTextIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'proposal_id_text', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Action, Action, QAfterFilterCondition>
+  proposalIdTextIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'proposal_id_text', value: ''),
       );
     });
   }
@@ -28419,15 +28925,27 @@ extension ActionQuerySortBy on QueryBuilder<Action, Action, QSortBy> {
     });
   }
 
-  QueryBuilder<Action, Action, QAfterSortBy> sortByProposalId() {
+  QueryBuilder<Action, Action, QAfterSortBy> sortByLegacyProposalId() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'proposal_id', Sort.asc);
     });
   }
 
-  QueryBuilder<Action, Action, QAfterSortBy> sortByProposalIdDesc() {
+  QueryBuilder<Action, Action, QAfterSortBy> sortByLegacyProposalIdDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'proposal_id', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Action, Action, QAfterSortBy> sortByProposalIdText() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'proposal_id_text', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Action, Action, QAfterSortBy> sortByProposalIdTextDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'proposal_id_text', Sort.desc);
     });
   }
 
@@ -28541,15 +29059,27 @@ extension ActionQuerySortThenBy on QueryBuilder<Action, Action, QSortThenBy> {
     });
   }
 
-  QueryBuilder<Action, Action, QAfterSortBy> thenByProposalId() {
+  QueryBuilder<Action, Action, QAfterSortBy> thenByLegacyProposalId() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'proposal_id', Sort.asc);
     });
   }
 
-  QueryBuilder<Action, Action, QAfterSortBy> thenByProposalIdDesc() {
+  QueryBuilder<Action, Action, QAfterSortBy> thenByLegacyProposalIdDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'proposal_id', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Action, Action, QAfterSortBy> thenByProposalIdText() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'proposal_id_text', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Action, Action, QAfterSortBy> thenByProposalIdTextDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'proposal_id_text', Sort.desc);
     });
   }
 
@@ -28621,9 +29151,20 @@ extension ActionQueryWhereDistinct on QueryBuilder<Action, Action, QDistinct> {
     });
   }
 
-  QueryBuilder<Action, Action, QDistinct> distinctByProposalId() {
+  QueryBuilder<Action, Action, QDistinct> distinctByLegacyProposalId() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'proposal_id');
+    });
+  }
+
+  QueryBuilder<Action, Action, QDistinct> distinctByProposalIdText({
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(
+        r'proposal_id_text',
+        caseSensitive: caseSensitive,
+      );
     });
   }
 
@@ -28685,9 +29226,15 @@ extension ActionQueryProperty on QueryBuilder<Action, Action, QQueryProperty> {
     });
   }
 
-  QueryBuilder<Action, int, QQueryOperations> proposalIdProperty() {
+  QueryBuilder<Action, int?, QQueryOperations> legacyProposalIdProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'proposal_id');
+    });
+  }
+
+  QueryBuilder<Action, String?, QQueryOperations> proposalIdTextProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'proposal_id_text');
     });
   }
 
@@ -28703,9 +29250,6 @@ extension ActionQueryProperty on QueryBuilder<Action, Action, QQueryProperty> {
     });
   }
 }
-
-// coverage:ignore-file
-// ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
 
 extension GetWalletCursorCollection on Isar {
   IsarCollection<WalletCursor> get walletCursors => this.collection();

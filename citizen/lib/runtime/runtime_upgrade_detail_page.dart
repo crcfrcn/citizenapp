@@ -32,7 +32,7 @@ class RuntimeUpgradeDetailPage extends StatefulWidget {
     required this.proposalContext,
   });
 
-  final int proposalId;
+  final BigInt proposalId;
 
   /// 统一的提案上下文（包含机构信息和管理员钱包）。
   final ProposalContext proposalContext;

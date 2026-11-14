@@ -156,7 +156,8 @@ LawVersion decodeLawVersion(Uint8List raw) {
   final chapters = s.vec(() => _chapter(s));
   final contentHash = s.hex(32);
   final voteType = s.u8();
-  final proposalId = s.u64();
+  final proposalId = CitizenScale.readUnsigned(s.data, s._i, 16);
+  s._i += 16;
   final publishedAt = s.u64();
   final effectiveAt = s.u64();
   s.requireDone();

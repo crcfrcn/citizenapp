@@ -1,3 +1,4 @@
+import 'package:isar_community/isar.dart';
 import 'package:citizen_storage/user_isar.dart'
     as wallet_store
     show Proposal;
@@ -16,11 +17,11 @@ class ProposalDetailLocalStore {
   static final ProposalDetailLocalStore instance = ProposalDetailLocalStore._();
 
   static const Duration activeTtl = Duration(seconds: 60);
-  Future<ProposalDetailSnapshot?> read(String proposalKind, int proposalId) {
+  Future<ProposalDetailSnapshot?> read(String proposalKind, BigInt proposalId) {
     return UserIsar.instance.read((isar) async {
       final entity = await isar
           .collection<wallet_store.Proposal>()
-          .getByProposalKindProposalId(proposalKind, proposalId);
+          .filter().proposalKindEqualTo(proposalKind).proposalIdTextEqualTo(proposalId.toString()).findFirst();
       return entity == null
           ? null
           : ProposalDetailSnapshot.fromJsonString(
@@ -33,13 +34,16 @@ class ProposalDetailLocalStore {
 
   Future<void> put(ProposalDetailSnapshot snapshot) async {
     await UserIsar.instance.writeTxn((isar) async {
-      final entity = wallet_store.Proposal()
+      final entity = (await isar.collection<wallet_store.Proposal>()
+          .filter().proposalKindEqualTo(snapshot.proposalKind)
+          .proposalIdTextEqualTo(snapshot.proposalId.toString()).findFirst()) ?? wallet_store.Proposal();
+      entity
         ..proposalKind = snapshot.proposalKind
         ..proposalId = snapshot.proposalId
         ..bodyData = jsonEncode(snapshot.toJson());
       await isar
           .collection<wallet_store.Proposal>()
-          .putByProposalKindProposalId(entity);
+          .put(entity);
     });
   }
 
@@ -66,7 +70,7 @@ class ProposalDetailSnapshot {
     this.extra = const {},
   });
 
-  final int proposalId;
+  final BigInt proposalId;
   final String proposalKind;
   final int updatedAt;
   final int? status;
@@ -103,7 +107,7 @@ class ProposalDetailSnapshot {
   static ProposalDetailSnapshot? fromJsonString(
     String? raw, {
     required String proposalKind,
-    required int proposalId,
+    required BigInt proposalId,
   }) {
     if (raw == null || raw.isEmpty) return null;
     try {

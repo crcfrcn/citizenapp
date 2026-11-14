@@ -16,7 +16,7 @@ void main() {
     final summary = LocalProposalSummary.fromProposal(
       ProposalWithDetail(
         meta: ProposalMeta(
-          proposalId: 12,
+          proposalId: BigInt.from(12),
           kind: 1,
           stage: 1,
           status: 0,
@@ -24,7 +24,7 @@ void main() {
           actorCidNumber: nationalCouncil.cidNumber,
           executionAccountId: Uint8List(32),
           subjectCidNumbers: const ['LN001-NRC0G-000000001-2026'],
-          displayMeta: const ProposalDisplayMeta(year: 2026, seqInYear: 3),
+          displayMeta: ProposalDisplayMeta(year: 2026, seqInYear: BigInt.from(3)),
         ),
       ),
       institution: nationalCouncil,
@@ -32,10 +32,10 @@ void main() {
 
     await ProposalLocalStore.instance.upsertSummaries([summary]);
 
-    final page = await ProposalLocalStore.instance.readSummariesForIds([12]);
+    final page = await ProposalLocalStore.instance.readSummariesForIds([BigInt.from(12)]);
 
     expect(page, hasLength(1));
-    expect(page.single.proposalId, 12);
+    expect(page.single.proposalId, BigInt.from(12));
     expect(page.single.displayId, '2026000003');
     expect(page.single.fullName, nationalCouncil.fullName);
     expect(page.single.subjectCidNumbers, ['LN001-NRC0G-000000001-2026']);
@@ -45,14 +45,14 @@ void main() {
     final summary = LocalProposalSummary.fromProposal(
       ProposalWithDetail(
         meta: ProposalMeta(
-          proposalId: 33,
+          proposalId: BigInt.from(33),
           kind: 0,
           stage: 0,
           status: 1,
           internalCode: 'NRC',
           actorCidNumber: nationalCouncil.cidNumber,
           executionAccountId: Uint8List(32),
-          displayMeta: const ProposalDisplayMeta(year: 2026, seqInYear: 9),
+          displayMeta: ProposalDisplayMeta(year: 2026, seqInYear: BigInt.from(9)),
         ),
       ),
       institution: nationalCouncil,
@@ -61,7 +61,7 @@ void main() {
     await ProposalLocalStore.instance.upsertSummaries([summary]);
     await ProposalLocalStore.instance.putInstitutionIndex(
       nationalCouncil.cidNumber,
-      [33],
+      [BigInt.from(33)],
     );
 
     final list = await ProposalLocalStore.instance.readInstitutionSummaries(
@@ -69,7 +69,7 @@ void main() {
     );
 
     expect(list, hasLength(1));
-    expect(list.single.proposalId, 33);
+    expect(list.single.proposalId, BigInt.from(33));
     expect(list.single.status, 1);
     expect(
       await ProposalLocalStore.instance.isInstitutionIndexFresh(

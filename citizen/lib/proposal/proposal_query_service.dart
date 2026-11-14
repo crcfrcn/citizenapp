@@ -102,15 +102,15 @@ class ProposalQueryService {
   };
 
   /// 查询 NextProposalId（投票引擎全局递增 ID）。
-  Future<int> fetchNextProposalId() async {
+  Future<BigInt> fetchNextProposalId() async {
     final data = await _readStorage('VotingEngine', 'NextProposalId');
-    if (data == null) return 0;
-    if (data.length != 8) throw const FormatException('NextProposalId长度无效');
-    return _decodeU64(data);
+    if (data == null) return BigInt.zero;
+    if (data.length != 16) throw const FormatException('NextProposalId长度无效');
+    return _decodeU128(data);
   }
 
   /// 查询提案状态。返回 status（0投票中、1通过、2否决、3已执行、4执行失败），null 表示不存在。
-  Future<int?> fetchProposalStatus(int proposalId) async {
+  Future<int?> fetchProposalStatus(BigInt proposalId) async {
     final data = await _readStorage('VotingEngine', 'Proposals', [proposalId]);
     if (data == null) return null;
     final meta = decodeProposalMeta(proposalId, data);
@@ -119,7 +119,7 @@ class ProposalQueryService {
   }
 
   /// 查询并严格解码投票引擎提案元数据。
-  Future<ProposalMeta?> fetchProposalMeta(int proposalId) async {
+  Future<ProposalMeta?> fetchProposalMeta(BigInt proposalId) async {
     final data = await _readStorage('VotingEngine', 'Proposals', [proposalId]);
     if (data == null) return null;
     final meta = decodeProposalMeta(proposalId, data);
@@ -131,12 +131,12 @@ class ProposalQueryService {
   ///
   /// 具体 PersonalManage／机构治理语义仍由各 App 业务解码器负责；本服务仅统一
   /// App 侧 storage key，底层 finalized 读取继续由 CitizenSDK 执行。
-  Future<Uint8List?> fetchProposalData(int proposalId) {
+  Future<Uint8List?> fetchProposalData(BigInt proposalId) {
     return _readStorage('VotingEngine', 'ProposalData', [proposalId]);
   }
 
   /// 查询并严格解码提案绑定的 VotePlan。
-  Future<VotePlan?> fetchVotePlan(int proposalId) async {
+  Future<VotePlan?> fetchVotePlan(BigInt proposalId) async {
     final data = await _readStorage('VotingEngine', 'ProposalVotePlans', [proposalId]);
     return data == null
         ? null
@@ -146,7 +146,7 @@ class ProposalQueryService {
   /// `VotingEngine::Proposal` SCALE 解码唯一真源。
   ///
   /// 任何业务服务需要提案元数据时必须调用本方法，禁止复制字段布局。
-  static ProposalMeta? decodeProposalMeta(int proposalId, Uint8List data) {
+  static ProposalMeta? decodeProposalMeta(BigInt proposalId, Uint8List data) {
     try {
       // Proposal = kind + stage + status + internal_code Option
       //   + actor_cid_number Option + execution_account_id Option
@@ -220,7 +220,7 @@ class ProposalQueryService {
   }
 
   /// 查询投票计数。
-  Future<({int yes, int no})> fetchVoteTally(int proposalId) async {
+  Future<({int yes, int no})> fetchVoteTally(BigInt proposalId) async {
     final data = await _readStorage('InternalVote', 'InternalTallies', [proposalId]);
     if (data == null) return (yes: 0, no: 0);
     if (data.length != 8) throw const FormatException('InternalTallies长度无效');
@@ -228,7 +228,7 @@ class ProposalQueryService {
   }
 
   /// 查询内部投票阈值快照。
-  Future<int?> fetchInternalThresholdSnapshot(int proposalId) async {
+  Future<int?> fetchInternalThresholdSnapshot(BigInt proposalId) async {
     final data = await _readStorage('InternalVote', 'InternalThresholdSnapshot', [proposalId]);
     if (data == null) return null;
     if (data.length != 4) {
@@ -239,7 +239,7 @@ class ProposalQueryService {
 
   /// 查询提案创建时锁定的管理员快照。
   Future<List<String>> fetchAdminSnapshot(
-    int proposalId,
+    BigInt proposalId,
     InstitutionInfo institution,
   ) async {
     final data = await _readStorage('VotingEngine', 'AdminSnapshot', [
@@ -261,7 +261,7 @@ class ProposalQueryService {
   /// 个人多签读取 `AdminSnapshot`；机构提案必须按完整岗位主体读取
   /// `VoterSnapshot`。禁止把多个岗位按钱包合并，也禁止回落当前 admins。
   Future<List<String>> fetchEligibleVoterSnapshot(
-    int proposalId,
+    BigInt proposalId,
     InstitutionInfo institution,
   ) async {
     if (isPersonalAccountIdentity(institution.cidNumber)) {
@@ -272,7 +272,7 @@ class ProposalQueryService {
 
   /// 查询一个完整机构岗位主体在提案创建时冻结的任职钱包。
   Future<List<String>> fetchRoleVoterSnapshot(
-    int proposalId,
+    BigInt proposalId,
     String cidNumber,
     String voterRoleCode,
   ) async {
@@ -296,7 +296,7 @@ class ProposalQueryService {
 
   /// 返回提案全部冻结票据；同一钱包在多个岗位中会出现多次，禁止按账户去重。
   Future<List<EligibleVoterTicket>> fetchEligibleVoterTickets(
-    int proposalId,
+    BigInt proposalId,
     InstitutionInfo institution,
   ) async {
     if (isPersonalAccountIdentity(institution.cidNumber)) {
@@ -343,18 +343,18 @@ class ProposalQueryService {
   }
 
   /// 查询某个提案主体当前的活跃提案 ID。
-  Future<List<int>> fetchActiveProposalIds(InstitutionInfo institution) async {
+  Future<List<BigInt>> fetchActiveProposalIds(InstitutionInfo institution) async {
     return _fetchActiveProposalIdsBySubjectKey(proposalSubjectKey(institution));
   }
 
   /// 个人多签历史同步入口；个人多签没有 CID，只能以 AccountId 为主体。
-  Future<List<int>> fetchActivePersonalProposalIds(String accountId) {
+  Future<List<BigInt>> fetchActivePersonalProposalIds(String accountId) {
     return _fetchActiveProposalIdsBySubjectKey(
       personalAccountSubjectKey(accountId),
     );
   }
 
-  Future<List<int>> _fetchActiveProposalIdsBySubjectKey(
+  Future<List<BigInt>> _fetchActiveProposalIdsBySubjectKey(
     Uint8List subjectKey,
   ) async {
     final data = await _readStorage('VotingEngine', 'ActiveProposalsBySubject', [
@@ -371,7 +371,7 @@ class ProposalQueryService {
   }
 
   /// 查询某管理员对某提案的投票记录。
-  Future<bool?> fetchAdminVote(int proposalId, String accountId) {
+  Future<bool?> fetchAdminVote(BigInt proposalId, String accountId) {
     return _internalVoteQuery.fetchAdminVote(proposalId, accountId);
   }
 
@@ -380,14 +380,14 @@ class ProposalQueryService {
   /// 详情页和待投票红点通过本方法合并 storage 读取，避免
   /// 按管理员逐条访问轻节点。
   Future<Map<String, bool?>> fetchAdminVotesBatch(
-    int proposalId,
+    BigInt proposalId,
     Iterable<String> accountIds,
   ) {
     return _internalVoteQuery.fetchAdminVotesBatch(proposalId, accountIds);
   }
 
   Future<Map<String, bool?>> fetchTicketVotesBatch(
-    int proposalId,
+    BigInt proposalId,
     Iterable<EligibleVoterTicket> tickets,
   ) {
     return _internalVoteQuery.fetchTicketVotesBatch(proposalId, tickets);
@@ -452,16 +452,16 @@ class ProposalQueryService {
   }
 
   /// 严格解码 `BoundedVec<u64, MaxActiveProposals>`。
-  static List<int>? decodeActiveProposalIds(Uint8List data) {
+  static List<BigInt>? decodeActiveProposalIds(Uint8List data) {
     try {
       final (count, lenSize) = _decodeCompact(data, 0);
       if (count > maxActiveProposalsPerSubject ||
-          lenSize + count * 8 != data.length) {
+          lenSize + count * 16 != data.length) {
         return null;
       }
-      return List<int>.unmodifiable([
-        for (var offset = lenSize; offset < data.length; offset += 8)
-          CitizenScale.readUnsigned(data, offset, 8).toInt(),
+      return List<BigInt>.unmodifiable([
+        for (var offset = lenSize; offset < data.length; offset += 16)
+          CitizenScale.readUnsigned(data, offset, 16),
       ]);
     } catch (_) {
       return null;
@@ -506,7 +506,7 @@ class ProposalQueryService {
     return (List.unmodifiable(result), cursor);
   }
 
-  int _decodeU64(Uint8List data) => CitizenScale.readUnsigned(data, 0, 8).toInt();
+  BigInt _decodeU128(Uint8List data) => CitizenScale.readUnsigned(data, 0, 16);
 
   int _decodeU32(Uint8List data, int offset) =>
       CitizenScale.readUnsigned(data, offset, 4).toInt();

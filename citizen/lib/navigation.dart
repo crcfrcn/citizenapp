@@ -9,5 +9,5 @@ enum InstitutionPayment { transfer, sweep, safety }
 final class GovernanceNavigation {
   const GovernanceNavigation({required this.payment, required this.proposalDetail});
   final Widget Function(InstitutionPayment kind, {required InstitutionInfo institution, required IconData icon, required Color badgeColor, required List<CitizenWalletStateAccount> adminWallets}) payment;
-  final Widget Function({required InstitutionInfo institution, required int proposalId, required ProposalContext proposalContext}) proposalDetail;
+  final Widget Function({required InstitutionInfo institution, required BigInt proposalId, required ProposalContext proposalContext}) proposalDetail;
 }

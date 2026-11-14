@@ -87,13 +87,7 @@ Uint8List eventBytes({
   17,
   0,
   7,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
+  ...List.filled(15, 0),
   ...'PMUL'.codeUnits,
   0,
   ...List.filled(32, who),
@@ -150,13 +144,13 @@ void main() {
     final bytes = eventBytes();
     // 只将个人事件的PMUL/None替换成机构NRC/Some(CID)，其它独立编码字段不变。
     final payload = Uint8List.fromList([
-      ...bytes.take(16),
+      ...bytes.take(24),
       ...'NRC'.codeUnits,
       0,
       1,
       20,
       ...'CID-A'.codeUnits,
-      ...bytes.skip(21),
+      ...bytes.skip(29),
     ]);
     final tx = flow(),
         service = (() {
@@ -192,7 +186,7 @@ void main() {
     await expectLater(run(null), throwsArgumentError);
     expect(tx.prepareCount, 0);
     final result = await run('DIRECTOR');
-    expect((result as dynamic).proposalId, 7);
+    expect((result as dynamic).proposalId, BigInt.from(7));
   });
 
   test('安全基金及费用归集按所属事件、账户和金额确认', () async {
@@ -223,13 +217,7 @@ void main() {
             17,
             kind,
             7,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
+            ...List.filled(15, 0),
             20,
             ...'CID-A'.codeUnits,
             ...signer,
@@ -280,7 +268,7 @@ void main() {
                 signerPublicKey: signer,
                 externalSigning: (_) async => 'synthetic-response',
               );
-        expect(result.proposalId, 7);
+        expect(result.proposalId, BigInt.from(7));
         expect(result.blockHash, block.hash);
         expect(tx.consumeCount, cold ? 1 : 0);
       }
@@ -358,7 +346,7 @@ void main() {
               tx.consumePreparedTransactionQrResponse,
         ),
       );
-      expect((result as dynamic).proposalId, 7);
+      expect((result as dynamic).proposalId, BigInt.from(7));
       expect(tx.prepareCount, 1);
     });
   }

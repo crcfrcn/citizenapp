@@ -240,7 +240,7 @@ class LawVersion {
   VoteType get voteTypeEnum => VoteType.fromIndex(voteType);
 
   /// 创世宪法为 0。
-  final int proposalId;
+  final BigInt proposalId;
 
   /// 链上时间戳(毫秒)。
   final int publishedAt;

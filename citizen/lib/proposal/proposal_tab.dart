@@ -117,7 +117,7 @@ class _ProposalViewState extends State<ProposalTab> {
   /// 当前钱包可见提案 ID(降序排列)。
   /// 列表页基于此切分翻页 — cursor `_items.length` 标记已加载到第几条,
   /// `_hasMore = _items.length < _allIds.length`。
-  List<int> _allIds = const [];
+  List<BigInt> _allIds = const [];
 
   /// cid_number -> InstitutionInfo。列表和详情只按机构唯一 CID 复用上下文。
   Map<String, InstitutionInfo> _knownInstitutionsByCidNumber = const {};
@@ -394,7 +394,7 @@ class _ProposalViewState extends State<ProposalTab> {
   }
 
   Future<
-    ({List<int> ids, Map<String, InstitutionInfo> knownInstitutionsByCidNumber})
+    ({List<BigInt> ids, Map<String, InstitutionInfo> knownInstitutionsByCidNumber})
   >
   _fetchVisibleProposalScope({bool forceRefresh = false}) async {
     final generation = _generation;
@@ -534,7 +534,7 @@ class _ProposalViewState extends State<ProposalTab> {
   /// 给定一组 proposal_id,batch fetch 详情 + 上下文 + 待投票判定,
   /// 返回 `_ProposalDisplayItem` 列表(顺序与入参一致)。
   Future<List<_ProposalDisplayItem>> _loadItemsForIds(
-    List<int> ids, {
+    List<BigInt> ids, {
     required int generation,
     Map<String, InstitutionInfo> knownInstitutionsByCidNumber = const {},
   }) async {
@@ -602,7 +602,7 @@ class _ProposalViewState extends State<ProposalTab> {
   static List<_ProposalDisplayItem> _dedupById(
     List<_ProposalDisplayItem> items,
   ) {
-    final seen = <int>{};
+    final seen = <BigInt>{};
     final result = <_ProposalDisplayItem>[];
     for (final item in items) {
       if (seen.add(item.proposalId)) result.add(item);
@@ -1049,7 +1049,7 @@ class _ProposalDisplayItem {
   final ProposalContext? context;
   final bool needsVote;
 
-  int get proposalId => summary.proposalId;
+  BigInt get proposalId => summary.proposalId;
   int get status => summary.status;
   String get displayId => summary.displayId;
   String? get fullName => context?.institution?.fullName ?? summary.fullName;

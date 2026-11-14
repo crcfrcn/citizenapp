@@ -9,7 +9,7 @@ void main() {
 
   test('提案详情快照可持久化管理员投票和业务详情', () async {
     final snapshot = ProposalDetailSnapshot(
-      proposalId: 77,
+      proposalId: BigInt.from(77),
       proposalKind: 'transfer',
       updatedAt: DateTime.now().millisecondsSinceEpoch,
       status: 0,
@@ -24,10 +24,10 @@ void main() {
 
     await ProposalDetailLocalStore.instance.put(snapshot);
 
-    final loaded = await ProposalDetailLocalStore.instance.read('transfer', 77);
+    final loaded = await ProposalDetailLocalStore.instance.read('transfer', BigInt.from(77));
 
     expect(loaded, isNotNull);
-    expect(loaded!.proposalId, 77);
+    expect(loaded!.proposalId, BigInt.from(77));
     expect(loaded.adminVotes['aa'], isTrue);
     expect(loaded.adminVotes['bb'], isNull);
     expect(loaded.detail['amount_fen'], '12300');
@@ -39,7 +39,7 @@ void main() {
     for (final kind in ['transfer', 'institution_multisig']) {
       await store.put(
         ProposalDetailSnapshot(
-          proposalId: 77,
+          proposalId: BigInt.from(77),
           proposalKind: kind,
           updatedAt: 1,
           status: 0,
@@ -48,22 +48,22 @@ void main() {
       );
     }
     await store.put(
-      const ProposalDetailSnapshot(
-        proposalId: 77,
+      ProposalDetailSnapshot(
+        proposalId: BigInt.from(77),
         proposalKind: 'transfer',
         updatedAt: 2,
         status: 1,
         detail: {'amount_fen': '12300'},
       ),
     );
-    final transfer = (await store.read('transfer', 77))!;
-    final institution = (await store.read('institution_multisig', 77))!;
+    final transfer = (await store.read('transfer', BigInt.from(77)))!;
+    final institution = (await store.read('institution_multisig', BigInt.from(77)))!;
     expect(transfer.updatedAt, 2);
     expect(transfer.isFinal, true);
     expect(transfer.detail['amount_fen'], '12300');
     expect(institution.updatedAt, 1);
     expect(institution.isFinal, false);
     expect(institution.detail['kind'], 'institution_multisig');
-    expect(await store.read('transfer', 78), isNull);
+    expect(await store.read('transfer', BigInt.from(78)), isNull);
   });
 }

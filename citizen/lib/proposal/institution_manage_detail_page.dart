@@ -35,7 +35,7 @@ class MultisigProposalDetailPage extends StatefulWidget {
   });
 
   final InstitutionInfo institution;
-  final int proposalId;
+  final BigInt proposalId;
   final ProposalContext proposalContext;
 
   List<CitizenWalletStateAccount> get adminWallets =>

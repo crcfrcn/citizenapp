@@ -17,7 +17,7 @@ class CloseProposalInfo {
     this.status,
   });
 
-  final int proposalId;
+  final BigInt proposalId;
   final String actorCidNumber;
 
   /// 销户提案的公开结果及快照使用 64 位小写十六进制正文。

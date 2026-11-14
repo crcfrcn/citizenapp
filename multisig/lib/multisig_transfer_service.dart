@@ -217,7 +217,7 @@ class MultisigTransferService {
   /// 提交 propose_transfer extrinsic。
   ///
   /// 返回真实创建出的 proposal_id、交易哈希、nonce 和入块哈希。
-  Future<({String txHash, int usedNonce, int proposalId, String blockHash})>
+  Future<({String txHash, int usedNonce, BigInt proposalId, String blockHash})>
   submitProposeTransfer({
     required InstitutionInfo institution,
     required String? proposerRoleCode,
@@ -280,7 +280,7 @@ class MultisigTransferService {
   /// （与 submitProposeTransfer 同标准），返回事件中的 proposal_id
   /// 供后续投票跟踪；submit-only 给不出 proposal_id，也无法区分
   /// "已接受"与"已上链"。
-  Future<({String txHash, int usedNonce, int proposalId, String blockHash})>
+  Future<({String txHash, int usedNonce, BigInt proposalId, String blockHash})>
   submitProposeSafetyFund({
     required InstitutionInfo institution,
     required String proposerRoleCode,
@@ -339,7 +339,7 @@ class MultisigTransferService {
   /// 提交 propose_sweep_to_main extrinsic（手续费划转提案）。
   ///
   /// 同 submitProposeSafetyFund，提案类必须入块+核对事件。
-  Future<({String txHash, int usedNonce, int proposalId, String blockHash})>
+  Future<({String txHash, int usedNonce, BigInt proposalId, String blockHash})>
   submitProposeSweep({
     required InstitutionInfo institution,
     required String proposerRoleCode,
@@ -393,19 +393,19 @@ class MultisigTransferService {
   ///
   /// 返回 null 表示链上不存在该展示号(理论上不应该发生 — 创建提案时
   /// 同事务一定写入)。
-  Future<ProposalDisplayMeta?> fetchProposalDisplayId(int proposalId) async {
+  Future<ProposalDisplayMeta?> fetchProposalDisplayId(BigInt proposalId) async {
     final data = await _fetchStorage('VotingEngine', 'ProposalDisplayId', [proposalId]);
-    if (data == null || data.length != 6) return null;
-    // SCALE: u16 LE (year) + u32 LE (seq_in_year) = 6 bytes
+    if (data == null || data.length != 12) return null;
+    // SCALE: u32 LE (year) + u64 LE (seq_in_year) = 12 bytes
     return ProposalDisplayMeta(
-      year: CitizenScale.readUnsigned(data, 0, 2).toInt(),
-      seqInYear: CitizenScale.readUnsigned(data, 2, 4).toInt(),
+      year: CitizenScale.readUnsigned(data, 0, 4).toInt(),
+      seqInYear: CitizenScale.readUnsigned(data, 4, 8),
     );
   }
 
   /// 批量查询展示号(列表页一次性 batch fetch,避免 N 次 RPC)。
-  Future<Map<int, ProposalDisplayMeta>> fetchProposalDisplayIdBatch(
-    List<int> proposalIds, {
+  Future<Map<BigInt, ProposalDisplayMeta>> fetchProposalDisplayIdBatch(
+    List<BigInt> proposalIds, {
     CitizenRuntimeContext? atRuntime,
   }) async {
     if (proposalIds.isEmpty) return const {};
@@ -417,13 +417,13 @@ class MultisigTransferService {
         )
         .toList();
     final batchResult = await _fetchStorageBatch(runtime.block, keyHexList);
-    final result = <int, ProposalDisplayMeta>{};
+    final result = <BigInt, ProposalDisplayMeta>{};
     for (var i = 0; i < proposalIds.length; i++) {
       final data = batchResult[keyHexList[i]];
-      if (data == null || data.length != 6) continue;
+      if (data == null || data.length != 12) continue;
       result[proposalIds[i]] = ProposalDisplayMeta(
-        year: CitizenScale.readUnsigned(data, 0, 2).toInt(),
-        seqInYear: CitizenScale.readUnsigned(data, 2, 4).toInt(),
+        year: CitizenScale.readUnsigned(data, 0, 4).toInt(),
+        seqInYear: CitizenScale.readUnsigned(data, 4, 8),
       );
     }
     return result;
@@ -434,28 +434,28 @@ class MultisigTransferService {
   // `ProposalsByYear` 是全量短 key 入口,列表页只从已解码 CID 集合筛选。
 
   /// 按当前 metadata 生成按年索引前缀，并从完整键尾部读取提案编号。
-  Future<List<int>> _fetchProposalIdsByYear(CitizenRuntimeContext runtime, int year) async {
+  Future<List<BigInt>> _fetchProposalIdsByYear(CitizenRuntimeContext runtime, int year) async {
     final prefix = runtime.storageKey('VotingEngine', 'ProposalsByYear', [year]);
     final keys = await _getStorageKeysPaged(runtime.block, prefix);
     if (keys.isEmpty) return const [];
 
-    // 每条 key 末 8 字节 = proposal_id u64 LE(twox64_concat 的 raw 部分)
-    final ids = <int>[];
+    // 每条 key 末 16 字节 = proposal_id u128 LE(twox64_concat 的 raw 部分)
+    final ids = <BigInt>[];
     for (final keyBytes in keys) {
-      if (keyBytes.length < 8) continue;
-      final tail = keyBytes.sublist(keyBytes.length - 8);
-      ids.add(_decodeU64(tail));
+      if (keyBytes.length < 16) continue;
+      final tail = keyBytes.sublist(keyBytes.length - 16);
+      ids.add(CitizenScale.readUnsigned(tail, 0, 16));
     }
     return ids;
   }
 
   /// 查询主体活跃提案；机构按 CID，个人多签按 AccountId。
-  Future<List<int>> fetchActiveProposalIds(InstitutionInfo institution) {
+  Future<List<BigInt>> fetchActiveProposalIds(InstitutionInfo institution) {
     return _proposalQuery.fetchActiveProposalIds(institution);
   }
 
   /// 查询投票计数。
-  Future<({int yes, int no})> fetchVoteTally(int proposalId) {
+  Future<({int yes, int no})> fetchVoteTally(BigInt proposalId) {
     return _proposalQuery.fetchVoteTally(proposalId);
   }
 
@@ -463,7 +463,7 @@ class MultisigTransferService {
   ///
   /// 个人多签创建提案的创建阈值是提案级快照，
   /// 不能使用 InstitutionInfo.internalThreshold 的多签默认值。
-  Future<int?> fetchInternalThresholdSnapshot(int proposalId) {
+  Future<int?> fetchInternalThresholdSnapshot(BigInt proposalId) {
     return _proposalQuery.fetchInternalThresholdSnapshot(proposalId);
   }
 
@@ -472,20 +472,20 @@ class MultisigTransferService {
   /// 机构按岗位有效任职快照，个人多签按管理员快照；详情页展示和
   /// 可投钱包筛选必须使用同一份创建时快照。
   Future<List<EligibleVoterTicket>> fetchEligibleVoterTickets(
-    int proposalId,
+    BigInt proposalId,
     InstitutionInfo institution,
   ) {
     return _proposalQuery.fetchEligibleVoterTickets(proposalId, institution);
   }
 
   /// 查询提案状态。返回 status（0=voting, 1=passed, 2=rejected），null 表示不存在。
-  Future<int?> fetchProposalStatus(int proposalId) {
+  Future<int?> fetchProposalStatus(BigInt proposalId) {
     return _proposalQuery.fetchProposalStatus(proposalId);
   }
 
   /// 查询提案完整元数据（actor CID + execution account + subject CIDs）。
   /// 返回 null 表示提案不存在。
-  Future<ProposalMeta?> fetchProposalMeta(int proposalId) async {
+  Future<ProposalMeta?> fetchProposalMeta(BigInt proposalId) async {
     final decoded = await _proposalQuery.fetchProposalMeta(proposalId);
     if (decoded == null) return null;
 
@@ -518,7 +518,7 @@ class MultisigTransferService {
   ///
   /// 双层 ID 模式下,客户端先通过反向索引拿 ID 列表,再调本方法取详情。
   /// 多签管理提案(ACTION_CREATE_PERSONAL / ACTION_CLOSE)按既有规则过滤掉。
-  Future<List<ProposalWithDetail>> fetchProposalsByIds(List<int> ids) async {
+  Future<List<ProposalWithDetail>> fetchProposalsByIds(List<BigInt> ids) async {
     if (ids.isEmpty) return const [];
     return _fetchProposalsForIds(ids);
   }
@@ -528,12 +528,12 @@ class MultisigTransferService {
   /// 优先读缓存,未命中的用 [fetchStorageBatch] 批量查询。
   /// 返回结果按 ID 倒序。
   Future<List<ProposalWithDetail>> fetchProposalPage(
-    int startId,
+    BigInt startId,
     int count,
   ) async {
     // 把范围转成显式 ids 列表,然后委派给 _fetchProposalsForIds。
-    final ids = <int>[
-      for (var id = startId; id > startId - count && id >= 0; id--) id,
+    final ids = <BigInt>[
+      for (var id = startId; id > startId - BigInt.from(count) && !id.isNegative; id -= BigInt.one) id,
     ];
     return _fetchProposalsForIds(ids);
   }
@@ -542,13 +542,13 @@ class MultisigTransferService {
   /// 返回 `ProposalWithDetail` 列表,**顺序与入参一致**。
   /// 多签管理类提案(ACTION_CREATE_PERSONAL / ACTION_CLOSE)在装配阶段过滤掉。
   Future<List<ProposalWithDetail>> _fetchProposalsForIds(
-    List<int> ids, {
+    List<BigInt> ids, {
     CitizenRuntimeContext? runtime,
   }) async {
     final results = <ProposalWithDetail>[];
     final uncachedMetaKeys = <String>[];
-    final uncachedMetaIds = <int>[];
-    final cachedMetas = <int, ProposalMeta>{};
+    final uncachedMetaIds = <BigInt>[];
+    final cachedMetas = <BigInt, ProposalMeta>{};
     final runtimeUpgradeService = _runtimeService;
 
     for (final id in ids) {
@@ -604,12 +604,12 @@ class MultisigTransferService {
     // 联合投票提案不能再走“统一按转账解码”的旧逻辑，
     // 否则 runtime 升级这类提案会被漏掉或误判类型。
     final uncachedDetailKeys = <String>[];
-    final uncachedDetailIds = <int>[];
-    final cachedTransferDetails = <int, TransferProposalInfo>{};
-    final cachedRuntimeUpgradeDetails = <int, RuntimeUpgradeProposalInfo>{};
-    final cachedCreateMultisigDetails = <int, CreateProposalInfo>{};
-    final cachedCloseMultisigDetails = <int, CloseProposalInfo>{};
-    final institutionCloseIds = <int>{};
+    final uncachedDetailIds = <BigInt>[];
+    final cachedTransferDetails = <BigInt, TransferProposalInfo>{};
+    final cachedRuntimeUpgradeDetails = <BigInt, RuntimeUpgradeProposalInfo>{};
+    final cachedCreateMultisigDetails = <BigInt, CreateProposalInfo>{};
+    final cachedCloseMultisigDetails = <BigInt, CloseProposalInfo>{};
+    final institutionCloseIds = <BigInt>{};
 
     for (final entry in cachedMetas.entries) {
       final meta = entry.value;
@@ -815,7 +815,7 @@ class MultisigTransferService {
   }
 
   /// 从当前年提案全集过滤出指定治理类型(机构码)的提案 id(广场用,纯客户端)。
-  List<int> filterGovernanceIds(
+  List<BigInt> filterGovernanceIds(
     List<ProposalWithDetail> all,
     Set<String> codes,
   ) {
@@ -835,7 +835,7 @@ class MultisigTransferService {
   ///
   /// 默认范围按机构码命中(如 NRC/NLG/PRS),订阅范围必须按机构
   /// CID 精确命中,不能按机构码放大,否则会把同类所有省/市机构全部塞进用户提案流。
-  List<int> filterCitizenProposalFeedIds(
+  List<BigInt> filterCitizenProposalFeedIds(
     List<ProposalWithDetail> all, {
     required Set<String> defaultCodes,
     required Set<String> subscribedInstitutionCidNumbers,
@@ -876,8 +876,9 @@ class MultisigTransferService {
   Future<int?> _resolveCurrentYear(CitizenRuntimeContext runtime) async {
     final key = runtime.storageKey('VotingEngine', 'CurrentProposalYear');
     final data = await _getStorage(runtime.block, key);
-    if (data == null || data.length < 2) return null;
-    return CitizenScale.readUnsigned(data, 0, 2).toInt();
+    if (data == null) return null;
+    if (data.length != 4) throw const FormatException('提案年份长度无效');
+    return CitizenScale.readUnsigned(data, 0, 4).toInt();
   }
 
   /// 查询指定机构的所有转账提案（包括已完成的），按 ID 倒序。
@@ -905,12 +906,12 @@ class MultisigTransferService {
   }
 
   /// 从原始 SCALE 字节解码 ProposalMeta（与 fetchProposalMeta 相同逻辑）。
-  ProposalMeta? _decodeProposalMeta(int proposalId, Uint8List data) {
+  ProposalMeta? _decodeProposalMeta(BigInt proposalId, Uint8List data) {
     return ProposalQueryService.decodeProposalMeta(proposalId, data);
   }
 
   /// 读取原始 ProposalData 存储字节。
-  Future<Uint8List?> fetchProposalDataRaw(int proposalId) async {
+  Future<Uint8List?> fetchProposalDataRaw(BigInt proposalId) async {
     return _proposalQuery.fetchProposalData(proposalId);
   }
 
@@ -941,18 +942,18 @@ class MultisigTransferService {
   /// 测试入口：暴露批量解码路径（_decodeProposalData），用链上真实
   /// payload 字节做布局回归，防止"守卫长度与链端布局漂移"导致提案静默消失。
   @visibleForTesting
-  TransferProposalInfo? debugDecodeProposalData(int proposalId, Uint8List raw) {
+  TransferProposalInfo? debugDecodeProposalData(BigInt proposalId, Uint8List raw) {
     return _decodeProposalData(proposalId, raw);
   }
 
   /// 测试入口：锁定 VotingEngine::Proposal 当前完整 SCALE 布局。
   @visibleForTesting
-  ProposalMeta? debugDecodeProposalMeta(int proposalId, Uint8List raw) {
+  ProposalMeta? debugDecodeProposalMeta(BigInt proposalId, Uint8List raw) {
     return _decodeProposalMeta(proposalId, raw);
   }
 
   /// 从原始 SCALE 字节解码 ProposalData（`BoundedVec<u8>` → TransferAction）。
-  TransferProposalInfo? _decodeProposalData(int proposalId, Uint8List raw) {
+  TransferProposalInfo? _decodeProposalData(BigInt proposalId, Uint8List raw) {
     try {
       int offset = 0;
       final (vecLen, lenBytes) = _decodeCompact(raw, offset);
@@ -981,7 +982,7 @@ class MultisigTransferService {
   }
 
   /// 查询某快照选民对提案的投票记录。null=未投票，true=赞成，false=反对。
-  Future<bool?> fetchAdminVote(int proposalId, String publicKey) async {
+  Future<bool?> fetchAdminVote(BigInt proposalId, String publicKey) async {
     return _internalVoteQuery.fetchAdminVote(proposalId, publicKey);
   }
 
@@ -990,21 +991,21 @@ class MultisigTransferService {
   /// 转账/多签管理详情页展示全部合格选民投票时走批量读取，
   /// 避免逐个产生 storage RPC。
   Future<Map<String, bool?>> fetchAdminVotesBatch(
-    int proposalId,
+    BigInt proposalId,
     Iterable<String> publicKeysHex,
   ) {
     return _internalVoteQuery.fetchAdminVotesBatch(proposalId, publicKeysHex);
   }
 
   Future<Map<String, bool?>> fetchTicketVotesBatch(
-    int proposalId,
+    BigInt proposalId,
     Iterable<EligibleVoterTicket> tickets,
   ) {
     return _internalVoteQuery.fetchTicketVotesBatch(proposalId, tickets);
   }
 
   /// 查询 NextProposalId（投票引擎全局递增 ID）。
-  Future<int> fetchNextProposalId() {
+  Future<BigInt> fetchNextProposalId() {
     return _proposalQuery.fetchNextProposalId();
   }
 
@@ -1015,7 +1016,7 @@ class MultisigTransferService {
   ///   `actor_cid_number:Option<CidNumber> + funding_account_id:AccountId32`
   ///   + beneficiary: AccountId32(32) + amount: u128(16)
   ///   + `remark: Vec<u8>`(Compact len + bytes) + proposer: AccountId32(32)
-  Future<TransferProposalInfo?> fetchProposalAction(int proposalId) async {
+  Future<TransferProposalInfo?> fetchProposalAction(BigInt proposalId) async {
     final raw = await _fetchStorage('VotingEngine', 'ProposalData', [proposalId]);
     if (raw == null || raw.isEmpty) return null;
     // 单笔与批量读取统一消费同一严格解码入口，禁止标签或布局双轨漂移。
@@ -1023,7 +1024,7 @@ class MultisigTransferService {
   }
 
   /// 解码 TransferAction SCALE 数据。
-  TransferProposalInfo? _decodeTransferAction(int proposalId, Uint8List data) {
+  TransferProposalInfo? _decodeTransferAction(BigInt proposalId, Uint8List data) {
     try {
       var offset = 0;
       if (data.isEmpty) return null;
@@ -1166,7 +1167,7 @@ class MultisigTransferService {
       : (variant: 'Some', fields: [bytes]);
 
   /// 从链上 SafetyFundProposalActions 存储查询安全基金转账提案详情。
-  Future<SafetyFundProposalInfo?> fetchSafetyFundAction(int proposalId) async {
+  Future<SafetyFundProposalInfo?> fetchSafetyFundAction(BigInt proposalId) async {
     final raw = await _fetchStorage('MultisigTransfer', 'SafetyFundProposalActions', [proposalId]);
     // SafetyFundAction: actor CID + institution_account_id + beneficiary + amount + remark + proposer。
     if (raw == null || raw.length < 1 + 32 + 32 + 16 + 1 + 32) {
@@ -1211,7 +1212,7 @@ class MultisigTransferService {
   }
 
   /// 从链上 SweepProposalActions 存储查询手续费划转提案详情。
-  Future<SweepProposalInfo?> fetchSweepAction(int proposalId) async {
+  Future<SweepProposalInfo?> fetchSweepAction(BigInt proposalId) async {
     final raw = await _fetchStorage('MultisigTransfer', 'SweepProposalActions', [proposalId]);
     // SweepAction: actor CID + institution_account_id + amount + proposer。
     if (raw == null || raw.length < 1 + 32 + 16 + 32) return null;
@@ -1297,7 +1298,7 @@ class MultisigTransferService {
     );
   }
 
-  Future<int> _confirmTransferProposedEvent({
+  Future<BigInt> _confirmTransferProposedEvent({
     required CitizenExecution execution,
     required String orgCode,
     required String? actorCidNumber,
@@ -1324,7 +1325,7 @@ class MultisigTransferService {
   }
 
   /// 以真实metadata逐条解码完整事件，只承认当前SDK执行索引所属的唯一事件。
-  Future<int> _confirmProposalEvent({
+  Future<BigInt> _confirmProposalEvent({
     required CitizenExecution execution,
     required String eventLabel,
     required bool Function(CitizenSystemEvent) matches,
@@ -1341,8 +1342,8 @@ class MultisigTransferService {
       throw StateError('执行块缺少唯一且业务字段匹配的MultisigTransfer.$eventLabel事件');
     }
     final id = found.single.fieldUnsigned('proposal_id');
-    if (!id.isValidInt) throw const FormatException('提案事件ID无效');
-    return id.toInt();
+    if (id.isNegative || id.bitLength > 128) throw const FormatException('提案事件ID无效');
+    return id;
   }
 
   Uint8List _cidBytes(String cidNumber) {
@@ -1372,7 +1373,6 @@ class MultisigTransferService {
     return value;
   }
 
-  int _decodeU64(Uint8List data) => CitizenScale.readUnsigned(data, 0, 8).toInt();
 
   static String _hexEncode(Uint8List bytes) {
     return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();

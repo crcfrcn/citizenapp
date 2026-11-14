@@ -19,7 +19,7 @@ class CreateProposalInfo {
     this.status,
   });
 
-  final int proposalId;
+  final BigInt proposalId;
 
   /// 个人多签账户 ID（小写 `0x` + 64 位 hex）。
   final String accountId;
@@ -68,7 +68,7 @@ class CloseProposalInfo {
     this.status,
   });
 
-  final int proposalId;
+  final BigInt proposalId;
 
   /// 个人多签账户 ID（小写 `0x` + 64 位 hex）。
   final String accountId;

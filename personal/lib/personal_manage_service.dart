@@ -133,7 +133,7 @@ class PersonalManageService {
     ({
       String txHash,
       int usedNonce,
-      int proposalId,
+      BigInt proposalId,
       String accountId,
       String blockHash,
     })
@@ -435,7 +435,7 @@ class PersonalManageService {
   }
 
   /// 从 ProposalData 解码 PersonalManage 创建或关闭提案。
-  Object? decodePersonalProposalData(int proposalId, Uint8List raw) {
+  Object? decodePersonalProposalData(BigInt proposalId, Uint8List raw) {
     try {
       var offset = 0;
       final (vecLen, lenBytes) = _decodeCompact(raw, offset);
@@ -458,7 +458,7 @@ class PersonalManageService {
     }
   }
 
-  CreateProposalInfo? _decodeCreateAction(int proposalId, Uint8List data) {
+  CreateProposalInfo? _decodeCreateAction(BigInt proposalId, Uint8List data) {
     if (data.length != 32 + 32 + 16 + 16) return null;
     var offset = 0;
 
@@ -485,7 +485,7 @@ class PersonalManageService {
     );
   }
 
-  CloseProposalInfo? _decodeCloseAction(int proposalId, Uint8List data) {
+  CloseProposalInfo? _decodeCloseAction(BigInt proposalId, Uint8List data) {
     if (data.length != 32 + 32 + 32) return null;
     var offset = 0;
 
@@ -509,7 +509,7 @@ class PersonalManageService {
     );
   }
 
-  Future<({int proposalId, String accountId})>
+  Future<({BigInt proposalId, String accountId})>
   _confirmPersonalAccountProposedEvent({
     required CitizenExecution execution,
     required Uint8List accountName,
@@ -554,9 +554,9 @@ class PersonalManageService {
       }
     }
     final id = event.fieldUnsigned('proposal_id');
-    if (!id.isValidInt) throw const FormatException('提案事件ID无效');
+    if (id.isNegative || id.bitLength > 128) throw const FormatException('提案事件ID无效');
     return (
-      proposalId: id.toInt(),
+      proposalId: id,
       accountId: citizenAccountIdFromBytes(event.fieldBytes('account_id')),
     );
   }

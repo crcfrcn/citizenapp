@@ -120,7 +120,7 @@ void main() {
     final service = _service();
     await service.recordOrUpdate(
       accountId: personalAccount,
-      proposalId: 42,
+      proposalId: BigInt.from(42),
       actionKind: PersonalProposalAction.create,
       status: PersonalProposalStatus.voting,
       yesCount: 1,
@@ -130,7 +130,7 @@ void main() {
 
     final list = await service.fetchAll(personalAccount);
     expect(list.length, 1);
-    expect(list[0].proposalId, 42);
+    expect(list[0].proposalId, BigInt.from(42));
     expect(list[0].actionKind, PersonalProposalAction.create);
     expect(list[0].proposalState, PersonalProposalStatus.voting);
     expect(list[0].yesCount, 1);
@@ -146,7 +146,7 @@ void main() {
     final service = _service();
     await service.recordOrUpdate(
       accountId: personalAccount,
-      proposalId: 7,
+      proposalId: BigInt.from(7),
       actionKind: PersonalProposalAction.create,
       status: PersonalProposalStatus.voting,
       yesCount: 0,
@@ -161,7 +161,7 @@ void main() {
     // 二次写入只更新投票计数和状态,不传 snapshot
     await service.recordOrUpdate(
       accountId: personalAccount,
-      proposalId: 7,
+      proposalId: BigInt.from(7),
       actionKind: PersonalProposalAction.create,
       status: PersonalProposalStatus.executed,
       yesCount: 3,
@@ -184,7 +184,7 @@ void main() {
     final service = _service();
     await service.recordOrUpdate(
       accountId: personalAccount,
-      proposalId: 1,
+      proposalId: BigInt.from(1),
       actionKind: PersonalProposalAction.create,
       status: PersonalProposalStatus.voting,
       yesCount: 0,
@@ -196,7 +196,7 @@ void main() {
 
     await service.recordOrUpdate(
       accountId: personalAccount,
-      proposalId: 1,
+      proposalId: BigInt.from(1),
       actionKind: PersonalProposalAction.create,
       status: PersonalProposalStatus.rejected,
       yesCount: 0,
@@ -211,7 +211,7 @@ void main() {
     final service = _service();
     await service.recordOrUpdate(
       accountId: personalAccount,
-      proposalId: 100,
+      proposalId: BigInt.from(100),
       actionKind: PersonalProposalAction.create,
       status: PersonalProposalStatus.voting,
       yesCount: 0,
@@ -220,7 +220,7 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 5));
     await service.recordOrUpdate(
       accountId: personalAccount,
-      proposalId: 101,
+      proposalId: BigInt.from(101),
       actionKind: PersonalProposalAction.transfer,
       status: PersonalProposalStatus.voting,
       yesCount: 1,
@@ -229,7 +229,7 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 5));
     await service.recordOrUpdate(
       accountId: personalAccount,
-      proposalId: 102,
+      proposalId: BigInt.from(102),
       actionKind: PersonalProposalAction.close,
       status: PersonalProposalStatus.executed,
       yesCount: 3,
@@ -237,7 +237,7 @@ void main() {
     );
 
     final list = await service.fetchAll(personalAccount);
-    expect(list.map((v) => v.proposalId).toList(), [102, 101, 100]);
+    expect(list.map((v) => v.proposalId).toList(), [102, 101, 100].map(BigInt.from).toList());
   });
 
   test('mapChainStatus 链上 u8 → 字符串映射穷尽', () {

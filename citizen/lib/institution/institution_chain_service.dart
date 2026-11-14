@@ -30,7 +30,7 @@ class InstitutionChainService {
     0x70, 0x72, 0x69, 0x2d, 0x6d, 0x67, 0x6d, 0x74, // "pri-mgmt"
   ];
 
-  Object? decodeManageProposalData(int proposalId, Uint8List raw) {
+  Object? decodeManageProposalData(BigInt proposalId, Uint8List raw) {
     try {
       var offset = 0;
 
@@ -57,7 +57,7 @@ class InstitutionChainService {
     }
   }
 
-  CloseProposalInfo? _decodeCloseAction(int proposalId, Uint8List data) {
+  CloseProposalInfo? _decodeCloseAction(BigInt proposalId, Uint8List data) {
     var offset = 0;
 
     final (cidLen, cidLenBytes) = CitizenScale.readCompact(data, offset);

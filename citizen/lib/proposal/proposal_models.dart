@@ -4,7 +4,7 @@ import 'package:citizen_personal/personal_manage_models.dart';
 
 /// 提案展示号（双层 ID 设计）。
 ///
-/// 链上 `ProposalDisplayId[u64] = ProposalDisplayMeta { year: u16, seq_in_year: u32 }`
+/// 链上 `ProposalDisplayId[u128] = ProposalDisplayMeta { year: u32, seq_in_year: u64 }`
 /// 反查表的客户端镜像。主键 `proposal_id` 全局单调与展示号解耦,渲染层基于
 /// 本结构拼接 "2026000123" 类格式。
 class ProposalDisplayMeta {
@@ -14,7 +14,7 @@ class ProposalDisplayMeta {
   final int year;
 
   /// 年内序号(每年从 0 重置)。u32 上限,实质无上限。
-  final int seqInYear;
+  final BigInt seqInYear;
 }
 
 /// 提案链上元数据（从 VotingEngine::Proposals Storage 解码）。
@@ -31,7 +31,7 @@ class ProposalMeta {
     this.displayMeta,
   });
 
-  final int proposalId;
+  final BigInt proposalId;
   final int kind; // 0=internal, 1=joint
   final int stage; // 0=internal, 1=joint, 2=citizen
   final int status; // 0=voting, 1=passed, 2=rejected
@@ -87,7 +87,7 @@ class RuntimeUpgradeProposalInfo {
     required this.maxAdjustDownDivisor,
   });
 
-  final int proposalId;
+  final BigInt proposalId;
   final String actorCidNumber;
   final String proposer; // SS58 (ss58Format 走 citizenSs58Prefix 单源)
   final String reason; // UTF-8 decoded

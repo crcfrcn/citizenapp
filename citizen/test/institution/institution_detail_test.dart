@@ -179,7 +179,7 @@ class _RoleReader extends ProposalContextResolver {
           })(),
         ),
       );
-  Future<ProposalContext> Function() read = () async => const ProposalContext();
+  Future<ProposalContext> Function() read = () async => ProposalContext();
   final cids = <String?>[];
   @override
   Future<ProposalContext> resolve({
@@ -378,7 +378,7 @@ void main() {
     final activation = _ActivationReader();
     await _openDetails(tester, chain, roles: roles, activation: activation);
     _expectOriginalAdminCard();
-    roles.read = () async => const ProposalContext();
+    roles.read = () async => ProposalContext();
     await _reopenDetails(tester, chain, roles: roles, activation: activation);
     await tester.pumpAndSettle();
     expect(find.text('共 1 位管理员'), findsOneWidget);
@@ -392,12 +392,12 @@ void main() {
       final chain = _FakeChainState()..reader = (_) async => _rows(1);
       final activation = _ActivationReader();
       await _openDetails(tester, chain, roles: roles, activation: activation);
-      roles.read = () async => const ProposalContext();
+      roles.read = () async => ProposalContext();
       await _reopenDetails(tester, chain, roles: roles, activation: activation);
       if (fail) {
         delayed.completeError(StateError('合成旧角色失败'));
       } else {
-        delayed.complete(const ProposalContext(role: ProposalRole.admin));
+        delayed.complete(ProposalContext(role: ProposalRole.admin));
       }
       await tester.pumpAndSettle();
       await tester.tap(find.text('发起提案'));
@@ -597,8 +597,8 @@ void main() {
     );
     final chain = _FakeChainState(
       adminList: const [_adminAccountId],
-      proposalList: const [
-        InstitutionProposalSummary(proposalId: 7, idLabel: '提案 #7', status: 1),
+      proposalList: [
+        InstitutionProposalSummary(proposalId: BigInt.from(7), idLabel: '提案 #7', status: 1),
       ],
     );
     await tester.pumpWidget(

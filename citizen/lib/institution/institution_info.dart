@@ -13,7 +13,7 @@ import 'package:citizen_citizen/institution/institution_code_label.dart';
 
 /// 提案展示号格式化（双层 ID）：`2026000123` 风格。
 ///
-/// 主键 `proposal_id` 是全局单调 u64,与展示无关。展示号由链上
+/// 主键 `proposal_id` 是全局单调 u128,与展示无关。展示号由链上
 /// `ProposalDisplayId[id] = ProposalDisplayMeta { year, seq_in_year }`
 /// 反查得到,本函数把它拼成纯数字字符串(年份 + 6 位补零序号)。
 ///

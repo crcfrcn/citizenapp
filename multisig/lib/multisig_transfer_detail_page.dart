@@ -51,7 +51,7 @@ class MultisigTransferDetailPage extends StatefulWidget {
   });
 
   final InstitutionInfo institution;
-  final int proposalId;
+  final BigInt proposalId;
   final MultisigTransferKind kind;
 
   /// 统一的提案上下文。

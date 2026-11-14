@@ -526,7 +526,7 @@ class _LawReaderPageState extends State<LawReaderPage> {
             ),
           ),
           // 表决类型徽章(创世宪法 proposal_id=0 不显示)。
-          if (v.proposalId != 0) ...[
+          if (v.proposalId != BigInt.zero) ...[
             SizedBox(width: AppLayout.scaledValue(6)),
             Container(
               padding: EdgeInsets.symmetric(

@@ -170,9 +170,13 @@ class WalletIdentityCard extends StatefulWidget {
     required this.wallet,
     required this.name,
     required this.onNameChanged,
+    this.evmAddressLoader,
   });
 
   final CitizenWalletStateAccount wallet;
+
+  /// Defaults to the SDK finalized receive-address check.
+  final Future<String> Function(String accountId)? evmAddressLoader;
 
   /// 仅展示调用方提供的名称；账户/钱包级保存由onNameChanged的各自所有者负责。
   final String name;
@@ -248,12 +252,113 @@ class _WalletIdentityCardState extends State<WalletIdentityCard> {
     }
   }
 
-  /// 复制钱包地址并弹 SnackBar。
-  void _copyAddress() {
-    Clipboard.setData(ClipboardData(text: widget.wallet.ss58Address));
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('钱包地址已复制')));
+  bool _copyDialogOpen = false;
+
+  /// One copy entry opens both address forms; only a confirmed EVM alias is copied.
+  Future<void> _copyAddress() async {
+    if (_copyDialogOpen) return;
+    _copyDialogOpen = true;
+    try {
+      final accountId = widget.wallet.accountId;
+      final ss58Address = widget.wallet.ss58Address;
+      final ethereum = citizenEvmAddressFromAccountId(accountId);
+      final loader =
+          widget.evmAddressLoader ??
+          context.read<CitizenSdk>().getEvmReceiveAddress;
+      // Attach failure handling immediately: the route can build after an
+      // already-completed read, and dismissing it must not leak a future error.
+      final ready = Future<String>.sync(() => loader(accountId)).then<String?>(
+        (value) => value == ethereum ? value : null,
+        onError: (Object _, StackTrace stack) => null,
+      );
+      var copying = false;
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => FutureBuilder<String?>(
+          future: ready,
+          builder: (context, snapshot) {
+            Future<void> copy(String value) async {
+              if (copying) return;
+              copying = true;
+              try {
+                await Clipboard.setData(ClipboardData(text: value));
+                if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+                if (mounted) {
+                  ScaffoldMessenger.of(
+                    this.context,
+                  ).showSnackBar(const SnackBar(content: Text('地址已复制')));
+                }
+              } catch (_) {
+                if (mounted) {
+                  ScaffoldMessenger.of(
+                    this.context,
+                  ).showSnackBar(const SnackBar(content: Text('复制失败，请重试')));
+                }
+              } finally {
+                copying = false;
+              }
+            }
+
+            return AlertDialog(
+              key: const ValueKey('wallet-address-copy-dialog'),
+              title: const Text('复制'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('公民链地址'),
+                    Text(
+                      ss58Address,
+                      key: const ValueKey('wallet-copy-ss58-address'),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('以太坊地址'),
+                    Text(
+                      ethereum,
+                      key: const ValueKey('wallet-copy-evm-address'),
+                    ),
+                    if (snapshot.connectionState == ConnectionState.done &&
+                        !snapshot.hasData)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 8),
+                        child: Text('以太坊地址尚未确认，请稍后重试'),
+                      )
+                    else if (!snapshot.hasData)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 8),
+                        child: Text('正在确认以太坊收款地址…'),
+                      ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  key: const ValueKey('wallet-copy-ss58-button'),
+                  onPressed: () => copy(ss58Address),
+                  child: const Text('公民链地址'),
+                ),
+                TextButton(
+                  key: const ValueKey('wallet-copy-evm-button'),
+                  onPressed: snapshot.hasData
+                      ? () => copy(snapshot.data!)
+                      : null,
+                  child: const Text('以太坊地址'),
+                ),
+              ],
+            );
+          },
+        ),
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('地址读取失败，请稍后重试')));
+      }
+    } finally {
+      _copyDialogOpen = false;
+    }
   }
 
   /// 按最终设计稿把完整地址拆成两行：

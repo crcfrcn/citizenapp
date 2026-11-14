@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:polkadart/polkadart.dart' show Hasher;
@@ -151,6 +152,21 @@ void main() {
       );
     }
   });
+  test('历史映射回填期间缺映射不能降级到另一个账户', () async {
+    await expectLater(
+      _ethereumService(
+        migrationPending: true,
+      ).resolveRecipient(address: _ethereum),
+      throwsStateError,
+    );
+    final mapped = Uint8List.fromList(List.filled(32, 0xaa));
+    final recipient = await _ethereumService(
+      mapped: mapped,
+      migrationPending: true,
+    ).resolveRecipient(address: _ethereum);
+    expect(recipient.address, citizenSs58FromAccountIdBytes(mapped));
+  });
+
   test('映射读取失败原样抛出，坏长度不降级补EE', () async {
     final failure = StateError('链读取失败');
     await expectLater(
@@ -426,6 +442,7 @@ OnchainPaymentService _ethereumService({
   Uint8List? metadataBytes,
   CitizenBlockRef? metadataBlock,
   Object? readError,
+  bool migrationPending = false,
   void Function()? onStorage,
 }) => OnchainPaymentService(
   getFinalizedHead: () async => _block,
@@ -441,6 +458,10 @@ OnchainPaymentService _ethereumService({
   getStorage: (block, key) async {
     onStorage?.call();
     expect(identical(block, _block), isTrue);
+    if (key.length != 52) {
+      expect(key, utf8.encode(':citizenchain:evm-account-mapping:progress:v1'));
+      return migrationPending ? Uint8List.fromList([0]) : null;
+    }
     // Identity键共52字节；不能插入Blake2_128Concat的额外哈希。
     expect(key.length, 52);
     expect(key.take(32), [

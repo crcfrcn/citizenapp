@@ -22,7 +22,7 @@ class TransferProposalInfo {
     this.status,
   });
 
-  final int proposalId;
+  final BigInt proposalId;
   final String? actorCidNumber;
   final Uint8List institutionAccountId;
   final String beneficiary; // SS58
@@ -61,7 +61,7 @@ class SafetyFundProposalInfo {
     this.status,
   });
 
-  final int proposalId;
+  final BigInt proposalId;
   final String actorCidNumber;
   final Uint8List institutionAccountId;
   final String beneficiary; // SS58
@@ -83,7 +83,7 @@ class SweepProposalInfo {
     this.status,
   });
 
-  final int proposalId;
+  final BigInt proposalId;
   final String actorCidNumber;
   final Uint8List institutionAccountId;
   final BigInt amountFen;

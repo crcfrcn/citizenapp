@@ -330,15 +330,15 @@ class VoteChecker {
   /// (ADR-018 R2):列表页原来按提案逐个查投票(P 个提案 = P 次往返);
   /// 这里把同类提案(内部/联合)的投票 key 各自一次性拼齐批量读取,P 次往返
   /// 降为最多 2 次。只统计 status==0(投票中)且本机有管理员钱包的提案。
-  Future<Set<int>> proposalsNeedingVote(List<VoteCheckTarget> targets) async {
+  Future<Set<BigInt>> proposalsNeedingVote(List<VoteCheckTarget> targets) async {
     final active = targets.where(
       (t) => t.status == 0 && t.adminWallets.isNotEmpty,
     );
 
-    final internalByPid = <int, List<EligibleVoterTicket>>{};
+    final internalByPid = <BigInt, List<EligibleVoterTicket>>{};
     final jointByPid =
         <
-          int,
+          BigInt,
           ({
             String actorCidNumber,
             String voterRoleCode,
@@ -367,7 +367,7 @@ class VoteChecker {
       }
     }
 
-    final needs = <int>{};
+    final needs = <BigInt>{};
     if (internalByPid.isNotEmpty) {
       final votes = await _internalVoteService.fetchTicketVotesForProposals(
         internalByPid,
@@ -413,7 +413,7 @@ class VoteCheckTarget {
     this.institution,
   });
 
-  final int proposalId;
+  final BigInt proposalId;
   final int kind;
   final int status;
   final List<CitizenWalletStateAccount> adminWallets;

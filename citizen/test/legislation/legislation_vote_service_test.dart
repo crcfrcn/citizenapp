@@ -119,20 +119,20 @@ Future<Object> submit(
   bool approve,
 ) => event == 6
     ? service.executiveSign(
-        proposalId: 7,
+        proposalId: BigInt.from(7),
         approve: approve,
         signerPublicKey: signer,
         externalSigning: (_) async => 'synthetic-response',
       )
     : event == 8
     ? service.overrideSign(
-        proposalId: 7,
+        proposalId: BigInt.from(7),
         approve: approve,
         signerPublicKey: signer,
         externalSigning: (_) async => 'synthetic-response',
       )
     : service.guardVote(
-        proposalId: 7,
+        proposalId: BigInt.from(7),
         approve: approve,
         signerPublicKey: signer,
         externalSigning: (_) async => 'synthetic-response',
@@ -182,7 +182,7 @@ void main() {
               tx.consumePreparedTransactionQrResponse,
         );
     final result = await service.castRepresentativeVote(
-      proposalId: 7,
+      proposalId: BigInt.from(7),
       voterRoleCode: 'DIRECTOR',
       approve: false,
       signerPublicKey: signer,
@@ -193,7 +193,7 @@ void main() {
     expect(chain.reads.every((ref) => identical(ref, block)), true);
     await expectLater(
       service.castRepresentativeVote(
-        proposalId: 7,
+        proposalId: BigInt.from(7),
         voterRoleCode: 'OTHER',
         approve: false,
         signerPublicKey: signer,
@@ -256,7 +256,7 @@ void main() {
                 reads0.consumePreparedTransactionQrResponse,
           );
         })().castRepresentativeVote(
-          proposalId: 7,
+          proposalId: BigInt.from(7),
           voterRoleCode: 'DIRECTOR',
           approve: true,
           signerPublicKey: signer,
@@ -449,7 +449,7 @@ void main() {
           consumePreparedTransactionQrResponse:
               tx.consumePreparedTransactionQrResponse,
         ).overrideSign(
-          proposalId: 7,
+          proposalId: BigInt.from(7),
           approve: true,
           signerPublicKey: signer,
           externalSigning: (_) async =>
@@ -473,7 +473,7 @@ void main() {
         () => LegislationVoteService.buildCallData(
           buildCall: _buildCall,
           callIndex: args.$1,
-          proposalId: args.$2,
+          proposalId: BigInt.from(args.$2),
           voterRoleCode: args.$3,
           approve: true,
         ),
@@ -510,7 +510,7 @@ void main() {
               tx.consumePreparedTransactionQrResponse,
         );
       })().guardVote(
-        proposalId: 7,
+        proposalId: BigInt.from(7),
         approve: true,
         signerPublicKey: Uint8List(31),
         externalSigning: (_) async => null,

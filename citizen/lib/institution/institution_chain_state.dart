@@ -21,7 +21,7 @@ class InstitutionProposalSummary {
     required this.status,
   });
 
-  final int proposalId;
+  final BigInt proposalId;
   final String idLabel;
 
   /// 0=表决中 1=通过 2=否决 3=已执行 4=执行失败。

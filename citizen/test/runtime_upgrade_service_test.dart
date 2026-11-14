@@ -150,7 +150,7 @@ void main() {
             getRuntimeContext: chain.getRuntimeContext,
           getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
           ).submitJointVote(
-            proposalId: 7,
+            proposalId: BigInt.from(7),
             actorCidNumber: 'CID-A',
             voterRoleCode: 'DIRECTOR',
             approve: true,
@@ -207,7 +207,7 @@ void main() {
           getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
           );
         })().submitJointVote(
-          proposalId: 7,
+          proposalId: BigInt.from(7),
           actorCidNumber: 'CID-A',
           voterRoleCode: 'DIRECTOR',
           approve: true,
@@ -243,7 +243,7 @@ void main() {
           getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
           );
         })().submitJointVote(
-          proposalId: 7,
+          proposalId: BigInt.from(7),
           actorCidNumber: 'CID-A',
           voterRoleCode: fail == 'role' ? '' : 'DIRECTOR',
           approve: true,
@@ -295,12 +295,12 @@ void main() {
       ]);
 
       final decoded = service.decodeRuntimeUpgradeStorageValue(
-        7,
+        BigInt.from(7),
         storageValue(proposalData),
       );
 
       expect(decoded, isNotNull);
-      expect(decoded!.proposalId, 7);
+      expect(decoded!.proposalId, BigInt.from(7));
       expect(decoded.actorCidNumber, 'ZS001-NRC0G-944805165-2026');
       expect(decoded.reason, '升级协议参数');
       expect(decoded.codeHashHex, List.filled(32, 'ab').join());
@@ -346,7 +346,7 @@ void main() {
       ]);
 
       final decoded = service.decodeRuntimeUpgradeStorageValue(
-        8,
+        BigInt.from(8),
         storageValue(proposalData),
       );
 
@@ -391,7 +391,7 @@ void main() {
       ]);
 
       final decoded = service.decodeRuntimeUpgradeStorageValue(
-        9,
+        BigInt.from(9),
         storageValue(proposalData),
       );
 

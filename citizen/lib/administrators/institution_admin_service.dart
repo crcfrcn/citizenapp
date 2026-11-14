@@ -54,7 +54,9 @@ class InstitutionAdminService {
            getFinalizedHead ??
            chain?.getFinalizedHead ??
            (() => throw StateError('未配置getFinalizedHead')),
-       _getRuntimeContext = getRuntimeContext ?? chain?.getRuntimeContext ??
+       _getRuntimeContext =
+           getRuntimeContext ??
+           chain?.getRuntimeContext ??
            ((block) => throw StateError('未配置getRuntimeContext')),
        _getStorageKeysPaged =
            getStorageKeysPaged ??
@@ -71,7 +73,8 @@ class InstitutionAdminService {
            ((CitizenBlockRef block, List<Uint8List> keys) =>
                throw StateError('未配置getStorageBatch'));
   final Future<CitizenBlockRef> Function() _getFinalizedHead;
-  final Future<CitizenRuntimeContext> Function(CitizenBlockRef) _getRuntimeContext;
+  final Future<CitizenRuntimeContext> Function(CitizenBlockRef)
+  _getRuntimeContext;
   final Future<List<Uint8List>> Function(
     CitizenBlockRef block,
     Uint8List prefix, {
@@ -124,8 +127,12 @@ class InstitutionAdminService {
       cidNumber,
     );
     final roles = <String, InstitutionRole>{};
-    for (final value in roleValues) {
-      final role = InstitutionRoleStorageCodec.decodeRole(value);
+    for (final row in roleValues) {
+      final role = InstitutionRoleStorageCodec.decodeRole(
+        row.$2,
+        cidNumber: cidNumber,
+        roleCode: row.$1,
+      );
       if (role == null) throw const FormatException('机构岗位资料无效');
       if (role.cidNumber == cidNumber &&
           role.status == InstitutionRoleStatus.active) {
@@ -136,8 +143,12 @@ class InstitutionAdminService {
     final currentDay =
         DateTime.now().toUtc().millisecondsSinceEpoch ~/
         Duration.millisecondsPerDay;
-    for (final value in assignmentValues) {
-      final decoded = InstitutionRoleStorageCodec.decodeAssignments(value);
+    for (final row in assignmentValues) {
+      final decoded = InstitutionRoleStorageCodec.decodeAssignments(
+        row.$2,
+        cidNumber: cidNumber,
+        roleCode: row.$1,
+      );
       if (decoded == null) throw const FormatException('机构任职资料无效');
       for (final assignment in decoded) {
         final role = roles[assignment.roleCode];
@@ -224,7 +235,7 @@ class InstitutionAdminService {
     _accountService.clearCache(identity);
   }
 
-  Future<List<Uint8List>> _scanValues(
+  Future<List<(String, Uint8List)>> _scanValues(
     CitizenRuntimeContext runtime,
     String pallet,
     String storage,
@@ -249,14 +260,35 @@ class InstitutionAdminService {
       startKey = page.last;
     }
     if (keys.isEmpty) return const [];
-    final values = <Uint8List>[];
+    final values = <(String, Uint8List)>[];
     for (var offset = 0; offset < keys.length; offset += 100) {
       final end = (offset + 100).clamp(0, keys.length);
       final rows = await _getStorageBatch(finalized, keys.sublist(offset, end));
       if (rows.length != end - offset || rows.any((row) => row == null)) {
         throw StateError('机构岗位扫描结果不完整');
       }
-      values.addAll(rows.cast<Uint8List>());
+      for (var j = 0; j < rows.length; j++) {
+        final key = keys[offset + j];
+        if (key.length < prefix.length + 17 ||
+            !List.generate(
+              prefix.length,
+              (i) => key[i] == prefix[i],
+            ).every((v) => v))
+          throw const FormatException('岗位key前缀无效');
+        final pos = prefix.length + 16;
+        final (n, w) = CitizenScale.readCompact(key, pos);
+        if (n < 1 || n > 64 || pos + w + n != key.length)
+          throw const FormatException('岗位key长度无效');
+        final encoded = key.sublist(pos);
+        final digest = CitizenScale.blake2b128(encoded);
+        if (!List.generate(
+          16,
+          (i) => key[prefix.length + i] == digest[i],
+        ).every((v) => v))
+          throw const FormatException('岗位key哈希无效');
+        final roleCode = utf8.decode(key.sublist(pos + w));
+        values.add((roleCode, rows[j]!));
+      }
     }
     return values;
   }

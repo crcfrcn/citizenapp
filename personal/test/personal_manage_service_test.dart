@@ -201,14 +201,14 @@ void main() {
       ];
       List<int> event(int index, {int amount = 111}) => [
         0, ...u32Le(index), 7, 0,
-        ...u32Le(7), ...u32Le(0), ...account, ...signer,
+        ...u128Le(BigInt.from(7)), ...account, ...signer,
         ...compactVec('家庭基金'), 8,
         ...adminBytes(signer, familyName: '张', givenName: '三'),
         ...adminBytes(peer, familyName: '李', givenName: '四'),
         ...u32Le(2), ...u32Le(2), ...u128Le(BigInt.from(amount)),
         ...u128Le(BigInt.from(10)), ...u32Le(99), 0,
       ];
-      Future<({String txHash, int usedNonce, int proposalId, String accountId, String blockHash})>
+      Future<({String txHash, int usedNonce, BigInt proposalId, String accountId, String blockHash})>
       submit(List<List<int>> rows) {
         final tx = TestCitizenTransactionFlow()
           ..prepare = ((_, _) async => CitizenPreparedTransaction(
@@ -245,7 +245,7 @@ void main() {
       }
 
       final result = await submit([event(1), event(2)]);
-      expect(result.proposalId, 7);
+      expect(result.proposalId, BigInt.from(7));
       expect(result.accountId, '0x${hexOf(account)}');
       expect(result.blockHash, block.hash);
       await expectLater(submit([event(1)]), throwsStateError);
@@ -282,11 +282,11 @@ void main() {
       ];
       final raw = Uint8List.fromList([...compactU32(inner.length), ...inner]);
 
-      final decoded = service.decodePersonalProposalData(7, raw);
+      final decoded = service.decodePersonalProposalData(BigInt.from(7), raw);
 
       expect(decoded, isA<CreateProposalInfo>());
       final info = decoded as CreateProposalInfo;
-      expect(info.proposalId, 7);
+      expect(info.proposalId, BigInt.from(7));
       expect(info.accountId, '0x${'33' * 32}');
       expect(info.amountFen, BigInt.from(111));
       expect(info.feeAmount, BigInt.from(10));

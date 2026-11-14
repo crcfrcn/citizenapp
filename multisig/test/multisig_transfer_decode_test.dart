@@ -61,7 +61,7 @@ class _ProposalChain extends _RawStorageChain {
     this.failure,
     this.missingYear = false,
     this.hasIndex = false,
-  }) : super(Uint8List.fromList([0xea, 0x07]));
+  }) : super(Uint8List.fromList([0xea, 0x07, 0, 0]));
   final String? failureAt;
   final Object? failure;
   final bool missingYear;
@@ -84,8 +84,8 @@ class _ProposalChain extends _RawStorageChain {
     int limit = 1000,
   }) async {
     reads.add('index');
-    expectSync(prefix.length, 42);
-    expectSync(prefix.sublist(40), [0xea, 0x07]);
+    expectSync(prefix.length, 44);
+    expectSync(prefix.sublist(40), [0xea, 0x07, 0, 0]);
     expectSync(startKey, isNull);
     expectSync(limit, 1000);
     if (failureAt == 'index') throw failure!;
@@ -95,7 +95,7 @@ class _ProposalChain extends _RawStorageChain {
               ...prefix,
               ...List<int>.filled(8, 0),
               1,
-              ...List<int>.filled(7, 0),
+              ...List<int>.filled(15, 0),
             ]),
           ]
         : [];
@@ -151,32 +151,33 @@ class _PageFeed extends MultisigTransferProposalFeed {
   final forced = <bool>[];
   Future<List<ProposalWithDetail>> Function(List<int>)? details;
   @override
-  Future<List<int>> fetchCitizenProposalFeedIds({
+  Future<List<BigInt>> fetchCitizenProposalFeedIds({
     required Set<String> defaultCodes,
     required Set<String> subscribedInstitutionCidNumbers,
     bool forceRefresh = false,
   }) async {
     expectSync(defaultCodes, contains('NRC'));
     forced.add(forceRefresh);
-    return scopes.isEmpty ? ids : scopes.removeAt(0)();
+    final result = scopes.isEmpty ? ids : await scopes.removeAt(0)();
+    return result.map(BigInt.from).toList();
   }
 
   static List<ProposalWithDetail> proposals(List<int> ids) => [
     for (final id in ids)
       ProposalWithDetail(
         meta: ProposalMeta(
-          proposalId: id,
+          proposalId: BigInt.from(id),
           kind: 1,
           stage: 1,
           status: 0,
           internalCode: 'NRC',
-          displayMeta: ProposalDisplayMeta(year: 2026, seqInYear: id),
+          displayMeta: ProposalDisplayMeta(year: 2026, seqInYear: BigInt.from(id)),
         ),
       ),
   ];
   @override
-  Future<List<ProposalWithDetail>> fetchProposalsByIds(List<int> ids) async =>
-      details == null ? proposals(ids) : details!(ids);
+  Future<List<ProposalWithDetail>> fetchProposalsByIds(List<BigInt> ids) async =>
+      details == null ? proposals(ids.map((id) => id.toInt()).toList()) : details!(ids.map((id) => id.toInt()).toList());
 }
 
 class _PageContext extends ProposalContextResolver {
@@ -212,7 +213,7 @@ class _PageContext extends ProposalContextResolver {
     Map<String, InstitutionInfo> knownInstitutionsByCidNumber = const {},
   }) async {
     if (failure != null) throw failure!;
-    return [for (final _ in actorCidNumbers) const ProposalContext()];
+    return [for (final _ in actorCidNumbers) ProposalContext()];
   }
 }
 
@@ -259,7 +260,7 @@ class _PageVotes extends VoteChecker {
   Object? failure;
   Future<void> Function()? beforeReturn;
   @override
-  Future<Set<int>> proposalsNeedingVote(List<VoteCheckTarget> targets) async {
+  Future<Set<BigInt>> proposalsNeedingVote(List<VoteCheckTarget> targets) async {
     if (failure != null) throw failure!;
     await beforeReturn?.call();
     return targets
@@ -557,7 +558,7 @@ void main() {
     expect(find.text('2026000030'), findsOneWidget);
     expect(find.text('2026000001'), findsNothing);
     final old = await tester.runAsync(
-      () => ProposalLocalStore.instance.readSummariesForIds([1]),
+      () => ProposalLocalStore.instance.readSummariesForIds([BigInt.from(1)]),
     );
     expect(old, isEmpty);
     expect(counts.last, 0);
@@ -646,7 +647,7 @@ void main() {
     final institutionAccountId = List<int>.filled(32, 0x11);
     final beneficiary = List<int>.filled(32, 0x22);
     final decoded = service.debugDecodeProposalData(
-      0,
+      BigInt.from(0),
       institutionPayload(
         institutionAccountId: institutionAccountId,
         beneficiary: beneficiary,
@@ -666,7 +667,7 @@ void main() {
 
   test('机构 propose_transfer 当前 SCALE payload 的空备注必须可解码', () {
     final decoded = service.debugDecodeProposalData(
-      1,
+      BigInt.from(1),
       institutionPayload(
         institutionAccountId: List<int>.filled(32, 0x11),
         beneficiary: List<int>.filled(32, 0x22),
@@ -691,14 +692,14 @@ void main() {
     );
     final raw = Uint8List.fromList(full.sublist(0, full.length - 1));
 
-    expect(service.debugDecodeProposalData(2, raw), isNull);
+    expect(service.debugDecodeProposalData(BigInt.from(2), raw), isNull);
   });
 
   test('MODULE_TAG 不符返回 null', () {
     final body = <int>[...'dq-xxxx'.codeUnits, ...List<int>.filled(114, 0x11)];
     final raw = Uint8List.fromList([...compactU32(body.length), ...body]);
 
-    expect(service.debugDecodeProposalData(3, raw), isNull);
+    expect(service.debugDecodeProposalData(BigInt.from(3), raw), isNull);
   });
 
   test('SafetyFundAction 严格解码 actor CID、机构账户和 proposer', () async {
@@ -736,7 +737,7 @@ void main() {
         consumePreparedTransactionQrResponse:
             reads1.consumePreparedTransactionQrResponse,
       );
-    })().fetchSafetyFundAction(4);
+    })().fetchSafetyFundAction(BigInt.from(4));
 
     expect(decoded, isNotNull);
     expect(decoded!.actorCidNumber, actorCidNumber);
@@ -767,7 +768,7 @@ void main() {
           consumePreparedTransactionQrResponse:
               reads1.consumePreparedTransactionQrResponse,
         );
-      })().fetchSafetyFundAction(4),
+      })().fetchSafetyFundAction(BigInt.from(4)),
       isNull,
     );
   });
@@ -803,7 +804,7 @@ void main() {
         consumePreparedTransactionQrResponse:
             reads1.consumePreparedTransactionQrResponse,
       );
-    })().fetchSweepAction(5);
+    })().fetchSweepAction(BigInt.from(5));
 
     expect(decoded, isNotNull);
     expect(decoded!.actorCidNumber, actorCidNumber);
@@ -834,7 +835,7 @@ void main() {
           consumePreparedTransactionQrResponse:
               reads1.consumePreparedTransactionQrResponse,
         );
-      })().fetchSweepAction(5),
+      })().fetchSweepAction(BigInt.from(5)),
       isNull,
     );
   });
@@ -852,18 +853,18 @@ void main() {
       ...u32Le(10),
       ...u32Le(20),
     ]);
-    final decoded = service.debugDecodeProposalMeta(6, raw);
+    final decoded = service.debugDecodeProposalMeta(BigInt.from(6), raw);
     expect(decoded, isNotNull);
     expect(decoded!.actorCidNumber, actorCidNumber);
     expect(decoded.executionAccountId, executionAccountId);
     expect(decoded.subjectCidNumbers, [subjectCidNumber]);
 
     expect(
-      service.debugDecodeProposalMeta(6, Uint8List.fromList([...raw, 0])),
+      service.debugDecodeProposalMeta(BigInt.from(6), Uint8List.fromList([...raw, 0])),
       isNull,
     );
     final invalidOption = Uint8List.fromList(raw)..[3] = 2;
-    expect(service.debugDecodeProposalMeta(6, invalidOption), isNull);
+    expect(service.debugDecodeProposalMeta(BigInt.from(6), invalidOption), isNull);
   });
 
   test('ProposalSubject 唯一编码严格区分机构 CID 与个人多签账户', () {
@@ -918,10 +919,10 @@ void main() {
 
     final activeRaw = Uint8List.fromList([
       8, // Compact(2)
-      ...u64Le(7),
-      ...u64Le(9),
+      ...u64Le(7), ...List.filled(8, 0),
+      ...u64Le(9), ...List.filled(8, 0),
     ]);
-    expect(ProposalQueryService.decodeActiveProposalIds(activeRaw), [7, 9]);
+    expect(ProposalQueryService.decodeActiveProposalIds(activeRaw), [BigInt.from(7), BigInt.from(9)]);
     expect(
       ProposalQueryService.decodeActiveProposalIds(
         Uint8List.fromList([...activeRaw, 0]),
@@ -969,13 +970,13 @@ void main() {
 
     expect(
       await query.fetchRoleVoterSnapshot(
-        7,
+        BigInt.from(7),
         institution.cidNumber,
         'COMMITTEE_MEMBER',
       ),
       ['0x${'33' * 32}'],
     );
-    expect(await query.fetchEligibleVoterSnapshot(7, personal), [
+    expect(await query.fetchEligibleVoterSnapshot(BigInt.from(7), personal), [
       '0x${'33' * 32}',
     ]);
     expect(rpc.storageKeys, hasLength(2));
@@ -994,7 +995,7 @@ void main() {
     }) {
       return ProposalWithDetail(
         meta: ProposalMeta(
-          proposalId: id,
+          proposalId: BigInt.from(id),
           kind: 0,
           stage: 0,
           status: 0,
@@ -1042,7 +1043,7 @@ void main() {
       subscribedInstitutionCidNumbers: const {subscribedCid},
     );
 
-    expect(ids, [6, 4, 1]);
+    expect(ids, [6, 4, 1].map(BigInt.from).toList());
   });
 }
 

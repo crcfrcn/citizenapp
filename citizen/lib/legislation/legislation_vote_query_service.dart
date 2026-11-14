@@ -132,7 +132,7 @@ class LegislationVoteQueryService {
   static const String _votePallet = 'LegislationVote';
 
   /// 核心提案阶段/状态(不存在返回 null)。
-  Future<LegProposalState?> fetchProposalState(int proposalId) async {
+  Future<LegProposalState?> fetchProposalState(BigInt proposalId) async {
     final proposal = await _proposalQuery.fetchProposalMeta(proposalId);
     if (proposal == null) return null;
     return LegProposalState(
@@ -142,7 +142,7 @@ class LegislationVoteQueryService {
     );
   }
 
-  Future<LegRepresentativeMeta?> fetchRepresentativeMeta(int proposalId) async {
+  Future<LegRepresentativeMeta?> fetchRepresentativeMeta(BigInt proposalId) async {
     final data = await _readStorage('RepresentativeMetas', [proposalId]);
     if (data == null) return null;
     final result = _decodeRepresentativeMeta(data);
@@ -150,7 +150,7 @@ class LegislationVoteQueryService {
     return result;
   }
 
-  Future<LegislationMeta?> fetchLegislationMeta(int proposalId) async {
+  Future<LegislationMeta?> fetchLegislationMeta(BigInt proposalId) async {
     final data = await _readStorage('LegislationMetas', [proposalId]);
     if (data == null) return null;
     final result = _decodeLegislationMeta(data);
@@ -224,7 +224,7 @@ class LegislationVoteQueryService {
 
   /// 当前代表机构计票，按 body_index 独立保存。
   Future<({int yes, int no})> fetchRepresentativeTally(
-    int proposalId,
+    BigInt proposalId,
     int bodyIndex,
   ) async {
     final data = await _readStorage('RepresentativeTallies', [proposalId, bodyIndex]);
@@ -234,7 +234,7 @@ class LegislationVoteQueryService {
   }
 
   /// 公投计票(VoteCountU64:yes u64 + no u64)。
-  Future<({int yes, int no})> fetchReferendumTally(int proposalId) async {
+  Future<({int yes, int no})> fetchReferendumTally(BigInt proposalId) async {
     final data = await _readStorage('LegReferendumTally', [proposalId]);
     if (data == null) return (yes: 0, no: 0);
     if (data.length != 16) throw const FormatException('公投计票长度无效');
@@ -243,7 +243,7 @@ class LegislationVoteQueryService {
 
   /// 某钱包在指定代表机构岗位席位的投票。
   Future<bool?> fetchRepresentativeVote(
-    int proposalId,
+    BigInt proposalId,
     int bodyIndex,
     String cidNumber,
     String voterRoleCode,
@@ -273,21 +273,21 @@ class LegislationVoteQueryService {
 
   /// 三人会签记录(LegOverrideSigns:BoundedVec<(AccountId,bool)>)。
   Future<List<({String accountId, bool approve})>> fetchOverrideSigns(
-    int proposalId,
+    BigInt proposalId,
   ) {
     return _fetchSigns('LegOverrideSigns', proposalId);
   }
 
   /// 护宪大法官终审记录(LegGuardSigns:BoundedVec<(AccountId,bool)>)。
   Future<List<({String accountId, bool approve})>> fetchGuardSigns(
-    int proposalId,
+    BigInt proposalId,
   ) {
     return _fetchSigns('LegGuardSigns', proposalId);
   }
 
   Future<List<({String accountId, bool approve})>> _fetchSigns(
     String storage,
-    int proposalId,
+    BigInt proposalId,
   ) async {
     final data = await _readStorage(storage, [proposalId]);
     if (data == null) return const [];

@@ -105,7 +105,7 @@ class LegislationVoteService {
   /// 当前代表机构表决；同一钱包在不同机构的席位分别记票。
   Future<({String txHash, int usedNonce, String blockHash})>
   castRepresentativeVote({
-    required int proposalId,
+    required BigInt proposalId,
     required String voterRoleCode,
     required bool approve,
     required Uint8List signerPublicKey,
@@ -155,7 +155,7 @@ class LegislationVoteService {
 
   /// 行政首长(机构法定代表人)签署或否决。
   Future<({String txHash, int usedNonce, String blockHash})> executiveSign({
-    required int proposalId,
+    required BigInt proposalId,
     required bool approve,
     required Uint8List signerPublicKey,
     required Future<String?> Function(
@@ -186,7 +186,7 @@ class LegislationVoteService {
 
   /// 三人会签(立法院院长 + 参议长 + 众议长)签署或否决。
   Future<({String txHash, int usedNonce, String blockHash})> overrideSign({
-    required int proposalId,
+    required BigInt proposalId,
     required bool approve,
     required Uint8List signerPublicKey,
     required Future<String?> Function(
@@ -223,7 +223,7 @@ class LegislationVoteService {
 
   /// 护宪大法官终审表决(修宪)。
   Future<({String txHash, int usedNonce, String blockHash})> guardVote({
-    required int proposalId,
+    required BigInt proposalId,
     required bool approve,
     required Uint8List signerPublicKey,
     required Future<String?> Function(
@@ -261,7 +261,7 @@ class LegislationVoteService {
   static Future<Uint8List> buildCallData({
     required CitizenCallBuilder buildCall,
     required int callIndex,
-    required int proposalId,
+    required BigInt proposalId,
     String? voterRoleCode,
     required bool approve,
   }) {
@@ -272,7 +272,7 @@ class LegislationVoteService {
       callGuardVote => 'guard_vote',
       _ => throw ArgumentError('未知立法投票调用'),
     };
-    if (proposalId < 0) throw ArgumentError('proposal_id不得为负');
+    if (proposalId.isNegative) throw ArgumentError('proposal_id不得为负');
     final fields = <Object>[proposalId];
     if (callIndex == callCastRepresentativeVote) {
       final roleBytes = Uint8List.fromList(
@@ -296,7 +296,7 @@ class LegislationVoteService {
   Future<({String txHash, int usedNonce, CitizenExecution execution})>
   _executeFinalized({
     required int callIndex,
-    required int proposalId,
+    required BigInt proposalId,
     String? voterRoleCode,
     required bool approve,
     required Uint8List signerPublicKey,
@@ -338,7 +338,7 @@ class LegislationVoteService {
   /// 只接受同块、同交易索引和完整业务字段匹配的事件，终态清账不能替代证明。
   Future<void> _confirmEvent(
     CitizenExecution execution,
-    int proposalId,
+    BigInt proposalId,
     Uint8List signer,
     bool approve,
     String name, {
@@ -357,7 +357,7 @@ class LegislationVoteService {
     if (matches.length != 1) throw StateError('执行块缺少唯一的本次立法投票事件');
     final event = matches.single;
     final fields = event.fields as Map<String, Object?>;
-    if (event.fieldUnsigned('proposal_id') != BigInt.from(proposalId) ||
+    if (event.fieldUnsigned('proposal_id') != proposalId ||
         fields['approve'] != approve ||
         _hexEncode(event.fieldBytes('who')) != _hexEncode(signer) ||
         (voterRoleCode != null &&

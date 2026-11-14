@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:citizen_scanner/qr_display_scaffold.dart' show AppQrImage;
@@ -21,9 +22,9 @@ void main() {
     walletIndex: 0,
     accountIndex: 0,
     name: '账户名称与钱包名不同',
-    ss58Address: '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty',
+    ss58Address: 'w5FSaGABE2SVAogLtyW4ZSuVnXQRURpNyyrRtTcQKSui6EH6m',
     accountId:
-        '0x0000000000000000000000000000000000000000000000000000000000000000',
+        '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     createdAtMillis: BigInt.zero,
     isDefault: true,
   );
@@ -32,6 +33,7 @@ void main() {
     WidgetTester tester,
     Future<void> Function(String) onNameChanged, {
     TargetPlatform platform = TargetPlatform.android,
+    Future<String> Function(String)? evmAddressLoader,
   }) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = platform == TargetPlatform.iOS
@@ -57,6 +59,10 @@ void main() {
                   wallet: wallet,
                   name: '我的钱包',
                   onNameChanged: onNameChanged,
+                  evmAddressLoader:
+                      evmAddressLoader ??
+                      (accountId) async =>
+                          citizenEvmAddressFromAccountId(accountId),
                 ),
               ),
             ),
@@ -65,6 +71,122 @@ void main() {
       ),
     );
   }
+
+  testWidgets('一个复制按钮打开双地址弹窗，并复制所选公民链地址', (tester) async {
+    String? copied;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied = (call.arguments as Map)['text'] as String;
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    await pumpCard(tester, (_) async {});
+    expect(find.byIcon(Icons.copy_outlined), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('wallet-identity-copy-button')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('wallet-address-copy-dialog')),
+      findsOneWidget,
+    );
+    expect(find.text(wallet.ss58Address), findsOneWidget);
+    expect(
+      find.text(citizenEvmAddressFromAccountId(wallet.accountId)),
+      findsOneWidget,
+    );
+    expect(copied, isNull);
+    await tester.tap(find.byKey(const ValueKey('wallet-copy-ss58-button')));
+    await tester.pumpAndSettle();
+    expect(copied, wallet.ss58Address);
+    expect(
+      find.byKey(const ValueKey('wallet-address-copy-dialog')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('以太坊地址只在确认映射后可复制，等待时仍可复制公民链地址', (tester) async {
+    final confirmation = Completer<String>();
+    String? copied;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData')
+          copied = (call.arguments as Map)['text'] as String;
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    await pumpCard(
+      tester,
+      (_) async {},
+      evmAddressLoader: (_) => confirmation.future,
+    );
+    await tester.tap(find.byKey(const ValueKey('wallet-identity-copy-button')));
+    await tester.pumpAndSettle();
+    final ethereum = citizenEvmAddressFromAccountId(wallet.accountId);
+    expect(
+      tester
+          .widget<TextButton>(
+            find.byKey(const ValueKey('wallet-copy-evm-button')),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<TextButton>(
+            find.byKey(const ValueKey('wallet-copy-ss58-button')),
+          )
+          .onPressed,
+      isNotNull,
+    );
+    confirmation.complete(ethereum);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('wallet-copy-evm-button')));
+    await tester.pumpAndSettle();
+    expect(copied, ethereum);
+  });
+
+  testWidgets('映射查询失败或返回其他地址均不可复制以太坊地址', (tester) async {
+    for (final fails in [true, false]) {
+      await pumpCard(
+        tester,
+        (_) async {},
+        evmAddressLoader: (_) async {
+          if (fails) throw StateError('read failed');
+          return '0x1111111111111111111111111111111111111111';
+        },
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('wallet-identity-copy-button')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('以太坊地址尚未确认，请稍后重试'), findsOneWidget);
+      expect(
+        tester
+            .widget<TextButton>(
+              find.byKey(const ValueKey('wallet-copy-evm-button')),
+            )
+            .onPressed,
+        isNull,
+      );
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pumpAndSettle();
+    }
+  });
 
   testWidgets('renders wallet name and full address', (tester) async {
     await pumpCard(tester, (_) async {});

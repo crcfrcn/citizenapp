@@ -51,14 +51,14 @@ class InternalVoteQueryService {
   final CitizenBlockRef? _block;
 
   /// 查询某管理员对某提案的投票记录。null=未投票，true=赞成，false=反对。
-  Future<bool?> fetchAdminVote(int proposalId, String accountId) async {
+  Future<bool?> fetchAdminVote(BigInt proposalId, String accountId) async {
     final data = await _readOne(_ticketVoteFields(proposalId, accountId));
     return _decodeVote(data);
   }
 
   /// 查询一张机构岗位票据；CID、岗位码、钱包三者共同确定唯一票。
   Future<bool?> fetchInstitutionTicketVote(
-    int proposalId,
+    BigInt proposalId,
     String cidNumber,
     String voterRoleCode,
     String accountId,
@@ -79,7 +79,7 @@ class InternalVoteQueryService {
   /// 详情页和红点判断不能再按管理员逐条 RPC；这里统一拼好
   /// `InternalVotesByTicket` 的个人票据 storage key 后分块读取。
   Future<Map<String, bool?>> fetchAdminVotesBatch(
-    int proposalId,
+    BigInt proposalId,
     Iterable<String> accountIds,
   ) async {
     final keyByAccountId = <String, List<Object>>{};
@@ -101,7 +101,7 @@ class InternalVoteQueryService {
 
   /// 批量查询完整票据；返回键为 [EligibleVoterTicket.ticketKey]。
   Future<Map<String, bool?>> fetchTicketVotesBatch(
-    int proposalId,
+    BigInt proposalId,
     Iterable<EligibleVoterTicket> tickets,
   ) async {
     final storageByTicket = <String, List<Object>>{};
@@ -126,11 +126,11 @@ class InternalVoteQueryService {
   /// (ADR-018 R2):公民-提案列表原来每个提案各发一次批量 RPC(P 个提案
   /// = P 次往返),这里把所有 (proposal_id, admin) 的 storage key 一次拼齐、单次
   /// 分块读取,P 次往返降为 1 次。
-  Future<Map<int, Map<String, bool?>>> fetchAdminVotesForProposals(
-    Map<int, List<String>> accountIdsByProposal,
+  Future<Map<BigInt, Map<String, bool?>>> fetchAdminVotesForProposals(
+    Map<BigInt, List<String>> accountIdsByProposal,
   ) async {
     final keys = <List<Object>>[];
-    final coordinates = <({int pid, String accountId})>[];
+    final coordinates = <({BigInt pid, String accountId})>[];
     for (final entry in accountIdsByProposal.entries) {
       for (final accountId in entry.value) {
         final normalizedAccountId = _requireAccountId(accountId);
@@ -140,7 +140,7 @@ class InternalVoteQueryService {
     }
     if (keys.isEmpty) return const {};
     final values = await _readBatch(keys);
-    final result = <int, Map<String, bool?>>{};
+    final result = <BigInt, Map<String, bool?>>{};
     for (var index = 0; index < coordinates.length; index++) {
       final coord = coordinates[index];
       (result[coord.pid] ??= <String, bool?>{})[coord.accountId] = _decodeVote(
@@ -151,11 +151,11 @@ class InternalVoteQueryService {
   }
 
   /// 跨提案批量查询完整票据；机构岗位票据和个人票据共用一次分块读取。
-  Future<Map<int, Map<String, bool?>>> fetchTicketVotesForProposals(
-    Map<int, List<EligibleVoterTicket>> ticketsByProposal,
+  Future<Map<BigInt, Map<String, bool?>>> fetchTicketVotesForProposals(
+    Map<BigInt, List<EligibleVoterTicket>> ticketsByProposal,
   ) async {
     final keys = <List<Object>>[];
-    final coordinates = <({int pid, String ticketKey})>[];
+    final coordinates = <({BigInt pid, String ticketKey})>[];
     for (final entry in ticketsByProposal.entries) {
       for (final ticket in entry.value) {
         final storageKey = _ticketVoteFields(
@@ -170,7 +170,7 @@ class InternalVoteQueryService {
     }
     if (keys.isEmpty) return const {};
     final values = await _readBatch(keys);
-    final result = <int, Map<String, bool?>>{};
+    final result = <BigInt, Map<String, bool?>>{};
     for (var index = 0; index < coordinates.length; index++) {
       final coord = coordinates[index];
       (result[coord.pid] ??= <String, bool?>{})[coord.ticketKey] = _decodeVote(
@@ -181,12 +181,12 @@ class InternalVoteQueryService {
   }
 
   List<Object> _ticketVoteFields(
-    int proposalId,
+    BigInt proposalId,
     String accountId, {
     String? cidNumber,
     String? voterRoleCode,
   }) {
-    if (proposalId < 0) throw ArgumentError('proposal_id不得为负');
+    if (proposalId.isNegative) throw ArgumentError('proposal_id不得为负');
     final account = citizenAccountIdBytes(accountId);
     final CitizenScaleVariant ticket;
     if (cidNumber == null && voterRoleCode == null) {
