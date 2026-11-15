@@ -451,7 +451,7 @@ class ProposalQueryService {
     }
   }
 
-  /// 严格解码 `BoundedVec<u64, MaxActiveProposals>`。
+  /// 严格解码 `BoundedVec<u128, MaxActiveProposals>`。
   static List<BigInt>? decodeActiveProposalIds(Uint8List data) {
     try {
       final (count, lenSize) = _decodeCompact(data, 0);

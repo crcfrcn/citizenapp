@@ -96,11 +96,9 @@ void main() {
     final permission = fixtureBytes(
       fixture,
       'permission_resolution_issuance_propose',
-    ).sublist(fixtureBytes(fixture, 'role_subject_nrc_committee').length);
+    );
     final decoded = InstitutionRoleStorageCodec.decodeRolePermissions(
       Uint8List.fromList([4, ...permission]),
-      cidNumber: 'LN001-NRC0G-944805165-2026',
-      roleCode: 'COMMITTEE_MEMBER',
     )!;
     expect(decoded, hasLength(1));
     expect(decoded.single.businessActionId.moduleTag, 'res-iss');
@@ -108,8 +106,6 @@ void main() {
     expect(
       InstitutionRoleStorageCodec.decodeRolePermissions(
         Uint8List.fromList([8, ...permission, ...permission]),
-        cidNumber: 'LN001-NRC0G-944805165-2026',
-        roleCode: 'COMMITTEE_MEMBER',
       ),
       isNull,
     );
@@ -193,9 +189,13 @@ void main() {
 
   test('岗位和任职分别按 entity 布局解码', () {
     final role = InstitutionRoleStorageCodec.decodeRole(
-      Uint8List.fromList([...bytes('董事'), 1, 0]),
-      cidNumber: 'CID-1',
-      roleCode: 'DIRECTOR',
+      Uint8List.fromList([
+        ...bytes('CID-1'),
+        ...bytes('DIRECTOR'),
+        ...bytes('董事'),
+        1,
+        0,
+      ]),
     )!;
     expect(role.roleName, '董事');
     expect(role.termRequired, isTrue);
@@ -203,7 +203,9 @@ void main() {
     final assignment = InstitutionRoleStorageCodec.decodeAssignments(
       Uint8List.fromList([
         4,
+        ...bytes('CID-1'),
         ...List.filled(32, 7),
+        ...bytes('DIRECTOR'),
         10,
         0,
         0,
@@ -216,8 +218,6 @@ void main() {
         ...bytes('REG-1'),
         0,
       ]),
-      cidNumber: 'CID-1',
-      roleCode: 'DIRECTOR',
     )!.single;
     expect(assignment.source, InstitutionAssignmentSource.registry);
     expect(assignment.accountId, '0x${'07' * 32}');
@@ -226,26 +226,22 @@ void main() {
   test('任职向量允许已核实空集，截断或尾随字节必须拒绝', () {
     final encoded = Uint8List.fromList([
       4,
+      ...bytes('CID-1'),
       ...List.filled(32, 7),
+      ...bytes('MEMBER'),
       ...List.filled(8, 0),
       0,
       ...bytes(''),
       0,
     ]);
     expect(
-      InstitutionRoleStorageCodec.decodeAssignments(
-        Uint8List.fromList([0]),
-        cidNumber: 'CID-1',
-        roleCode: 'DIRECTOR',
-      ),
+      InstitutionRoleStorageCodec.decodeAssignments(Uint8List.fromList([0])),
       isEmpty,
     );
     for (var length = 0; length < encoded.length; length++) {
       expect(
         InstitutionRoleStorageCodec.decodeAssignments(
           Uint8List.sublistView(encoded, 0, length),
-          cidNumber: 'CID-1',
-          roleCode: 'DIRECTOR',
         ),
         isNull,
         reason: '截断任职不得被当作空岗位',
@@ -254,17 +250,11 @@ void main() {
     expect(
       InstitutionRoleStorageCodec.decodeAssignments(
         Uint8List.fromList([...encoded, 0]),
-        cidNumber: 'CID-1',
-        roleCode: 'DIRECTOR',
       ),
       isNull,
     );
     expect(
-      InstitutionRoleStorageCodec.decodeAssignments(
-        encoded,
-        cidNumber: 'CID-1',
-        roleCode: 'DIRECTOR',
-      )!.single.accountId,
+      InstitutionRoleStorageCodec.decodeAssignments(encoded)!.single.accountId,
       '0x${'07' * 32}',
     );
   });
@@ -298,25 +288,24 @@ void main() {
   });
 
   test('岗位身份文本拒绝畸形 UTF-8 和非法 bool', () {
-    final malformedCid = Uint8List.fromList([4, 0xff, ...bytes('董事'), 1, 0]);
-    expect(
-      InstitutionRoleStorageCodec.decodeRole(
-        malformedCid,
-        cidNumber: 'CID-1',
-        roleCode: 'DIRECTOR',
-      ),
-      isNull,
-    );
+    final malformedCid = Uint8List.fromList([
+      4,
+      0xff,
+      ...bytes('DIRECTOR'),
+      ...bytes('董事'),
+      1,
+      0,
+    ]);
+    expect(InstitutionRoleStorageCodec.decodeRole(malformedCid), isNull);
 
-    final invalidBool = Uint8List.fromList([...bytes('董事'), 2, 0]);
-    expect(
-      InstitutionRoleStorageCodec.decodeRole(
-        invalidBool,
-        cidNumber: 'CID-1',
-        roleCode: 'DIRECTOR',
-      ),
-      isNull,
-    );
+    final invalidBool = Uint8List.fromList([
+      ...bytes('CID-1'),
+      ...bytes('DIRECTOR'),
+      ...bytes('董事'),
+      2,
+      0,
+    ]);
+    expect(InstitutionRoleStorageCodec.decodeRole(invalidBool), isNull);
   });
 
   test('机构命名账户关闭动作保留 actor CID 与具体机构账户', () {
@@ -332,10 +321,7 @@ void main() {
       ...List.filled(32, 0x23),
     ];
     final raw = Uint8List.fromList([...compact(body.length), ...body]);
-    final decoded = InstitutionChainService().decodeManageProposalData(
-      BigInt.from(7),
-      raw,
-    );
+    final decoded = InstitutionChainService().decodeManageProposalData(BigInt.from(7), raw);
     expect(decoded, isA<CloseProposalInfo>());
     final close = decoded! as CloseProposalInfo;
     expect(close.actorCidNumber, actorCidNumber);

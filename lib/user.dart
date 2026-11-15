@@ -302,18 +302,30 @@ class _ProfilePageState extends State<MyTab> {
     }
   }
 
-  /// 仅用户下拉刷新时读取远端；完整持久化后页面重新读取本地。
+  /// 仅用户下拉刷新时读取远端；统一接收结果保留较新的本机资料并如实提示保存状态。
   Future<void> _loadPublicProfile(SquareSession session, int generation) async {
-    await _profileApi.refreshProfile(
+    final result = await _profileApi.refreshProfile(
       session.cidNumber,
       session: session,
       userInitiated: true,
+      cache: _profileCache,
+      mediaCache: _profileMediaCache,
       isCurrent: () =>
           mounted &&
           generation == _loadGeneration &&
           session.cidNumber == _identityCidNumber,
     );
-    await _reloadCachedPublicProfile(session.cidNumber, generation);
+    if (!mounted ||
+        generation != _loadGeneration ||
+        session.cidNumber != _identityCidNumber)
+      return;
+    setState(() => _publicProfile = result.profile);
+    await _loadPublicProfileMedia(result.profile, generation: generation);
+    if (mounted && generation == _loadGeneration && result.hasWarning) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(result.refreshMessage!)));
+    }
   }
 
   Future<void> _reloadCachedPublicProfile(

@@ -9,6 +9,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:citizen_user/profile/user_profile_page.dart';
 import 'package:citizen_user/profile/citizen_profile.dart';
+import 'package:citizen_user/profile/citizen_profile_cache.dart';
+import 'package:citizen_user/profile/profile_header_card.dart';
 import 'package:citizen_user/profile/collapsible_header.dart';
 import 'package:citizen_user/profile/profile_category_tabs.dart';
 import 'package:citizen_user/membership/membership_revision.dart';
@@ -116,6 +118,78 @@ class _PendingProfile extends FakeProfileApi {
   }
 }
 
+class _RetryProfile extends FakeProfileApi {
+  _RetryProfile(super.result, {this.denyRefresh = false});
+  final bool denyRefresh;
+  @override
+  Future<CitizenProfile> fetchProfile(
+    String cidNumber, {
+    SquareSession? session,
+  }) async {
+    calls++;
+    if ((!denyRefresh && calls == 1) || (denyRefresh && calls > 1)) {
+      throw SquareApiException(
+        'fixture failure',
+        statusCode: denyRefresh ? 403 : 503,
+        errorCode: denyRefresh
+            ? 'profile_membergate_required'
+            : 'network_unavailable',
+      );
+    }
+    return result;
+  }
+}
+
+class _UnsavedProfile extends FakeProfileApi {
+  _UnsavedProfile(super.result);
+  @override
+  Future<CitizenProfileLoadResult> loadProfile(
+    String cidNumber, {
+    required SquareSession session,
+    CitizenProfileCache? cache,
+    CitizenProfileMediaCache? mediaCache,
+    bool Function()? isCurrent,
+    bool refreshMedia = false,
+  }) async {
+    final profile = await fetchProfile(cidNumber, session: session);
+    return CitizenProfileLoadResult(
+      profile,
+      CitizenProfileLoadStatus.saveFailed,
+    );
+  }
+}
+
+class _NonMemberProfileService extends _NullMembershipSnapshotService {
+  @override
+  Future<void> requireSquareAccess(SquareSession session) async {
+    throw const SquareApiException(
+      'fixture nonmember',
+      errorCode: 'square_membergate_required',
+    );
+  }
+}
+
+CitizenProfile _missingProfile() => CitizenProfile.fromJson({
+  ...sampleProfile().toJson(),
+  'display_name': '',
+  'profile_bio': '',
+  'avatar_key': null,
+  'banner_key': null,
+  'profile_at': 0,
+  'is_following': false,
+  'is_followed_by': true,
+  'is_notifying': false,
+  'counts': {
+    'following': 0,
+    'followers': 0,
+    'mutual_following': 0,
+    'posts': 0,
+    'campaigns': 0,
+    'videos': 0,
+    'articles': 0,
+  },
+});
+
 void main() {
   testWidgets('本人缓存的零计数完整显示且保留自关注入口', (tester) async {
     final old = sampleProfile();
@@ -215,6 +289,172 @@ void main() {
   });
 
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    void prepareView(WidgetTester tester) {
+      debugDefaultTargetPlatformOverride = platform;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.625;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+    }
+
+    testWidgets('${platform.name}非空联系人遇远端版本0正常打开且关系取本次响应', (tester) async {
+      prepareView(tester);
+      final local = sampleProfile(
+        displayName: 'Rhett本机资料',
+        following: true,
+        notifying: true,
+      ).copyWith(profileAt: 1793472841955);
+      final cache = FakeProfileCache(local);
+      final api = FakeProfileApi(_missingProfile());
+      await tester.pumpWidget(
+        MaterialApp(
+          home: UserProfilePage(
+            cidNumber: local.cidNumber!,
+            isSelf: false,
+            initialProfile: local,
+            api: api,
+            cache: cache,
+            sessionProvider: FakeSessionProvider(fakeSession()),
+            subscriptionService: _NonMemberProfileService(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Rhett本机资料'), findsWidgets);
+      expect(find.byType(ProfileCategoryTabs), findsOneWidget);
+      expect(find.byKey(const ValueKey('profile-error-refresh')), findsNothing);
+      final header = tester.widget<ProfileHeaderCard>(
+        find.byType(ProfileHeaderCard),
+      );
+      expect(header.profile!.isFollowing, isFalse);
+      expect(header.profile!.isFollowedBy, isTrue);
+      expect(header.profile!.isNotifying, isFalse);
+      expect(cache.seed, same(local));
+      expect(cache.wrote, isFalse);
+      expect(api.calls, 1);
+      expect(find.text('云端暂无资料，已保留本机资料'), findsNothing);
+      expect(find.byType(SnackBar), findsNothing);
+      debugDefaultTargetPlatformOverride = null;
+    });
+
+    testWidgets('${platform.name}本人下拉遇云端缺失静默保留非空资料', (tester) async {
+      prepareView(tester);
+      final local = sampleProfile(
+        displayName: '本人保存资料',
+      ).copyWith(profileAt: 200);
+      final cache = FakeProfileCache(local);
+      final api = FakeProfileApi(_missingProfile());
+      await tester.pumpWidget(
+        MaterialApp(
+          home: UserProfilePage(
+            cidNumber: local.cidNumber!,
+            isSelf: true,
+            api: api,
+            cache: cache,
+            sessionProvider: FakeSessionProvider(
+              fakeSession(cidNumber: local.cidNumber),
+            ),
+            subscriptionService: _NonMemberProfileService(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(api.calls, 0);
+      await tester.drag(find.text('暂无公文内容，请在广场发布'), const Offset(0, 380));
+      await tester.pumpAndSettle();
+      expect(api.calls, 1);
+      expect(find.text('本人保存资料'), findsWidgets);
+      expect(find.text('云端暂无资料，已保留本机资料'), findsNothing);
+      expect(find.text('刷新完成'), findsNothing);
+      expect(find.byType(SnackBar), findsNothing);
+      expect(cache.seed, same(local));
+      debugDefaultTargetPlatformOverride = null;
+    });
+
+    testWidgets('${platform.name}错误页下拉重试原接口且不额外请求会员或重复加载', (tester) async {
+      prepareView(tester);
+      final api = _RetryProfile(sampleProfile());
+      await tester.pumpWidget(
+        MaterialApp(
+          home: UserProfilePage(
+            cidNumber: sampleProfile().cidNumber!,
+            isSelf: false,
+            api: api,
+            cache: FakeProfileCache(),
+            sessionProvider: FakeSessionProvider(fakeSession()),
+            subscriptionService: _NonMemberProfileService(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('profile-error-refresh')),
+        findsOneWidget,
+      );
+      expect(api.calls, 1);
+      await tester.drag(find.text('内容加载失败，请下拉刷新'), const Offset(0, 380));
+      await tester.pumpAndSettle();
+      expect(api.calls, 2);
+      expect(find.byType(ProfileCategoryTabs), findsOneWidget);
+      expect(find.byKey(const ValueKey('profile-error-refresh')), findsNothing);
+      debugDefaultTargetPlatformOverride = null;
+    });
+
+    testWidgets('${platform.name}刷新被服务端拒绝后清除展示，不能继续显示旧缓存', (tester) async {
+      prepareView(tester);
+      final api = _RetryProfile(
+        sampleProfile(displayName: '此前已展示资料'),
+        denyRefresh: true,
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: UserProfilePage(
+            cidNumber: api.result.cidNumber!,
+            isSelf: false,
+            api: api,
+            cache: FakeProfileCache(),
+            sessionProvider: FakeSessionProvider(fakeSession()),
+            subscriptionService: _NonMemberProfileService(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('此前已展示资料'), findsWidgets);
+      await tester.drag(find.text('暂无公文内容，请在广场发布'), const Offset(0, 380));
+      await tester.pumpAndSettle();
+      expect(api.calls, 2);
+      expect(find.text('此前已展示资料'), findsNothing);
+      expect(
+        find.byKey(const ValueKey('profile-error-refresh')),
+        findsOneWidget,
+      );
+      expect(find.text('非会员禁止访问用户主页'), findsWidgets);
+      debugDefaultTargetPlatformOverride = null;
+    });
+
+    testWidgets('${platform.name}本机保存失败仍展示已获准资料且不误报访问拒绝', (tester) async {
+      prepareView(tester);
+      final api = _UnsavedProfile(sampleProfile(displayName: '已获准远端资料'));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: UserProfilePage(
+            cidNumber: api.result.cidNumber!,
+            isSelf: false,
+            api: api,
+            cache: FakeProfileCache(),
+            sessionProvider: FakeSessionProvider(fakeSession()),
+            subscriptionService: _NonMemberProfileService(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('已获准远端资料'), findsWidgets);
+      expect(find.text('资料已加载，本机保存失败，请重试'), findsOneWidget);
+      expect(find.byKey(const ValueKey('profile-error-refresh')), findsNothing);
+      debugDefaultTargetPlatformOverride = null;
+    });
+
     testWidgets('${platform.name}空内容下拉显示完整进度，服务失败仍重读本地', (tester) async {
       debugDefaultTargetPlatformOverride = platform;
       addTearDown(() => debugDefaultTargetPlatformOverride = null);

@@ -4,6 +4,36 @@ import 'package:citizen_system/app_log.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('profile receive reports a closed result and numeric versions only', () {
+    final lines = <String>[];
+    runZoned(
+      () {
+        AppLog.profileLoadResult(
+          state: 'remoteMissing',
+          localVersion: 200,
+          remoteVersion: 0,
+        );
+        AppLog.profileLoadResult(
+          state: 'private-body-secret',
+          localVersion: -1,
+          remoteVersion: -1,
+        );
+      },
+      zoneSpecification: ZoneSpecification(
+        print: (_, _, _, line) => lines.add(line),
+      ),
+    );
+    expect(
+      lines.first,
+      '[CitizenProfileRead] state=remoteMissing local_version=200 remote_version=0',
+    );
+    expect(
+      lines.last,
+      '[CitizenProfileRead] state=other local_version=none remote_version=none',
+    );
+    expect(lines.join(), isNot(contains('private')));
+  });
+
   test(
     'profile failure records the actual known error and version comparison',
     () {

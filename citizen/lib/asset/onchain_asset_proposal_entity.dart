@@ -16,7 +16,7 @@ class OnchainAssetProposalEntity {
     this.status = 'Voting',
   });
 
-  /// VotingEngine分配的全局u64提案ID；年份/序号属于独立展示元数据，不拆分此主键。
+  /// VotingEngine分配的全局u128提案ID；年份/序号属于独立展示元数据，不拆分此主键。
   final BigInt proposalId;
 
   /// 4 字符 ACTION 常量(OAIS / OAMT / OABN / ... / OMFC)。

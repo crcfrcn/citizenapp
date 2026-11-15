@@ -28,21 +28,15 @@ Widget _page(
   SquareSessionProvider? sessionProvider,
 }) => MaterialApp(
   home: UserProfilePage(
-    cidNumber: fakeSession().cidNumber,
+    cidNumber: isSelf ? fakeSession().cidNumber : api.result.cidNumber!,
     isSelf: isSelf,
     api: api,
     cache: FakeProfileCache(),
     sessionProvider:
         sessionProvider ??
         FakeSessionProvider(
-          withSession
-              ? fakeSession(
-                  cidNumber: isSelf ? null : sampleProfile().cidNumber,
-                )
-              : null,
-          citizenId: isSelf
-              ? fakeSession().cidNumber
-              : sampleProfile().cidNumber,
+          withSession ? fakeSession() : null,
+          citizenId: fakeSession().cidNumber,
         ),
     subscriptionService: _NullSubscriptionService(),
   ),
@@ -63,7 +57,7 @@ class _NullSubscriptionService implements SubscriptionService {
 
 class _DelayedSessionProvider implements SquareSessionProvider {
   @override
-  Future<String?> currentCitizenId() async => sampleProfile().cidNumber;
+  Future<String?> currentCitizenId() async => fakeSession().cidNumber;
   final Completer<SquareSession?> completer = Completer<SquareSession?>();
   int calls = 0;
 
@@ -87,13 +81,13 @@ class _DelayedSessionProvider implements SquareSessionProvider {
 
 class _RefreshingSessionProvider implements SquareSessionProvider {
   @override
-  Future<String?> currentCitizenId() async => sampleProfile().cidNumber;
+  Future<String?> currentCitizenId() async => fakeSession().cidNumber;
   int refreshCalls = 0;
 
   SquareSession _session(String token) => SquareSession(
     deviceId: testMlsDeviceId,
     sessionToken: token,
-    cidNumber: sampleProfile().cidNumber!,
+    cidNumber: fakeSession().cidNumber,
     bindRev: 1,
     accountId: kOwner,
     expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
@@ -120,7 +114,7 @@ class _RefreshingSessionProvider implements SquareSessionProvider {
 
 class _IdentityUnavailableSessionProvider implements SquareSessionProvider {
   @override
-  Future<String?> currentCitizenId() async => sampleProfile().cidNumber;
+  Future<String?> currentCitizenId() async => fakeSession().cidNumber;
   @override
   Future<SquareSessionResolution> resolveSession({
     bool refresh = false,
@@ -440,9 +434,7 @@ void main() {
     expect(api.authorPostCalls, 0);
     expect(find.text('内容加载失败，请下拉刷新'), findsNothing);
 
-    provider.completer.complete(
-      fakeSession(cidNumber: sampleProfile().cidNumber),
-    );
+    provider.completer.complete(fakeSession());
     await tester.pumpAndSettle();
 
     expect(api.authorPostCalls, 1);

@@ -248,13 +248,20 @@ void main() {
   }
 
   // 合成 SCALE 值经过生产解码和人员关联，不直接注入已拼好的视图。
-  Uint8List roleBytes(String cid, String code) =>
-      Uint8List.fromList([..._scaleBytes(utf8.encode('合成委员')), 0, 0]);
+  Uint8List roleBytes(String cid, String code) => Uint8List.fromList([
+    ..._scaleBytes(utf8.encode(cid)),
+    ..._scaleBytes(utf8.encode(code)),
+    ..._scaleBytes(utf8.encode('合成委员')),
+    0,
+    0,
+  ]);
 
   Uint8List assignmentBytes(String cid, String code, int accountByte) =>
       Uint8List.fromList([
         4,
+        ..._scaleBytes(utf8.encode(cid)),
         ...List.filled(32, accountByte),
+        ..._scaleBytes(utf8.encode(code)),
         ...u32Le(0),
         ...u32Le(0),
         0,
@@ -275,11 +282,15 @@ void main() {
       final prefix = Uint8List.fromList([
         ...Hasher.twoxx128.hashString(pallet),
         ...Hasher.twoxx128.hashString(storage),
-        ..._blake2128Concat(_scaleBytes(utf8.encode(cid))),
+        ..._blake2128Concat(
+          _scaleBytes(utf8.encode(cid)),
+        ),
       ]);
       final key = Uint8List.fromList([
         ...prefix,
-        ..._blake2128Concat(_scaleBytes(utf8.encode(code))),
+        ..._blake2128Concat(
+          _scaleBytes(utf8.encode(code)),
+        ),
       ]);
       rpc.scanKeys['0x${hexOf(prefix)}'] = [key];
       rpc.responses['0x${hexOf(key)}'] = storage == 'InstitutionRoles'
@@ -438,7 +449,9 @@ void main() {
         orgCode: 'NRC',
         admin: List.filled(32, 0xaa),
       );
-      final cidBytes = _scaleBytes(utf8.encode(identity.cidNumber!));
+      final cidBytes = _scaleBytes(
+        utf8.encode(identity.cidNumber!),
+      );
       final prefix = Uint8List.fromList([
         ...Hasher.twoxx128.hashString('PublicManage'),
         ...Hasher.twoxx128.hashString('InstitutionRoles'),
@@ -508,14 +521,18 @@ void main() {
     final prefix = Uint8List.fromList([
       ...Hasher.twoxx128.hashString('PublicManage'),
       ...Hasher.twoxx128.hashString('InstitutionRoles'),
-      ..._blake2128Concat(_scaleBytes(utf8.encode(identity.cidNumber!))),
+      ..._blake2128Concat(
+        _scaleBytes(utf8.encode(identity.cidNumber!)),
+      ),
     ]);
     final page = rpc.scanKeys['0x${hexOf(prefix)}']!;
     for (var i = 1; i < 256; i++) {
       final code = 'EXTRA_$i';
       final roleKey = Uint8List.fromList([
         ...prefix,
-        ..._blake2128Concat(_scaleBytes(utf8.encode(code))),
+        ..._blake2128Concat(
+          _scaleBytes(utf8.encode(code)),
+        ),
       ]);
       page.add(roleKey);
       rpc.responses['0x${hexOf(roleKey)}'] = roleBytes(
@@ -557,7 +574,11 @@ void main() {
         final prefix = Uint8List.fromList([
           ...Hasher.twoxx128.hashString('PublicManage'),
           ...Hasher.twoxx128.hashString(storage),
-          ..._blake2128Concat(_scaleBytes(utf8.encode(identity.cidNumber!))),
+          ..._blake2128Concat(
+            _scaleBytes(
+              utf8.encode(identity.cidNumber!),
+            ),
+          ),
         ]);
         final badKey = rpc.scanKeys['0x${hexOf(prefix)}']!.single;
         rpc.responses['0x${hexOf(badKey)}'] = Uint8List.fromList([255]);
@@ -599,7 +620,9 @@ void main() {
     final threshold = thresholdKey(
       palletName: 'PublicManage',
       storageName: 'InstitutionGovernanceThresholds',
-      keyData: _scaleBytes(utf8.encode(identity.cidNumber!)),
+      keyData: _scaleBytes(
+        utf8.encode(identity.cidNumber!),
+      ),
     );
     rpc.responses[key] = institutionAdminBytes(
       orgCode: 'NRC',
@@ -706,7 +729,9 @@ void main() {
     final threshold = thresholdKey(
       palletName: 'PublicManage',
       storageName: 'InstitutionGovernanceThresholds',
-      keyData: _scaleBytes(utf8.encode(identity.cidNumber!)),
+      keyData: _scaleBytes(
+        utf8.encode(identity.cidNumber!),
+      ),
     );
     final delayed = Completer<Uint8List?>();
     rpc.queued[key] = [() => delayed.future];
@@ -811,7 +836,8 @@ void main() {
     );
     final accountId = '0x${'22' * 32}';
     final accountIdBytes = citizenAccountIdBytes(accountId);
-    final accountKey = '0x${hexOf(_personalAdminStorageKey(accountIdBytes))}';
+    final accountKey =
+        '0x${hexOf(_personalAdminStorageKey(accountIdBytes))}';
     final thresholdStorageKey = thresholdKey(
       palletName: 'InternalVote',
       storageName: 'ActivePersonalThresholds',
@@ -887,7 +913,8 @@ void main() {
       accountId: accountId,
       accountLabel: '个人多签',
     );
-    final accountKey = '0x${hexOf(_personalAdminStorageKey(accountIdBytes))}';
+    final accountKey =
+        '0x${hexOf(_personalAdminStorageKey(accountIdBytes))}';
     final thresholdStorageKey = thresholdKey(
       palletName: 'InternalVote',
       storageName: 'ActivePersonalThresholds',

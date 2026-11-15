@@ -111,11 +111,13 @@ class _FollowApi extends FakeProfileApi {
   final Future<CitizenProfile>? pending;
   int refreshes = 0;
   @override
-  Future<CitizenProfile> refreshProfile(
+  Future<CitizenProfileLoadResult> refreshProfile(
     String cidNumber, {
     required SquareSession session,
     required bool userInitiated,
     bool Function()? isCurrent,
+    CitizenProfileCache? cache,
+    CitizenProfileMediaCache? mediaCache,
   }) async {
     refreshes++;
     expect(userInitiated, isTrue);
@@ -126,8 +128,17 @@ class _FollowApi extends FakeProfileApi {
     if (!(isCurrent?.call() ?? true)) {
       throw StateError('fixture session changed');
     }
-    await cache?.write(fresh);
-    return fresh;
+    final targetCache = cache ?? this.cache;
+    return targetCache == null
+        ? CitizenProfileLoadResult(fresh, CitizenProfileLoadStatus.updated)
+        : targetCache.receiveRemote(
+            fresh,
+            expectedCid: cidNumber,
+            assertCurrent: () {
+              if (!(isCurrent?.call() ?? true))
+                throw StateError('fixture session changed');
+            },
+          );
   }
 }
 
@@ -688,7 +699,9 @@ void main() {
     await tester.pumpWidget(
       _wrap(
         isSelf: false,
-        api: FakeProfileApi(sampleProfile(certified: false)),
+        api: FakeProfileApi(
+          sampleProfile(certified: false, cidNumber: _profileCidNumber),
+        ),
       ),
     );
     await tester.pumpAndSettle();

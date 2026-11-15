@@ -363,6 +363,8 @@ CitizenApp 已删除独立 hardware-secretvault 插件；钱包设备金库由 C
 - `profile_presentation.dart`：唯一展示解析器；公开昵称只接受 `display_name`，优先以 `cid_number` 做 FNV-1a 稳定分桶，从内置词库与 `assets/profiles/` 11 张照片中选择默认昵称、头像和背景。头像与背景使用不同盐值且避免同图；任何钱包名、完整或截断账户都不能成为公开昵称。
 - `citizen_profile.dart`、`citizen_profile_api.dart`、`citizen_profile_cache.dart`、`profile_asset_service.dart`；会话协调归 `user/lib/identity/square_session_provider.dart`。
 - 私聊入口统一使用 `chat/lib/conversation/chat_navigation.dart` 的 `openDirectChat()`。通讯录、聊天、广场作者、关注/关注者/互关列表全部进入同一个 `UserProfilePage`；联系人只保存公民号和私人备注，不再维护联系人详情或公开资料副本。
+- 两端主页访问及显式刷新统一调用`CitizenProfileApi.loadProfile/refreshProfile`，原业务请求通过后由`CitizenProfileCache.receiveRemote`在同一事务内选择有效资料。远端`profile_at=0`表示用户尚无公开资料，已有本机资料保留；远端版本落后也保留本机新资料。无本机资料时只展示默认值，不保存占位记录。相同资料不重复通知，实际新资料才落盘；编辑提交和确认仍使用严格版本保护。保留本机快照时，关注/互关/通知状态取本次已鉴权响应，不能沿用旧浏览者关系。
+- 资料接收结果区分更新、未变化、远端缺失、远端较旧及本机保存失败。主页和“我的”消费同一有效资料及结果；远端缺失/落后时静默保留本机资料，进入页面和下拉刷新均不弹状态提示，也不误报刷新完成；保存失败单独提示。真实401/403/404仍拒绝旧缓存展示，错误页下拉重试原访问流程，不额外前置会员GET。媒体只刷新本次实际采用的远端版本，既有图片字节不因占位响应被删除。
 - `profile_avatar.dart` 是用户主页、“我的”、通讯录、广场、聊天和关注列表共用的圆角方形头像、用户图片状态和身份徽章唯一 UI 实现，禁止各入口复制一套头像规则。“我的”头部头像与用户主页统一为 80 逻辑像素；由于“我的”头像没有主页的 4 像素边框，调用时用可配置外溢量补偿边框占位，使徽章同样明确超出头像右下边界，而不改变其它入口的默认位置。
 
 #### 广场 feed 卡片（8964/lib/feed；媒体组件归8964/lib/media）

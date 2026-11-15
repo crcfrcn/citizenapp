@@ -16,6 +16,40 @@ import 'package:citizen_storage/user_isar.dart';
 import 'package:citizen_user/profile/citizen_profile.dart';
 import 'package:citizen_system/app_log.dart';
 
+enum CitizenProfileLoadStatus {
+  updated,
+  unchanged,
+  remoteMissing,
+  remoteOlder,
+  saveFailed,
+}
+
+/// 远端读取的有效资料与落盘结果；不进入资料正文或数据库表结构。
+class CitizenProfileLoadResult {
+  const CitizenProfileLoadResult(
+    this.profile,
+    this.status, {
+    this.usedLocal = false,
+  });
+
+  final CitizenProfile profile;
+  final CitizenProfileLoadStatus status;
+  final bool usedLocal;
+
+  bool get acceptedRemote =>
+      status == CitizenProfileLoadStatus.updated ||
+      status == CitizenProfileLoadStatus.unchanged;
+
+  bool get hasWarning => status == CitizenProfileLoadStatus.saveFailed;
+
+  String? get refreshMessage => switch (status) {
+    CitizenProfileLoadStatus.remoteMissing ||
+    CitizenProfileLoadStatus.remoteOlder => null,
+    CitizenProfileLoadStatus.saveFailed => '资料已加载，本机保存失败，请重试',
+    _ => '刷新完成',
+  };
+}
+
 @immutable
 class CitizenProfileRevisionEvent {
   const CitizenProfileRevisionEvent({
@@ -220,6 +254,114 @@ class CitizenProfileCache {
       const [],
       assertCurrent: () => CitizenProfileMediaCache._check(cid, epoch),
     );
+  }
+
+  /// 远端缺失/落后只决定展示资料，不是编辑提交成功，也不能删除或降级本地记录。
+  static CitizenProfileLoadResult selectRemote(
+    CitizenProfile? local,
+    CitizenProfile remote,
+  ) {
+    final cid = _cid(remote.cidNumber ?? '');
+    if (remote is CitizenProfileCard || remote.profileAt < 0) {
+      throw ArgumentError('远端完整资料或版本无效');
+    }
+    if (local != null &&
+        (local.cidNumber != cid ||
+            local.profileAt < 0 ||
+            local is CitizenProfileCard)) {
+      throw StateError('本地资料归属或版本无效');
+    }
+    if (remote.profileAt == 0 ||
+        local != null && local.profileAt > remote.profileAt) {
+      // 公开资料可以保留旧快照；浏览者关系只能取本次已鉴权响应。
+      final effective = (local ?? remote).copyWith(
+        isFollowing: remote.isFollowing,
+        isFollowedBy: remote.isFollowedBy,
+        isNotifying: remote.isNotifying,
+      );
+      return CitizenProfileLoadResult(
+        effective,
+        remote.profileAt == 0
+            ? CitizenProfileLoadStatus.remoteMissing
+            : CitizenProfileLoadStatus.remoteOlder,
+        usedLocal: local != null,
+      );
+    }
+    return CitizenProfileLoadResult(
+      remote,
+      local != null && jsonEncode(local.toJson()) == jsonEncode(remote.toJson())
+          ? CitizenProfileLoadStatus.unchanged
+          : CitizenProfileLoadStatus.updated,
+    );
+  }
+
+  /// 只供已通过服务端访问校验的读取；比较与保存共用一个事务，避免迟到结果覆盖新资料。
+  Future<CitizenProfileLoadResult> receiveRemote(
+    CitizenProfile remote, {
+    required String expectedCid,
+    void Function()? assertCurrent,
+  }) async {
+    final cid = _cid(expectedCid);
+    if (remote.cidNumber != cid) throw StateError('远端资料归属不一致');
+    selectRemote(null, remote);
+    final epoch = CitizenProfileMediaCache._epoch(cid);
+    void check() {
+      CitizenProfileMediaCache._check(cid, epoch);
+      assertCurrent?.call();
+    }
+
+    check();
+    CitizenProfileLoadResult? selected;
+    int? localVersion;
+    try {
+      final result = await UserIsar.instance.writeTxn((db) async {
+        check();
+        final row = await db.collection<user_store.Profile>().getByCidNumber(
+          cid,
+        );
+        CitizenProfile? local;
+        if (row != null) {
+          final data = jsonDecode(row.profileData);
+          if (data is! Map<String, dynamic> || data.containsKey('cid_number')) {
+            throw const FormatException('本地资料记录无效');
+          }
+          local = CitizenProfile.fromJson({'cid_number': cid, ...data});
+          localVersion = local.profileAt;
+        }
+        final decision = selectRemote(local, remote);
+        selected = decision;
+        if (decision.status == CitizenProfileLoadStatus.updated) {
+          await db.collection<user_store.Profile>().putByCidNumber(
+            user_store.Profile()
+              ..cidNumber = cid
+              ..profileData = jsonEncode(remote.toJson()..remove('cid_number')),
+          );
+        }
+        check();
+        return decision;
+      });
+      check();
+      if (result.status == CitizenProfileLoadStatus.updated) _notify(cid);
+      AppLog.profileLoadResult(
+        state: result.status.name,
+        localVersion: localVersion,
+        remoteVersion: remote.profileAt,
+      );
+      return result;
+    } catch (error, stackTrace) {
+      // 身份失效/显式擦除必须继续失败，不能被“本机保存失败”掩盖。
+      check();
+      AppLog.profileLoadFailure(
+        stage: 'cache_write',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return CitizenProfileLoadResult(
+        selected?.profile ?? remote,
+        CitizenProfileLoadStatus.saveFailed,
+        usedLocal: selected?.usedLocal ?? false,
+      );
+    }
   }
 
   /// 资料编辑唯一提交入口；所有字节校验完成后才进入原子事务。

@@ -73,6 +73,7 @@ SquarePost samplePost({
 }
 
 CitizenProfile sampleProfile({
+  String? cidNumber,
   bool certified = true,
   bool following = false,
   bool followedBy = false,
@@ -96,7 +97,7 @@ CitizenProfile sampleProfile({
     profileBio: profileBio,
     avatarKey: avatarKey,
     bannerKey: bannerKey,
-    cidNumber: certified ? 'CN001-CTZN-000000001-2026' : null,
+    cidNumber: cidNumber ?? (certified ? 'CN001-CTZN-000000001-2026' : null),
     isCertified: certified,
     // 认证真源=链上身份档位；默认认证=投票公民，未认证=访客。
     cidLevel: cidLevel ?? (certified ? 'voting' : 'visitor'),
@@ -298,6 +299,22 @@ class FakeProfileCache extends CitizenProfileCache {
   Future<void> write(CitizenProfile profile) async {
     seed = profile;
     wrote = true;
+  }
+
+  @override
+  Future<CitizenProfileLoadResult> receiveRemote(
+    CitizenProfile remote, {
+    required String expectedCid,
+    void Function()? assertCurrent,
+  }) async {
+    assertCurrent?.call();
+    if (remote.cidNumber != expectedCid) throw StateError('远端资料归属不一致');
+    final result = CitizenProfileCache.selectRemote(seed, remote);
+    if (result.status == CitizenProfileLoadStatus.updated) {
+      await write(result.profile);
+    }
+    assertCurrent?.call();
+    return result;
   }
 
   @override

@@ -788,7 +788,7 @@ void main() {
     final profile = await CitizenProfileApi(
       client: client,
     ).refreshProfile(_profileCid, session: session, userInitiated: true);
-    final saved = await CitizenProfileMediaCache().read(profile);
+    final saved = await CitizenProfileMediaCache().read(profile.profile);
     expect(paths, [
       '/api/user/profiles/$_profileCid',
       '/api/user/profiles/$_profileCid/assets/avatar',
@@ -797,6 +797,81 @@ void main() {
     expect(proofs, ['refresh-1', 'refresh-2', 'refresh-3']);
     expect(await File(saved.avatarPath!).readAsBytes(), _png);
     expect(await File(saved.bannerPath!).readAsBytes(), _png);
+  });
+
+  test('主页访问和下拉刷新共用接收策略，版本0不覆盖资料且不请求旧版本图片', () async {
+    const cache = CitizenProfileCache();
+    final local = CitizenProfile.fromJson(
+      _profileJson(displayName: '本机Rhett'),
+    ).copyWith(profileAt: 1793472841955);
+    await cache.write(local);
+    final remote = _profileJson()
+      ..['profile_at'] = 0
+      ..['display_name'] = ''
+      ..['profile_bio'] = ''
+      ..['avatar_key'] = null;
+    final paths = <String>[];
+    final client = _client(
+      MockClient((request) async {
+        paths.add(request.url.path);
+        expect(request.url.path, '/api/user/profiles/$_profileCid');
+        return _ok({'profile': remote});
+      }),
+    );
+    addTearDown(client.close);
+    final api = CitizenProfileApi(client: client);
+    final opened = await api.loadProfile(
+      _profileCid,
+      session: _session(),
+      cache: cache,
+    );
+    final refreshed = await api.refreshProfile(
+      _profileCid,
+      session: _session(),
+      userInitiated: true,
+      cache: cache,
+    );
+    for (final result in [opened, refreshed]) {
+      expect(result.status, CitizenProfileLoadStatus.remoteMissing);
+      expect(result.profile.displayName, local.displayName);
+      expect(result.profile.avatarKey, local.avatarKey);
+      expect(result.profile.profileAt, local.profileAt);
+    }
+    expect(paths, hasLength(2));
+    expect((await cache.read(_profileCid))!.profileAt, local.profileAt);
+  });
+
+  test('服务端拒绝原业务请求时不得用本地资料绕过鉴权', () async {
+    const cache = CitizenProfileCache();
+    final local = CitizenProfile.fromJson(
+      _profileJson(),
+    ).copyWith(profileAt: 200);
+    await cache.write(local);
+    final revision = CitizenProfileCache.revision.value;
+    final client = _client(
+      MockClient(
+        (request) async => http.Response(
+          jsonEncode({'error_code': 'profile_membergate_required'}),
+          403,
+          headers: {'content-type': 'application/json'},
+        ),
+      ),
+    );
+    addTearDown(client.close);
+    await expectLater(
+      CitizenProfileApi(
+        client: client,
+      ).loadProfile(_profileCid, session: _session(), cache: cache),
+      throwsA(
+        isA<SquareApiException>().having(
+          (error) => error.statusCode,
+          'HTTP',
+          403,
+        ),
+      ),
+    );
+    expect(CitizenProfileCache.revision.value, same(revision));
+    expect((await cache.read(_profileCid))!.profileAt, 200);
   });
 
   test('公开资料显式刷新跨实例合并，普通读取不发请求', () async {
@@ -974,6 +1049,186 @@ void main() {
 
     // 缓存主键 = 身份主键 cid_number（_profileJson 的 cid_number）。
     const cid = 'CN001-CTZN-000000001-2026';
+
+    CitizenProfile missingProfile() => CitizenProfile.fromJson({
+      ..._profileJson(),
+      'display_name': '',
+      'profile_bio': '',
+      'avatar_key': null,
+      'banner_key': null,
+      'profile_at': 0,
+      'is_following': false,
+      'is_followed_by': true,
+      'is_notifying': false,
+      'counts': {
+        'following': 0,
+        'followers': 0,
+        'mutual_following': 0,
+        'posts': 0,
+        'campaigns': 0,
+        'videos': 0,
+        'articles': 0,
+      },
+    });
+
+    test('远端版本0保留非空本机资料及原记录，只使用本次浏览者关系', () async {
+      const cache = CitizenProfileCache();
+      final local = CitizenProfile.fromJson(
+        _profileJson(displayName: 'Rhett本机资料', isFollowing: true),
+      ).copyWith(profileAt: 1793472841955, isNotifying: true);
+      await cache.write(local);
+      final before = await UserIsar.instance.read(
+        (db) async => (await db.collection<user_store.Profile>().getByCidNumber(
+          cid,
+        ))!.profileData,
+      );
+      final revision = CitizenProfileCache.revision.value;
+      final result = await cache.receiveRemote(
+        missingProfile(),
+        expectedCid: cid,
+      );
+      expect(result.status, CitizenProfileLoadStatus.remoteMissing);
+      expect(result.profile.displayName, local.displayName);
+      expect(result.profile.profileBio, local.profileBio);
+      expect(result.profile.avatarKey, local.avatarKey);
+      expect(result.profile.profileAt, local.profileAt);
+      expect(result.profile.followers, local.followers);
+      expect(result.profile.isFollowing, isFalse);
+      expect(result.profile.isFollowedBy, isTrue);
+      expect(result.profile.isNotifying, isFalse);
+      expect(result.refreshMessage, isNull);
+      expect(result.hasWarning, isFalse);
+      expect(
+        await UserIsar.instance.read(
+          (db) async =>
+              (await db.collection<user_store.Profile>().getByCidNumber(
+                cid,
+              ))!.profileData,
+        ),
+        before,
+      );
+      expect(CitizenProfileCache.revision.value, same(revision));
+    });
+
+    test('无本机资料时版本0只返回默认展示，不创建占位持久记录', () async {
+      const cache = CitizenProfileCache();
+      final result = await cache.receiveRemote(
+        missingProfile(),
+        expectedCid: cid,
+      );
+      expect(result.status, CitizenProfileLoadStatus.remoteMissing);
+      expect(result.usedLocal, isFalse);
+      expect(result.profile.resolvedDisplayName, isNotEmpty);
+      expect(result.refreshMessage, isNull);
+      expect(result.hasWarning, isFalse);
+      expect(await cache.read(cid), isNull);
+    });
+
+    test('远端缺失时已保存的头像完整字节和版本原样保留', () async {
+      const cache = CitizenProfileCache();
+      final local = CitizenProfile.fromJson(
+        _profileJson(),
+      ).copyWith(profileAt: 200);
+      await cache.writeWithMedia(local, avatarBytes: _png);
+      await cache.receiveRemote(missingProfile(), expectedCid: cid);
+      final media = await UserIsar.instance.read(
+        (db) => db
+            .collection<user_store.ProfileMedia>()
+            .getByCidNumberMediaRoleProfileAt(cid, 'avatar', 200),
+      );
+      expect(media!.mediaBytes, _png);
+      expect(media.objectKey, local.avatarKey);
+      expect((await cache.read(cid))!.profileAt, 200);
+    });
+
+    test('较旧远端、相同资料和新资料在同一接收入口正确选择且只通知实际变化', () async {
+      const cache = CitizenProfileCache();
+      final profile = CitizenProfile.fromJson(
+        _profileJson(),
+      ).copyWith(profileAt: 200);
+      await cache.write(profile);
+      final revision = CitizenProfileCache.revision.value;
+      final older = await cache.receiveRemote(
+        profile.copyWith(profileAt: 100, displayName: '旧远端'),
+        expectedCid: cid,
+      );
+      expect(older.status, CitizenProfileLoadStatus.remoteOlder);
+      expect(older.refreshMessage, isNull);
+      expect(older.hasWarning, isFalse);
+      expect(older.profile.displayName, profile.displayName);
+      final sameProfile = await cache.receiveRemote(profile, expectedCid: cid);
+      expect(sameProfile.status, CitizenProfileLoadStatus.unchanged);
+      expect(CitizenProfileCache.revision.value, same(revision));
+      final updated = await cache.receiveRemote(
+        profile.copyWith(profileAt: 201, displayName: '更新资料'),
+        expectedCid: cid,
+      );
+      expect(updated.status, CitizenProfileLoadStatus.updated);
+      expect((await cache.read(cid))!.displayName, '更新资料');
+      expect(
+        CitizenProfileCache.revision.value!.revision,
+        revision!.revision + 1,
+      );
+    });
+
+    test('并发或迟到的远端读取不能降级事务中已经提交的新资料', () async {
+      const cache = CitizenProfileCache();
+      final profile = CitizenProfile.fromJson(_profileJson());
+      await cache.write(profile);
+      final results = await Future.wait([
+        cache.receiveRemote(profile.copyWith(profileAt: 300), expectedCid: cid),
+        cache.receiveRemote(profile.copyWith(profileAt: 200), expectedCid: cid),
+        cache.receiveRemote(missingProfile(), expectedCid: cid),
+      ]);
+      expect(results[1].profile.profileAt, 300);
+      expect(results[2].profile.profileAt, 300);
+      expect((await cache.read(cid))!.profileAt, 300);
+    });
+
+    test('资料归属或身份失效继续拒绝，不伪装为本机保存失败', () async {
+      const cache = CitizenProfileCache();
+      final remote = CitizenProfile.fromJson(_profileJson());
+      await expectLater(
+        cache.receiveRemote(remote, expectedCid: 'other'),
+        throwsStateError,
+      );
+      var checks = 0;
+      await expectLater(
+        cache.receiveRemote(
+          remote,
+          expectedCid: cid,
+          assertCurrent: () {
+            if (++checks >= 3) throw StateError('fixture identity changed');
+          },
+        ),
+        throwsStateError,
+      );
+      expect(await cache.read(cid), isNull);
+    });
+
+    test('真实本地记录损坏时保留原件，返回已获准的远端资料和保存失败状态', () async {
+      const cache = CitizenProfileCache();
+      await UserIsar.instance.writeTxn(
+        (db) => db.collection<user_store.Profile>().putByCidNumber(
+          user_store.Profile()
+            ..cidNumber = cid
+            ..profileData = 'damaged-profile',
+        ),
+      );
+      final remote = CitizenProfile.fromJson(_profileJson());
+      final result = await cache.receiveRemote(remote, expectedCid: cid);
+      expect(result.status, CitizenProfileLoadStatus.saveFailed);
+      expect(result.profile.displayName, remote.displayName);
+      expect(
+        await UserIsar.instance.read(
+          (db) async =>
+              (await db.collection<user_store.Profile>().getByCidNumber(
+                cid,
+              ))!.profileData,
+        ),
+        'damaged-profile',
+      );
+    });
 
     test('round-trips a profile through local storage', () async {
       const cache = CitizenProfileCache();

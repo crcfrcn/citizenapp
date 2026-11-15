@@ -13,7 +13,7 @@ class ProposalDisplayMeta {
   /// 创建年份(UTC 公历)。
   final int year;
 
-  /// 年内序号(每年从 0 重置)。u32 上限,实质无上限。
+  /// 年内序号(每年从 0 重置)。对应链上 u64，客户端以 BigInt 保留完整范围。
   final BigInt seqInYear;
 }
 

@@ -13,6 +13,7 @@ import 'package:citizen_user/profile/citizen_profile.dart';
 import 'package:citizen_user/profile/citizen_profile_cache.dart';
 import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_square/post/square_post_store.dart';
+import 'package:citizen_system/app_log.dart';
 
 /// 用户主页数据层门面：把主页资料、按作者拉帖、更新资料收敛到一个入口。
 ///
@@ -24,15 +25,17 @@ class CitizenProfileApi {
 
   final SquareApiClient _client;
   final SquarePostStore _localPostStore;
-  static final Map<String, Future<CitizenProfile>> _refreshes = {};
+  static final Map<String, Future<CitizenProfileLoadResult>> _refreshes = {};
   static final Map<String, String> _refreshBindings = {};
 
   /// 页面显式刷新专用；普通页面读取只调用本地仓库。跨实例合并同CID、同绑定请求。
-  Future<CitizenProfile> refreshProfile(
+  Future<CitizenProfileLoadResult> refreshProfile(
     String cidNumber, {
     required SquareSession session,
     required bool userInitiated,
     bool Function()? isCurrent,
+    CitizenProfileCache? cache,
+    CitizenProfileMediaCache? mediaCache,
   }) {
     if (!userInitiated) throw StateError('普通加载不得刷新远端资料');
     final binding =
@@ -52,30 +55,17 @@ class CitizenProfileApi {
       return running;
     }
     _refreshBindings[cidNumber] = binding;
-    late final Future<CitizenProfile> task;
-    task = Future<CitizenProfile>.microtask(() async {
+    late final Future<CitizenProfileLoadResult> task;
+    task = Future<CitizenProfileLoadResult>.microtask(() async {
       try {
-        final profile = await fetchProfile(cidNumber, session: session);
-        check();
-        if (profile.cidNumber != cidNumber) throw StateError('远端资料归属不一致');
-        final mediaClient = _client.profileMediaClient(session);
-        try {
-          await CitizenProfileMediaCache().refresh(
-            client: mediaClient,
-            profile: profile,
-            avatarUrl: profile.avatarKey == null
-                ? null
-                : _client.resolveProfileMedia(profile.avatarKey!).url,
-            bannerUrl: profile.bannerKey == null
-                ? null
-                : _client.resolveProfileMedia(profile.bannerKey!).url,
-          );
-        } finally {
-          mediaClient.close();
-        }
-        check();
-        await const CitizenProfileCache().write(profile);
-        return profile;
+        return await loadProfile(
+          cidNumber,
+          session: session,
+          cache: cache,
+          mediaCache: mediaCache,
+          isCurrent: isCurrent,
+          refreshMedia: true,
+        );
       } finally {
         if (identical(_refreshes[cidNumber], task)) {
           _refreshes.remove(cidNumber);
@@ -85,6 +75,70 @@ class CitizenProfileApi {
     });
     _refreshes[cidNumber] = task;
     return task;
+  }
+
+  /// 主页访问和显式刷新共用：先完成原始业务鉴权，再接收远端资料并返回有效展示快照。
+  Future<CitizenProfileLoadResult> loadProfile(
+    String cidNumber, {
+    required SquareSession session,
+    CitizenProfileCache? cache,
+    CitizenProfileMediaCache? mediaCache,
+    bool Function()? isCurrent,
+    bool refreshMedia = false,
+  }) async {
+    void check() {
+      if (!session.isUsable || !(isCurrent?.call() ?? true)) {
+        throw StateError('资料刷新身份已变化');
+      }
+    }
+
+    check();
+    final remote = await fetchProfile(cidNumber, session: session);
+    await session.validateCurrent();
+    check();
+    final result = await (cache ?? const CitizenProfileCache()).receiveRemote(
+      remote,
+      expectedCid: cidNumber,
+      assertCurrent: check,
+    );
+    await session.validateCurrent();
+    check();
+    final profile = result.profile;
+    if (refreshMedia &&
+        result.acceptedRemote &&
+        profile.profileAt > 0 &&
+        (profile.avatarKey != null || profile.bannerKey != null)) {
+      final reader = _client.profileMediaClient(session);
+      try {
+        await (mediaCache ?? CitizenProfileMediaCache()).refresh(
+          client: reader,
+          profile: profile,
+          avatarUrl: profile.avatarKey == null
+              ? null
+              : _client.resolveProfileMedia(profile.avatarKey!).url,
+          bannerUrl: profile.bannerKey == null
+              ? null
+              : _client.resolveProfileMedia(profile.bannerKey!).url,
+        );
+      } catch (error, stackTrace) {
+        await session.validateCurrent();
+        check();
+        AppLog.profileLoadFailure(
+          stage: 'cache_write',
+          error: error,
+          stackTrace: stackTrace,
+        );
+        return CitizenProfileLoadResult(
+          profile,
+          CitizenProfileLoadStatus.saveFailed,
+        );
+      } finally {
+        reader.close();
+      }
+    }
+    await session.validateCurrent();
+    check();
+    return result;
   }
 
   /// 完整资料图片按对象键中的用途限制读取大小；每次实际加载均逐请求签名。

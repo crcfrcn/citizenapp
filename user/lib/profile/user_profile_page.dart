@@ -108,6 +108,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
   SubscriptionService? _subscriptionService;
   late final DirectChatOpener _directChat;
   CitizenProfile? _profile;
+  CitizenProfileLoadResult? _profileLoadResult;
   CitizenProfileMediaSnapshot _profileMedia =
       const CitizenProfileMediaSnapshot();
   SquareSession? _session;
@@ -194,6 +195,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
         _accessReady = false;
         _accessAllowed = false;
         _profile = null;
+        _profileLoadResult = null;
       });
     }
     _session = null;
@@ -246,6 +248,10 @@ class _UserProfilePageState extends State<UserProfilePage> {
       await _load(propagateFailure: true);
       if (current()) {
         setState(() => _accessReady = true);
+        final result = _profileLoadResult;
+        if (!self && result != null && result.hasWarning) {
+          _snack(result.refreshMessage!);
+        }
       }
     } on Object catch (error, stackTrace) {
       if (!current()) {
@@ -259,14 +265,22 @@ class _UserProfilePageState extends State<UserProfilePage> {
       setState(() {
         _accessReady = true;
         _accessAllowed = false;
-        _accessError =
-            error is SquareApiException &&
-                error.errorCode == 'profile_membergate_required'
-            ? '非会员禁止访问用户主页'
-            : '内容加载失败，请下拉刷新';
+        _accessError = _profileFailureMessage(error);
         _profile = null;
       });
     }
+  }
+
+  String _profileFailureMessage(Object error) {
+    if (error is SquareApiException) {
+      if (error.errorCode == 'profile_membergate_required') {
+        return '非会员禁止访问用户主页';
+      }
+      if (error.statusCode == 404) return '该用户不存在';
+      if (error.statusCode == 401) return '会话已失效，请下拉重试';
+      if (error.statusCode == 403) return '当前用户主页不可访问';
+    }
+    return '内容加载失败，请下拉刷新';
   }
 
   @override
@@ -340,25 +354,36 @@ class _UserProfilePageState extends State<UserProfilePage> {
       // 他人公开主页仍按用户本次访问读取远端；不将本人私有副本用于他人页面。
       stage = 'session';
       final session = await _ensureSession();
+      if (session == null) throw const SquareApiException('当前公民会话不可用');
+      final accessGeneration = _accessGeneration;
+      final revision = _profileSecurity?.revision.value;
       stage = 'remote_profile';
-      final fresh = await _api.fetchProfile(widget.cidNumber, session: session);
-      if (!mounted || generation != _profileLoadGeneration) {
-        return;
-      }
-      stage = 'cache_write';
-      await _cache.write(fresh);
+      final result = await _api.loadProfile(
+        widget.cidNumber,
+        session: session,
+        cache: _cache,
+        mediaCache: _mediaCache,
+        isCurrent: () =>
+            mounted &&
+            accessGeneration == _accessGeneration &&
+            revision == _profileSecurity?.revision.value,
+      );
       if (!mounted || generation != _profileLoadGeneration) {
         return;
       }
       stage = 'display';
-      setState(() => _profile = fresh);
-      await _loadProfileMedia(fresh);
+      setState(() {
+        _profile = result.profile;
+        _profileLoadResult = result;
+      });
+      await _loadProfileMedia(result.profile);
     } catch (error, stackTrace) {
       AppLog.profileLoadFailure(
         stage: stage,
         error: error,
         stackTrace: stackTrace,
       );
+      if (!mounted || generation != _profileLoadGeneration) return;
       if (propagateFailure) {
         rethrow;
       }
@@ -395,6 +420,11 @@ class _UserProfilePageState extends State<UserProfilePage> {
     if (_refreshing || _followBusy) {
       return;
     }
+    if (!_accessAllowed) {
+      // 错误页也可重试；他人访问的原业务请求完成后无需再发第二遍资料GET。
+      await _resolvePageAccess();
+      if (!_accessAllowed || !_verifiedSelf) return;
+    }
     setState(() {
       _refreshing = true;
       _contentRefreshFailed = false;
@@ -402,7 +432,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
     });
     try {
       // 服务不可用也必须先重读本地；本人普通进入依旧只读本地，不隐式同步。
-      await _load(localOnly: true, propagateFailure: true);
+      if (_verifiedSelf) await _load(localOnly: true, propagateFailure: true);
       final session = await _ensureSession(refresh: true);
       if (session == null) {
         throw StateError('当前无法建立服务会话');
@@ -410,11 +440,16 @@ class _UserProfilePageState extends State<UserProfilePage> {
       if (_isSelf && session.cidNumber != widget.cidNumber) {
         throw StateError('当前用户已变化');
       }
+      final accessGeneration = _accessGeneration;
+      final revision = _profileSecurity?.revision.value;
       bool current() =>
           mounted &&
+          accessGeneration == _accessGeneration &&
+          revision == _profileSecurity?.revision.value &&
           _session?.cidNumber == session.cidNumber &&
           _session?.accountId == session.accountId &&
           _session?.bindRev == session.bindRev;
+      CitizenProfileLoadResult? profileResult;
       await Future.wait<void>([
         _api
             .refreshProfile(
@@ -422,15 +457,24 @@ class _UserProfilePageState extends State<UserProfilePage> {
               session: session,
               userInitiated: true,
               isCurrent: current,
+              cache: _cache,
+              mediaCache: _mediaCache,
             )
-            .then<void>((_) {}),
+            .then<void>((result) {
+              profileResult = result;
+            }),
         if (_isSelf && _subscriptionService != null)
           _syncMemberCloudPosts(session, current),
       ]);
       if (!current()) {
         return;
       }
-      await _load(localOnly: true, propagateFailure: true);
+      final result = profileResult!;
+      setState(() {
+        _profile = result.profile;
+        _profileLoadResult = result;
+      });
+      await _loadProfileMedia(result.profile);
       if (_isSelf) {
         await _api.fetchLocalPublishedPosts(widget.cidNumber);
       }
@@ -439,12 +483,21 @@ class _UserProfilePageState extends State<UserProfilePage> {
       }
       if (mounted) {
         setState(() => _postsRevision++);
-        _snack('刷新完成');
+        final message = result.refreshMessage;
+        if (message != null) _snack(message);
       }
-    } catch (_) {
+    } catch (error) {
       if (mounted) {
-        setState(() => _contentRefreshFailed = true);
-        _snack('内容加载失败，请下拉刷新');
+        setState(() {
+          _contentRefreshFailed = true;
+          if (error is SquareApiException &&
+              {401, 403, 404}.contains(error.statusCode)) {
+            _accessAllowed = false;
+            _accessError = _profileFailureMessage(error);
+            _profile = null;
+          }
+        });
+        _snack(_profileFailureMessage(error));
       }
     } finally {
       if (mounted) {
@@ -566,9 +619,16 @@ class _UserProfilePageState extends State<UserProfilePage> {
           session: session,
           userInitiated: true,
           isCurrent: current,
+          cache: _cache,
+          mediaCache: _mediaCache,
         );
         if (current()) {
-          setState(() => _profile = fresh);
+          setState(() {
+            _profile = fresh.profile;
+            _profileLoadResult = fresh;
+          });
+          await _loadProfileMedia(fresh.profile);
+          if (current() && fresh.hasWarning) _snack(fresh.refreshMessage!);
         }
       } on Exception {
         // 写入已经成功，资料回读失败不能反向撤销用户的关注/取关。
@@ -1011,7 +1071,21 @@ class _UserProfilePageState extends State<UserProfilePage> {
     if (!_accessAllowed) {
       return Scaffold(
         appBar: AppBar(),
-        body: Center(child: Text(_accessError ?? '当前用户主页不可访问')),
+        body: RefreshIndicator(
+          key: const ValueKey('profile-error-refresh'),
+          onRefresh: _refresh,
+          child: LayoutBuilder(
+            builder: (context, constraints) => ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [
+                SizedBox(
+                  height: constraints.maxHeight,
+                  child: Center(child: Text(_accessError ?? '当前用户主页不可访问')),
+                ),
+              ],
+            ),
+          ),
+        ),
       );
     }
     final expandedHeight =

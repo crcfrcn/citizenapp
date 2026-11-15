@@ -317,6 +317,33 @@ class AppLog {
     }
   }
 
+  /// 资料接收只报告闭集结果及版本，供真机核对保留/落盘事实。
+  static void profileLoadResult({
+    required String state,
+    int? localVersion,
+    required int remoteVersion,
+  }) {
+    const states = {
+      'updated',
+      'unchanged',
+      'remoteMissing',
+      'remoteOlder',
+      'saveFailed',
+    };
+    String version(int? value) =>
+        value != null && value >= 0 && value <= 9007199254740991
+        ? '$value'
+        : 'none';
+    try {
+      debugPrintSynchronously(
+        '[CitizenProfileRead] state=${states.contains(state) ? state : 'other'} '
+        'local_version=${version(localVersion)} remote_version=${version(remoteVersion)}',
+      );
+    } on Object {
+      // 观察出口不得改变资料选择或事务结果。
+    }
+  }
+
   /// 主页加载诊断只输出固定原因、资料版本和标准调用栈位置，不输出资料正文或凭据。
   static void profileLoadFailure({
     required String stage,

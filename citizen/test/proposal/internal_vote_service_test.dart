@@ -181,8 +181,7 @@ void main() {
         expect(chain.reads.every((ref) => identical(ref, block)), true);
         expect(tx.consumeCount, cold ? 1 : 0);
         expect(tx.callData!.last, 1);
-        final (_, idWidth) = CitizenScale.readCompact(tx.callData!, 2);
-        expect(tx.callData![2 + idWidth], institutional ? 1 : 0);
+        expect(tx.callData![18], institutional ? 1 : 0);
       });
     }
     for (final fields in [
@@ -416,17 +415,11 @@ void main() {
   });
 }
 
-Future<Uint8List> _buildCall(
-  String pallet,
-  String method,
-  Object fields,
-) async {
-  final runtime = await CitizenSdkTestFixture.runtimeContext(
-    CitizenBlockRef(
-      hash: '0x${'11' * 32}',
-      number: BigInt.one,
-      finality: CitizenBlockFinality.finalized,
-    ),
-  );
+Future<Uint8List> _buildCall(String pallet, String method, Object fields) async {
+  final runtime = await CitizenSdkTestFixture.runtimeContext(CitizenBlockRef(
+    hash: '0x${'11' * 32}',
+    number: BigInt.one,
+    finality: CitizenBlockFinality.finalized,
+  ));
   return runtime.encodeCall(pallet, method, fields);
 }

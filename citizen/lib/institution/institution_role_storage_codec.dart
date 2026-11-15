@@ -93,18 +93,15 @@ class InstitutionRoleStorageCodec {
     return (admins, offset);
   }
 
-  static InstitutionRole? decodeRole(
-    Uint8List data, {
-    required String cidNumber,
-    required String roleCode,
-  }) {
+  static InstitutionRole? decodeRole(Uint8List data) {
     try {
       var offset = 0;
-      if (cidNumber.isEmpty ||
-          utf8.encode(cidNumber).length > 32 ||
-          roleCode.isEmpty ||
-          utf8.encode(roleCode).length > 64)
-        return null;
+      final cid = _readBytes(data, offset, minLength: 1, maxLength: 32);
+      if (cid == null) return null;
+      offset = cid.$2;
+      final code = _readBytes(data, offset, minLength: 1, maxLength: 64);
+      if (code == null) return null;
+      offset = code.$2;
       final name = _readBytes(data, offset, minLength: 1, maxLength: 128);
       if (name == null) return null;
       offset = name.$2;
@@ -114,8 +111,8 @@ class InstitutionRoleStorageCodec {
         return null;
       }
       return InstitutionRole(
-        cidNumber: cidNumber,
-        roleCode: roleCode,
+        cidNumber: utf8.decode(cid.$1),
+        roleCode: utf8.decode(code.$1),
         roleName: utf8.decode(name.$1),
         termRequired: data[offset] == 1,
         status: InstitutionRoleStatus.values[data[offset + 1]],
@@ -125,29 +122,25 @@ class InstitutionRoleStorageCodec {
     }
   }
 
-  static List<InstitutionAdminAssignment>? decodeAssignments(
-    Uint8List data, {
-    required String cidNumber,
-    required String roleCode,
-  }) {
-    if (cidNumber.isEmpty ||
-        utf8.encode(cidNumber).length > 32 ||
-        roleCode.isEmpty ||
-        utf8.encode(roleCode).length > 64)
-      return null;
+  static List<InstitutionAdminAssignment>? decodeAssignments(Uint8List data) {
     var offset = 0;
     final count = _readCompact(data, offset);
     if (count == null) return null;
     offset += count.$2;
     final out = <InstitutionAdminAssignment>[];
     for (var i = 0; i < count.$1; i++) {
+      final cid = _readBytes(data, offset, minLength: 1, maxLength: 32);
+      if (cid == null) return null;
+      offset = cid.$2;
       if (offset + 32 > data.length) return null;
       // 与人员名册使用同一规范 AccountId，避免任职关联被格式差异全部过滤。
       final accountId = citizenAccountIdFromBytes(
         data.sublist(offset, offset + 32),
       );
       offset += 32;
-
+      final code = _readBytes(data, offset, minLength: 1, maxLength: 64);
+      if (code == null) return null;
+      offset = code.$2;
       if (offset + 9 > data.length) return null;
       final termStart = CitizenScale.readUnsigned(data, offset, 4).toInt();
       offset += 4;
@@ -166,9 +159,9 @@ class InstitutionRoleStorageCodec {
       try {
         out.add(
           InstitutionAdminAssignment(
-            cidNumber: cidNumber,
+            cidNumber: utf8.decode(cid.$1),
             accountId: accountId,
-            roleCode: roleCode,
+            roleCode: utf8.decode(code.$1),
             termStart: termStart,
             termEnd: termEnd,
             source: InstitutionAssignmentSource.values[source],
@@ -202,32 +195,17 @@ class InstitutionRoleStorageCodec {
   }
 
   /// 严格解码 `InstitutionRolePermissions[(cid, role_code)]` 的完整向量值。
-  static List<RoleBusinessPermission>? decodeRolePermissions(
-    Uint8List data, {
-    required String cidNumber,
-    required String roleCode,
-  }) {
-    if (cidNumber.isEmpty ||
-        utf8.encode(cidNumber).length > 32 ||
-        roleCode.isEmpty ||
-        utf8.encode(roleCode).length > 64)
-      return null;
+  static List<RoleBusinessPermission>? decodeRolePermissions(Uint8List data) {
     final count = _readCompact(data, 0);
     if (count == null || count.$1 > 256) return null;
     var offset = count.$2;
     final permissions = <RoleBusinessPermission>[];
     final seen = <String>{};
     for (var index = 0; index < count.$1; index++) {
-      final action = _decodeBusinessActionIdAt(data, offset);
-      if (action == null || action.$2 >= data.length) return null;
-      final operation = data[action.$2];
-      if (operation >= RolePermissionOperation.values.length) return null;
-      offset = action.$2 + 1;
-      final item = RoleBusinessPermission(
-        roleSubject: RoleSubject(cidNumber: cidNumber, roleCode: roleCode),
-        businessActionId: action.$1,
-        operation: RolePermissionOperation.values[operation],
-      );
+      final permission = _decodeRoleBusinessPermissionAt(data, offset);
+      if (permission == null) return null;
+      offset = permission.$2;
+      final item = permission.$1;
       final key =
           '${item.roleSubject.cidNumber}:${item.roleSubject.roleCode}:'
           '${item.businessActionId.moduleTag}:${item.businessActionId.actionCode}:'
