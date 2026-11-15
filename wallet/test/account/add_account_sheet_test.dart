@@ -41,7 +41,6 @@ void main() {
               body: AddAccountSheet(
                 masterId: testCitizenAccountId,
                 mode: AddAccountMode.specify,
-                getWalletState: actions.state,
                 addNextAccount: actions.next,
                 addAccounts: actions.many,
               ),
@@ -126,7 +125,7 @@ void main() {
                         context,
                         masterId: testCitizenAccountId,
                         mode: mode,
-                        getWalletState: actions.state,
+                        derivation: CitizenAccountDerivation.mldsa65,
                         addNextAccount: actions.next,
                         addAccounts: actions.many,
                       );
@@ -156,6 +155,7 @@ void main() {
         await tester.tap(find.text('确认添加'));
         await tester.pump();
         expect(actions.calls, contains(method));
+        expect(actions.selectedDerivation, CitizenAccountDerivation.mldsa65);
         if (leave) {
           Navigator.of(tester.element(find.byType(AddAccountSheet))).pop();
           await tester.pumpAndSettle();
@@ -194,7 +194,6 @@ void main() {
               body: AddAccountSheet(
                 masterId: testCitizenAccountId,
                 mode: mode,
-                getWalletState: actions.state,
                 addNextAccount: actions.next,
                 addAccounts: actions.many,
               ),
@@ -267,7 +266,6 @@ void main() {
                 body: AddAccountSheet(
                   masterId: testCitizenAccountId,
                   mode: mode,
-                  getWalletState: actions.state,
                   addNextAccount: actions.next,
                   addAccounts: actions.many,
                 ),
@@ -310,18 +308,27 @@ class _Actions {
   final calls = <String>[];
   List<Object?>? submitted;
   int cancels = 0;
+  CitizenAccountDerivation? selectedDerivation;
   FutureOr<CitizenWalletProfile> Function()? effect;
-  CitizenSdkOperation<CitizenWalletState> state() =>
-      testCitizenOperation(testCitizenWalletState);
   CitizenSdkOperation<CitizenWalletProfile> next({
     required String mnemonic,
     String password = '',
-  }) => _run('addNextAccount', [mnemonic, password]);
+    CitizenAccountDerivation? derivation,
+  }) {
+    selectedDerivation = derivation;
+    return _run('addNextAccount', [mnemonic, password]);
+  }
+
   CitizenSdkOperation<CitizenWalletProfile> many({
     required String mnemonic,
     required List<int> indices,
     String password = '',
-  }) => _run('addAccounts', [mnemonic, password, indices]);
+    CitizenAccountDerivation? derivation,
+  }) {
+    selectedDerivation = derivation;
+    return _run('addAccounts', [mnemonic, password, indices]);
+  }
+
   CitizenSdkOperation<CitizenWalletProfile> _run(
     String method,
     List<Object?> fields,

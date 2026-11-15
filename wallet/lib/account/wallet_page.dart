@@ -1148,16 +1148,49 @@ class _WalletTabState extends State<WalletTab> {
       context: context,
       builder: (sheetContext) => WalletEntryChooserSheet(
         canAddAccount: hot != null,
+        derivations: CitizenSdk.accountDerivations,
         onAddNextAccount: () {
           Navigator.of(sheetContext).pop();
           if (hot != null) {
-            unawaited(_openAddAccount(next: true));
+            unawaited(
+              _openAddAccount(
+                next: true,
+                derivation: CitizenAccountDerivation.sr25519,
+              ),
+            );
           }
         },
         onAddSpecifyAccount: () {
           Navigator.of(sheetContext).pop();
           if (hot != null) {
-            unawaited(_openAddAccount(next: false));
+            unawaited(
+              _openAddAccount(
+                next: false,
+                derivation: CitizenAccountDerivation.sr25519,
+              ),
+            );
+          }
+        },
+        onAddNextQuantumAccount: () {
+          Navigator.of(sheetContext).pop();
+          if (hot != null) {
+            unawaited(
+              _openAddAccount(
+                next: true,
+                derivation: CitizenAccountDerivation.mldsa65,
+              ),
+            );
+          }
+        },
+        onAddSpecifyQuantumAccount: () {
+          Navigator.of(sheetContext).pop();
+          if (hot != null) {
+            unawaited(
+              _openAddAccount(
+                next: false,
+                derivation: CitizenAccountDerivation.mldsa65,
+              ),
+            );
           }
         },
         onImportCold: () {
@@ -1168,7 +1201,10 @@ class _WalletTabState extends State<WalletTab> {
     );
   }
 
-  Future<void> _openAddAccount({required bool next}) async {
+  Future<void> _openAddAccount({
+    required bool next,
+    required CitizenAccountDerivation derivation,
+  }) async {
     if (_mutationInProgress) {
       return;
     }
@@ -1180,6 +1216,7 @@ class _WalletTabState extends State<WalletTab> {
       context,
       masterId: profile.masterAccountId,
       mode: next ? AddAccountMode.next : AddAccountMode.specify,
+      derivation: derivation,
     );
     if (added != true || !mounted) {
       return;
@@ -1496,15 +1533,21 @@ class WalletEntryChooserSheet extends StatelessWidget {
   const WalletEntryChooserSheet({
     super.key,
     required this.canAddAccount,
+    required this.derivations,
     required this.onAddNextAccount,
     required this.onAddSpecifyAccount,
+    required this.onAddNextQuantumAccount,
+    required this.onAddSpecifyQuantumAccount,
     required this.onImportCold,
   });
 
-  /// 存在热钱包时才提供「添加下一个账户 / 添加指定账户」两项。
+  /// 存在热钱包时，按SDK可用算法展示下一个、指定序号两个入口。
   final bool canAddAccount;
+  final List<CitizenAccountDerivation> derivations;
   final VoidCallback onAddNextAccount;
   final VoidCallback onAddSpecifyAccount;
+  final VoidCallback onAddNextQuantumAccount;
+  final VoidCallback onAddSpecifyQuantumAccount;
   final VoidCallback onImportCold;
 
   @override
@@ -1514,24 +1557,46 @@ class WalletEntryChooserSheet extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (canAddAccount) ...[
-            ListTile(
-              leading: const Icon(Icons.add_circle_outline),
-              title: const Text('添加下一个账户'),
-              subtitle: const Text(
-                '在本钱包下派生下一个序号账户',
-                style: TextStyle(color: AppTheme.textTertiary),
+            if (derivations.contains(CitizenAccountDerivation.sr25519)) ...[
+              ListTile(
+                leading: const Icon(Icons.add_circle_outline),
+                title: const Text('添加经典账户'),
+                subtitle: const Text(
+                  '在本钱包下派生下一个经典账户',
+                  style: TextStyle(color: AppTheme.textTertiary),
+                ),
+                onTap: onAddNextAccount,
               ),
-              onTap: onAddNextAccount,
-            ),
-            ListTile(
-              leading: const Icon(Icons.tag_rounded),
-              title: const Text('添加指定账户'),
-              subtitle: const Text(
-                '指定序号恢复本钱包下的特定账户',
-                style: TextStyle(color: AppTheme.textTertiary),
+              ListTile(
+                leading: const Icon(Icons.tag_rounded),
+                title: const Text('指定经典账户'),
+                subtitle: const Text(
+                  '指定序号恢复本钱包下的经典账户',
+                  style: TextStyle(color: AppTheme.textTertiary),
+                ),
+                onTap: onAddSpecifyAccount,
               ),
-              onTap: onAddSpecifyAccount,
-            ),
+            ],
+            if (derivations.contains(CitizenAccountDerivation.mldsa65)) ...[
+              ListTile(
+                leading: const Icon(Icons.add_circle_outline),
+                title: const Text('添加量子账户'),
+                subtitle: const Text(
+                  '在本钱包下派生下一个量子账户',
+                  style: TextStyle(color: AppTheme.textTertiary),
+                ),
+                onTap: onAddNextQuantumAccount,
+              ),
+              ListTile(
+                leading: const Icon(Icons.tag_rounded),
+                title: const Text('指定量子账户'),
+                subtitle: const Text(
+                  '指定序号恢复本钱包下的量子账户',
+                  style: TextStyle(color: AppTheme.textTertiary),
+                ),
+                onTap: onAddSpecifyQuantumAccount,
+              ),
+            ],
           ],
           ListTile(
             leading: const Icon(Icons.shield_outlined),

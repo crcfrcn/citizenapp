@@ -164,8 +164,7 @@ export async function resolveSDK({root,lock,environment,execute=execFileSync}) {
     if (selected) return {name,url,repository,product,local,selected,ref:selected.proof.git_commit_sha,version:selected.proof.software_version};
     const ref=execute('git',['-C',local,'rev-parse','HEAD^{commit}'],{encoding:'utf8',env:environment}).trim();
     if (!/^[a-f0-9]{40}$/u.test(ref)) throw Error(name+'提交身份无效');
-    const version=/^version: (\S+)$/mu.exec(
-        execute('git',['-C',local,'show',ref+':pubspec.yaml'],{encoding:'utf8',env:environment}))?.[1];
+    const version=/^version: (\S+)$/mu.exec(readFileSync(join(local,'pubspec.yaml'),'utf8'))?.[1];
     if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u.test(version||'')) throw Error(name+'版本声明无效');
     return {name,url,repository,product,local,selected,ref,version};
 }
@@ -254,19 +253,23 @@ execute('/usr/bin/rsync', ['-lp','--from0','--files-from=-',root + '/',project +
 let lock = readFileSync(join(project, 'pubspec.lock'), 'utf8');
 const {name,url,repository,product,local,selected,ref,version}=await resolveSDK({root,lock,environment,execute});
 writeFileSync(join(work,'sdk-sources.json'),JSON.stringify({[name]:{
-    source:selected?'release':'local_git',software_version:version,git_commit_sha:ref,
+    source:selected?'release':'local_workspace',software_version:version,
+    ...(selected?{git_commit_sha:ref}:{base_commit_sha:ref}),
     ...(selected?{release_id:selected.release.id,tag_name:selected.release.tag_name,
         producer_run_id:selected.proof.producer_run_id,producer_run_attempt:selected.proof.producer_run_attempt,
         assets:selected.proof.assets}:{}),
 }}));
-const source = join(work, 'sources', name), output = join(work, 'packages', name);
-mkdirSync(source, {recursive: true});
-execute('git', ['init', source], {env: environment});
-execute('git', ['-C', source, 'fetch', '--depth=1', selected ? url : local, ref], {env: environment});
-execute('git', ['-C', source, 'checkout', '--detach', 'FETCH_HEAD'], {env: environment});
+// 本机直接调用当前SDK工作区入口，保留未提交修改，并由SDK自行引用同级密码学核心。
+const source = selected ? join(work, 'sources', name) : local, output = join(work, 'packages', name);
+if (selected) {
+    mkdirSync(source, {recursive: true});
+    execute('git', ['init', source], {env: environment});
+    execute('git', ['-C', source, 'fetch', '--depth=1', url, ref], {env: environment});
+    execute('git', ['-C', source, 'checkout', '--detach', 'FETCH_HEAD'], {env: environment});
+}
 mkdirSync(dirname(output), {recursive: true});
 const sdk = await import(pathToFileURL(join(source, 'scripts/build.mjs')));
-console.log(product + '：' + (selected ? selected.release.tag_name : 'HEAD') + ' ' + ref);
+console.log(product + '：' + (selected ? selected.release.tag_name : '本机工作区（基于 ' + ref + '）'));
 if (selected) {
     const directory = join(work, 'downloads', product);
     mkdirSync(directory, {recursive: true});

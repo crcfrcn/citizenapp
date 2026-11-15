@@ -16,20 +16,22 @@ enum AddAccountMode { next, specify }
 /// 弹出「添加账户」底部面板；成功追加返回 `true`，否则返回 `null`。
 ///
 /// [mode] 固定本次添加口径：`next`=添加下一个账户；`specify`=添加指定账户。
-/// 由「我的钱包」列表右上角「＋」的两个入口分别指定，面板内不再切换。
+/// 由「添加账户」底部菜单指定序号模式与签名方式，面板内不再切换。
 Future<bool?> showAddAccountSheet(
   BuildContext context, {
   required String masterId,
   required AddAccountMode mode,
-  CitizenSdkOperation<CitizenWalletState> Function()? getWalletState,
+  CitizenAccountDerivation? derivation,
   CitizenSdkOperation<CitizenWalletProfile> Function({
     required String mnemonic,
     String password,
+    CitizenAccountDerivation? derivation,
   })?
   addNextAccount,
   CitizenSdkOperation<CitizenWalletProfile> Function({
     required String mnemonic,
     String password,
+    CitizenAccountDerivation? derivation,
     required List<int> indices,
   })?
   addAccounts,
@@ -40,7 +42,7 @@ Future<bool?> showAddAccountSheet(
     builder: (_) => AddAccountSheet(
       masterId: masterId,
       mode: mode,
-      getWalletState: getWalletState,
+      derivation: derivation,
       addNextAccount: addNextAccount,
       addAccounts: addAccounts,
     ),
@@ -56,27 +58,29 @@ class AddAccountSheet extends StatefulWidget {
     super.key,
     required this.masterId,
     required this.mode,
-    this.getWalletState,
+    this.derivation,
     this.addNextAccount,
     this.addAccounts,
   });
 
-  final CitizenSdkOperation<CitizenWalletState> Function()? getWalletState;
   final CitizenSdkOperation<CitizenWalletProfile> Function({
     required String mnemonic,
     String password,
+    CitizenAccountDerivation? derivation,
   })?
   addNextAccount;
   final CitizenSdkOperation<CitizenWalletProfile> Function({
     required String mnemonic,
     String password,
+    CitizenAccountDerivation? derivation,
     required List<int> indices,
   })?
   addAccounts;
 
   final String masterId;
+  final CitizenAccountDerivation? derivation;
 
-  /// 固定的添加模式(由钱包列表「＋」的两个入口分别指定,面板内不再切换)。
+  /// 固定的添加模式，由底部菜单指定，面板内不再切换。
   final AddAccountMode mode;
 
   @override
@@ -89,7 +93,6 @@ class _AddAccountSheetState extends State<AddAccountSheet> {
   final TextEditingController _indexController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
-  int? _nextIndex;
   bool _submitting = false;
   String? _error;
   CitizenSdkOperation<CitizenWalletProfile>? _operation;
@@ -99,7 +102,6 @@ class _AddAccountSheetState extends State<AddAccountSheet> {
     super.initState();
     // 面板承载助记词与可选钱包密码，整个显示周期都禁止截屏和录屏。
     unawaited(ScreenshotGuard.enable());
-    _loadNextIndex();
   }
 
   @override
@@ -121,17 +123,6 @@ class _AddAccountSheetState extends State<AddAccountSheet> {
     _indexController.dispose();
     _passwordController.dispose();
     super.dispose();
-  }
-
-  Future<void> _loadNextIndex() async {
-    try {
-      final state =
-          await (widget.getWalletState ?? _wallet.getWalletState)().result;
-      if (!mounted) return;
-      setState(() => _nextIndex = state.hotProfile?.nextAccountIndex);
-    } catch (_) {
-      // 拿不到下一个序号只影响副标题展示，不阻塞添加（addNextAccount 内部会自算）。
-    }
   }
 
   String _describeError(Object error) {
@@ -168,6 +159,7 @@ class _AddAccountSheetState extends State<AddAccountSheet> {
         final operation = (widget.addNextAccount ?? _wallet.addNextAccount)(
           mnemonic: mnemonic,
           password: password,
+          derivation: widget.derivation,
         );
         _operation = operation;
         await operation.result;
@@ -185,6 +177,7 @@ class _AddAccountSheetState extends State<AddAccountSheet> {
           mnemonic: mnemonic,
           indices: parsed.indices!,
           password: password,
+          derivation: widget.derivation,
         );
         _operation = operation;
         await operation.result;
@@ -251,7 +244,7 @@ class _AddAccountSheetState extends State<AddAccountSheet> {
               SizedBox(height: AppLayout.scaled(context, 16)),
               if (widget.mode == AddAccountMode.next)
                 Text(
-                  _nextIndex == null ? '将派生下一个账户' : '将派生 //$_nextIndex',
+                  '按所选签名方式派生下一个账户',
                   style: TextStyle(
                     fontSize: AppLayout.scaled(context, 12),
                     color: AppTheme.textSecondary,

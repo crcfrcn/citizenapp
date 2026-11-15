@@ -22,7 +22,7 @@ iOS 和 Android 塔塔自动化在各自原步骤调用 `.github/release.mjs` �
 
 自动化平台工程生成在target/build/<Run>-<attempt>/project，本机工程生成在本轮target/build/local-*独立目录：Flutter官方create --empty --no-pub生成普通Android/iOS模板，装配原生工程和唯一assets/logo资源，Gradle与Xcode直接引用隔离工程内已有原生源码和测试，Podfile、Gradle根工程、启动页、主题和桥接头沿用本机现有Flutter的官方模板，不在脚本重复保存正文；产品既有assembleProject只复制本仓原生输入，并应用编译所需插件版本、iOS最低版本、Isar静态库输出及产品资源名称等差异。权限、网络安全和签名请求保持原产品配置。create即使使用--no-pub也会重写工程锁，因此双端在模板命令成功后写回只映射 CitizenSDK 路径的完整派生pubspec.lock，再由既有pub get --enforce-lockfile严格消费；不改源码原锁、依赖版本或校验选项。AppFrameworkInfo.plist保留原锁官方模板，不改写其中不存在的MinimumOSVersion；iOS最低16.0由既有Xcode工程与Podfile声明。Flutter空模板跳过示例测试。宿主入口直接把普通工程的lib/test和各包test中的测试路径交给同版Flutter，保留原位相对导入和开发依赖。正式仓库不恢复平台包装模块，不生成业务数据、不改Flutter/Pub包源码。testing/lib/platform_input.dart直接回读当前本轮工程里的真实平台文件，不解析脚本文本或模块源码；现有业务测试预期保持。
 
-工具使用官方渠道和原锁：Node25.2.1、Flutter3.47.2、Rust1.97.1、Temurin17.0.20.1+1、Gradle9.1.0、AGP9.0.1、KGP2.2.20、NDK28.2.13676358、BuildTools36.0.0、CMake3.31.6和CocoaPods1.17.0。setup-java固定官方v6提交b843ebf9b913146b38da2eaa7aeddf76074ae1ad。显式交付官方运行机Android SDK完整路径；Rust准备iOS真机/模拟器或Android交叉目标。CitizenSDK 的 Git 来源保持在 pubspec.yaml/pubspec.lock，ref统一为main，仓库锁的resolved-ref只记录基线，不再要求人工跟随SDK更新。App 每轮编译开始先固定 CitizenSDK 的来源，本地 chat 随 App 源码进入同轮工程。本机读取 CitizenSDK 本地仓库当前 HEAD 已提交 SHA 与该提交的版本声明，在独立现场冻结源码，调用各SDK既有编译入口；未提交修改不参与。GitHub 从 CitizenSDK 的 Release 列表按最高正式语义版本选择完整包，固定提交、Release ID、生产Run/attempt及产物摘要，再调用各SDK公开consume入口；不以Actions Artifact选版，也不要求SDK提交等于App仓库锁中的历史基线。App 与 SDK 共用 Release 分页、GitHub API 读取和附件下载参数。SDK 仅接收已上传且标签唯一的附件，正式包校验由 SDK 自己执行。准确来源写入本轮sdk-sources.json，并进入本机编译回执及App既有正式发布回执。CitizenSDK 取得组件后不重复编译；GitHub真实读取错误或完整Release缺失直接失败。只在本轮临时工程改写 CitizenSDK 路径与锁；普通工程完成后由官方Pub解析冻结SDK的真实内部依赖，既有锁记录必须保持，仅允许新增由官方package_config指向本轮SDK源码的path包，再以--enforce-lockfile严格消费。内部包清单由SDK声明与Pub解析确定，App不复制清单，不改正式pubspec.lock、不升级第三方；已有缓存优先复用，缺件按产品声明及原锁从官方来源获取。原记录变化直接失败。无可用正式版或真实获取、编译失败直接失败，不回退旧版本、不手填Run、不要求预置交付目录。普通工程视图与原生实现仍归SDK，控制台不参与版本选择。
+工具使用官方渠道和原锁：Node25.2.1、Flutter3.47.2、Rust1.97.1、Temurin17.0.20.1+1、Gradle9.1.0、AGP9.0.1、KGP2.2.20、NDK28.2.13676358、BuildTools36.0.0、CMake3.31.6和CocoaPods1.17.0。setup-java固定官方v6提交b843ebf9b913146b38da2eaa7aeddf76074ae1ad。显式交付官方运行机Android SDK完整路径；Rust准备iOS真机/模拟器或Android交叉目标。CitizenSDK 的 Git 来源保持在 pubspec.yaml/pubspec.lock，ref统一为main，仓库锁的resolved-ref只记录基线，不再要求人工跟随SDK更新。App 每轮编译开始先固定 CitizenSDK 的来源，本地 chat 随 App 源码进入同轮工程。本机读取 CitizenSDK 当前工作区的源码与版本声明，包含未提交修改、新增和删除，调用SDK既有编译入口；HEAD只记录基线，不用于检出源码。GitHub 从 CitizenSDK 的 Release 列表按最高正式语义版本选择完整包，固定提交、Release ID、生产Run/attempt及产物摘要，再调用各SDK公开consume入口；不以Actions Artifact选版，也不要求SDK提交等于App仓库锁中的历史基线。App 与 SDK 共用 Release 分页、GitHub API 读取和附件下载参数。SDK 仅接收已上传且标签唯一的附件，正式包校验由 SDK 自己执行。准确来源写入本轮sdk-sources.json，并进入本机编译回执及App既有正式发布回执。CitizenSDK 取得组件后不重复编译；GitHub真实读取错误或完整Release缺失直接失败。只在本轮临时工程改写 CitizenSDK 路径与锁；普通工程完成后由官方Pub解析冻结SDK的真实内部依赖，既有锁记录必须保持，仅允许新增由官方package_config指向本轮SDK源码的path包，再以--enforce-lockfile严格消费。内部包清单由SDK声明与Pub解析确定，App不复制清单，不改正式pubspec.lock、不升级第三方；已有缓存优先复用，缺件按产品声明及原锁从官方来源获取。原记录变化直接失败。无可用正式版或真实获取、编译失败直接失败，不回退旧版本、不手填Run、不要求预置交付目录。普通工程视图与原生实现仍归SDK，控制台不参与版本选择。
 
 本机编译由Flutter直接读取本轮工程pubspec.yaml的版本号和构建号，不查询GitHub正式Release或Run。只有塔塔自动化通过发布脚本查询本平台已成功正式版本并递增。
 
@@ -218,7 +218,8 @@ AppQrImage 绘制 SDK 灰度图。App 不实现二维码编码、纠错、掩码
 
 - 原冷签流程在错误码型时留在扫码页显示“二维码类型不符／继续扫描”；普通签名响应的QrSignException按原“签名响应解析失败／确定”弹窗留在请求页，允许继续扫描。其他异常须按原分支逐项核对，不能统一替换文案。不得使用先退出页面再校验的简化流程替代；码型、期限、请求关联及验签仍由SDK执行，不能恢复旧QrSigner。
 - 原请求页保留计时图标、水平12/垂直8的状态栏内边距、二维码渲染失败占位及原两行提示；这些内容不能被同标题的简化页面替代。
-- 原追加面板由外部两个入口固定“添加下一个账户／添加指定账户”，面板内不切换；保持键盘避让、输入框、失败留页和按钮行为。编号解析、范围、重复及下一个编号的原子计算属于SDK，不恢复WalletManager或App重复规则。
+- 添加账户底部菜单依次为“添加经典账户／指定经典账户／添加量子账户／指定量子账户／导入冷钱包”，直接确定签名方式，不增加算法选择弹窗；账户入口只展示SDK可用算法，运行期隐藏经典账户两项，导入冷钱包入口保留。追加面板内不切换；保持键盘避让、输入框、失败留页和按钮行为。编号解析、范围、重复及下一个编号的原子计算属于SDK，不恢复WalletManager或App重复规则。
+- 创建／导入不选择签名算法；开发期由SDK同时建立经典账户0和量子账户0，使用同一助记词的两个 `//0`，默认名称为“经典账户N／量子账户N”。两种签名方式分别递增编号，账户详情继续使用同一页面。
 - 助记词输入最多显示六个末尾未完成单词的候选。词表及验证来自 SDK。选中后补空格并移动光标。
 - 原非空钱包密码在创建/导入时只确认一次；追加账户原流程不额外调用该确认弹窗。不得把平台原生界面的额外确认或输入模式切换带回原App。
 - 原创建页的热钱包探测、导入失败保留输入、备份弹窗与门禁放行时机逐项核对；冷导入入口不能套用本机热钱包密钥可用性的按钮禁用条件。异步页面销毁和取消必须接SDK实际终态，不以“mounted检查”代替底层取消。
@@ -2238,7 +2239,7 @@ SDK补传同次job实际产生的固定内部原因时，App按同一白名单�
 
 ## 本机编译资源与版本来源
 
-本机安装只准备对应平台编译产物，跳过 Dart 宿主测试目录和 macOS 宿主 MLS。本机compile不查询GitHub正式版本或Run，不传--build-name或--build-number，由Flutter直接使用本轮工程中原pubspec.yaml的版本声明。控制台任务号不作为产品版本输入。CitizenSDK 在编译开始固定本机当前 HEAD 已保存提交并调用其公开构建入口；chat 直接使用 App 本轮源码与 chat/mls 原锁，不解析外部聊天产品来源；Pub与npm按原锁装配。npm使用缓存优先模式，本机默认使用本仓target/cache/npm，调用方显式缓存配置优先，缺件按锁获取。塔塔自动化沿用其缓存环境。随后正常build由Flutter按Release刷新原生插件注册；不使用build --no-pub跳过该步骤。Git仅放行本地file与正式源码HTTPS，Cargo沿原锁和已声明的来源执行。塔塔自动化继续使用所属Workflow提供的Run构建号和正式SDK选择。
+本机安装只准备对应平台编译产物，跳过 Dart 宿主测试目录和 macOS 宿主 MLS。本机compile不查询GitHub正式版本或Run，不传--build-name或--build-number，由Flutter直接使用本轮工程中原pubspec.yaml的版本声明。控制台任务号不作为产品版本输入。CitizenSDK 使用本机当前工作区源码与版本声明并调用其公开构建入口，包含未提交改动，HEAD仅记录基线；chat 直接使用 App 本轮源码与 chat/mls 原锁，不解析外部聊天产品来源；Pub与npm按原锁装配。npm使用缓存优先模式，本机默认使用本仓target/cache/npm，调用方显式缓存配置优先，缺件按锁获取。塔塔自动化沿用其缓存环境。随后正常build由Flutter按Release刷新原生插件注册；不使用build --no-pub跳过该步骤。Git仅放行本地file与正式源码HTTPS，Cargo沿原锁和已声明的来源执行。塔塔自动化继续使用所属Workflow提供的Run构建号和正式SDK选择。
 
 ## 包与测试归属重构
 

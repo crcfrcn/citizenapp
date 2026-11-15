@@ -1744,45 +1744,57 @@ void main() {
     expect(find.text('新钱包名称'), findsOneWidget);
   });
 
-  group('「＋」入口三项菜单（添加下一个账户 / 添加指定账户 / 导入冷钱包）', () {
-    testWidgets('有热钱包时三项齐全,导入冷钱包在最下', (tester) async {
+  group('「＋」入口五项菜单（经典、量子各两项 / 导入冷钱包）', () {
+    testWidgets('有热钱包时五项齐全,导入冷钱包在最下', (tester) async {
       _disposeWidgetBeforeStores(tester);
       var next = false;
       var specify = false;
       var cold = false;
+      var nextQuantum = false;
+      var specifyQuantum = false;
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
             body: WalletEntryChooserSheet(
               canAddAccount: true,
+              derivations: CitizenAccountDerivation.values,
               onAddNextAccount: () => next = true,
               onAddSpecifyAccount: () => specify = true,
+              onAddNextQuantumAccount: () => nextQuantum = true,
+              onAddSpecifyQuantumAccount: () => specifyQuantum = true,
               onImportCold: () => cold = true,
             ),
           ),
         ),
       );
-      expect(find.text('添加下一个账户'), findsOneWidget);
-      expect(find.text('添加指定账户'), findsOneWidget);
+      expect(find.text('添加经典账户'), findsOneWidget);
+      expect(find.text('指定经典账户'), findsOneWidget);
+      expect(find.text('添加量子账户'), findsOneWidget);
+      expect(find.text('指定量子账户'), findsOneWidget);
+      expect(find.byType(SimpleDialog), findsNothing);
       expect(find.text('导入冷钱包'), findsOneWidget);
       // 不得出现热钱包创建 / 导入入口。
       expect(find.text('创建钱包'), findsNothing);
       expect(find.text('导入热钱包'), findsNothing);
 
       for (final subtitle in <String>[
-        '在本钱包下派生下一个序号账户',
-        '指定序号恢复本钱包下的特定账户',
+        '在本钱包下派生下一个经典账户',
+        '指定序号恢复本钱包下的经典账户',
+        '在本钱包下派生下一个量子账户',
+        '指定序号恢复本钱包下的量子账户',
         '仅导入公钥，私钥保留在签名设备',
       ]) {
         final text = tester.widget<Text>(find.text(subtitle));
         expect(text.style?.color, AppTheme.textTertiary);
       }
 
-      await tester.tap(find.text('添加下一个账户'));
-      await tester.tap(find.text('添加指定账户'));
+      await tester.tap(find.text('添加经典账户'));
+      await tester.tap(find.text('指定经典账户'));
+      await tester.tap(find.text('添加量子账户'));
+      await tester.tap(find.text('指定量子账户'));
       await tester.tap(find.text('导入冷钱包'));
       await tester.pump();
-      expect(next && specify && cold, isTrue);
+      expect(next && specify && nextQuantum && specifyQuantum && cold, isTrue);
     });
 
     testWidgets('无热钱包时只有「导入冷钱包」', (tester) async {
@@ -1792,16 +1804,50 @@ void main() {
           home: Scaffold(
             body: WalletEntryChooserSheet(
               canAddAccount: false,
+              derivations: CitizenAccountDerivation.values,
               onAddNextAccount: () {},
               onAddSpecifyAccount: () {},
+              onAddNextQuantumAccount: () {},
+              onAddSpecifyQuantumAccount: () {},
               onImportCold: () {},
             ),
           ),
         ),
       );
       expect(find.text('导入冷钱包'), findsOneWidget);
-      expect(find.text('添加下一个账户'), findsNothing);
-      expect(find.text('添加指定账户'), findsNothing);
+      expect(find.text('添加经典账户'), findsNothing);
+      expect(find.text('指定经典账户'), findsNothing);
+      expect(find.text('添加量子账户'), findsNothing);
+      expect(find.text('指定量子账户'), findsNothing);
+    });
+
+    testWidgets('SDK只提供量子能力时隐藏两个经典入口', (tester) async {
+      _disposeWidgetBeforeStores(tester);
+      var next = false;
+      var specify = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: WalletEntryChooserSheet(
+              canAddAccount: true,
+              derivations: const [CitizenAccountDerivation.mldsa65],
+              onAddNextAccount: () => fail('不应调用不可用的经典账户入口'),
+              onAddSpecifyAccount: () => fail('不应调用不可用的经典账户入口'),
+              onAddNextQuantumAccount: () => next = true,
+              onAddSpecifyQuantumAccount: () => specify = true,
+              onImportCold: () {},
+            ),
+          ),
+        ),
+      );
+      expect(find.text('添加经典账户'), findsNothing);
+      expect(find.text('指定经典账户'), findsNothing);
+      expect(find.text('添加量子账户'), findsOneWidget);
+      expect(find.text('指定量子账户'), findsOneWidget);
+      expect(find.text('导入冷钱包'), findsOneWidget);
+      await tester.tap(find.text('添加量子账户'));
+      await tester.tap(find.text('指定量子账户'));
+      expect(next && specify, isTrue);
     });
 
     testWidgets('WalletEmptyChoices 空态也只有「导入冷钱包」', (tester) async {
@@ -1901,8 +1947,8 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('wallet-add-entry')));
       await _settleWallet(tester);
 
-      expect(find.text('添加下一个账户'), findsOneWidget);
-      expect(find.text('添加指定账户'), findsOneWidget);
+      expect(find.text('添加经典账户'), findsOneWidget);
+      expect(find.text('指定经典账户'), findsOneWidget);
       expect(find.text('导入冷钱包'), findsOneWidget);
     });
 
@@ -1916,8 +1962,8 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('wallet-add-entry')));
       await _settleWallet(tester);
       expect(find.text('导入冷钱包'), findsOneWidget);
-      expect(find.text('添加下一个账户'), findsNothing);
-      expect(find.text('添加指定账户'), findsNothing);
+      expect(find.text('添加经典账户'), findsNothing);
+      expect(find.text('指定经典账户'), findsNothing);
     });
 
     testWidgets('已有成功数据刷新失败时保留列表和＋能力并显示重试提示', (tester) async {
@@ -1956,8 +2002,8 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('wallet-add-entry')));
       await _settleWallet(tester);
       expect(find.text('导入冷钱包'), findsOneWidget);
-      expect(find.text('添加下一个账户'), findsNothing);
-      expect(find.text('添加指定账户'), findsNothing);
+      expect(find.text('添加经典账户'), findsNothing);
+      expect(find.text('指定经典账户'), findsNothing);
     });
 
     testWidgets('在途刷新合并，完成后下一次刷新可更新最新快照', (tester) async {
