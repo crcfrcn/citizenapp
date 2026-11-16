@@ -1146,6 +1146,7 @@ class _WalletTabState extends State<WalletTab> {
     final hot = _hotWallet;
     await showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       builder: (sheetContext) => WalletEntryChooserSheet(
         canAddAccount: hot != null,
         derivations: CitizenSdk.accountDerivations,
@@ -1550,64 +1551,103 @@ class WalletEntryChooserSheet extends StatelessWidget {
   final VoidCallback onAddSpecifyQuantumAccount;
   final VoidCallback onImportCold;
 
+  Widget _accountCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) => Padding(
+    padding: EdgeInsets.only(bottom: AppLayout.scaledValue(8)),
+    child: Material(
+      color: AppTheme.surfaceCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(
+          AppLayout.scaledValue(AppTheme.radiusMd),
+        ),
+        side: const BorderSide(color: AppTheme.border),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: ListTile(
+        leading: Icon(icon, color: AppTheme.primary),
+        title: Text(title),
+        subtitle: Text(
+          subtitle,
+          style: const TextStyle(color: AppTheme.textTertiary),
+        ),
+        onTap: onTap,
+      ),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (canAddAccount) ...[
-            if (derivations.contains(CitizenAccountDerivation.sr25519)) ...[
-              ListTile(
-                leading: const Icon(Icons.add_circle_outline),
-                title: const Text('添加经典账户'),
-                subtitle: const Text(
-                  '在本钱包下派生下一个经典账户',
-                  style: TextStyle(color: AppTheme.textTertiary),
-                ),
-                onTap: onAddNextAccount,
-              ),
-              ListTile(
-                leading: const Icon(Icons.tag_rounded),
-                title: const Text('指定经典账户'),
-                subtitle: const Text(
-                  '指定序号恢复本钱包下的经典账户',
-                  style: TextStyle(color: AppTheme.textTertiary),
-                ),
-                onTap: onAddSpecifyAccount,
-              ),
-            ],
-            if (derivations.contains(CitizenAccountDerivation.mldsa65)) ...[
-              ListTile(
-                leading: const Icon(Icons.add_circle_outline),
-                title: const Text('添加量子账户'),
-                subtitle: const Text(
-                  '在本钱包下派生下一个量子账户',
-                  style: TextStyle(color: AppTheme.textTertiary),
-                ),
-                onTap: onAddNextQuantumAccount,
-              ),
-              ListTile(
-                leading: const Icon(Icons.tag_rounded),
-                title: const Text('指定量子账户'),
-                subtitle: const Text(
-                  '指定序号恢复本钱包下的量子账户',
-                  style: TextStyle(color: AppTheme.textTertiary),
-                ),
-                onTap: onAddSpecifyQuantumAccount,
-              ),
-            ],
-          ],
-          ListTile(
-            leading: const Icon(Icons.shield_outlined),
-            title: const Text('导入冷钱包'),
-            subtitle: const Text(
-              '仅导入公钥，私钥保留在签名设备',
-              style: TextStyle(color: AppTheme.textTertiary),
-            ),
-            onTap: onImportCold,
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            AppLayout.scaled(context, 16),
+            AppLayout.scaled(context, 8),
+            AppLayout.scaled(context, 16),
+            AppLayout.scaled(context, 16),
           ),
-        ],
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Center(
+                child: Container(
+                  key: const ValueKey('wallet-entry-drag-handle'),
+                  width: AppLayout.scaled(context, 36),
+                  height: AppLayout.scaled(context, 4),
+                  margin: EdgeInsets.only(
+                    bottom: AppLayout.scaled(context, 16),
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppTheme.textTertiary,
+                    borderRadius: BorderRadius.circular(
+                      AppLayout.scaledValue(2),
+                    ),
+                  ),
+                ),
+              ),
+              if (canAddAccount) ...[
+                if (derivations.contains(CitizenAccountDerivation.sr25519)) ...[
+                  _accountCard(
+                    icon: Icons.person_add_alt_1_outlined,
+                    title: '添加经典账户',
+                    subtitle: '在本钱包下派生下一个经典账户',
+                    onTap: onAddNextAccount,
+                  ),
+                  _accountCard(
+                    icon: Icons.tag_rounded,
+                    title: '指定经典账户',
+                    subtitle: '指定序号恢复本钱包下的经典账户',
+                    onTap: onAddSpecifyAccount,
+                  ),
+                ],
+                if (derivations.contains(CitizenAccountDerivation.mldsa65)) ...[
+                  _accountCard(
+                    icon: Icons.memory_outlined,
+                    title: '添加量子账户',
+                    subtitle: '在本钱包下派生下一个量子账户',
+                    onTap: onAddNextQuantumAccount,
+                  ),
+                  _accountCard(
+                    icon: Icons.radar_rounded,
+                    title: '指定量子账户',
+                    subtitle: '指定序号恢复本钱包下的量子账户',
+                    onTap: onAddSpecifyQuantumAccount,
+                  ),
+                ],
+              ],
+              _accountCard(
+                icon: Icons.shield_outlined,
+                title: '导入冷钱包',
+                subtitle: '仅导入公钥，私钥保留在签名设备',
+                onTap: onImportCold,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1752,13 +1792,13 @@ class WalletListTile extends StatelessWidget {
   }
 
   Widget _build(BuildContext context) {
-    // 钱包图标按冷热区分配色 —— 热=墨绿主色(链上主用),冷=蓝(离线签名设备调性)。
+    // 钱包图标按冷热区分配色：热钱包红色，冷钱包蓝色。
     final isHot =
         (wallet?.signMode ?? diagnostic?.signMode) == CitizenWalletSignMode.hot;
     final iconBg = isHot
-        ? AppTheme.primary.withAlpha(20)
+        ? AppTheme.danger.withAlpha(20)
         : AppTheme.info.withAlpha(20);
-    final iconColor = isHot ? AppTheme.primaryDark : AppTheme.info;
+    final iconColor = isHot ? AppTheme.danger : AppTheme.info;
     // 固定语义标识只区分冷热入口，不含账户、钱包名称或金额。
     return Semantics(
       identifier: isHot ? 'wallet-hot-row' : 'wallet-cold-row',
@@ -1956,7 +1996,7 @@ class _DefaultAccountLabel extends StatelessWidget {
 
 /// 单行账户卡片：唯一热钱包下某个 `//index` 账户。
 ///
-/// 左侧序号徽标 → 账户名（默认标记紧邻名称右上侧）+ 短 SS58 → 身份徽标（如有）→
+/// 左侧红色钱包图标 → 账户名（默认标记紧邻名称右上侧）+ 短 SS58 → 身份徽标（如有）→
 /// 竖三点。整卡点击进入账户详情；扫一扫收进菜单并锁定当前账户。
 ///
 /// 仅供 wallet_page 自己使用，通过 `@visibleForTesting` 暴露给 widget 测试。
@@ -2016,16 +2056,14 @@ class WalletAccountTile extends StatelessWidget {
                 height: AppLayout.scaled(context, 46),
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: AppTheme.primary.withAlpha(20),
+                  color: AppTheme.danger.withAlpha(20),
                   borderRadius: BorderRadius.circular(AppTheme.radiusSm),
                 ),
-                child: Text(
-                  '#${account.accountIndex}',
-                  style: TextStyle(
-                    fontSize: AppLayout.scaled(context, 14),
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.primaryDark,
-                  ),
+                child: Icon(
+                  Icons.account_balance_wallet_rounded,
+                  key: const ValueKey('wallet-hot-account-icon'),
+                  size: AppLayout.scaled(context, 24),
+                  color: AppTheme.danger,
                 ),
               ),
               SizedBox(width: AppLayout.scaled(context, 12)),

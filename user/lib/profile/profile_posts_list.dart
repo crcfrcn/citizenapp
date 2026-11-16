@@ -157,8 +157,9 @@ class _ProfilePostsTabState extends State<ProfilePostsTab> {
         if (mounted && generation == _loadGeneration) {
           setState(() => _failedFirst = true);
           if (_posts.isNotEmpty) {
-            ScaffoldMessenger.of(context)
-                .showSnackBar(const SnackBar(content: Text('内容加载失败，请下拉刷新')));
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(const SnackBar(content: Text('内容加载失败，请下拉刷新')));
           }
         }
       }
@@ -348,7 +349,7 @@ class _ProfilePostsTabState extends State<ProfilePostsTab> {
       return [_message('内容加载失败，请下拉刷新')];
     }
     if (_sessionUnavailable && _posts.isEmpty) {
-      return [_message('内容加载失败，请下拉刷新')];
+      return [_message('内容暂未加载，请下拉刷新')];
     }
     if (widget.mediaKind != null) {
       return _mediaSlivers();

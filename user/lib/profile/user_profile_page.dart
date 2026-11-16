@@ -31,6 +31,7 @@ import 'package:citizen_user/identity/identity_register_guide.dart';
 import 'package:citizen_square/post/square_post_sync_service.dart';
 import 'package:citizen_user/navigation.dart';
 import 'package:citizen_user/identity/current_user_context.dart';
+import 'package:citizen_user/identity/identity_binding.dart';
 import 'package:citizen_user/identity/account_security_service.dart';
 import 'package:citizen_user/identity/finalized_identity_resolver.dart';
 import 'package:citizen_user/membership/membership_revision.dart';
@@ -45,7 +46,7 @@ import 'package:citizen_network/hex_codec.dart' show bytesToHex;
 /// 折叠虚化头部 + 圆角方形头像/背景 + 认证勾 + 展示名/地址/签名/计数 +
 /// 三图标（本人 通知/聊天/关注 · 他人 关注/消息）+ ⋮（用户码/编辑资料）+
 /// 公文/竞选/视频/文章四个互斥 Tab（“公文”底层仍为 posts）。身份主键 = CID 号
-/// （cid_number）；本人资料与内容只读本地持久数据库，主动刷新才同步远端。
+/// （cid_number）；本人和他人资料先读本地，进入后台校准遵守十分钟限速。
 /// 关注复用登录 session 静默签名；资料远端存储不上链。链上订阅/私信/
 /// 用户码与注销只消费本机已验证的当前公民号绑定。
 class UserProfilePage extends StatefulWidget {
@@ -64,6 +65,7 @@ class UserProfilePage extends StatefulWidget {
         MembershipDisplayDecision.inactiveConfirmed,
     this.initialMembershipState,
     this.onOpenDirectChat,
+    this.currentUserContext,
   });
 
   /// 主页身份主键 = CID 号（cid_number）。资料/关注/帖子全按此 cid 寻址。
@@ -92,6 +94,7 @@ class UserProfilePage extends StatefulWidget {
 
   /// 私聊入口，测试可注入 spy；默认交给本地 chat。
   final DirectChatOpener? onOpenDirectChat;
+  final CurrentUserContext? currentUserContext;
 
   @override
   State<UserProfilePage> createState() => _UserProfilePageState();
@@ -108,7 +111,6 @@ class _UserProfilePageState extends State<UserProfilePage> {
   SubscriptionService? _subscriptionService;
   late final DirectChatOpener _directChat;
   CitizenProfile? _profile;
-  CitizenProfileLoadResult? _profileLoadResult;
   CitizenProfileMediaSnapshot _profileMedia =
       const CitizenProfileMediaSnapshot();
   SquareSession? _session;
@@ -120,15 +122,16 @@ class _UserProfilePageState extends State<UserProfilePage> {
   bool _followBusy = false;
   bool _contentRefreshFailed = false;
   int _profileLoadGeneration = 0;
+  int _mediaLoadGeneration = 0;
   late MembershipDisplayDecision _membershipDecision;
   SquareMembershipState? _membershipState;
 
   /// 「他人视角」下识别本人；本人只开放通用关注操作。
-  bool _accessReady = false;
+  bool _relationsReady = false;
+  CurrentUserContext? _currentUser;
   bool _accessAllowed = false;
   bool _verifiedSelf = false;
   bool get _isSelf => widget.isSelf || _verifiedSelf;
-  String? _accessError;
   String? _viewerCid;
   int _accessGeneration = 0;
   AccountSecurityService? _profileSecurity;
@@ -181,92 +184,97 @@ class _UserProfilePageState extends State<UserProfilePage> {
         );
       }
     }
+    _currentUser =
+        widget.currentUserContext ?? context.read<CurrentUserContext?>();
     _dependenciesReady = true;
     _profileSecurity = context.read<AccountSecurityService?>();
     _profileSecurity?.revision.addListener(_invalidatePageAccess);
+    unawaited(_load());
     unawaited(_resolvePageAccess());
   }
 
   void _invalidatePageAccess() {
     _accessGeneration++;
     _profileLoadGeneration++;
-    if (mounted) {
-      setState(() {
-        _accessReady = false;
-        _accessAllowed = false;
-        _profile = null;
-        _profileLoadResult = null;
-      });
-    }
-    _session = null;
-    _sessionFuture = null;
+    if (!mounted) return;
+    setState(() {
+      _accessAllowed = false;
+      _relationsReady = false;
+      _verifiedSelf = false;
+      _session = null;
+      _sessionFuture = null;
+      _sessionResolved = false;
+    });
     unawaited(_resolvePageAccess());
   }
 
-  Future<void> _resolvePageAccess() async {
+  Future<void> _resolvePageAccess({bool refreshOnEntry = true}) async {
     final generation = ++_accessGeneration;
-    final accountRevision = _profileSecurity?.revision.value;
+    final revision = _profileSecurity?.revision.value;
     bool current() =>
         mounted &&
         generation == _accessGeneration &&
-        accountRevision == _profileSecurity?.revision.value;
+        revision == _profileSecurity?.revision.value;
     try {
-      final citizen = await _sessionProvider.currentCitizenId();
-      if (!current()) {
-        return;
-      }
-      if (citizen == null || citizen.isEmpty) {
-        throw const SquareApiException('当前公民身份尚未就绪');
-      }
+      final local = await _currentUser?.resolve();
+      final citizen =
+          local?.cidNumber ?? await _sessionProvider.currentCitizenId();
+      if (!current()) return;
+      if (citizen == null || citizen.isEmpty) throw StateError('当前公民身份尚未就绪');
       _viewerCid = citizen;
-      final self = citizen == widget.cidNumber;
-      if (!self) {
-        final session = await _ensureSession();
-        if (!current()) {
-          return;
-        }
-        if (session == null || session.cidNumber != citizen) {
-          throw const SquareApiException('当前公民会话不可用');
-        }
-        // 原资料请求由服务端门禁最终决定；不先GET一遍会员。
-      }
-      if (!current()) {
-        return;
-      }
       setState(() {
-        _verifiedSelf = self;
+        _verifiedSelf = citizen == widget.cidNumber;
         _accessAllowed = true;
-        _accessReady = self;
-        _accessError = null;
       });
-      if (_profile is CitizenProfileCard) {
-        _profile = null;
+      if (!refreshOnEntry) return;
+      var binding = local?.binding;
+      if (binding == null) {
+        // 独立页面/注入依赖仍可使用既有会话边界；正式App优先本地绑定并先检查限速。
+        final session = await _ensureSession();
+        if (!current() || session == null || session.cidNumber != citizen)
+          throw StateError('当前公民会话不可用');
+        binding = IdentityBinding(
+          genesisHash: '',
+          cidNumber: session.cidNumber,
+          accountId: session.accountId,
+          bindRev: session.bindRev,
+        );
       }
-      if (self && _profile != null) {
-        unawaited(_loadProfileMedia(_profile!));
-      }
-      await _load(propagateFailure: true);
-      if (current()) {
-        setState(() => _accessReady = true);
-        final result = _profileLoadResult;
-        if (!self && result != null && result.hasWarning) {
-          _snack(result.refreshMessage!);
-        }
+      final owner = binding;
+      final security = _profileSecurity;
+      // 与页面mounted解耦，退出首个页面不取消其他同身份等待者的共享任务。
+      final result = await _api.refreshOnEntry(
+        widget.cidNumber,
+        binding: owner,
+        sessions: _sessionProvider,
+        cache: _cache,
+        mediaCache: _mediaCache,
+        isCurrentIdentity: () => revision == security?.revision.value,
+      );
+      if (!current()) return;
+      if (result != null) {
+        ++_profileLoadGeneration;
+        setState(() {
+          _session = result.session;
+          _sessionStatus = SquareSessionStatus.ready;
+          _sessionResolved = true;
+          _profile = result.profile.profile;
+          _relationsReady = true;
+        });
+        await _loadProfileMedia(result.profile.profile);
+      } else {
+        setState(() => _sessionResolved = true);
       }
     } on Object catch (error, stackTrace) {
-      if (!current()) {
-        return;
-      }
+      if (!current()) return;
       AppLog.profileLoadFailure(
-        stage: 'access',
+        stage: 'background',
         error: error,
         stackTrace: stackTrace,
       );
       setState(() {
-        _accessReady = true;
-        _accessAllowed = false;
-        _accessError = _profileFailureMessage(error);
-        _profile = null;
+        _sessionResolved = true;
+        _relationsReady = false;
       });
     }
   }
@@ -295,8 +303,10 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
   /// 当前主页 CID 的会员镜像变化时重读资料，并重建当前内容 Tab 的作者徽章。
   void _onMembershipChanged() {
+    if (!mounted) return;
     if (MembershipRevision.instance.listenable.value?.cidNumber == _viewerCid) {
-      _invalidatePageAccess();
+      setState(() => _relationsReady = false);
+      unawaited(_load());
       return;
     }
 
@@ -320,76 +330,46 @@ class _UserProfilePageState extends State<UserProfilePage> {
   }
 
   void _onProfileChanged() {
-    if (_isSelf &&
-        CitizenProfileCache.revision.value?.cidNumber == widget.cidNumber) {
+    if (CitizenProfileCache.revision.value?.cidNumber == widget.cidNumber) {
       unawaited(_load());
     }
   }
 
-  /// 本人普通进入和数据通知只读数据库；远端请求集中在主动刷新。
-  Future<void> _load({
-    bool localOnly = false,
-    bool propagateFailure = false,
-  }) async {
+  /// 首屏与revision通知只读本地；不触发远端刷新或清除已有展示。
+  Future<void> _load() async {
     final generation = ++_profileLoadGeneration;
-    var stage = 'local_read';
     try {
-      if (!_accessAllowed) {
-        return;
+      final local = await _cache.read(widget.cidNumber);
+      if (!mounted || generation != _profileLoadGeneration) return;
+      if (local != null &&
+          local.cidNumber == widget.cidNumber &&
+          (_profile == null ||
+              _profile is CitizenProfileCard ||
+              local.profileAt >= _profile!.profileAt)) {
+        final relationship = _profile;
+        setState(
+          () => _profile = local.copyWith(
+            isFollowing: _relationsReady
+                ? relationship?.isFollowing ?? false
+                : false,
+            isFollowedBy: _relationsReady
+                ? relationship?.isFollowedBy ?? false
+                : false,
+            isNotifying: _relationsReady
+                ? relationship?.isNotifying ?? false
+                : false,
+          ),
+        );
+        await _loadProfileMedia(_profile!);
+      } else if (_profile != null) {
+        await _loadProfileMedia(_profile!);
       }
-      // 他人主页先等原业务请求通过；不得在服务端拒绝前展示旧缓存或发媒体请求。
-      final local = _verifiedSelf || localOnly
-          ? await _cache.read(widget.cidNumber)
-          : null;
-      if (!mounted || generation != _profileLoadGeneration) {
-        return;
-      }
-      if (local != null && local.cidNumber == widget.cidNumber) {
-        setState(() => _profile = local);
-        await _loadProfileMedia(local);
-      }
-      if (_verifiedSelf || localOnly) {
-        return;
-      }
-      // 他人公开主页仍按用户本次访问读取远端；不将本人私有副本用于他人页面。
-      stage = 'session';
-      final session = await _ensureSession();
-      if (session == null) throw const SquareApiException('当前公民会话不可用');
-      final accessGeneration = _accessGeneration;
-      final revision = _profileSecurity?.revision.value;
-      stage = 'remote_profile';
-      final result = await _api.loadProfile(
-        widget.cidNumber,
-        session: session,
-        cache: _cache,
-        mediaCache: _mediaCache,
-        isCurrent: () =>
-            mounted &&
-            accessGeneration == _accessGeneration &&
-            revision == _profileSecurity?.revision.value,
-      );
-      if (!mounted || generation != _profileLoadGeneration) {
-        return;
-      }
-      stage = 'display';
-      setState(() {
-        _profile = result.profile;
-        _profileLoadResult = result;
-      });
-      await _loadProfileMedia(result.profile);
-    } catch (error, stackTrace) {
+    } on Object catch (error, stackTrace) {
       AppLog.profileLoadFailure(
-        stage: stage,
+        stage: 'local_read',
         error: error,
         stackTrace: stackTrace,
       );
-      if (!mounted || generation != _profileLoadGeneration) return;
-      if (propagateFailure) {
-        rethrow;
-      }
-      if (mounted && _profile == null) {
-        _snack('内容加载失败，请下拉刷新');
-      }
     }
   }
 
@@ -415,6 +395,12 @@ class _UserProfilePageState extends State<UserProfilePage> {
     }
   }
 
+  bool Function() _identityCurrentFor(SquareSession session) {
+    final security = _profileSecurity;
+    final revision = security?.revision.value;
+    return () => session.isUsable && revision == security?.revision.value;
+  }
+
   Future<void> _refresh() async {
     // 资料刷新与关系写入互斥，避免复用写入前已发出的旧资料请求。
     if (_refreshing || _followBusy) {
@@ -422,8 +408,8 @@ class _UserProfilePageState extends State<UserProfilePage> {
     }
     if (!_accessAllowed) {
       // 错误页也可重试；他人访问的原业务请求完成后无需再发第二遍资料GET。
-      await _resolvePageAccess();
-      if (!_accessAllowed || !_verifiedSelf) return;
+      await _resolvePageAccess(refreshOnEntry: false);
+      if (!_accessAllowed) return;
     }
     setState(() {
       _refreshing = true;
@@ -431,8 +417,8 @@ class _UserProfilePageState extends State<UserProfilePage> {
       _postsRevision++;
     });
     try {
-      // 服务不可用也必须先重读本地；本人普通进入依旧只读本地，不隐式同步。
-      if (_verifiedSelf) await _load(localOnly: true, propagateFailure: true);
+      // 手动刷新先恢复本地，再独立校准云端；失败不清空缓存UI。
+      await _load();
       final session = await _ensureSession(refresh: true);
       if (session == null) {
         throw StateError('当前无法建立服务会话');
@@ -456,7 +442,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
               widget.cidNumber,
               session: session,
               userInitiated: true,
-              isCurrent: current,
+              isCurrent: _identityCurrentFor(session),
               cache: _cache,
               mediaCache: _mediaCache,
             )
@@ -470,9 +456,11 @@ class _UserProfilePageState extends State<UserProfilePage> {
         return;
       }
       final result = profileResult!;
+      ++_profileLoadGeneration;
       setState(() {
         _profile = result.profile;
-        _profileLoadResult = result;
+
+        _relationsReady = true;
       });
       await _loadProfileMedia(result.profile);
       if (_isSelf) {
@@ -490,12 +478,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
       if (mounted) {
         setState(() {
           _contentRefreshFailed = true;
-          if (error is SquareApiException &&
-              {401, 403, 404}.contains(error.statusCode)) {
-            _accessAllowed = false;
-            _accessError = _profileFailureMessage(error);
-            _profile = null;
-          }
+          _relationsReady = false;
         });
         _snack(_profileFailureMessage(error));
       }
@@ -507,12 +490,25 @@ class _UserProfilePageState extends State<UserProfilePage> {
   }
 
   Future<void> _loadProfileMedia(CitizenProfile profile) async {
+    final generation = ++_mediaLoadGeneration;
     try {
       final local = await _mediaCache.read(profile);
       if (mounted &&
+          generation == _mediaLoadGeneration &&
           _profile?.cidNumber == profile.cidNumber &&
-          _profile?.profileAt == profile.profileAt) {
-        setState(() => _profileMedia = local);
+          _profile?.profileAt == profile.profileAt &&
+          _profile?.avatarKey == profile.avatarKey &&
+          _profile?.bannerKey == profile.bannerKey) {
+        setState(
+          () => _profileMedia = CitizenProfileMediaSnapshot(
+            avatarPath: profile.avatarKey == null
+                ? null
+                : local.avatarPath ?? _profileMedia.avatarPath,
+            bannerPath: profile.bannerKey == null
+                ? null
+                : local.bannerPath ?? _profileMedia.bannerPath,
+          ),
+        );
       }
     } catch (_) {
       /* 读取失败不触发下载，也不丢弃已保存图片。 */
@@ -565,7 +561,11 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
   Future<void> _toggleFollow() async {
     final before = _profile;
-    if (before == null || _followBusy || _refreshing) {
+    if (!_accessAllowed ||
+        !_relationsReady ||
+        before == null ||
+        _followBusy ||
+        _refreshing) {
       return;
     }
     final target = widget.cidNumber;
@@ -618,14 +618,13 @@ class _UserProfilePageState extends State<UserProfilePage> {
           target,
           session: session,
           userInitiated: true,
-          isCurrent: current,
+          isCurrent: _identityCurrentFor(session),
           cache: _cache,
           mediaCache: _mediaCache,
         );
         if (current()) {
           setState(() {
             _profile = fresh.profile;
-            _profileLoadResult = fresh;
           });
           await _loadProfileMedia(fresh.profile);
           if (current() && fresh.hasWarning) _snack(fresh.refreshMessage!);
@@ -646,6 +645,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
   /// 开/关该用户的发帖通知（红点+声音）。通知归属挂在关注关系上：未关注先提示去关注；
   /// 关注后铃铛按用户静音/取消静音，静音不影响其内容在关注流展示。
   Future<void> _toggleNotify() async {
+    if (!_accessAllowed || !_relationsReady) return;
     final current = _profile;
     if (current == null) {
       return;
@@ -683,6 +683,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
   }
 
   Future<void> _openEditProfile() async {
+    if (!_accessAllowed || !_verifiedSelf) return;
     final updated = await Navigator.of(context).push<CitizenProfile>(
       MaterialPageRoute<CitizenProfile>(
         builder: (_) => CitizenProfileEditPage(
@@ -927,34 +928,14 @@ class _UserProfilePageState extends State<UserProfilePage> {
     if (path != null && File(path).existsSync()) {
       return Image.file(File(path), fit: BoxFit.cover);
     }
-    if (_isSelf) {
-      return const ColoredBox(color: AppTheme.surfaceMuted);
-    }
-    final session = _session;
-    if (session == null) {
-      return const ColoredBox(color: AppTheme.surfaceMuted);
-    }
-    return Image(
-      image: _api.mediaImage(
-        objectKey,
-        session: session,
-        updatedAt: _profile?.profileAt,
-      ),
-      fit: BoxFit.cover,
-      frameBuilder: (context, child, frame, syncLoaded) =>
-          syncLoaded || frame != null
-          ? child
-          : const ColoredBox(color: AppTheme.surfaceMuted),
-      errorBuilder: (_, _, _) => const ColoredBox(color: AppTheme.surfaceMuted),
-    );
+    return const ColoredBox(color: AppTheme.surfaceMuted);
   }
 
   /// 他人主页的创作者订阅入口：SquarePost 以公民 CID 为创作者唯一主键。
   /// 本人主页不显示；CID 不因换绑改变，因此换绑不会重建或丢失订阅态。
   Widget? _creatorSubscribeButton() {
-    if (_isSelf) {
+    if (_isSelf || !_accessAllowed || !_relationsReady || _session == null)
       return null;
-    }
     final creatorCid = widget.cidNumber.trim();
     if (creatorCid.isEmpty) {
       return null;
@@ -1011,7 +992,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
           session: session,
           sessionReady: _sessionResolved,
           onSessionExpired: _refreshSessionAfterUnauthorized,
-          isSelf: _isSelf,
+          isSelf: _verifiedSelf,
           refreshFailed: _contentRefreshFailed,
           onOpenPost: _openPost,
         );
@@ -1025,7 +1006,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
           session: session,
           sessionReady: _sessionResolved,
           onSessionExpired: _refreshSessionAfterUnauthorized,
-          isSelf: _isSelf,
+          isSelf: _verifiedSelf,
           refreshFailed: _contentRefreshFailed,
           onOpenPost: _openPost,
         );
@@ -1041,7 +1022,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
           session: session,
           sessionReady: _sessionResolved,
           onSessionExpired: _refreshSessionAfterUnauthorized,
-          isSelf: _isSelf,
+          isSelf: _verifiedSelf,
           refreshFailed: _contentRefreshFailed,
           onOpenPost: _openPost,
         );
@@ -1056,7 +1037,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
           session: session,
           sessionReady: _sessionResolved,
           onSessionExpired: _refreshSessionAfterUnauthorized,
-          isSelf: _isSelf,
+          isSelf: _verifiedSelf,
           refreshFailed: _contentRefreshFailed,
           onOpenPost: _openArticle,
         );
@@ -1065,29 +1046,6 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_accessReady) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-    if (!_accessAllowed) {
-      return Scaffold(
-        appBar: AppBar(),
-        body: RefreshIndicator(
-          key: const ValueKey('profile-error-refresh'),
-          onRefresh: _refresh,
-          child: LayoutBuilder(
-            builder: (context, constraints) => ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              children: [
-                SizedBox(
-                  height: constraints.maxHeight,
-                  child: Center(child: Text(_accessError ?? '当前用户主页不可访问')),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
     final expandedHeight =
         _bannerHeight +
         ProfileCategoryTabs.height +
@@ -1134,9 +1092,13 @@ class _UserProfilePageState extends State<UserProfilePage> {
                       actions: [
                         ProfileKebabMenu(
                           isSelf: _isSelf,
-                          onUserCode: _openUserCode,
-                          onEditProfile: _openEditProfile,
-                          onDeleteAccount: _openDeleteAccount,
+                          onUserCode: _accessAllowed ? _openUserCode : null,
+                          onEditProfile: _accessAllowed && _verifiedSelf
+                              ? _openEditProfile
+                              : null,
+                          onDeleteAccount: _accessAllowed && _verifiedSelf
+                              ? _openDeleteAccount
+                              : null,
                         ),
                       ],
                       // 展开头图和固定折叠头图各自明确渲染；不能再以透明背景替代真实图片。
@@ -1151,16 +1113,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
                           cidNumber: widget.cidNumber,
                           profile: _profile,
                           avatarPath: _profileMedia.avatarPath,
-                          avatarImage:
-                              _isSelf ||
-                                  _session == null ||
-                                  _profile?.avatarKey == null
-                              ? null
-                              : _api.mediaImage(
-                                  _profile!.avatarKey!,
-                                  session: _session!,
-                                  updatedAt: _profile?.profileAt,
-                                ),
+                          avatarImage: null,
                           confirmedMembershipLevel:
                               _membershipState?.memberLevel,
                           confirmedMembershipActive: _confirmedMembershipActive,
@@ -1172,8 +1125,16 @@ class _UserProfilePageState extends State<UserProfilePage> {
                               _openFollows(FollowsType.mutualFollowing),
                           actions: ProfileActionIcons(
                             isSelf: _isSelf,
-                            isFollowing: _profile?.isFollowing ?? false,
-                            isNotifying: _profile?.isNotifying ?? false,
+                            enabled:
+                                _accessAllowed &&
+                                _relationsReady &&
+                                !_refreshing,
+                            isFollowing:
+                                _relationsReady &&
+                                (_profile?.isFollowing ?? false),
+                            isNotifying:
+                                _relationsReady &&
+                                (_profile?.isNotifying ?? false),
                             // 有有效创作者计划时在通知左侧就地出现；不存在时完全不占位。
                             leading: _creatorSubscribeButton(),
                             onNotify: _toggleNotify,

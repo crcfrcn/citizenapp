@@ -1,4 +1,12 @@
+import 'package:citizen_user/profile/citizen_profile_api.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'dart:convert';
+import 'package:citizen_testing/membergate_fixture.dart';
+import 'package:citizen_testing/mls_authentication_fixture.dart';
+import 'package:citizen_user/identity/finalized_identity_resolver.dart';
+import 'package:citizen_user/membership/membership_page.dart';
 
 import 'dart:typed_data';
 
@@ -12,6 +20,10 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_user/identity/current_user_context.dart';
 import 'package:citizen_user/identity/cid_business_gate.dart';
 import 'package:citizen_chain/citizen_chain.dart';
+import 'package:citizen_testing/chain_data_fixture.dart' as light;
+import 'package:citizen_user/creator/creator_page.dart';
+import 'package:citizen_user/creator/creator_service.dart';
+import 'package:citizen_user/creator/creator_overview.dart';
 import 'package:citizen_user/identity/identity_badge_snapshot_store.dart';
 import 'package:citizen_user/membership/membership_revision.dart';
 import 'package:citizen_user/membership/subscription_service.dart';
@@ -249,9 +261,26 @@ class _ConfirmedMembershipSnapshotService implements SubscriptionService {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class _MembershipResolver extends Fake implements FinalizedIdentityResolver {}
+
+class _LocalCreatorService extends Fake implements CreatorService {
+  int loadCalls = 0;
+  @override
+  Future<CreatorOverview?> cachedOverview(String cid) async => null;
+  @override
+  Future<CreatorPageData> load({String? expectedCidNumber}) async {
+    loadCalls++;
+    throw StateError('普通进入不读取远端统计');
+  }
+}
+
 void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    CitizenProfileApi.resetEntryRefreshMemory();
+  });
   _sdkHarness = TestCitizenSdkHarness();
-  testWidgets('本地验真CID无需绑定会话即可点背景进入本人主页，分类和返回不联网', (tester) async {
+  testWidgets('本地展示CID绑定尚未恢复仍显示本人资料，分类不抢跑会话', (tester) async {
     final session = _ForbiddenSessionProvider();
     final api = FakeProfileApi(
       sampleProfile(),
@@ -292,9 +321,169 @@ void main() {
     expect(session.calls, 0);
     expect(api.calls, 0);
     expect(api.authorPostCalls, 0);
-    expect(api.localPostCalls, greaterThan(0));
+    expect(api.localPostCalls, 0);
     await tester.pumpWidget(const SizedBox.shrink());
   });
+  testWidgets('我的创作者真实入口反复进入命中共享缓存，无额外链读或会话请求', (tester) async {
+    final reader = light.Reader();
+    var head = light.block(103);
+    reader.ownBehavior =
+        (account, block, citizens, creators, ownCreator) async =>
+            light.snapshot(
+              block,
+              account,
+              cidNumber: _cidNumber,
+              genesisHash: '0x${'11' * 32}',
+              ownCreator: ownCreator,
+              memberLevel: 'democracy',
+            );
+    final source = ChainDataService(
+      reader: reader,
+      getFinalizedHead: () async => head,
+      getGenesisHash: () async => '0x${'11' * 32}',
+      getAccount: () async => _testWallet.accountId,
+    );
+    final session = _ForbiddenSessionProvider();
+    final creator = _LocalCreatorService();
+    addTearDown(source.close);
+    await source.start();
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<ChainDataService>.value(value: source),
+          Provider<CidBusinessGate>.value(value: _ReadyBusinessGate()),
+          Provider<CitizenSdk>.value(value: _sdkHarness.sdk),
+        ],
+        child: MaterialApp(
+          home: MyTab(
+            walletStateReader: _FakeWallet(_testWallet).getWalletState,
+            currentUserContext: _CachedIdentityCache(),
+            badgeSnapshotStore: _FakeIdentityBadgeSnapshotStore(),
+            profileCache: FakeProfileCache(sampleProfile()),
+            profileApi: FakeProfileApi(sampleProfile(), throwOnProfile: true),
+            sessionProvider: session,
+            subscriptionService: _ConfirmedMembershipSnapshotService(),
+            creatorService: creator,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final entry = find.byKey(const ValueKey('my-service-entry-创作者'));
+    await tester.ensureVisible(entry);
+    await tester.tap(entry);
+    await tester.pumpAndSettle();
+    expect(find.byType(CreatorPage), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('creator-membership-badge')),
+      findsOneWidget,
+    );
+    expect(find.text('去订阅平台会员'), findsNothing);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    head = light.block(104);
+    await source.refresh();
+    final before = reader.calls.length;
+    await tester.ensureVisible(entry);
+    await tester.tap(entry);
+    await tester.pumpAndSettle();
+    expect(find.byType(CreatorPage), findsOneWidget);
+    expect(reader.calls.length, before);
+    expect(creator.loadCalls, 0);
+    expect(session.calls, 0);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('我的会员订阅真实入口反复进入命中会员价格用量缓存', (tester) async {
+    final reader = light.Reader();
+    reader.ownBehavior = (a, b, c, d, own) async => light.snapshot(
+      b,
+      a,
+      cidNumber: _cidNumber,
+      genesisHash: '0x${'11' * 32}',
+      memberLevel: 'democracy',
+    );
+    var headReads = 0, gets = 0;
+    final source = ChainDataService(
+      reader: reader,
+      getFinalizedHead: () async {
+        headReads++;
+        return light.block(103);
+      },
+      getGenesisHash: () async => '0x${'11' * 32}',
+      getAccount: () async => _testWallet.accountId,
+    );
+    final session = SquareSession(
+      deviceId: testMlsDeviceId,
+      sessionToken: 'my-membership',
+      cidNumber: _cidNumber,
+      accountId: _testWallet.accountId,
+      bindRev: 1,
+      expiresAt: 9999999999999,
+      authenticateRequest: fakeMlsRequestHeaders,
+    );
+    final api = SquareApiClient(
+      baseUrl: 'https://membership.test/api',
+      httpClient: MockClient((r) async {
+        gets++;
+        return http.Response(jsonEncode(resourceAuthorizationFixture()), 200);
+      }),
+    );
+    final service = SubscriptionService(
+      chainData: source,
+      identityResolver: _MembershipResolver(),
+      api: api,
+      getWalletState: () => throw StateError('展示不读签名账户'),
+    );
+    final sessions = _ForbiddenSessionProvider();
+    addTearDown(() async {
+      api.close();
+      await source.close();
+      SubscriptionService.invalidateCitizenAccount(_testWallet.accountId);
+    });
+    await source.start();
+    await source.ensureMembership(
+      genesisHash: '0x${'11' * 32}',
+      accountId: _testWallet.accountId,
+      cidNumber: _cidNumber,
+      bindRev: 1,
+    );
+    await service.authorizeResources(session);
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<ChainDataService>.value(value: source),
+          Provider<CitizenSdk>.value(value: _sdkHarness.sdk),
+        ],
+        child: MaterialApp(
+          home: MyTab(
+            walletStateReader: _FakeWallet(_testWallet).getWalletState,
+            currentUserContext: _CachedIdentityCache(),
+            badgeSnapshotStore: _FakeIdentityBadgeSnapshotStore(),
+            profileCache: FakeProfileCache(sampleProfile()),
+            sessionProvider: sessions,
+            subscriptionService: service,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final before = (headReads, gets, reader.priceCalls.length);
+    final entry = find.byKey(const ValueKey('my-service-entry-会员｜订阅'));
+    for (var i = 0; i < 2; i++) {
+      await tester.ensureVisible(entry);
+      await tester.tap(entry);
+      await tester.pumpAndSettle();
+      expect(find.byType(MembershipPage), findsOneWidget);
+      expect(find.text('当前会员'), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+    }
+    expect((headReads, gets, reader.priceCalls.length), before);
+    expect(sessions.calls, 0);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('我的页面只读徽章快照且不启动轻节点', (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(411, 914);

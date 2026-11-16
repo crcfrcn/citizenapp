@@ -116,7 +116,7 @@ final class RunnerUITests: XCTestCase {
       XCTAssertTrue(entry.waitForExistence(timeout: 10))
       startMeasuring(); let started = ProcessInfo.processInfo.systemUptime; entry.tap()
       let surface = app.descendants(matching: .any).matching(NSPredicate(format:
-        "label CONTAINS %@ OR label CONTAINS %@", "我的创作者会员", "去订阅平台会员")).firstMatch
+        "label CONTAINS %@", "我的创作者会员")).firstMatch
       XCTAssertTrue(surface.waitForExistence(timeout: 1), "创作者内容未就绪")
       XCTAssertLessThanOrEqual(ProcessInfo.processInfo.systemUptime - started, 1, "点击至内容就绪须在1秒内")
       stopMeasuring()
@@ -1950,7 +1950,7 @@ final class RunnerUITests: XCTestCase {
     creatorEntry.tap()
     // Flutter将卡片标题、说明和动作合并为语义节点；仍须确认已离开“我的”。
     let creatorSurface = app.descendants(matching: .any).matching(NSPredicate(
-      format: "label CONTAINS %@ OR label CONTAINS %@", "我的创作者会员", "去订阅平台会员")).firstMatch
+      format: "label CONTAINS %@", "我的创作者会员")).firstMatch
     let creatorTitle = app.staticTexts["创作者"]
     // 单一内容节点承担1秒要求；标题/页面归属随后独立核对，不混入多次IPC查询。
     let ready = creatorSurface.waitForExistence(timeout: 1)
@@ -1959,7 +1959,7 @@ final class RunnerUITests: XCTestCase {
       immediate ? 1 : 0, creatorTitle.exists ? 1 : 0, creatorSurface.exists ? 1 : 0)
     XCTAssertTrue(
       immediate,
-      "创作者页没有在 1 秒内显示本地会员或非会员结构"
+      "创作者页没有在 1 秒内显示管理页结构"
     )
     XCTAssertTrue(creatorTitle.exists, "内容不属于实际创作者页")
     XCTAssertTrue(creatorSurface.isHittable, "创作者原结构不可交互")

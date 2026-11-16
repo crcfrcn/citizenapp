@@ -1,5 +1,4 @@
 import 'package:citizen_chain/citizen_chain.dart';
-import 'package:citizen_user/membership/subscription_service.dart';
 import 'package:provider/provider.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
@@ -11,12 +10,14 @@ import 'package:citizen_user/creator/creator_plan_edit_sheet.dart';
 import 'package:citizen_user/creator/creator_service.dart';
 import 'package:citizen_user/creator/creator_overview.dart';
 import 'package:citizen_user/creator/creator_plan.dart';
-import 'package:citizen_user/creator/creator_gate_view.dart';
 import 'package:citizen_user/creator/creator_overview_card.dart';
 import 'package:citizen_user/creator/creator_tier_card.dart';
 import 'package:citizen_user/membership/membership_page.dart';
 import 'package:citizen_user/membership/membership_revision.dart';
 import 'package:citizen_user/identity/cid_business_gate.dart';
+import 'package:citizen_user/identity/current_user_context.dart';
+import 'package:citizen_user/identity/identity_binding.dart';
+import 'package:citizen_user/identity/identity_badge.dart';
 import 'package:citizen_user/identity/finalized_identity_resolver.dart';
 import 'package:citizen_user/identity/square_session_provider.dart';
 import 'package:citizen_user/identity/account_security_service.dart';
@@ -24,26 +25,16 @@ import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_user/identity/identity_register_guide.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
-/// 「我的 → 创作者」：管理自己的创作者会员（档位 / 收入概览）。
-///
-/// 当前账户的公民号门禁确认后展示链下统计；主动刷新从服务端读取概览。
-/// 链上档位订阅统一轻节点读模型，统计通知不改变身份或当前请求代次。
+/// 「我的 → 创作者」：会员、档位与统计分别就绪，共用按身份隔离的链缓存。
 class CreatorPage extends StatefulWidget {
   const CreatorPage({
     super.key,
     CreatorService? service,
-    this.initialCidNumber = '',
-    this.initialMembershipDecision =
-        MembershipDisplayDecision.inactiveConfirmed,
+    this.currentUserContext,
   }) : _service = service;
 
   final CreatorService? _service;
-
-  /// 「我的」页持有的永久 CID 仅作展示提示；不能跳过当前账户门禁。
-  final String initialCidNumber;
-
-  /// 仅作为首帧展示提示；只允许有效或无效二元态。
-  final MembershipDisplayDecision initialMembershipDecision;
+  final CurrentUserContext? currentUserContext;
 
   @override
   State<CreatorPage> createState() => _CreatorPageState();
@@ -53,326 +44,325 @@ class _CreatorPageState extends State<CreatorPage> {
   late final CreatorService _service;
   ChainDataService? _chainData;
   AccountSecurityService? _accountSecurity;
+  CurrentUserContext? _currentUser;
+  IdentityBinding? _binding;
   bool _dependenciesReady = false;
-  CreatorPageData? _data;
-  bool _identityConfirmed = false;
+  CreatorPageData _data = const CreatorPageData();
   bool _businessReady = false;
-  bool _overviewResolved = false;
   bool _unregistered = false;
+  bool _refreshing = false;
   String? _error;
+  String? _chainError;
   String _cidNumber = '';
   int _loadGeneration = 0;
+  int _refreshGeneration = 0;
+
+  bool get _canManage =>
+      _businessReady &&
+      _matches(_chainData?.snapshot) &&
+      _chainData?.isStale == false &&
+      _data.membershipStatus == CreatorMembershipStatus.active &&
+      _data.plan != null;
 
   @override
   void initState() {
     super.initState();
-    final initialCidNumber = widget.initialCidNumber.trim();
-    _cidNumber = initialCidNumber;
-    _data = switch (widget.initialMembershipDecision) {
-      MembershipDisplayDecision.inactiveConfirmed => CreatorPageData.gated(),
-      MembershipDisplayDecision.activeConfirmed => CreatorPageData.active(
-        plan: CreatorPlan.empty(),
-        overview: CreatorOverview.zero,
-      ),
-    };
     MembershipRevision.instance.listenable.addListener(_onMembershipChanged);
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_dependenciesReady) {
-      return;
-    }
+    if (_dependenciesReady) return;
     _chainData = context.read<ChainDataService?>();
     _chainData?.addListener(_onChainData);
-    final injected = widget._service;
-    if (injected != null) {
-      _service = injected;
-      _dependenciesReady = true;
-      unawaited(_bootstrap());
-      return;
-    }
-    final sdk = context.read<CitizenSdk>();
-    final accountSecurity = context.read<AccountSecurityService>();
-    _service = CreatorService(
-      wallet: sdk,
-      chain: sdk,
-      transactions: sdk,
-      identityResolver: context.read<FinalizedIdentityResolver>(),
-      sessionProvider: context.read<SquareSessionProvider>(),
-    );
-    _accountSecurity = accountSecurity;
-    accountSecurity.revision.addListener(_onIdentityChanged);
+    _currentUser =
+        widget.currentUserContext ?? context.read<CurrentUserContext?>();
+    _accountSecurity = context.read<AccountSecurityService?>();
+    _accountSecurity?.revision.addListener(_onIdentityChanged);
+    _service =
+        widget._service ??
+        CreatorService(
+          chainData: _chainData,
+          wallet: context.read<CitizenSdk>(),
+          chain: context.read<CitizenSdk>(),
+          transactions: context.read<CitizenSdk>(),
+          identityResolver: context.read<FinalizedIdentityResolver>(),
+          sessionProvider: context.read<SquareSessionProvider>(),
+        );
     _dependenciesReady = true;
     unawaited(_bootstrap());
   }
 
   @override
   void dispose() {
-    _releaseCreator?.call();
     _chainData?.removeListener(_onChainData);
     _accountSecurity?.revision.removeListener(_onIdentityChanged);
     MembershipRevision.instance.listenable.removeListener(_onMembershipChanged);
     super.dispose();
   }
 
-  /// 注册可能发生在任意常驻页；finalized 身份广播后，本页必须原地退出注册引导。
-  void _onIdentityChanged() {
-    if (mounted) {
-      unawaited(_bootstrap());
-    }
+  void _onIdentityChanged() => unawaited(_bootstrap());
+
+  bool _matches(ChainDataSnapshot? snapshot) {
+    final binding = _binding;
+    return binding != null &&
+        snapshot?.genesisHash == binding.genesisHash &&
+        snapshot?.accountId == binding.accountId &&
+        snapshot?.ownCid == binding.cidNumber &&
+        snapshot?.own?.identity?.bindRev == binding.bindRev;
   }
 
-  VoidCallback? _releaseCreator;
-  String? _watchedCreator;
   void _onChainData() {
-    final data = _chainData?.snapshot;
-    if (mounted && data == null && _chainData != null) {
-      setState(() {
-        _data = null;
-        _overviewResolved = false;
-      });
-      return;
-    }
-    if (!mounted ||
-        !_businessReady ||
-        data == null ||
-        _chainData!.isStale ||
-        data.ownCid != _cidNumber ||
-        data.own?.creatorTiers == null) {
-      return;
-    }
-    setState(
-      () => _data = data.memberActive(_cidNumber)
-          ? CreatorPageData.active(
-              plan: creatorPlanFromChain(data.own!.creatorTiers),
-              overview: _data?.overview ?? CreatorOverview.zero,
-            )
-          : CreatorPageData.gated(),
-    );
+    if (!mounted || !_businessReady) return;
+    final snapshot = _chainData?.snapshot;
+    final matches = _matches(snapshot);
+    final ready = matches && _chainData?.isStale == false;
+    setState(() {
+      _data = CreatorPageData(
+        membershipStatus: !ready
+            ? CreatorMembershipStatus.unresolved
+            : snapshot!.memberActive(_cidNumber)
+            ? CreatorMembershipStatus.active
+            : CreatorMembershipStatus.inactive,
+        memberLevel: ready ? snapshot!.memberLevel(_cidNumber) : null,
+        plan: matches && snapshot!.own?.creatorTiers != null
+            ? creatorPlanFromChain(snapshot.own!.creatorTiers)
+            : null,
+        overview: matches ? _data.overview : null,
+      );
+      if (ready && _data.plan != null) _chainError = null;
+      if (_chainData?.error != null) _chainError = '会员状态暂不可用，请重试';
+    });
   }
 
   void _onMembershipChanged() {
     final event = MembershipRevision.instance.listenable.value;
-    if (!mounted ||
-        !_businessReady ||
-        event == null ||
-        event.cidNumber != _cidNumber) {
-      return;
+    if (mounted && _businessReady && event?.cidNumber == _cidNumber) {
+      // 广播只重读统一缓存；最终区块同步负责推进会员事实。
+      _onChainData();
     }
-    unawaited(_bootstrap());
   }
 
-  Future<void> _restoreOverview() async {
+  Future<void> _restoreOverview(int generation) async {
     final cid = _cidNumber;
-    CreatorOverview? value;
+    final binding = _binding;
+    final refreshGeneration = _refreshGeneration;
     try {
-      value = await _service.cachedOverview(cid);
-    } on Exception {
-      return;
+      final overview = await _service.cachedOverview(cid);
+      if (!mounted ||
+          generation != _loadGeneration ||
+          refreshGeneration != _refreshGeneration ||
+          binding != _binding ||
+          cid != _cidNumber ||
+          overview == null)
+        return;
+      setState(
+        () => _data = CreatorPageData(
+          membershipStatus: _data.membershipStatus,
+          memberLevel: _data.memberLevel,
+          plan: _data.plan,
+          overview: overview,
+        ),
+      );
+    } on Object {
+      // 统计缓存故障不影响订阅和档位。
     }
-    final restored = value;
-    if (!mounted ||
-        cid != _cidNumber ||
-        restored == null ||
-        _data?.gated == true) {
-      return;
+  }
+
+  Future<void> _prepareChain(int generation) async {
+    final source = _chainData;
+    final binding = _binding;
+    if (source == null || binding == null) return;
+    try {
+      await source.ensureOwnCreator(
+        genesisHash: binding.genesisHash,
+        accountId: binding.accountId,
+        cidNumber: binding.cidNumber,
+        bindRev: binding.bindRev,
+      );
+      if (!mounted || generation != _loadGeneration) return;
+      _onChainData();
+    } on Object {
+      if (!mounted || generation != _loadGeneration) return;
+      _onChainData();
+      setState(() => _chainError = '会员状态暂不可用，请重试');
     }
-    setState(() {
-      _overviewResolved = true;
-      _data = CreatorPageData.active(plan: _data?.plan, overview: restored);
-    });
   }
 
   Future<void> _bootstrap() async {
     final generation = ++_loadGeneration;
-    if (_identityConfirmed) {
-      setState(() => _identityConfirmed = false);
-    }
-    _businessReady = false;
+    ++_refreshGeneration;
+    setState(() {
+      _businessReady = false;
+      _unregistered = false;
+      _binding = null;
+      _data = const CreatorPageData();
+      _refreshing = false;
+      _error = null;
+      _chainError = null;
+    });
     try {
       final decision = await context.read<CidBusinessGate>().resolve();
-      if (!mounted || generation != _loadGeneration) {
-        return;
-      }
+      final current = await _currentUser?.resolve();
+      if (!mounted || generation != _loadGeneration) return;
       if (decision.status == CidBusinessStatus.unregistered) {
-        setState(() {
-          _identityConfirmed = true;
-          _businessReady = false;
-          _unregistered = true;
-          _data = null;
-          _cidNumber = '';
-          _error = null;
-        });
+        setState(() => _unregistered = true);
         return;
       }
-      final cidNumber = decision.cidNumber?.trim() ?? '';
-      if (decision.status != CidBusinessStatus.ready || cidNumber.isEmpty) {
-        setState(() {
-          _identityConfirmed = true;
-          _businessReady = false;
-          _unregistered = false;
-          _data = null;
-          _cidNumber = '';
-          _error = '暂时无法核实公民号身份，请重试';
-        });
+      final cid = decision.cidNumber?.trim() ?? '';
+      final binding = current?.binding;
+      if (decision.status != CidBusinessStatus.ready ||
+          cid.isEmpty ||
+          (_chainData != null &&
+              (binding == null ||
+                  binding.cidNumber != cid ||
+                  binding.accountId != current?.accountId))) {
+        setState(() => _error = '暂时无法核实公民号身份，请重试');
         return;
       }
-
-      if (_watchedCreator != cidNumber) {
-        _releaseCreator?.call();
-        _releaseCreator = _chainData?.watchCreator(cidNumber);
-        _watchedCreator = cidNumber;
-      }
-      final cidChanged = cidNumber != _cidNumber;
       setState(() {
-        _identityConfirmed = true;
         _businessReady = true;
-        _cidNumber = cidNumber;
-        _unregistered = false;
-        _error = null;
-        if (cidChanged || _chainData?.snapshot == null && _chainData != null) {
-          _data = null;
-          _overviewResolved = false;
-        }
+        _cidNumber = cid;
+        _binding = binding;
       });
       _onChainData();
-      await _restoreOverview();
-    } on Exception catch (e) {
-      if (!mounted || generation != _loadGeneration) {
-        return;
-      }
-      setState(() {
-        if (!_identityConfirmed) {
-          _identityConfirmed = true;
-          _businessReady = false;
-          _unregistered = false;
-          _data = null;
-          _cidNumber = '';
-          _error = '暂时无法核实公民号身份，请重试';
-        } else {
-          // 身份已确认时只让快照失败影响本地展示，不抹去已显示的数据。
-          _error = _data == null ? '读取本地创作者状态失败：$e' : null;
-        }
-      });
+      await Future.wait([
+        _prepareChain(generation),
+        _restoreOverview(generation),
+      ]);
+    } on Object {
+      if (!mounted || generation != _loadGeneration) return;
+      setState(() => _error = '暂时无法核实公民号身份，请重试');
     }
   }
 
-  Future<void> _refresh({required bool forceVisibleError}) async {
-    if (!_businessReady) {
-      return;
-    }
-    final owner = ++_loadGeneration;
-    final cidNumber = _cidNumber;
-    if (cidNumber.isEmpty) {
-      return;
-    }
+  Future<void> _refresh() async {
+    if (!_businessReady || _refreshing) return;
+    final owner = ++_refreshGeneration;
+    final generation = _loadGeneration;
+    final binding = _binding;
+    final cid = _cidNumber;
+    setState(() => _refreshing = true);
     try {
-      final data = await _service.load(expectedCidNumber: cidNumber);
-      if (!mounted || owner != _loadGeneration || cidNumber != _cidNumber) {
+      await _prepareChain(generation);
+      if (!mounted ||
+          generation != _loadGeneration ||
+          owner != _refreshGeneration ||
+          _data.membershipStatus != CreatorMembershipStatus.active)
         return;
-      }
+      final result = await _service.load(expectedCidNumber: cid);
+      if (!mounted ||
+          owner != _refreshGeneration ||
+          generation != _loadGeneration ||
+          binding != _binding ||
+          !_matches(_chainData?.snapshot))
+        return;
+      _onChainData();
       setState(() {
-        _data = data;
-        _overviewResolved = data.overview != null;
+        _data = CreatorPageData(
+          membershipStatus: _data.membershipStatus,
+          memberLevel: _data.memberLevel,
+          plan: _data.plan,
+          overview: result.overview ?? _data.overview,
+        );
         _error = null;
       });
-    } on CreatorException catch (e) {
-      if (!mounted || owner != _loadGeneration || cidNumber != _cidNumber) {
-        return;
+    } on Object {
+      if (mounted &&
+          owner == _refreshGeneration &&
+          generation == _loadGeneration) {
+        setState(() => _error = '统计暂不可用，请重试');
       }
-      if (forceVisibleError || _data == null) {
-        setState(() => _error = e.message);
-      }
-    } on Exception catch (e) {
-      if (!mounted || owner != _loadGeneration || cidNumber != _cidNumber) {
-        return;
-      }
-      if (forceVisibleError || _data == null) {
-        setState(() => _error = '刷新失败：$e');
-      }
+    } finally {
+      if (mounted && owner == _refreshGeneration)
+        setState(() => _refreshing = false);
     }
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('创作者'),
-        actions: [
-          // 无会员展示态也必须能由用户主动更新，不能依赖进入时自动联网。
-          if (_businessReady)
-            IconButton(
-              tooltip: '刷新',
-              onPressed: () => _refresh(forceVisibleError: true),
-              icon: const Icon(Icons.refresh),
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: const Text('创作者'),
+      actions: [
+        if (_data.membershipStatus == CreatorMembershipStatus.active)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Center(
+              child: IdentityBadge(
+                key: const ValueKey('creator-membership-badge'),
+                style: identityBadgeStyle(
+                  cidLevel: null,
+                  memberLevel: _data.memberLevel,
+                  membergateActive: true,
+                )!,
+                tooltip: switch (_data.memberLevel) {
+                  'freedom' => '自由会员',
+                  'democracy' => '民主会员',
+                  'spark' => '薪火会员',
+                  _ => '会员',
+                },
+              ),
             ),
-        ],
-      ),
-      body: _identityConfirmed
-          ? _body()
-          : const Center(child: CircularProgressIndicator()),
-    );
-  }
+          )
+        else
+          TextButton(
+            key: const ValueKey('creator-subscribe'),
+            style: TextButton.styleFrom(foregroundColor: AppTheme.success),
+            onPressed:
+                _businessReady &&
+                    _data.membershipStatus == CreatorMembershipStatus.inactive
+                ? _openMembership
+                : null,
+            child: const Text('订阅'),
+          ),
+      ],
+    ),
+    body: _body(),
+  );
 
   Widget _body() {
-    final data = _data;
-    final Widget content;
     if (_unregistered) {
-      content = IdentityRegisterGuide(
+      return IdentityRegisterGuide(
         description: '注册后即可开通创作者会员。',
         onRegistered: () => unawaited(_bootstrap()),
       );
-    } else if (data == null && _error != null) {
-      content = _loadFailed(_error!);
-    } else if (data == null) {
-      // 极短的本地快照读取窗口只显示稳定结构，不出现等待文案或进度条。
-      content = _activeView(
-        CreatorPlan.empty(),
-        CreatorOverview.zero,
-        resolved: false,
-        overviewResolved: false,
-      );
-    } else if (data.gated) {
-      content = Column(
-        children: [
-          if (_error != null) _inlineError(_error!),
-          Expanded(child: CreatorGateView(onOpenMembership: _openMembership)),
-        ],
-      );
-    } else {
-      content = _activeView(
-        data.plan ?? CreatorPlan.empty(),
-        data.overview!,
-        resolved: data.plan != null,
-        overviewResolved: _overviewResolved,
-      );
     }
-    return content;
+    return _activeView(
+      _data.plan ?? CreatorPlan.empty(),
+      _data.overview ?? CreatorOverview.zero,
+      tiersReady: _data.plan != null,
+      overviewResolved: _data.overview != null,
+      canManage: _canManage,
+    );
   }
 
   Widget _activeView(
     CreatorPlan plan,
     CreatorOverview overview, {
-    bool resolved = true,
-    bool overviewResolved = true,
+    required bool tiersReady,
+    required bool overviewResolved,
+    required bool canManage,
   }) {
     final atMax = plan.tiers.length >= CreatorPlan.maxTiers;
     return RefreshIndicator(
-      onRefresh: () => _refresh(forceVisibleError: true),
+      onRefresh: _refresh,
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
         children: [
-          CreatorOverviewCard(overview: overview, resolved: overviewResolved),
-          if (!resolved) const Text('轻节点创作者档位尚未就绪'),
-          if (_error != null) ...[
+          CreatorOverviewCard(
+            overview: overview,
+            resolved: overviewResolved,
+            membershipActive:
+                _data.membershipStatus == CreatorMembershipStatus.active,
+          ),
+          if (_chainError != null || _error != null) ...[
             SizedBox(height: AppLayout.scaledValue(12)),
-            _inlineError(_error!),
+            _inlineError(_chainError ?? _error!),
           ],
           SizedBox(height: AppLayout.scaledValue(16)),
           if (plan.tiers.isEmpty)
-            _emptyTiers(resolved: resolved)
+            _emptyTiers(resolved: tiersReady, canManage: canManage)
           else ...[
             Padding(
               padding: EdgeInsets.symmetric(
@@ -403,18 +393,18 @@ class _CreatorPageState extends State<CreatorPage> {
             for (final tier in plan.tiers) ...[
               CreatorTierCard(
                 tier: tier,
-                onEdit: () {
-                  if (resolved) {
-                    _openEdit(tier);
-                  }
-                },
+                onEdit: canManage ? () => _openEdit(tier) : null,
               ),
               SizedBox(height: AppLayout.scaledValue(12)),
             ],
-            _addTierButton(atMax, resolved: resolved),
+            _addTierButton(atMax, enabled: canManage),
           ],
           SizedBox(height: AppLayout.scaledValue(16)),
-          _subscribersEntry(overview.subscriberCount, resolved: resolved),
+          _subscribersEntry(
+            overview.subscriberCount,
+            resolved: overviewResolved,
+            enabled: canManage && overviewResolved,
+          ),
           SizedBox(height: AppLayout.scaledValue(14)),
           Center(
             child: Text(
@@ -431,7 +421,7 @@ class _CreatorPageState extends State<CreatorPage> {
     );
   }
 
-  Widget _emptyTiers({required bool resolved}) {
+  Widget _emptyTiers({required bool resolved, required bool canManage}) {
     return Container(
       decoration: AppTheme.cardDecoration(),
       padding: EdgeInsets.symmetric(
@@ -475,7 +465,7 @@ class _CreatorPageState extends State<CreatorPage> {
           ),
           SizedBox(height: AppLayout.scaledValue(16)),
           FilledButton.icon(
-            onPressed: resolved ? () => _openEdit(null) : null,
+            onPressed: canManage ? () => _openEdit(null) : null,
             icon: Icon(Icons.add, size: AppLayout.scaledValue(19)),
             label: const Text('创建会员档'),
           ),
@@ -484,16 +474,16 @@ class _CreatorPageState extends State<CreatorPage> {
     );
   }
 
-  Widget _addTierButton(bool atMax, {required bool resolved}) {
+  Widget _addTierButton(bool atMax, {required bool enabled}) {
     return InkWell(
-      onTap: !resolved || atMax ? null : () => _openEdit(null),
+      onTap: !enabled || atMax ? null : () => _openEdit(null),
       borderRadius: BorderRadius.circular(AppTheme.radiusMd),
       child: Container(
         padding: EdgeInsets.symmetric(vertical: AppLayout.scaledValue(12)),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(AppTheme.radiusMd),
           border: Border.all(
-            color: atMax ? AppTheme.border : AppTheme.primaryLight,
+            color: !enabled || atMax ? AppTheme.border : AppTheme.primaryLight,
             width: 1.5,
             style: BorderStyle.solid,
           ),
@@ -504,7 +494,9 @@ class _CreatorPageState extends State<CreatorPage> {
             Icon(
               Icons.add,
               size: AppLayout.scaledValue(18),
-              color: atMax ? AppTheme.textTertiary : AppTheme.primary,
+              color: !enabled || atMax
+                  ? AppTheme.textTertiary
+                  : AppTheme.primary,
             ),
             SizedBox(width: AppLayout.scaledValue(6)),
             Text(
@@ -512,7 +504,9 @@ class _CreatorPageState extends State<CreatorPage> {
               style: TextStyle(
                 fontSize: AppLayout.scaledValue(14),
                 fontWeight: FontWeight.w600,
-                color: atMax ? AppTheme.textTertiary : AppTheme.primary,
+                color: !enabled || atMax
+                    ? AppTheme.textTertiary
+                    : AppTheme.primary,
               ),
             ),
           ],
@@ -521,9 +515,13 @@ class _CreatorPageState extends State<CreatorPage> {
     );
   }
 
-  Widget _subscribersEntry(int count, {required bool resolved}) {
+  Widget _subscribersEntry(
+    int count, {
+    required bool resolved,
+    required bool enabled,
+  }) {
     return InkWell(
-      onTap: resolved
+      onTap: enabled
           ? () => ScaffoldMessenger.of(
               context,
             ).showSnackBar(const SnackBar(content: Text('订阅者明细即将上线')))
@@ -581,16 +579,6 @@ class _CreatorPageState extends State<CreatorPage> {
     );
   }
 
-  /// 本地展示态读取失败时复用 [_inlineError] 居中呈现，不另造页面结构。
-  Widget _loadFailed(String message) {
-    return Center(
-      child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: AppLayout.scaledValue(16)),
-        child: _inlineError(message),
-      ),
-    );
-  }
-
   Widget _inlineError(String message) {
     return Container(
       decoration: AppTheme.cardDecoration(),
@@ -609,9 +597,9 @@ class _CreatorPageState extends State<CreatorPage> {
             ),
           ),
           OutlinedButton(
-            onPressed: () => _businessReady
-                ? _refresh(forceVisibleError: true)
-                : _bootstrap(),
+            onPressed: _refreshing
+                ? null
+                : () => _businessReady ? _refresh() : _bootstrap(),
             child: const Text('重试'),
           ),
         ],
@@ -620,33 +608,36 @@ class _CreatorPageState extends State<CreatorPage> {
   }
 
   Future<void> _openEdit(CreatorTier? tier) async {
+    _onChainData();
+    if (!_canManage) return;
+    final generation = _loadGeneration;
+    final binding = _binding;
     final plan = await showModalBottomSheet<CreatorPlan>(
       context: context,
       isScrollControlled: true,
       builder: (_) => CreatorPlanEditSheet(
         service: _service,
-        currentTiers: _data?.plan?.tiers ?? const [],
+        currentTiers: _data.plan!.tiers,
         editing: tier,
       ),
     );
-    if (plan != null && mounted) {
-      final current = _data;
-      final overview = current?.overview ?? CreatorOverview.zero;
-      final data = CreatorPageData.active(plan: plan, overview: overview);
-      setState(() {
-        _data = data;
-        _error = null;
-      });
-    }
+    if (plan == null ||
+        !mounted ||
+        generation != _loadGeneration ||
+        binding != _binding)
+      return;
+    // 保存结果不另造会员或档位真源；由共享最终块缓存推进页面。
+    await _prepareChain(generation);
   }
 
   Future<void> _openMembership() async {
+    _onChainData();
+    if (!_businessReady ||
+        _data.membershipStatus != CreatorMembershipStatus.inactive)
+      return;
     await Navigator.of(
       context,
-    ).push(MaterialPageRoute(builder: (_) => const MembershipPage()));
-    // 仅浏览会员页再返回不代表用户请求刷新；实际会员动作已有独立广播。
-    if (mounted) {
-      await _bootstrap();
-    }
+    ).push<void>(MaterialPageRoute(builder: (_) => const MembershipPage()));
+    if (mounted) _onChainData();
   }
 }

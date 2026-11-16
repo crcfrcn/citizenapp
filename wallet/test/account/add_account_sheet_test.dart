@@ -41,6 +41,7 @@ void main() {
               body: AddAccountSheet(
                 masterId: testCitizenAccountId,
                 mode: AddAccountMode.specify,
+                derivation: CitizenAccountDerivation.sr25519,
                 addNextAccount: actions.next,
                 addAccounts: actions.many,
               ),
@@ -139,6 +140,10 @@ void main() {
         );
         await tester.tap(find.text('打开追加'));
         await tester.pumpAndSettle();
+        expect(
+          find.text(mode == AddAccountMode.next ? '添加下一个量子账户' : '添加指定量子账户'),
+          findsOneWidget,
+        );
         await tester.enterText(
           find.byType(TextField).first,
           'synthetic mnemonic input',
@@ -194,6 +199,7 @@ void main() {
               body: AddAccountSheet(
                 masterId: testCitizenAccountId,
                 mode: mode,
+                derivation: CitizenAccountDerivation.sr25519,
                 addNextAccount: actions.next,
                 addAccounts: actions.many,
               ),
@@ -203,7 +209,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(
-        find.text(mode == AddAccountMode.next ? '添加下一个账户' : '添加指定账户'),
+        find.text(mode == AddAccountMode.next ? '添加下一个经典账户' : '添加指定经典账户'),
         findsOneWidget,
       );
       await tester.enterText(
@@ -266,6 +272,7 @@ void main() {
                 body: AddAccountSheet(
                   masterId: testCitizenAccountId,
                   mode: mode,
+                  derivation: CitizenAccountDerivation.sr25519,
                   addNextAccount: actions.next,
                   addAccounts: actions.many,
                 ),

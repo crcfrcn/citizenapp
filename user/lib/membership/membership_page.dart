@@ -15,6 +15,9 @@ import 'package:citizen_user/identity/finalized_identity_resolver.dart';
 import 'package:citizen_user/identity/identity_badge.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_user/identity/account_security_service.dart';
+import 'package:citizen_user/identity/current_user_context.dart';
+import 'package:citizen_user/identity/identity_binding.dart';
+import 'package:citizen_user/identity/cid_business_gate.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
 const List<String> _tierOrder = ['freedom', 'democracy', 'spark'];
@@ -26,12 +29,14 @@ class MembershipPage extends StatefulWidget {
     ChainDataService? chainData,
     SquareSessionProvider? sessionProvider,
     SubscriptionService? subscriptionService,
+    this.currentUserContext,
   }) : _chainData = chainData,
        _sessionProvider = sessionProvider,
        _subscriptionService = subscriptionService;
   final ChainDataService? _chainData;
   final SquareSessionProvider? _sessionProvider;
   final SubscriptionService? _subscriptionService;
+  final CurrentUserContext? currentUserContext;
   @override
   State<MembershipPage> createState() => _MembershipPageState();
 }
@@ -43,11 +48,18 @@ class _MembershipPageState extends State<MembershipPage>
   late final SubscriptionService _subscriptionService;
   AccountSecurityService? _accountSecurity;
   bool _dependenciesReady = false,
-      _refreshing = false,
-      _identityReloadPending = false,
+      _chainLoading = false,
+      _resourceLoading = false,
       _unregistered = false,
       _busy = false;
-  String? _loadFailure;
+  CurrentUserContext? _currentUser;
+  IdentityBinding? _binding;
+  SquareResourceAuthorization? _resources;
+  Timer? _priceTimer;
+  int _generation = 0;
+  String? _chainFailure, _resourceFailure;
+  bool get _refreshing => _chainLoading || _resourceLoading;
+  String? get _loadFailure => _chainFailure ?? _resourceFailure;
   SquareSessionStatus? _sessionStatus;
   late final AnimationController _snapController;
   Animation<double>? _snapAnim;
@@ -75,16 +87,14 @@ class _MembershipPageState extends State<MembershipPage>
         });
   }
 
-  VoidCallback? _releasePrices;
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_dependenciesReady) {
-      return;
-    }
+    if (_dependenciesReady) return;
     _chainData = widget._chainData ?? context.read<ChainDataService?>();
-    _releasePrices = _chainData?.watchPrices();
     _chainData?.addListener(_onChainData);
+    _currentUser =
+        widget.currentUserContext ?? context.read<CurrentUserContext?>();
     _sessionProvider =
         widget._sessionProvider ?? context.read<SquareSessionProvider>();
     if (widget._subscriptionService case final service?) {
@@ -107,177 +117,234 @@ class _MembershipPageState extends State<MembershipPage>
 
   @override
   void dispose() {
-    _releasePrices?.call();
+    _priceTimer?.cancel();
     _chainData?.removeListener(_onChainData);
     _accountSecurity?.revision.removeListener(_onIdentityChanged);
     _snapController.dispose();
     super.dispose();
   }
 
-  /// 同账户从未注册推进到 finalized CID 时钱包列表不变；身份 revision 仍需让已挂载
-  /// 会员页立即重建会话与订阅快照。若正在刷新，记一次尾随重载避免丢广播。
   void _onIdentityChanged() {
-    if (!mounted) {
-      return;
-    }
-    if (_refreshing) {
-      _identityReloadPending = true;
-      return;
-    }
+    if (!mounted) return;
+    // 先撤下旧身份，不等待旧链读或云端请求完成。
+    _priceTimer?.cancel();
+    setState(() {
+      _binding = null;
+      _resources = null;
+      _unregistered = false;
+      _busy = false;
+      _sessionStatus = null;
+      _data = const _MembershipViewData(
+        accountId: '',
+        cidNumber: '',
+        state: _emptyMembershipState,
+        prices: {},
+        subscriptionReady: false,
+      );
+    });
     unawaited(_load());
   }
 
-  /// 普通加载与主动重试共用自动准备；明确取消的钱包授权仅由主动重试继续。
   Future<void> _retryLoad() => _load(forceRefresh: true);
 
-  void _onChainData() {
-    final data = _chainData?.snapshot;
-    if (!mounted) {
-      return;
-    }
-    if (data == null) {
-      _applyViewData(
-        const _MembershipViewData(
-          accountId: '',
-          cidNumber: '',
-          state: _emptyMembershipState,
-          prices: {},
-          subscriptionReady: false,
-        ),
-      );
-      return;
-    }
-    // 新账户或未知状态立即撤下旧显示，不能把未知写成无会员。
-    if (_data.accountId.isNotEmpty && data.accountId != _data.accountId) {
-      _applyViewData(
-        _MembershipViewData(
-          accountId: data.accountId,
-          cidNumber: '',
-          state: _emptyMembershipState,
-          prices: data.prices,
-          subscriptionReady: false,
-        ),
-      );
-    }
-    _applyLightData(data);
+  bool _matches(ChainDataSnapshot? data) {
+    final binding = _binding;
+    return binding != null &&
+        data?.genesisHash == binding.genesisHash &&
+        data?.accountId == binding.accountId &&
+        data?.ownCid == binding.cidNumber &&
+        data?.own?.identity?.bindRev == binding.bindRev;
   }
 
-  void _applyLightData(ChainDataSnapshot data) {
-    if (!mounted) {
-      return;
+  bool _current(int generation) => mounted && generation == _generation;
+
+  void _onChainData() {
+    if (!mounted || _binding == null) return;
+    if (_matches(_chainData?.snapshot) && _chainData?.isStale == false)
+      _chainFailure = null;
+    _applyLightData(_chainData?.snapshot);
+    if (!_chainLoading &&
+        _chainFailure == null &&
+        _matches(_chainData?.snapshot) &&
+        _chainData?.isStale == false &&
+        _chainData?.pricesReady == false) {
+      unawaited(_prepareChain(_generation));
     }
-    final state = data.own?.platform;
-    _unregistered = data.ownCid == null && _chainData?.isStale == false;
+  }
+
+  void _applyLightData(ChainDataSnapshot? data) {
+    if (!mounted) return;
+    final binding = _binding;
+    final matches = _matches(data);
+    final state = matches ? data!.own?.platform : null;
+    final priceSnapshot = binding == null
+        ? null
+        : _chainData?.pricesFor(binding.genesisHash);
     _applyViewData(
       _MembershipViewData(
-        accountId: data.accountId,
-        cidNumber: data.ownCid ?? '',
+        accountId: matches ? data!.accountId : '',
+        cidNumber: matches ? data!.ownCid ?? '' : '',
         state: SquareMembershipState(
-          active: data.ownCid != null && data.memberActive(data.ownCid!),
+          active: matches && data!.memberActive(binding!.cidNumber),
           memberLevel: state?.plan.memberLevel,
           subState: state?.subState,
           chargeAt: state?.chargeAt ?? 0,
           paidUntil: state?.paidUntil ?? 0,
-          plans: _data.state.plans,
-          usageState: _data.state.usageState,
-          cleanupAfter: _data.state.cleanupAfter,
+          plans: matches ? _resources?.plans ?? const [] : const [],
+          usageState: matches ? _resources?.usageState : null,
+          cleanupAfter: matches ? _resources?.cleanupAfter : null,
         ),
-        prices: data.prices,
-        subscriptionReady: _chainData?.isStale == false && data.ownCid != null,
+        prices: priceSnapshot?.prices ?? const {},
+        pricesReady: matches && _chainData?.pricesReady == true,
+        subscriptionReady: matches && _chainData?.isStale == false,
       ),
     );
+    _priceTimer?.cancel();
+    final remaining = _chainData?.priceCacheRemaining;
+    if (binding != null && matches && remaining != null) {
+      final generation = _generation;
+      _priceTimer = Timer(remaining, () {
+        if (!_current(generation)) return;
+        _applyLightData(_chainData?.snapshot);
+        if (!_chainLoading) unawaited(_prepareChain(generation));
+      });
+    }
+  }
+
+  Future<void> _prepareChain(
+    int generation, {
+    bool forceRefresh = false,
+  }) async {
+    final binding = _binding, source = _chainData;
+    if (!_current(generation) ||
+        binding == null ||
+        source == null ||
+        _chainLoading)
+      return;
+    setState(() => _chainLoading = true);
+    try {
+      await source.ensureMembership(
+        genesisHash: binding.genesisHash,
+        accountId: binding.accountId,
+        cidNumber: binding.cidNumber,
+        bindRev: binding.bindRev,
+        forceRefresh: forceRefresh,
+      );
+      if (!_current(generation)) return;
+      _chainFailure = null;
+    } on Object {
+      if (!_current(generation)) return;
+      _chainFailure = '轻节点会员读取失败，请刷新重试';
+    } finally {
+      if (_current(generation)) {
+        _chainLoading = false;
+        _applyLightData(source.snapshot);
+      }
+    }
+  }
+
+  Future<void> _loadResources(
+    int generation, {
+    bool forceRefresh = false,
+  }) async {
+    final binding = _binding;
+    if (!_current(generation) || binding == null) return;
+    final cached = SubscriptionService.cachedResourcesFor(
+      cidNumber: binding.cidNumber,
+      accountId: binding.accountId,
+      bindRev: binding.bindRev,
+    );
+    if (!forceRefresh && cached != null) {
+      _resources = cached;
+      _applyLightData(_chainData?.snapshot);
+      return;
+    }
+    setState(() => _resourceLoading = true);
+    try {
+      final resolution = await _sessionProvider.resolveSession();
+      if (!_current(generation)) return;
+      _sessionStatus = resolution.status;
+      final session = resolution.session;
+      if (session == null ||
+          session.accountId != binding.accountId ||
+          session.cidNumber != binding.cidNumber ||
+          session.bindRev != binding.bindRev) {
+        throw StateError('云端会话尚未就绪');
+      }
+      final resources = await _subscriptionService.authorizeResources(
+        session,
+        forceRefresh: forceRefresh,
+      );
+      if (!_current(generation)) return;
+      _resources = resources;
+      _resourceFailure = null;
+    } on Object {
+      if (!_current(generation)) return;
+      _resourceFailure = '云端用量暂不可用';
+    } finally {
+      if (_current(generation)) {
+        _resourceLoading = false;
+        _applyLightData(_chainData?.snapshot);
+      }
+    }
   }
 
   Future<void> _load({bool forceRefresh = false}) async {
-    if (_refreshing) {
-      return;
-    }
-    setState(() => _refreshing = true);
+    final generation = ++_generation;
+    _priceTimer?.cancel();
+    setState(() {
+      _chainLoading = false;
+      _resourceLoading = false;
+      _chainFailure = null;
+      _resourceFailure = null;
+    });
     try {
-      final source = _chainData;
-      if (source == null) {
-        throw StateError('轻节点会员数据尚未就绪');
+      if (_currentUser == null || _chainData == null)
+        throw StateError('会员依赖尚未就绪');
+      var current = await _currentUser!.resolve();
+      if (!_current(generation)) return;
+      if (current != null &&
+          current.binding == null &&
+          !current.isUnregistered) {
+        await context.read<CidBusinessGate?>()?.resolve();
+        current = await _currentUser!.resolve();
       }
-      final data = await source.ensurePrices();
-      if (!mounted) {
+      if (!_current(generation)) return;
+      final binding = current?.binding;
+      _unregistered = current?.isUnregistered == true;
+      if (binding == null) {
+        _binding = null;
+        _resources = null;
+        _sessionStatus = current == null
+            ? SquareSessionStatus.noWallet
+            : SquareSessionStatus.identityUnavailable;
+        _chainFailure = _unregistered ? null : _sessionStatus!.message;
+        _applyLightData(null);
         return;
       }
-      if (data == null) {
-        _loadFailure = '请先添加钱包账户';
-        return;
-      }
-      _applyLightData(data);
-      _loadFailure = null;
-      // 云端规则与用量独立读取；故障不覆盖轻节点订阅和价格。
-      try {
-        final resolution = await _sessionProvider.resolveSession();
-        if (!mounted ||
-            (source.snapshot?.accountId != data.accountId ||
-                source.snapshot?.ownCid != data.ownCid ||
-                source.snapshot?.own?.identity?.bindRev !=
-                    data.own?.identity?.bindRev)) {
-          return;
-        }
-        _sessionStatus = resolution.status;
-        final session = resolution.session;
-        if (session != null && session.cidNumber == data.ownCid) {
-          final resources = await _subscriptionService.authorizeResources(
-            session,
-            forceRefresh: forceRefresh,
-          );
-          if (!mounted ||
-              (source.snapshot?.accountId != data.accountId ||
-                  source.snapshot?.ownCid != data.ownCid ||
-                  source.snapshot?.own?.identity?.bindRev !=
-                      data.own?.identity?.bindRev)) {
-            return;
-          }
-          final current = _data.state;
-          _applyViewData(
-            _MembershipViewData(
-              accountId: _data.accountId,
-              cidNumber: _data.cidNumber,
-              state: SquareMembershipState(
-                active: current.active,
-                paidUntil: current.paidUntil,
-                memberLevel: current.memberLevel,
-                subState: current.subState,
-                chargeAt: current.chargeAt,
-                plans: resources.plans,
-                usageState: resources.usageState,
-                cleanupAfter: resources.cleanupAfter,
-              ),
-              prices: _data.prices,
-              subscriptionReady: !source.isStale,
-            ),
-          );
-        }
-      } on Object {
-        if (mounted) {
-          _loadFailure = '云端用量暂不可用';
-        }
-      }
+      final old = _binding;
+      if (old?.genesisHash != binding.genesisHash ||
+          old?.accountId != binding.accountId ||
+          old?.cidNumber != binding.cidNumber ||
+          old?.bindRev != binding.bindRev)
+        _resources = null;
+      _binding = binding;
+      _resources =
+          SubscriptionService.cachedResourcesFor(
+            cidNumber: binding.cidNumber,
+            accountId: binding.accountId,
+            bindRev: binding.bindRev,
+          ) ??
+          _resources;
+      // 在任何链读或服务会话之前先展示匹配的缓存。
+      _applyLightData(_chainData!.snapshot);
+      await Future.wait([
+        _prepareChain(generation, forceRefresh: forceRefresh),
+        _loadResources(generation, forceRefresh: forceRefresh),
+      ]);
     } on Object {
-      if (mounted) {
-        _loadFailure = '轻节点会员读取失败，请刷新重试';
-        _applyViewData(
-          _MembershipViewData(
-            accountId: _data.accountId,
-            cidNumber: _data.cidNumber,
-            state: _data.state,
-            prices: _data.prices,
-            subscriptionReady: false,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _refreshing = false);
-      }
-      if (mounted && _identityReloadPending) {
-        _identityReloadPending = false;
-        unawaited(_load());
-      }
+      if (!_current(generation)) return;
+      setState(() => _chainFailure = '会员身份暂不可用，请重试');
     }
   }
 
@@ -299,44 +366,77 @@ class _MembershipPageState extends State<MembershipPage>
   /// App 内订阅 / 取消：据当前订阅态决定动作 → 上链热签（生物识别）→ confirm → 刷新。
   /// 失败弹 SnackBar（文案单源自 [SubscriptionException]）。
   Future<void> _handleAction(String level) async {
-    if (_busy) {
-      return;
-    }
+    final binding = _binding, source = _chainData;
+    if (_busy || binding == null || source == null) return;
+    final generation = _generation;
+    final displayedPrice = _data.prices[level];
     setState(() => _busy = true);
     try {
-      final data = await _chainData?.ensurePrices();
-      if (data == null || _chainData!.isStale || data.ownCid == null) {
-        throw const SubscriptionException('当前轻节点身份尚未就绪');
+      await source.ensureMembership(
+        genesisHash: binding.genesisHash,
+        accountId: binding.accountId,
+        cidNumber: binding.cidNumber,
+        bindRev: binding.bindRev,
+        forceRefresh: true,
+      );
+      if (!_current(generation)) return;
+      if (!_matches(source.snapshot) || source.isStale) {
+        throw const SubscriptionException('当前会员身份已变化，请重试');
       }
-      if (!mounted) {
-        return;
-      }
-      _applyLightData(data);
-      final action = _actionFor(_data.state, level), price = data.prices[level];
+      _applyLightData(source.snapshot);
+      final action = _actionFor(_data.state, level);
+      final price = source.priceSnapshot?.prices[level];
       if (action != _SubscribeAction.cancel && price == null) {
         throw const SubscriptionException('链上价格尚未就绪');
       }
+      if (action != _SubscribeAction.cancel &&
+          displayedPrice != null &&
+          price != displayedPrice) {
+        throw const SubscriptionException('会员价格已更新，请确认后重试');
+      }
       if (action == _SubscribeAction.cancel) {
-        await _subscriptionService.cancel(context: context);
+        await _subscriptionService.cancel(
+          context: context,
+          expectedBinding: binding,
+        );
       } else if (action == _SubscribeAction.change) {
-        await _subscriptionService.changePlan(level, price!, context: context);
+        await _subscriptionService.changePlan(
+          level,
+          price!,
+          context: context,
+          expectedBinding: binding,
+        );
       } else {
-        await _subscriptionService.subscribe(level, price!, context: context);
+        await _subscriptionService.subscribe(
+          level,
+          price!,
+          context: context,
+          expectedBinding: binding,
+        );
       }
-      await _chainData!.ensurePrices();
-      if (mounted) {
-        _onChainData();
-      }
-    } on Object catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(e.toString())));
+      if (!_current(generation)) return;
+      await source.ensureMembership(
+        genesisHash: binding.genesisHash,
+        accountId: binding.accountId,
+        cidNumber: binding.cidNumber,
+        bindRev: binding.bindRev,
+        forceRefresh: true,
+      );
+      if (!_current(generation)) return;
+      _applyLightData(source.snapshot);
+      await _loadResources(generation, forceRefresh: true);
+    } on Object catch (error) {
+      if (_current(generation)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              error is SubscriptionException ? error.message : '会员操作失败，请重试',
+            ),
+          ),
+        );
       }
     } finally {
-      if (mounted) {
-        setState(() => _busy = false);
-      }
+      if (_current(generation)) setState(() => _busy = false);
     }
   }
 
@@ -347,24 +447,28 @@ class _MembershipPageState extends State<MembershipPage>
     int? priceFen,
     SquareMembershipState state,
   ) {
+    final generation = _generation;
     final action = _actionFor(state, level);
     final noWallet = _sessionStatus == SquareSessionStatus.noWallet;
     // 缓存只提供展示，详情按钮与会员卡一样必须有当前可用会话。
     final sessionUnavailable = _data.accountId.isEmpty;
     final stateNotReady = !_data.subscriptionReady;
+    final priceNotReady =
+        !_data.pricesReady && action != _SubscribeAction.cancel;
     final label = noWallet
         ? '请先添加钱包账户'
         : sessionUnavailable
         ? _sessionStatus?.message ?? '会员状态同步中'
         : stateNotReady
         ? '会员状态同步中'
-        : action != _SubscribeAction.cancel && priceFen == null
+        : priceNotReady || action != _SubscribeAction.cancel && priceFen == null
         ? '链上价格未就绪'
         : _actionLabel(action);
     final enabled =
         !noWallet &&
         !sessionUnavailable &&
         !stateNotReady &&
+        !priceNotReady &&
         (action == _SubscribeAction.cancel || priceFen != null);
     Navigator.of(context).push<void>(
       MaterialPageRoute(
@@ -375,7 +479,9 @@ class _MembershipPageState extends State<MembershipPage>
           priceFen: priceFen,
           actionLabel: label,
           subscribeEnabled: enabled,
-          onSubscribe: () => _handleAction(level),
+          onSubscribe: () {
+            if (_current(generation)) _handleAction(level);
+          },
         ),
       ),
     );
@@ -423,7 +529,7 @@ class _MembershipPageState extends State<MembershipPage>
           if (!_unregistered)
             IconButton(
               tooltip: '刷新',
-              onPressed: _refreshing ? null : _retryLoad,
+              onPressed: _chainLoading || _busy ? null : _retryLoad,
               icon: const Icon(Icons.refresh),
             ),
         ],
@@ -463,7 +569,7 @@ class _MembershipPageState extends State<MembershipPage>
               child: const Text('注册'),
             ),
           ),
-        if (_loadFailure != null && !_refreshing)
+        if (_loadFailure != null)
           _LoadFailureBanner(
             key: const ValueKey('membership-load-failure-banner'),
             message: _loadFailure!,
@@ -499,9 +605,15 @@ class _MembershipPageState extends State<MembershipPage>
                         state: state,
                         priceFen: data.prices[_tierOrder[index]],
                         canSubscribe:
-                            data.accountId.isNotEmpty && data.subscriptionReady,
+                            data.accountId.isNotEmpty &&
+                            data.subscriptionReady &&
+                            (data.pricesReady ||
+                                _actionFor(state, _tierOrder[index]) ==
+                                    _SubscribeAction.cancel),
                         unavailableLabel: _unregistered
                             ? '注册后可订阅'
+                            : data.subscriptionReady && !data.pricesReady
+                            ? '价格尚未就绪'
                             : data.accountId.isEmpty && !_refreshing
                             ? _sessionStatus?.message ?? '会员状态同步中'
                             : '会员状态同步中',
@@ -602,6 +714,7 @@ class _MembershipViewData {
     required this.state,
     required this.prices,
     required this.subscriptionReady,
+    this.pricesReady = false,
   });
 
   final String accountId;
@@ -613,17 +726,7 @@ class _MembershipViewData {
 
   /// 至少成功读取过一次 finalized 订阅态；未就绪时只展示卡片，禁止动权入口。
   final bool subscriptionReady;
-
-  /// 只替换价格,保留其余字段。价格由已注册但会话暂不可用时的独立链读刷新，不能覆盖
-  /// 会话侧已取得的订阅态。
-  _MembershipViewData copyWithPrices(Map<String, int> prices) =>
-      _MembershipViewData(
-        accountId: accountId,
-        cidNumber: cidNumber,
-        state: state,
-        prices: prices,
-        subscriptionReady: subscriptionReady,
-      );
+  final bool pricesReady;
 }
 
 /// 单张会员档卡（ADR-037）：一张卡 = 一个订阅档（自由/民主/薪火）。档色顶带 + 大字档名

@@ -130,7 +130,7 @@ class AppFlowInstrumentedTest {
             tab("我的"); await { node("我的用户码") != null }; await { node("创作者") != null }
             val started = SystemClock.elapsedRealtime()
             click(node("创作者")!!)
-            await(1000) { nodes().any { n -> listOf(n.text,n.contentDescription).any { t -> t?.contains("我的创作者会员") == true || t?.contains("去订阅平台会员") == true } } }
+            await(1000) { nodes().any { n -> listOf(n.text,n.contentDescription).any { t -> t?.contains("我的创作者会员") == true } } }
             assertTrue("点击至创作者内容就绪须在1秒内", SystemClock.elapsedRealtime() - started <= 1000)
         }
         internal fun chatReady() {

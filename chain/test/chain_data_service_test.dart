@@ -10,19 +10,26 @@ void main() {
   late f.Store store;
   late ChainDataService service;
   late String owner;
+  late String genesis;
+  late int headReads;
   late CitizenBlockRef head;
   setUp(() {
     events = StreamController.broadcast(sync: true);
     reader = f.Reader();
     store = f.Store();
     owner = f.account(1);
+    genesis = f.hash(0);
+    headReads = 0;
     head = f.block(103);
     service = ChainDataService(
       reader: reader,
       store: store,
       getAccount: () async => owner,
-      getGenesisHash: () async => f.hash(0),
-      getFinalizedHead: () async => head,
+      getGenesisHash: () async => genesis,
+      getFinalizedHead: () async {
+        headReads++;
+        return head;
+      },
       events: events.stream,
     );
   });
@@ -137,6 +144,128 @@ void main() {
     expect(service.snapshot!.memberActive(f.cidA), isFalse);
     expect(store.writes.length, 2);
   });
+  Future<ChainDataSnapshot> own({
+    String? account,
+    String? cid,
+    int revision = 1,
+  }) => service.ensureOwnCreator(
+    genesisHash: genesis,
+    accountId: account ?? owner,
+    cidNumber: cid ?? (owner == f.account(1) ? f.cidA : f.cidB),
+    bindRev: revision,
+  );
+
+  test('本人档位补取合并，有效缓存重复进入不请求区块或重读', () async {
+    await service.start();
+    expect(service.snapshot!.own!.creatorTiers, isNull);
+    final results = await Future.wait([own(), own(), own()]);
+    expect(results.every((v) => v.own!.creatorTiers != null), isTrue);
+    expect(reader.calls.length, 2);
+    expect(service.snapshot!.subscriptions, isEmpty);
+    final beforeHeads = headReads;
+    await own();
+    expect(reader.calls.length, 2);
+    expect(headReads, beforeHeads);
+    reader.ownBehavior = (_, _, _, _, _) => throw StateError('缓存命中不能重读');
+    await own();
+    expect(service.isStale, isFalse);
+  });
+  test('本人关注不随页面退出丢失，下一块保留；其他创作者仍按需释放', () async {
+    await service.start();
+    await own();
+    final release = service.watchCreator(f.cidB);
+    await service.refresh();
+    release();
+    head = f.block(104);
+    await service.refresh();
+    expect(service.snapshot!.own!.creatorTiers, isNotNull);
+    expect(service.snapshot!.citizens.containsKey(f.cidB), isFalse);
+    expect(service.snapshot!.subscriptions, isEmpty);
+    final before = reader.calls.length;
+    await own();
+    expect(reader.calls.length, before);
+  });
+  test('无会员和空档位也是已确认缓存，反复进入不补取', () async {
+    reader.ownBehavior = (a, b, c, d, ownCreator) async => f.snapshot(
+      b,
+      a,
+      citizens: c,
+      creators: d,
+      ownCreator: ownCreator,
+      hasMembership: false,
+    );
+    await service.start();
+    final data = await own();
+    expect(data.memberActive(f.cidA), isFalse);
+    expect(data.own!.creatorTiers, isEmpty);
+    final before = reader.calls.length;
+    await own();
+    expect(reader.calls.length, before);
+  });
+  test('磁盘恢复本人档位关注，核验失败只保留陈旧展示，重试可恢复', () async {
+    store.cached = f.snapshot(f.block(86), owner, ownCreator: true);
+    reader.ownBehavior = (_, _, _, _, _) => Future.error(StateError('offline'));
+    await expectLater(service.start(), throwsStateError);
+    expect(service.snapshot!.own!.creatorTiers, isNotNull);
+    await expectLater(own(), throwsStateError);
+    expect(service.isStale, isTrue);
+    reader.ownBehavior = null;
+    await own();
+    expect(service.isStale, isFalse);
+    expect(service.snapshot!.block.number, BigInt.from(103));
+    expect(service.snapshot!.own!.creatorTiers, isNotNull);
+  });
+  test('账户切换时本人关注重新按新身份准备，旧请求不能写回', () async {
+    await service.start();
+    final pending = Completer<ChainDataSnapshot>();
+    reader.ownBehavior = (a, b, c, d, ownCreator) => a == f.account(1)
+        ? pending.future
+        : Future.value(f.snapshot(b, a, ownCreator: ownCreator));
+    final old = own();
+    final rejected = expectLater(old, throwsStateError);
+    await f.flush();
+    owner = f.account(2);
+    events.add(const CitizenSdkWalletChanged(sequence: 1));
+    await f.flush();
+    expect(service.snapshot!.own!.creatorTiers, isNull);
+    await own();
+    pending.complete(f.snapshot(head, f.account(1), ownCreator: true));
+    await rejected;
+    await f.flush();
+    expect(service.snapshot!.accountId, f.account(2));
+    expect(service.snapshot!.own!.creatorTiers, isNotNull);
+    expect(store.writes.last.accountId, f.account(2));
+  });
+  test('同账户绑定CID或版本改变，旧归属不能命中或交付', () async {
+    await service.start();
+    await own();
+    reader.ownBehavior = (a, b, c, d, ownCreator) async =>
+        f.snapshot(b, a, cidNumber: f.cidB, bindRev: 2, ownCreator: ownCreator);
+    head = f.block(104);
+    await service.refresh();
+    await expectLater(own(), throwsStateError);
+    final before = reader.calls.length;
+    final data = await own(cid: f.cidB, revision: 2);
+    expect(data.ownCid, f.cidB);
+    expect(reader.calls.length, before);
+  });
+
+  test('同账户切换链不复用旧链缓存，也不把旧链高度当成新链高度', () async {
+    await service.start();
+    await own();
+    genesis = f.hash(1);
+    head = f.block(86);
+    await service.refresh();
+    expect(service.snapshot!.genesisHash, genesis);
+    expect(service.snapshot!.block.number, BigInt.from(86));
+    expect(service.snapshot!.own!.creatorTiers, isNull);
+    await own();
+    expect(service.snapshot!.own!.creatorTiers, isNotNull);
+    expect(service.snapshot!.genesisHash, genesis);
+    await service.close();
+    await expectLater(own(), throwsStateError);
+  });
+
   test('关闭不等待未返回的SDK请求，迟到结果不写库或通知', () async {
     await service.start();
     final pending = Completer<ChainDataSnapshot>();

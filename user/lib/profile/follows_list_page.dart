@@ -11,7 +11,6 @@ import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_user/membership/membership_revision.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_system/theme/app_layout.dart';
-import 'package:citizen_user/identity/identity_register_guide.dart';
 
 enum FollowsType {
   following('关注', 'following'),
@@ -167,14 +166,10 @@ class _FollowsListPageState extends State<FollowsListPage> {
   void _openProfile(String cidNumber) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => CitizenServiceGate(
-          title: '用户主页',
-          description: '注册后即可查看用户主页。',
-          child: UserProfilePage(
-            cidNumber: cidNumber,
-            isSelf: false,
-            initialProfile: _profiles[cidNumber],
-          ),
+        builder: (_) => UserProfilePage(
+          cidNumber: cidNumber,
+          isSelf: false,
+          initialProfile: _profiles[cidNumber],
         ),
       ),
     );

@@ -18,6 +18,14 @@ final class WalletTransactionHistoryService {
     CitizenSdk? chain,
     CitizenSdk? wallet,
     required Stream<CitizenSdkEvent> events,
+    Stream<CitizenTransactionHistoryRecord> Function(
+      CitizenPreparedTransaction,
+    )?
+    watchPreparedTransaction,
+    Future<CitizenTransactionHistoryRecord?> Function(
+      CitizenPreparedTransaction,
+    )?
+    getPreparedTransactionRecord,
     Future<CitizenTransactionHistoryPage> Function()? syncTransactionHistory,
     Future<CitizenTransactionHistoryPage> Function({
       String? beforeExecutionId,
@@ -27,16 +35,20 @@ final class WalletTransactionHistoryService {
     Future<String> Function()? getGenesisHash,
     Future<CitizenBlockRef> Function()? getFinalizedHead,
     Future<CitizenBlockRef> Function(BigInt number)? getFinalizedBlockAt,
-    Future<List<CitizenBlockRef>> Function(BigInt start, BigInt end)? getFinalizedBlockRange,
+    Future<List<CitizenBlockRef>> Function(BigInt start, BigInt end)?
+    getFinalizedBlockRange,
     Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
     getStorage,
-    Future<List<CitizenSystemEvent>> Function(CitizenBlockRef block)? getFinalizedEvents,
+    Future<List<CitizenSystemEvent>> Function(CitizenBlockRef block)?
+    getFinalizedEvents,
     Future<Uint8List?> Function(CitizenBlockRef block)? getSystemEvents,
     Future<CitizenRuntimeContext> Function(CitizenBlockRef block)?
     getRuntimeContext,
     Future<CitizenBlockBody> Function(CitizenBlockRef block)? getBlockBody,
     CitizenSdkOperation<CitizenWalletState> Function()? getWalletState,
-  }) : _sdkEvents = events,
+  }) : _watchPreparedTransaction = watchPreparedTransaction,
+       _getPreparedTransactionRecord = getPreparedTransactionRecord,
+       _sdkEvents = events,
        _syncTransactionHistory =
            syncTransactionHistory ??
            history?.syncTransactionHistory ??
@@ -58,18 +70,23 @@ final class WalletTransactionHistoryService {
            getFinalizedBlockAt ??
            chain?.getFinalizedBlockAt ??
            ((BigInt number) => throw StateError('未配置getFinalizedBlockAt')),
-       _getFinalizedBlockRange = getFinalizedBlockRange ?? chain?.getFinalizedBlockRange ??
+       _getFinalizedBlockRange =
+           getFinalizedBlockRange ??
+           chain?.getFinalizedBlockRange ??
            ((_, _) => throw StateError('未配置 SDK finalized 区块范围')),
        _getStorage =
            getStorage ??
            chain?.getStorage ??
            ((CitizenBlockRef block, Uint8List key) =>
                throw StateError('未配置getStorage')),
-       _getFinalizedEvents = getFinalizedEvents ?? chain?.getFinalizedEvents ??
+       _getFinalizedEvents =
+           getFinalizedEvents ??
+           chain?.getFinalizedEvents ??
            ((block) => readCitizenFinalizedEvents(
              block,
              readEvents: getSystemEvents ?? (_) => throw StateError('未配置事件读取'),
-             readRuntime: getRuntimeContext ?? (_) => throw StateError('未配置事件 metadata'),
+             readRuntime:
+                 getRuntimeContext ?? (_) => throw StateError('未配置事件 metadata'),
            )),
        _getBlockBody =
            getBlockBody ??
@@ -89,12 +106,23 @@ final class WalletTransactionHistoryService {
   final Future<String> Function() _getGenesisHash;
   final Future<CitizenBlockRef> Function() _getFinalizedHead;
   final Future<CitizenBlockRef> Function(BigInt number) _getFinalizedBlockAt;
-  final Future<List<CitizenBlockRef>> Function(BigInt start, BigInt end) _getFinalizedBlockRange;
+  final Future<List<CitizenBlockRef>> Function(BigInt start, BigInt end)
+  _getFinalizedBlockRange;
   final Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)
   _getStorage;
-  final Future<List<CitizenSystemEvent>> Function(CitizenBlockRef block) _getFinalizedEvents;
+  final Future<List<CitizenSystemEvent>> Function(CitizenBlockRef block)
+  _getFinalizedEvents;
   final Future<CitizenBlockBody> Function(CitizenBlockRef block) _getBlockBody;
   final CitizenSdkOperation<CitizenWalletState> Function() _getWalletState;
+
+  final Stream<CitizenTransactionHistoryRecord> Function(
+    CitizenPreparedTransaction,
+  )?
+  _watchPreparedTransaction;
+  final Future<CitizenTransactionHistoryRecord?> Function(
+    CitizenPreparedTransaction,
+  )?
+  _getPreparedTransactionRecord;
 
   final Stream<CitizenSdkEvent> _sdkEvents;
   StreamSubscription<CitizenSdkEvent>? _events;
@@ -117,19 +145,46 @@ final class WalletTransactionHistoryService {
     required String toAddress,
     required String remark,
     required Future<T> Function() execute,
+    void Function(CitizenTransactionHistoryRecord record)? onRecord,
   }) async {
     final epoch = _epoch;
+    final accountId = citizenAccountIdFromBytes(prepared.sourceAccountId);
+    final callHash =
+        '0x${prepared.callDataHash.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}';
+    CitizenTransactionHistoryRecord? reported;
+    bool terminal(CitizenTransactionHistoryStatus status) =>
+        status == CitizenTransactionHistoryStatus.finalizedSuccess ||
+        status == CitizenTransactionHistoryStatus.finalizedFailed ||
+        status == CitizenTransactionHistoryStatus.poolRejected;
     Future<void> save(CitizenTransactionHistoryRecord record) async {
       if (!_current(epoch)) return;
-      final write = LocalTxStore.applyExecution(
-        record,
-        amountFen: amountFen,
-        fromAddress: fromAddress,
-        toAddress: toAddress,
-        txNote: remark,
-      ).catchError((Object _) {
-        AppLog.d('[TransactionHistory] submission_projection_failed');
-      });
+      if (record.executionId != prepared.preparationId ||
+          record.sourceAccountId != accountId ||
+          record.callDataHash != callHash) {
+        AppLog.d('[TransactionHistory] submission_record_mismatch');
+        return;
+      }
+      // SDK终态不因迟到的Pending/InBlock降级；通知失败不覆盖交易原始结果。
+      if (reported == null ||
+          !terminal(reported!.status) ||
+          terminal(record.status)) {
+        reported = record;
+        try {
+          onRecord?.call(record);
+        } on Object {
+          AppLog.d('[TransactionHistory] submission_observer_failed');
+        }
+      }
+      final write =
+          LocalTxStore.applyExecution(
+            record,
+            amountFen: amountFen,
+            fromAddress: fromAddress,
+            toAddress: toAddress,
+            txNote: remark,
+          ).catchError((Object _) {
+            AppLog.d('[TransactionHistory] submission_projection_failed');
+          });
       _submissionWrites.add(write);
       try {
         await write;
@@ -138,11 +193,15 @@ final class WalletTransactionHistoryService {
       }
     }
 
-    final subscription = sdk.watchPreparedTransaction(prepared)
-        .asyncMap(save)
-        .listen((_) {}, onError: (Object _) {
-          AppLog.d('[TransactionHistory] submission_watch_failed');
-        });
+    final subscription =
+        (_watchPreparedTransaction ?? sdk.watchPreparedTransaction)(prepared)
+            .asyncMap(save)
+            .listen(
+              (_) {},
+              onError: (Object _) {
+                AppLog.d('[TransactionHistory] submission_watch_failed');
+              },
+            );
     try {
       return await execute();
     } finally {
@@ -153,7 +212,9 @@ final class WalletTransactionHistoryService {
       }
       if (_current(epoch)) {
         try {
-          final latest = await sdk.getPreparedTransactionRecord(prepared);
+          final latest =
+              await (_getPreparedTransactionRecord ??
+                  sdk.getPreparedTransactionRecord)(prepared);
           if (latest != null) await save(latest);
         } on Object {
           AppLog.d('[TransactionHistory] submission_read_failed');
@@ -161,7 +222,6 @@ final class WalletTransactionHistoryService {
       }
     }
   }
-
 
   /// 启动不等待网络补齐，离线不能阻塞钱包原页面。
   Future<void> start() async {
@@ -349,18 +409,24 @@ final class WalletTransactionHistoryService {
       for (final cursor in participants) {
         cursor.cursorBlock = number;
       }
-
     }
     return cursors.values.any((c) => c.cursorBlock < target);
   }
 
-  Future<int> _findStartBlock(CitizenBlockRef head, BigInt createdAt, int epoch) =>
-      firstCitizenBlockAtOrAfter(
-        head, createdAt, _getFinalizedBlockAt, _timestamp,
-        active: () => _current(epoch),
-      );
+  Future<int> _findStartBlock(
+    CitizenBlockRef head,
+    BigInt createdAt,
+    int epoch,
+  ) => firstCitizenBlockAtOrAfter(
+    head,
+    createdAt,
+    _getFinalizedBlockAt,
+    _timestamp,
+    active: () => _current(epoch),
+  );
 
-  Future<int> _timestamp(CitizenBlockRef block) => readCitizenBlockTimestamp(block, _getStorage);
+  Future<int> _timestamp(CitizenBlockRef block) =>
+      readCitizenBlockTimestamp(block, _getStorage);
 
   void _requireBlock(CitizenBlockRef block, int number) {
     if (number < 0 ||
@@ -386,13 +452,19 @@ final class WalletTransactionHistoryService {
     for (final fee in facts.fees) {
       final index = fee.extrinsicIndex;
       if (index != null) {
-        fees.update((index, fee.accountId), (total) => total + fee.feeFen,
-            ifAbsent: () => fee.feeFen);
+        fees.update(
+          (index, fee.accountId),
+          (total) => total + fee.feeFen,
+          ifAbsent: () => fee.feeFen,
+        );
       }
     }
 
     wallet_store.Entry row(
-      String accountId, int eventIndex, int? extrinsicIndex, String? hash,
+      String accountId,
+      int eventIndex,
+      int? extrinsicIndex,
+      String? hash,
     ) => wallet_store.Entry()
       ..accountId = accountId
       ..entryState = LocalTxStore.statusFinalized
@@ -415,27 +487,37 @@ final class WalletTransactionHistoryService {
       for (final accountId in {from, to}) {
         if (!addresses.containsKey(accountId)) continue;
         final fee = index != null && attached.add((index, accountId))
-            ? fees[(index, accountId)] : null;
-        final principal = from == to ? BigInt.zero :
-            accountId == to ? transfer.amountFen : -transfer.amountFen;
-        records.add(row(accountId, transfer.eventIndex, index, transfer.transactionHash)
-          ..entryKind = 'transfer'
-          ..amountDelta = (principal - (fee ?? BigInt.zero)).toString()
-          ..feeAmount = fee?.toString()
-          ..transferAmount = transfer.amountFen.toString()
-          ..fromAddress = fromAddress
-          ..toAddress = toAddress
-          ..txNote = transfer.remark);
+            ? fees[(index, accountId)]
+            : null;
+        final principal = from == to
+            ? BigInt.zero
+            : accountId == to
+            ? transfer.amountFen
+            : -transfer.amountFen;
+        records.add(
+          row(accountId, transfer.eventIndex, index, transfer.transactionHash)
+            ..entryKind = 'transfer'
+            ..amountDelta = (principal - (fee ?? BigInt.zero)).toString()
+            ..feeAmount = fee?.toString()
+            ..transferAmount = transfer.amountFen.toString()
+            ..fromAddress = fromAddress
+            ..toAddress = toAddress
+            ..txNote = transfer.remark,
+        );
       }
     }
     for (final fee in facts.fees) {
       final index = fee.extrinsicIndex;
       if (index != null && attached.contains((index, fee.accountId))) continue;
-      records.add(row(fee.accountId, fee.eventIndex, index, fee.transactionHash)
-        ..entryKind = 'fee'
-        ..amountDelta = (-fee.feeFen).toString()
-        ..feeAmount = fee.feeFen.toString()
-        ..failReason = fee.status == CitizenExecutionStatus.failed ? '链上执行失败' : null);
+      records.add(
+        row(fee.accountId, fee.eventIndex, index, fee.transactionHash)
+          ..entryKind = 'fee'
+          ..amountDelta = (-fee.feeFen).toString()
+          ..feeAmount = fee.feeFen.toString()
+          ..failReason = fee.status == CitizenExecutionStatus.failed
+              ? '链上执行失败'
+              : null,
+      );
     }
     return records;
   }

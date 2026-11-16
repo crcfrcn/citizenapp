@@ -40,7 +40,6 @@ import 'package:citizen_system/security/biometric_auth_text.dart';
 import 'package:citizen_system/update/app_update.dart';
 import 'package:citizen_system/update/update_badge.dart';
 import 'package:citizen_wallet/account/wallet_page.dart';
-import 'package:citizen_user/identity/identity_register_guide.dart';
 
 class MyTab extends StatefulWidget {
   const MyTab({
@@ -416,32 +415,30 @@ class _ProfilePageState extends State<MyTab> {
   }
 
   Future<void> _openMyProfile() async {
-    // 用户主页先经过统一公民号门禁；本机暂缺绑定时不把旧展示快照当作授权。
+    final identity = await _resolveOwnedIdentity();
+    if (!mounted || identity == null) return;
+    final cid = identity.cidNumber;
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
-        builder: (_) => CitizenServiceGate(
-          title: '用户主页',
-          description: '注册后即可使用用户主页。',
-          builder: (cidNumber) => UserProfilePage(
-            cidNumber: cidNumber,
-            isSelf: true,
-            initialProfile: _publicProfile?.cidNumber == cidNumber
-                ? _publicProfile
-                : null,
-            initialProfileMedia: _publicProfile?.cidNumber == cidNumber
-                ? _publicProfileMedia
-                : null,
-            api: _profileApi,
-            sessionProvider: _sessionProvider,
-            cache: _profileCache,
-            mediaCache: _profileMediaCache,
-            subscriptionService: _subscriptionService,
-          ),
+        builder: (_) => UserProfilePage(
+          cidNumber: cid,
+          isSelf: true,
+          currentUserContext: _currentUserContext,
+          initialProfile: _publicProfile?.cidNumber == cid
+              ? _publicProfile
+              : null,
+          initialProfileMedia: _publicProfile?.cidNumber == cid
+              ? _publicProfileMedia
+              : null,
+          api: _profileApi,
+          sessionProvider: _sessionProvider,
+          cache: _profileCache,
+          mediaCache: _profileMediaCache,
+          subscriptionService: _subscriptionService,
         ),
       ),
     );
-    if (!mounted) return;
-    await _loadState();
+    if (mounted) await _loadState();
   }
 
   Future<void> _openMyUserCode() async {
@@ -468,19 +465,25 @@ class _ProfilePageState extends State<MyTab> {
   }
 
   Future<void> _openMembership() async {
-    await Navigator.of(
-      context,
-    ).push<void>(MaterialPageRoute(builder: (_) => const MembershipPage()));
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => MembershipPage(
+          currentUserContext: _currentUserContext,
+          sessionProvider: _sessionProvider,
+          subscriptionService: _subscriptionService,
+        ),
+      ),
+    );
     await _loadState();
   }
 
   void _openCreator() {
-    // MyTab 只传展示提示；创作者页核对当前账户 CID 后才显示对应快照。
+    // 创作者页通过当前用户单源核对账户绑定，再复用共享链缓存。
     Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => CreatorPage(
           service: widget.creatorService,
-          initialCidNumber: _identityCidNumber,
+          currentUserContext: _currentUserContext,
         ),
       ),
     );

@@ -1,3 +1,5 @@
+import 'package:citizen_user/profile/citizen_profile_api.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:citizen_user/square_api_client.dart';
 
 import 'dart:async';
@@ -39,10 +41,10 @@ Widget _wrap({required bool isSelf, CitizenProfile? localProfile}) =>
       home: UserProfilePage(
         cidNumber: sampleProfile().cidNumber!,
         isSelf: isSelf,
-        api: FakeProfileApi(sampleProfile()),
+        api: FakeProfileApi(localProfile ?? sampleProfile()),
         cache: FakeProfileCache(localProfile ?? sampleProfile()),
         sessionProvider: FakeSessionProvider(
-          fakeSession(),
+          fakeSession(cidNumber: isSelf ? sampleProfile().cidNumber : null),
           citizenId: isSelf ? sampleProfile().cidNumber : null,
         ),
         subscriptionService: _NullMembershipSnapshotService(),
@@ -191,6 +193,10 @@ CitizenProfile _missingProfile() => CitizenProfile.fromJson({
 });
 
 void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    CitizenProfileApi.resetEntryRefreshMemory();
+  });
   testWidgets('本人缓存的零计数完整显示且保留自关注入口', (tester) async {
     final old = sampleProfile();
     final profile = CitizenProfile.fromJson({
@@ -210,7 +216,7 @@ void main() {
     expect(find.byIcon(Icons.person_add_alt), findsOneWidget);
   });
 
-  testWidgets('他人主页直接请求业务接口，服务端拒绝后清除展示且不前置会员GET', (tester) async {
+  testWidgets('他人主页先显示缓存，服务端拒绝后保留展示且不前置会员GET', (tester) async {
     final api = _ServerDeniedProfile();
     final denied = _DeniedMembership();
     await tester.pumpWidget(
@@ -218,30 +224,30 @@ void main() {
         home: UserProfilePage(
           cidNumber: sampleProfile().cidNumber!,
           isSelf: true,
-          initialProfile: sampleProfile(displayName: '不得显示的缓存'),
+          initialProfile: sampleProfile(displayName: '应保留的缓存'),
           api: api,
-          cache: FakeProfileCache(sampleProfile(displayName: '不得显示的缓存')),
+          cache: FakeProfileCache(sampleProfile(displayName: '应保留的缓存')),
           sessionProvider: FakeSessionProvider(fakeSession()),
           subscriptionService: denied,
         ),
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('非会员禁止访问用户主页'), findsOneWidget);
-    expect(find.text('不得显示的缓存'), findsNothing);
+    expect(find.text('非会员禁止访问用户主页'), findsNothing);
+    expect(find.text('应保留的缓存'), findsWidgets);
     expect(api.calls, 1);
     expect(denied.checks, 0);
   });
-  testWidgets('他人业务请求尚未通过时不展示旧缓存，失败也不补会员GET', (tester) async {
+  testWidgets('他人业务请求挂起仍显示旧缓存，失败也不补会员GET', (tester) async {
     final api = _PendingProfile(), service = _DeniedMembership();
     await tester.pumpWidget(
       MaterialApp(
         home: UserProfilePage(
           cidNumber: sampleProfile().cidNumber!,
           isSelf: false,
-          initialProfile: sampleProfile(displayName: '旧缓存不可提前显示'),
+          initialProfile: sampleProfile(displayName: '旧缓存直接显示'),
           api: api,
-          cache: FakeProfileCache(sampleProfile(displayName: '旧缓存不可提前显示')),
+          cache: FakeProfileCache(sampleProfile(displayName: '旧缓存直接显示')),
           sessionProvider: FakeSessionProvider(fakeSession()),
           subscriptionService: service,
         ),
@@ -251,7 +257,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 200));
     expect(api.calls, 1);
     expect(service.checks, 0);
-    expect(find.text('旧缓存不可提前显示'), findsNothing);
+    expect(find.text('旧缓存直接显示'), findsWidgets);
     api.resultFuture.completeError(
       const SquareApiException(
         'denied',
@@ -260,7 +266,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('非会员禁止访问用户主页'), findsOneWidget);
+    expect(find.text('非会员禁止访问用户主页'), findsNothing);
     expect(service.checks, 0);
   });
 
@@ -360,10 +366,10 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(api.calls, 0);
+      expect(api.calls, 1);
       await tester.drag(find.text('暂无公文内容，请在广场发布'), const Offset(0, 380));
       await tester.pumpAndSettle();
-      expect(api.calls, 1);
+      expect(api.calls, 2);
       expect(find.text('本人保存资料'), findsWidgets);
       expect(find.text('云端暂无资料，已保留本机资料'), findsNothing);
       expect(find.text('刷新完成'), findsNothing);
@@ -372,7 +378,7 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
     });
 
-    testWidgets('${platform.name}错误页下拉重试原接口且不额外请求会员或重复加载', (tester) async {
+    testWidgets('${platform.name}主页本地结构保留下拉重试原接口且不额外请求会员', (tester) async {
       prepareView(tester);
       final api = _RetryProfile(sampleProfile());
       await tester.pumpWidget(
@@ -388,12 +394,9 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(
-        find.byKey(const ValueKey('profile-error-refresh')),
-        findsOneWidget,
-      );
+      expect(find.byKey(const ValueKey('profile-error-refresh')), findsNothing);
       expect(api.calls, 1);
-      await tester.drag(find.text('内容加载失败，请下拉刷新'), const Offset(0, 380));
+      await tester.drag(find.byType(NestedScrollView), const Offset(0, 380));
       await tester.pumpAndSettle();
       expect(api.calls, 2);
       expect(find.byType(ProfileCategoryTabs), findsOneWidget);
@@ -401,7 +404,7 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
     });
 
-    testWidgets('${platform.name}刷新被服务端拒绝后清除展示，不能继续显示旧缓存', (tester) async {
+    testWidgets('${platform.name}刷新被服务端拒绝后仍保留已有资料', (tester) async {
       prepareView(tester);
       final api = _RetryProfile(
         sampleProfile(displayName: '此前已展示资料'),
@@ -424,11 +427,8 @@ void main() {
       await tester.drag(find.text('暂无公文内容，请在广场发布'), const Offset(0, 380));
       await tester.pumpAndSettle();
       expect(api.calls, 2);
-      expect(find.text('此前已展示资料'), findsNothing);
-      expect(
-        find.byKey(const ValueKey('profile-error-refresh')),
-        findsOneWidget,
-      );
+      expect(find.text('此前已展示资料'), findsWidgets);
+      expect(find.byKey(const ValueKey('profile-error-refresh')), findsNothing);
       expect(find.text('非会员禁止访问用户主页'), findsWidgets);
       debugDefaultTargetPlatformOverride = null;
     });
@@ -450,7 +450,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('已获准远端资料'), findsWidgets);
-      expect(find.text('资料已加载，本机保存失败，请重试'), findsOneWidget);
+      expect(find.byType(SnackBar), findsNothing);
       expect(find.byKey(const ValueKey('profile-error-refresh')), findsNothing);
       debugDefaultTargetPlatformOverride = null;
     });

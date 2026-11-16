@@ -123,19 +123,15 @@ class _CitizenChatHeaderState extends State<_CitizenChatHeader> {
     if (widget.isGroup || !mounted) return;
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
-        builder: (_) => CitizenServiceGate(
-          title: '用户主页',
-          description: '注册后即可查看用户主页。',
-          child: UserProfilePage(
-            cidNumber: widget.peerUserId,
-            isSelf: false,
-            initialProfile: _profile,
-            initialProfileMedia: _media,
-            api: widget.profileApi ?? _profileApi,
-            cache: widget.profileCache ?? _profileCache,
-            mediaCache: widget.profileMediaCache ?? _profileMediaCache,
-            sessionProvider: widget.sessionProvider ?? _sessionProvider,
-          ),
+        builder: (_) => UserProfilePage(
+          cidNumber: widget.peerUserId,
+          isSelf: false,
+          initialProfile: _profile,
+          initialProfileMedia: _media,
+          api: widget.profileApi ?? _profileApi,
+          cache: widget.profileCache ?? _profileCache,
+          mediaCache: widget.profileMediaCache ?? _profileMediaCache,
+          sessionProvider: widget.sessionProvider ?? _sessionProvider,
         ),
       ),
     );

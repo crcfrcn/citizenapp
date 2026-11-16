@@ -77,7 +77,6 @@ class _SquareHomePageState extends State<SquareHomePage> {
   List<SquareFeedKind> _tabOrder = List.of(SquareFeedKind.values);
   Future<void>? _orderLoad;
   bool _tabOrderReady = false;
-  late Future<SquareIdentityState> _identityFuture;
   int _identityLoadGeneration = 0;
   late final SquareIdentityService _identityService;
   late final SquareFeedSource _feedSource;
@@ -89,6 +88,14 @@ class _SquareHomePageState extends State<SquareHomePage> {
   /// 最近一次身份加载结果的身份账户与永久 CID，供身份 revision 广播后成对比对。
   String? _identityAddress;
   String? _identityCidNumber;
+  bool _identityReady = false;
+  int? _identityAccountRevision;
+  bool get _canPublish =>
+      _identityReady &&
+      _identityAddress?.isNotEmpty == true &&
+      _identityCidNumber?.trim().isNotEmpty == true &&
+      (_accountSecurity == null ||
+          _identityAccountRevision == _accountSecurity!.revision.value);
 
   final SquareApiClient _squareApi = SquareApiClient();
   late final CitizenProfileApi _profileApi;
@@ -147,7 +154,7 @@ class _SquareHomePageState extends State<SquareHomePage> {
       _accountSecurity = accountSecurity;
       accountSecurity.revision.addListener(_onWalletsChanged);
     }
-    _identityFuture = _loadIdentity();
+    unawaited(_loadIdentity());
     // 浏览态首帧挂载页面并并行请求 feed；会话入口先核对当前账户 CID，
     // 本机绑定缺失时等 finalized 链事实返回，再决定引导或业务内容。
     _feedFuture = _beginFeedLoad();
@@ -177,7 +184,7 @@ class _SquareHomePageState extends State<SquareHomePage> {
   void _onIdentitySnapshotChanged() {
     if (_dependenciesReady && mounted) {
       setState(() {
-        _identityFuture = _loadIdentity();
+        unawaited(_loadIdentity());
       });
     }
   }
@@ -339,41 +346,72 @@ class _SquareHomePageState extends State<SquareHomePage> {
   Future<SquareIdentityState> _loadIdentity() async {
     final generation = ++_identityLoadGeneration;
     final accountRevision = _accountSecurity?.revision.value;
-    final identity = await _identityService.loadCurrent();
-    // 完成通知必须重建父Scaffold；卸载、账户版本变化及迟到旧请求均不能写回。
-    if (!mounted ||
-        generation != _identityLoadGeneration ||
-        accountRevision != _accountSecurity?.revision.value) {
+    // 调用方在首次构建或setState中启动；核实期间原位保留禁用按钮。
+    _identityReady = false;
+    _publishMenuOpen = false;
+    try {
+      final identity = await _identityService.loadCurrent();
+      if (!mounted ||
+          generation != _identityLoadGeneration ||
+          accountRevision != _accountSecurity?.revision.value)
+        return identity;
+      setState(() {
+        _identityAddress = identity.accountId;
+        _identityCidNumber = identity.cidNumber;
+        _identityAccountRevision = accountRevision;
+        _identityReady = true;
+      });
       return identity;
+    } on Object {
+      if (mounted &&
+          generation == _identityLoadGeneration &&
+          accountRevision == _accountSecurity?.revision.value) {
+        setState(() {
+          _identityAddress = null;
+          _identityCidNumber = null;
+          _identityReady = false;
+        });
+      }
+      AppLog.d('square identity display unavailable');
+      return const SquareIdentityState(accountId: '');
     }
-    setState(() {
-      _identityAddress = identity.accountId;
-      _identityCidNumber = identity.cidNumber;
-    });
-    return identity;
   }
 
   Future<void> _onWalletsChanged() async {
-    // CID 占号可在 account_id 不变时把 cid_number 从空推进为有效值；收到显式身份
-    // revision 后必须读取完整身份，不能沿用只比较账户的旧优化。
+    if (!mounted) return;
     final accountRevision = _accountSecurity?.revision.value;
-    final identity = await context.read<CurrentUserContext>().resolve();
-    final identityAccountId = identity?.accountId ?? '';
-    final identityCidNumber = identity?.cidNumber ?? '';
-    if (!mounted || accountRevision != _accountSecurity?.revision.value) return;
-    if (identityAccountId == (_identityAddress ?? '') &&
-        identityCidNumber == (_identityCidNumber ?? '')) {
-      return;
-    }
     setState(() {
-      _identityAddress = identityAccountId;
-      _identityCidNumber = identityCidNumber;
-      _identityFuture = _loadIdentity();
-      _feedFuture = _beginFeedLoad();
+      _identityReady = false;
+      _publishMenuOpen = false;
     });
+    try {
+      final identity = await context.read<CurrentUserContext>().resolve();
+      final accountId = identity?.accountId ?? '';
+      final cidNumber = identity?.cidNumber ?? '';
+      if (!mounted || accountRevision != _accountSecurity?.revision.value)
+        return;
+      if (accountId == (_identityAddress ?? '') &&
+          cidNumber == (_identityCidNumber ?? '')) {
+        setState(() {
+          _identityAccountRevision = accountRevision;
+          _identityReady = identity?.isRegistered == true;
+        });
+        return;
+      }
+      setState(() {
+        _identityAddress = accountId;
+        _identityCidNumber = cidNumber;
+        unawaited(_loadIdentity());
+        _feedFuture = _beginFeedLoad();
+      });
+    } on Object {
+      // 保持未知身份禁用，后续身份revision可以重新恢复。
+      AppLog.d('square current identity unavailable');
+    }
   }
 
   Future<void> _openCompose(SquarePostType postType) async {
+    if (!_canPublish) return;
     // 菜单和编辑页只使用本地当前用户；finalized 身份、会员和余额统一留到最终签名阶段。
     if (_publishMenuOpen) setState(() => _publishMenuOpen = false);
     final post = await Navigator.of(context).push<SquarePost>(
@@ -394,18 +432,10 @@ class _SquareHomePageState extends State<SquareHomePage> {
 
   Future<void> _openAuthor(String cidNumber) async {
     if (cidNumber.isEmpty) return;
-    final identity = await _identityFuture;
-    if (!mounted) return;
-    // 身份主键 = cid_number：作者主键与本人身份都按 cid 比对判定 isSelf。
-    final selfCid = identity.cidNumber?.trim() ?? '';
-    final isSelf = selfCid.isNotEmpty && selfCid == cidNumber;
+    final isSelf = _identityCidNumber?.trim() == cidNumber;
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
-        builder: (_) => CitizenServiceGate(
-          title: '用户主页',
-          description: '注册后即可查看用户主页。',
-          child: UserProfilePage(cidNumber: cidNumber, isSelf: isSelf),
-        ),
+        builder: (_) => UserProfilePage(cidNumber: cidNumber, isSelf: isSelf),
       ),
     );
   }
@@ -437,14 +467,15 @@ class _SquareHomePageState extends State<SquareHomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      floatingActionButton: _identityCidNumber?.isNotEmpty == true
-          ? _SquarePublishMenu(
-              expanded: _publishMenuOpen,
-              onToggle: () =>
-                  setState(() => _publishMenuOpen = !_publishMenuOpen),
-              onSelected: _openCompose,
-            )
-          : null,
+      floatingActionButton: SquarePublishMenu(
+        enabled: _canPublish,
+        expanded: _canPublish && _publishMenuOpen,
+        onToggle: () {
+          if (_canPublish) setState(() => _publishMenuOpen = !_publishMenuOpen);
+        },
+        onSelected: _openCompose,
+      ),
+      floatingActionButtonAnimator: FloatingActionButtonAnimator.noAnimation,
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       body: Stack(
         children: [
@@ -561,8 +592,9 @@ class _SquareHomePageState extends State<SquareHomePage> {
                               snapshot.data ?? const <SquarePost>[],
                             );
                             final errorMessage = error is SquareApiException
-                                ? SquareSessionResolution.fromError(error)
-                                      .message
+                                ? SquareSessionResolution.fromError(
+                                    error,
+                                  ).message
                                 : snapshot.hasError
                                 ? '广场内容加载失败'
                                 : null;
@@ -606,7 +638,7 @@ class _SquareHomePageState extends State<SquareHomePage> {
               ],
             ),
           ),
-          if (_publishMenuOpen)
+          if (_canPublish && _publishMenuOpen)
             Positioned.fill(
               child: GestureDetector(
                 key: const ValueKey('square-publish-menu-scrim'),
@@ -721,7 +753,7 @@ class _SquareHomePageState extends State<SquareHomePage> {
   void _onRegisteredFromGuide() {
     if (!mounted) return;
     setState(() {
-      _identityFuture = _loadIdentity();
+      unawaited(_loadIdentity());
       _feedFuture = _beginFeedLoad();
     });
   }
@@ -867,35 +899,41 @@ class _FeedBody extends StatelessWidget {
 
 /// 右下角发布按钮的三项等半径圆弧菜单；只管理本地动画和类型导航，
 /// 不触发任何网络或链读取。
-class _SquarePublishMenu extends StatefulWidget {
-  const _SquarePublishMenu({
+class SquarePublishMenu extends StatefulWidget {
+  const SquarePublishMenu({
+    required this.enabled,
     required this.expanded,
-    required this.onToggle,
-    required this.onSelected,
-  });
+    this.onToggle,
+    this.onSelected,
+  }) : assert(!enabled || (onToggle != null && onSelected != null));
 
+  final bool enabled;
   final bool expanded;
-  final VoidCallback onToggle;
-  final ValueChanged<SquarePostType> onSelected;
+  final VoidCallback? onToggle;
+  final ValueChanged<SquarePostType>? onSelected;
 
   static const _duration = Duration(milliseconds: 220);
 
   @override
-  State<_SquarePublishMenu> createState() => _SquarePublishMenuState();
+  State<SquarePublishMenu> createState() => _SquarePublishMenuState();
 }
 
-class _SquarePublishMenuState extends State<_SquarePublishMenu> {
+class _SquarePublishMenuState extends State<SquarePublishMenu> {
   bool _itemsVisible = false;
 
   @override
   void initState() {
     super.initState();
-    _itemsVisible = widget.expanded;
+    _itemsVisible = widget.enabled && widget.expanded;
   }
 
   @override
-  void didUpdateWidget(covariant _SquarePublishMenu oldWidget) {
+  void didUpdateWidget(covariant SquarePublishMenu oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!widget.enabled) {
+      _itemsVisible = false;
+      return;
+    }
     if (widget.expanded) {
       // 本轮 build 会立即把入口挂回主按钮位置，再沿圆弧展开。
       _itemsVisible = true;
@@ -903,7 +941,7 @@ class _SquarePublishMenuState extends State<_SquarePublishMenu> {
     }
     if (oldWidget.expanded) {
       // 先播放归位/淡出动画，结束后再移出命中测试与语义树。
-      Future<void>.delayed(_SquarePublishMenu._duration, () {
+      Future<void>.delayed(SquarePublishMenu._duration, () {
         if (!mounted || widget.expanded) return;
         setState(() => _itemsVisible = false);
       });
@@ -959,13 +997,17 @@ class _SquarePublishMenuState extends State<_SquarePublishMenu> {
                 key: const ValueKey('square-publish-main-button'),
                 heroTag: 'square-publish-main',
                 shape: const CircleBorder(),
-                onPressed: widget.onToggle,
+                onPressed: widget.enabled ? widget.onToggle : null,
                 tooltip: widget.expanded ? '收起发布菜单' : '发布',
-                backgroundColor: AppTheme.primary,
-                foregroundColor: Colors.white,
+                backgroundColor: widget.enabled
+                    ? AppTheme.primary
+                    : AppTheme.surfaceMuted,
+                foregroundColor: widget.enabled
+                    ? Colors.white
+                    : AppTheme.textTertiary,
                 child: AnimatedRotation(
                   turns: widget.expanded ? 0.125 : 0,
-                  duration: _SquarePublishMenu._duration,
+                  duration: SquarePublishMenu._duration,
                   child: Icon(
                     widget.expanded ? Icons.close : Icons.edit_rounded,
                   ),
@@ -997,21 +1039,21 @@ class _SquarePublishMenuState extends State<_SquarePublishMenu> {
     final top = originY - radius * math.sin(radians) - size / 2;
     final collapsed = collapsedOrigin - size / 2;
     return AnimatedPositioned(
-      duration: _SquarePublishMenu._duration,
+      duration: SquarePublishMenu._duration,
       curve: Curves.easeOutCubic,
       left: widget.expanded ? left : collapsed,
       top: widget.expanded ? top : collapsed,
       child: Offstage(
         offstage: !_itemsVisible,
         child: ExcludeSemantics(
-          excluding: !widget.expanded,
+          excluding: !widget.enabled || !widget.expanded,
           child: IgnorePointer(
-            ignoring: !widget.expanded,
+            ignoring: !widget.enabled || !widget.expanded,
             child: AnimatedScale(
-              duration: _SquarePublishMenu._duration,
+              duration: SquarePublishMenu._duration,
               scale: widget.expanded ? 1 : 0.72,
               child: AnimatedOpacity(
-                duration: _SquarePublishMenu._duration,
+                duration: SquarePublishMenu._duration,
                 opacity: widget.expanded ? 1 : 0,
                 child: Semantics(
                   button: true,
@@ -1028,7 +1070,9 @@ class _SquarePublishMenuState extends State<_SquarePublishMenu> {
                         clipBehavior: Clip.antiAlias,
                         child: InkWell(
                           customBorder: const CircleBorder(),
-                          onTap: () => widget.onSelected(postType),
+                          onTap: widget.enabled
+                              ? () => widget.onSelected?.call(postType)
+                              : null,
                           child: SizedBox(
                             width: size,
                             height: size,
@@ -1095,8 +1139,9 @@ Future<void> openSquareNotification(
     );
   } on Object {
     if (context.mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('通知内容暂时不可用或已删除')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('通知内容暂时不可用或已删除')));
     }
   }
 }

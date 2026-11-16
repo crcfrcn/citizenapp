@@ -13,6 +13,7 @@ import 'package:citizen_user/identity/register_identity_flow.dart';
 import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_user/membership/membership_revision.dart';
 import 'package:citizen_user/identity/finalized_identity_resolver.dart';
+import 'package:citizen_user/identity/identity_binding.dart';
 import 'package:citizen_scanner/qr_sign_session_page.dart';
 import 'package:citizen_chain/citizen_chain.dart';
 
@@ -277,6 +278,26 @@ class SubscriptionService {
     bool forceRefresh = false,
   }) => _authorizeSession(session, client: _api, forceRefresh: forceRefresh);
 
+  /// 会员页的只读展示入口：不建立会话、不联网，也不代替链上订阅事实。
+  static SquareResourceAuthorization? cachedResourcesFor({
+    required String cidNumber,
+    required String accountId,
+    required int bindRev,
+  }) {
+    final entry = _authorizations[cidNumber.trim()];
+    final now = _now();
+    if (entry == null ||
+        entry.pending ||
+        entry.failed ||
+        entry.session.accountId != accountId ||
+        entry.session.bindRev != bindRev ||
+        !_currentEntry(entry) ||
+        now < entry.checkedAt ||
+        now >= entry.deadline)
+      return null;
+    return entry.resolved;
+  }
+
   static bool _currentEntry(_ResourceAuthorization entry) {
     final cid = entry.session.cidNumber.trim(), session = _citizenSessions[cid];
     return identical(_authorizations[cid], entry) &&
@@ -369,8 +390,9 @@ class SubscriptionService {
     String level,
     int expectedPriceFen, {
     BuildContext? context,
+    IdentityBinding? expectedBinding,
   }) async {
-    final identity = await _requireIdentity();
+    final identity = await _requireIdentity(expectedBinding: expectedBinding);
     await _requireSigningAccount(identity.accountId);
     final cidNumber = identity.snapshot!.cidNumber;
     try {
@@ -388,8 +410,11 @@ class SubscriptionService {
   }
 
   /// 取消平台会员（撤销按月扣款授权）。
-  Future<void> cancel({BuildContext? context}) async {
-    final identity = await _requireIdentity();
+  Future<void> cancel({
+    BuildContext? context,
+    IdentityBinding? expectedBinding,
+  }) async {
+    final identity = await _requireIdentity(expectedBinding: expectedBinding);
     await _requireSigningAccount(identity.accountId);
     final cidNumber = identity.snapshot!.cidNumber;
     try {
@@ -409,8 +434,9 @@ class SubscriptionService {
     String level,
     int expectedPriceFen, {
     BuildContext? context,
+    IdentityBinding? expectedBinding,
   }) async {
-    final identity = await _requireIdentity();
+    final identity = await _requireIdentity(expectedBinding: expectedBinding);
     await _requireSigningAccount(identity.accountId);
     final cidNumber = identity.snapshot!.cidNumber;
     try {
@@ -452,10 +478,18 @@ class SubscriptionService {
   }
 
   /// 当前默认账户经 finalized 闭环验证后，才可成为链上订阅交易签名者。
-  Future<FinalizedIdentity> _requireIdentity() async {
+  Future<FinalizedIdentity> _requireIdentity({
+    IdentityBinding? expectedBinding,
+  }) async {
     final identity = await _identityResolver.resolve();
     if (identity == null || !identity.isRegistered) {
       throw const SubscriptionException('请先注册并绑定公民 CID');
+    }
+    if (expectedBinding != null &&
+        (identity.accountId != expectedBinding.accountId ||
+            identity.snapshot?.cidNumber != expectedBinding.cidNumber ||
+            identity.snapshot?.bindRev != expectedBinding.bindRev)) {
+      throw const SubscriptionException('当前会员身份已变化，请重试');
     }
     return identity;
   }

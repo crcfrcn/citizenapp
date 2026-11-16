@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -15,8 +14,277 @@ import 'package:citizen_testing/isar_test_env.dart';
 const _accountId =
     '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
+CitizenPreparedTransaction _submissionPrepared() => CitizenPreparedTransaction(
+  preparationId: 'submission-proof',
+  sourceAccountId: citizenAccountIdBytes(_accountId),
+  callDataHash: Uint8List.fromList(List.filled(32, 0x22)),
+  bestBlock: CitizenBlockRef(
+    hash: '0x${'11' * 32}',
+    number: BigInt.one,
+    finality: CitizenBlockFinality.best,
+  ),
+  runtimeSpecNumber: 1,
+  transactionFormatNumber: 4,
+  nonce: BigInt.zero,
+);
+
+CitizenTransactionHistoryRecord _submissionRecord(
+  CitizenTransactionHistoryStatus status, {
+  String executionId = 'submission-proof',
+  String account = _accountId,
+  String? callHash,
+}) {
+  final finalized =
+      status == CitizenTransactionHistoryStatus.finalizedSuccess ||
+      status == CitizenTransactionHistoryStatus.finalizedFailed;
+  final block = CitizenBlockRef(
+    hash: '0x${'11' * 32}',
+    number: BigInt.one,
+    finality: finalized
+        ? CitizenBlockFinality.finalized
+        : CitizenBlockFinality.best,
+  );
+  return CitizenTransactionHistoryRecord(
+    executionId: executionId,
+    sourceAccountId: account,
+    callDataHash: callHash ?? '0x${'22' * 32}',
+    transactionHash: '0x${'33' * 32}',
+    status: status,
+    block: block,
+    execution: finalized
+        ? CitizenExecution(
+            status: status == CitizenTransactionHistoryStatus.finalizedSuccess
+                ? CitizenExecutionStatus.success
+                : CitizenExecutionStatus.failed,
+            block: block,
+            extrinsicIndex: 0,
+            dispatchVariant: null,
+            palletIndex: null,
+            errorIndex: null,
+          )
+        : null,
+    replacementHash: null,
+    createdAtMillis: BigInt.one,
+    updatedAtMillis: BigInt.two,
+    poolRejectionReason: status == CitizenTransactionHistoryStatus.poolRejected
+        ? 'invalid'
+        : null,
+  );
+}
+
+WalletTransactionHistoryService _submissionHistory({
+  required Stream<CitizenTransactionHistoryRecord> Function(
+    CitizenPreparedTransaction,
+  )
+  watch,
+  required Future<CitizenTransactionHistoryRecord?> Function(
+    CitizenPreparedTransaction,
+  )
+  read,
+}) => WalletTransactionHistoryService(
+  events: const Stream.empty(),
+  watchPreparedTransaction: watch,
+  getPreparedTransactionRecord: read,
+  syncTransactionHistory: () async => CitizenTransactionHistoryPage(
+    revision: BigInt.zero,
+    records: const [],
+    nextBeforeExecutionId: null,
+  ),
+  getWalletState: () => testCitizenOperation(
+    () async => CitizenWalletState(
+      initializationState: CitizenWalletInitializationState.empty,
+      cleanupPending: false,
+      revision: BigInt.zero,
+      hotProfile: null,
+      accounts: const [],
+    ),
+  ),
+);
+
 void main() {
   useIsolatedIsar();
+
+  test('执行网络异常但既有回读确认成功，通知页面且不增加查询或重试', () async {
+    final core = await openTestSdk();
+    var reads = 0, watches = 0, executions = 0;
+    final service = _submissionHistory(
+      watch: (p) {
+        watches++;
+        expect(p.preparationId, 'submission-proof');
+        return const Stream.empty();
+      },
+      read: (p) async {
+        reads++;
+        return _submissionRecord(
+          CitizenTransactionHistoryStatus.finalizedSuccess,
+        );
+      },
+    );
+    await service.start();
+    await service.sync();
+    final reported = <CitizenTransactionHistoryRecord>[];
+    const failure = CitizenSdkException(
+      code: CitizenSdkErrorCode.network,
+      message: 'observation failed',
+    );
+    await expectLater(
+      service.trackTransfer<void>(
+        sdk: core.sdk,
+        prepared: _submissionPrepared(),
+        amountFen: BigInt.from(100),
+        fromAddress: 'payer',
+        toAddress: 'recipient',
+        remark: '',
+        onRecord: reported.add,
+        execute: () async {
+          executions++;
+          throw failure;
+        },
+      ),
+      throwsA(same(failure)),
+    );
+    expect(
+      reported.single.status,
+      CitizenTransactionHistoryStatus.finalizedSuccess,
+    );
+    expect((reads, watches, executions), (1, 1, 1));
+    expect(
+      (await LocalTxStore.queryByAccountId(_accountId)).single.entryState,
+      LocalTxStore.statusFinalized,
+    );
+    await service.stop();
+  });
+
+  for (final mismatch in ['execution', 'account', 'call']) {
+    test('不能把另一笔交易的成功记录交付页面：$mismatch', () async {
+      final core = await openTestSdk();
+      final wrong = _submissionRecord(
+        CitizenTransactionHistoryStatus.finalizedSuccess,
+        executionId: mismatch == 'execution'
+            ? 'another-execution'
+            : 'submission-proof',
+        account: mismatch == 'account' ? '0x${'bb' * 32}' : _accountId,
+        callHash: mismatch == 'call' ? '0x${'44' * 32}' : null,
+      );
+      final service = _submissionHistory(
+        watch: (_) => Stream.value(wrong),
+        read: (_) async => wrong,
+      );
+      await service.start();
+      await service.sync();
+      final reported = <CitizenTransactionHistoryRecord>[];
+      await service.trackTransfer<String>(
+        sdk: core.sdk,
+        prepared: _submissionPrepared(),
+        amountFen: BigInt.from(100),
+        fromAddress: 'payer',
+        toAddress: 'recipient',
+        remark: '',
+        onRecord: reported.add,
+        execute: () async => 'completed',
+      );
+      expect(reported, isEmpty);
+      expect(await LocalTxStore.queryByAccountId(_accountId), isEmpty);
+      await service.stop();
+    });
+  }
+
+  test('订阅已成功后迟到的待确认回读不降级页面或本地记录', () async {
+    final core = await openTestSdk();
+    final observed = Completer<void>();
+    final reported = <CitizenTransactionHistoryRecord>[];
+    final service = _submissionHistory(
+      watch: (_) => Stream.value(
+        _submissionRecord(CitizenTransactionHistoryStatus.finalizedSuccess),
+      ),
+      read: (_) async =>
+          _submissionRecord(CitizenTransactionHistoryStatus.pending),
+    );
+    await service.start();
+    await service.sync();
+    final result = await service.trackTransfer<String>(
+      sdk: core.sdk,
+      prepared: _submissionPrepared(),
+      amountFen: BigInt.from(100),
+      fromAddress: 'payer',
+      toAddress: 'recipient',
+      remark: '',
+      onRecord: (r) {
+        reported.add(r);
+        if (!observed.isCompleted) observed.complete();
+      },
+      execute: () async {
+        await observed.future;
+        return 'ok';
+      },
+    );
+    expect(result, 'ok');
+    expect(reported.map((r) => r.status), [
+      CitizenTransactionHistoryStatus.finalizedSuccess,
+    ]);
+    expect(
+      (await LocalTxStore.queryByAccountId(_accountId)).single.entryState,
+      LocalTxStore.statusFinalized,
+    );
+    await service.stop();
+  });
+
+  test('记录观察者异常不覆盖原交易结果，回读仍只执行一次', () async {
+    final core = await openTestSdk();
+    var reads = 0;
+    final service = _submissionHistory(
+      watch: (_) => const Stream.empty(),
+      read: (_) async {
+        reads++;
+        return _submissionRecord(
+          CitizenTransactionHistoryStatus.finalizedSuccess,
+        );
+      },
+    );
+    await service.start();
+    await service.sync();
+    final result = await service.trackTransfer<String>(
+      sdk: core.sdk,
+      prepared: _submissionPrepared(),
+      amountFen: BigInt.from(100),
+      fromAddress: 'payer',
+      toAddress: 'recipient',
+      remark: '',
+      onRecord: (_) => throw StateError('observer failed'),
+      execute: () async => 'ok',
+    );
+    expect(result, 'ok');
+    expect(reads, 1);
+    await service.stop();
+  });
+
+  test('结束回读异常不覆盖已知的执行结果或签名取消', () async {
+    final core = await openTestSdk();
+    var reads = 0;
+    final service = _submissionHistory(
+      watch: (_) => const Stream.empty(),
+      read: (_) async {
+        reads++;
+        throw StateError('history unavailable');
+      },
+    );
+    await service.start();
+    await service.sync();
+    expect(
+      await service.trackTransfer<String?>(
+        sdk: core.sdk,
+        prepared: _submissionPrepared(),
+        amountFen: BigInt.from(100),
+        fromAddress: 'payer',
+        toAddress: 'recipient',
+        remark: '',
+        execute: () async => null,
+      ),
+      isNull,
+    );
+    expect(reads, 1);
+    await service.stop();
+  });
 
   test('真实费用按付款账户附一次，多笔本金与接收方分别投影', () async {
     final chain = _HistoryChain()..height = 1;
@@ -39,7 +307,9 @@ void main() {
   test('失败执行保留每条真实收费，额外费用按事件身份入账', () async {
     final chain = _HistoryChain()..height = 1;
     chain.encodedEvents[1] = _eventFacts(
-      failed: true, feeAmount: BigInt.from(10), duplicateFee: true,
+      failed: true,
+      feeAmount: BigInt.from(10),
+      duplicateFee: true,
     );
     final service = _service(chain, _HistoryWallet(createdAt: 1000));
     await service.start();
@@ -66,7 +336,10 @@ void main() {
     chain.encodedEvents[1] = _eventFacts(feeAmount: BigInt.from(10));
     await service.sync();
     expect((await LocalTxStore.historyCursor(_accountId))!.cursorBlock, 1);
-    expect((await LocalTxStore.queryByAccountId(_accountId)).single.feeAmount, '10');
+    expect(
+      (await LocalTxStore.queryByAccountId(_accountId)).single.feeAmount,
+      '10',
+    );
     await service.stop();
   });
 
@@ -269,11 +542,17 @@ void main() {
 Future<void> _insert({required String txHash, required String executionId}) {
   return LocalTxStore.applyExecution(
     CitizenTransactionHistoryRecord(
-      executionId: executionId, sourceAccountId: _accountId,
-      callDataHash: '0x${'22' * 32}', transactionHash: txHash,
-      status: CitizenTransactionHistoryStatus.pending, block: null,
-      execution: null, replacementHash: null, createdAtMillis: BigInt.one,
-      updatedAtMillis: BigInt.one, poolRejectionReason: null,
+      executionId: executionId,
+      sourceAccountId: _accountId,
+      callDataHash: '0x${'22' * 32}',
+      transactionHash: txHash,
+      status: CitizenTransactionHistoryStatus.pending,
+      block: null,
+      execution: null,
+      replacementHash: null,
+      createdAtMillis: BigInt.one,
+      updatedAtMillis: BigInt.one,
+      poolRejectionReason: null,
     ),
     amountFen: BigInt.from(100),
     fromAddress: 'sender',
@@ -438,7 +717,8 @@ final class _HistoryChain extends TestChainReads {
   ) async {
     if (failRange) throw StateError('SDK 拒绝不完整的 finalized 区间');
     return [
-      for (var i = start; i <= end; i += BigInt.one) await getFinalizedBlockAt(i),
+      for (var i = start; i <= end; i += BigInt.one)
+        await getFinalizedBlockAt(i),
     ];
   }
 
@@ -452,7 +732,9 @@ final class _HistoryChain extends TestChainReads {
         .asUint8List();
   }
 
-  Future<List<CitizenSystemEvent>> getFinalizedEvents(CitizenBlockRef block) async {
+  Future<List<CitizenSystemEvent>> getFinalizedEvents(
+    CitizenBlockRef block,
+  ) async {
     final number = block.number.toInt();
     eventBlocks.add(number);
     if (!eventEntered.isCompleted) eventEntered.complete();
@@ -485,22 +767,31 @@ List<CitizenSystemEvent> _eventFacts({
   final to = List<String>.filled(32, incoming ? '170' : '187');
   final events = <CitizenSystemEvent>[];
   void add(String pallet, String name, Object? fields) {
-    events.add(CitizenSystemEvent(
-      eventIndex: events.length, extrinsicIndex: 0,
-      pallet: pallet, name: name, fields: fields,
-    ));
+    events.add(
+      CitizenSystemEvent(
+        eventIndex: events.length,
+        extrinsicIndex: 0,
+        pallet: pallet,
+        name: name,
+        fields: fields,
+      ),
+    );
   }
+
   for (final note in ['合成备注', if (twice) '第二笔']) {
     add('Balances', 'Transfer', {'from': from, 'to': to, 'amount': '100'});
     add('OnchainTransaction', 'TransferWithRemark', {
-      'from_account_id': from, 'beneficiary_account_id': to, 'amount': '100',
+      'from_account_id': from,
+      'beneficiary_account_id': to,
+      'amount': '100',
       'remark': utf8.encode(note).map((byte) => byte.toString()).toList(),
     });
   }
   if (feeAmount != null) {
     for (var i = 0; i < (duplicateFee ? 2 : 1); i++) {
       add('OnchainTransaction', 'FeePaid', {
-        'account_id': from, 'fee': feeAmount.toString(),
+        'account_id': from,
+        'fee': feeAmount.toString(),
       });
     }
   }

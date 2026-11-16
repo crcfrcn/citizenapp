@@ -2,6 +2,11 @@ import 'package:citizen_user/navigation.dart';
 import 'package:citizen_storage/user_isar.dart' as wallet_store show Entry;
 
 import 'dart:async';
+import 'dart:typed_data';
+import 'package:provider/provider.dart';
+import 'package:citizen_testing/fake_citizen_sdk.dart';
+import 'package:citizen_testing/isar_test_env.dart';
+import 'package:citizen_wallet/history/wallet_transaction_history_service.dart';
 
 import 'package:citizen_onchain/onchain_payment_models.dart';
 import 'package:citizen_onchain/onchain_payment_service.dart';
@@ -71,6 +76,80 @@ class _RecipientService extends OnchainPaymentService {
   }
 }
 
+CitizenPreparedTransaction _feedbackPrepared() => CitizenPreparedTransaction(
+  preparationId: 'feedback-prepared',
+  sourceAccountId: citizenAccountIdBytes(_walletAAccountId),
+  callDataHash: Uint8List.fromList(List.filled(32, 0x22)),
+  bestBlock: CitizenBlockRef(
+    hash: '0x${'11' * 32}',
+    number: BigInt.one,
+    finality: CitizenBlockFinality.best,
+  ),
+  runtimeSpecNumber: 1,
+  transactionFormatNumber: 4,
+  nonce: BigInt.zero,
+);
+
+CitizenTransactionHistoryRecord _feedbackRecord(
+  CitizenTransactionHistoryStatus status, {
+  String executionId = 'feedback-prepared',
+}) {
+  final finalized =
+      status == CitizenTransactionHistoryStatus.finalizedSuccess ||
+      status == CitizenTransactionHistoryStatus.finalizedFailed;
+  final block = CitizenBlockRef(
+    hash: '0x${'11' * 32}',
+    number: BigInt.one,
+    finality: finalized
+        ? CitizenBlockFinality.finalized
+        : CitizenBlockFinality.best,
+  );
+  return CitizenTransactionHistoryRecord(
+    executionId: executionId,
+    sourceAccountId: _walletAAccountId,
+    callDataHash: '0x${'22' * 32}',
+    transactionHash: '0x${'33' * 32}',
+    status: status,
+    block: block,
+    execution: finalized
+        ? CitizenExecution(
+            status: status == CitizenTransactionHistoryStatus.finalizedSuccess
+                ? CitizenExecutionStatus.success
+                : CitizenExecutionStatus.failed,
+            block: block,
+            extrinsicIndex: 0,
+            dispatchVariant: null,
+            palletIndex: null,
+            errorIndex: null,
+          )
+        : null,
+    replacementHash: null,
+    createdAtMillis: BigInt.one,
+    updatedAtMillis: BigInt.two,
+    poolRejectionReason: status == CitizenTransactionHistoryStatus.poolRejected
+        ? 'invalid'
+        : null,
+  );
+}
+
+class _FeedbackService extends _RecipientService {
+  _FeedbackService(super.recipient);
+  bool failPreparation = false;
+  @override
+  Future<CitizenPreparedTransaction> prepareTransfer(
+    OnchainPaymentDraft draft,
+  ) async {
+    preparations++;
+    if (failPreparation)
+      throw const CitizenSdkException(
+        code: CitizenSdkErrorCode.unavailable,
+        message: 'preparation unavailable',
+      );
+    // 不注册原生准备，SDK会拒绝执行；此夹具不会签名或广播真实交易。
+    return _feedbackPrepared();
+  }
+}
+
 CitizenWalletStateAccount _wallet({
   required int index,
   required String name,
@@ -121,6 +200,279 @@ Future<void> _pumpUntilFound(WidgetTester tester, Finder finder) async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  useIsolatedIsar();
+
+  test('执行网络异常按本次SDK终态反馈，未知状态不假报成功或失败', () {
+    for (final (status, prefix, success) in [
+      (CitizenTransactionHistoryStatus.finalizedSuccess, '交易已完成', true),
+      (CitizenTransactionHistoryStatus.finalizedFailed, '交易已最终失败', false),
+      (CitizenTransactionHistoryStatus.poolRejected, '交易池已拒绝', false),
+      (CitizenTransactionHistoryStatus.pending, '交易结果待确认', false),
+      (CitizenTransactionHistoryStatus.inBlock, '交易结果待确认', false),
+    ]) {
+      for (final step in [
+        OnchainPaymentStep.execution,
+        OnchainPaymentStep.externalSignature,
+      ]) {
+        final result = onchainTransactionFeedback(
+          step: step,
+          record: _feedbackRecord(status),
+          errorCode: CitizenSdkErrorCode.network,
+        )!;
+        expect(result.message, startsWith(prefix));
+        expect(result.succeeded, success);
+      }
+    }
+    for (final code in [
+      CitizenSdkErrorCode.network,
+      CitizenSdkErrorCode.unavailable,
+      CitizenSdkErrorCode.notReady,
+      CitizenSdkErrorCode.timeout,
+    ]) {
+      final result = onchainTransactionFeedback(
+        step: OnchainPaymentStep.execution,
+        record: null,
+        errorCode: code,
+      )!;
+      expect(result.message, '暂未取得交易确认结果，请查看交易记录');
+      expect(result.succeeded, isFalse);
+    }
+  });
+  test('准备失败与签名取消不被改写成已成功或待确认', () {
+    expect(
+      onchainTransactionFeedback(
+        step: OnchainPaymentStep.preparation,
+        record: null,
+        errorCode: CitizenSdkErrorCode.unavailable,
+      ),
+      isNull,
+    );
+    expect(
+      onchainTransactionFeedback(
+        step: OnchainPaymentStep.externalSignature,
+        record: null,
+        errorCode: CitizenSdkErrorCode.authenticationCancelled,
+      ),
+      isNull,
+    );
+    expect(
+      onchainTransactionFeedback(
+        step: OnchainPaymentStep.execution,
+        record: null,
+        errorCode: CitizenSdkErrorCode.authenticationRequired,
+      ),
+      isNull,
+    );
+  });
+
+  for (final status in [
+    CitizenTransactionHistoryStatus.finalizedSuccess,
+    CitizenTransactionHistoryStatus.finalizedFailed,
+    CitizenTransactionHistoryStatus.poolRejected,
+    CitizenTransactionHistoryStatus.pending,
+  ]) {
+    testWidgets('SDK执行异常但回读为${status.name}，页面使用本笔状态且只查询一次', (tester) async {
+      final core = await openTestSdk();
+      var reads = 0, watches = 0;
+      final service = _FeedbackService(
+        citizenSs58FromAccountId(_walletBAccountId),
+      );
+      final history = WalletTransactionHistoryService(
+        events: const Stream.empty(),
+        watchPreparedTransaction: (_) {
+          watches++;
+          return const Stream.empty();
+        },
+        getPreparedTransactionRecord: (_) async {
+          reads++;
+          return _feedbackRecord(status);
+        },
+        syncTransactionHistory: () async => CitizenTransactionHistoryPage(
+          revision: BigInt.zero,
+          records: const [],
+          nextBeforeExecutionId: null,
+        ),
+        getWalletState: () => testCitizenOperation(
+          () async => CitizenWalletState(
+            initializationState: CitizenWalletInitializationState.empty,
+            cleanupPending: false,
+            revision: BigInt.zero,
+            hotProfile: null,
+            accounts: const [],
+          ),
+        ),
+      );
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox());
+        await tester.runAsync(history.stop);
+      });
+      await history.start();
+      await history.sync();
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            Provider<CitizenSdk>.value(value: core.sdk),
+            Provider<WalletTransactionHistoryService>.value(value: history),
+          ],
+          child: MaterialApp(
+            home: OnchainPaymentPanel(
+              title: '交易',
+              paymentService: service,
+              currentWalletLoader: () async => _wallet(
+                index: 0,
+                name: '测试钱包',
+                address: citizenSs58FromAccountId(_walletAAccountId),
+                accountId: _walletAAccountId,
+              ),
+              balanceLoader: (_) async => BigInt.from(10000),
+              localRecordsLoader: (_, {limit = 100}) async => const [],
+            ),
+          ),
+        ),
+      );
+      await _pumpUntilFound(tester, find.textContaining('钱包可用余额：100'));
+      final block = CitizenBlockRef(
+        hash: _walletAAccountId,
+        number: BigInt.one,
+        finality: CitizenBlockFinality.finalized,
+      );
+      final banner = tester.widget<ChainProgressBanner>(
+        find.byType(ChainProgressBanner),
+      );
+      banner.onProgressChanged?.call(
+        CitizenChainSyncStatus(
+          peerCount: BigInt.one,
+          isSyncing: false,
+          isUsable: true,
+          best: block,
+          finalized: block,
+        ),
+      );
+      await tester.pump();
+      final fields = find.byType(TextField);
+      await tester.enterText(
+        fields.at(0),
+        citizenSs58FromAccountId(_walletBAccountId),
+      );
+      await tester.enterText(fields.at(1), '1');
+      await tester.ensureVisible(find.text('签名交易'));
+      await tester.tap(find.text('签名交易'));
+      await tester.pumpAndSettle();
+      expect(find.text('确认交易'), findsOneWidget);
+      await tester.tap(find.widgetWithText(FilledButton, '确认'));
+      final prefix = switch (status) {
+        CitizenTransactionHistoryStatus.finalizedSuccess => '交易已完成',
+        CitizenTransactionHistoryStatus.finalizedFailed => '交易已最终失败',
+        CitizenTransactionHistoryStatus.poolRejected => '交易池已拒绝',
+        _ => '交易结果待确认',
+      };
+      for (
+        var attempt = 0;
+        attempt < 100 && find.textContaining(prefix).evaluate().isEmpty;
+        attempt++
+      ) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 5)),
+        );
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      expect(find.textContaining(prefix), findsOneWidget);
+      expect(find.textContaining('交易执行失败'), findsNothing);
+      expect((reads, watches, service.preparations), (1, 1, 1));
+      expect(
+        tester.widget<TextField>(fields.at(1)).controller!.text,
+        status == CitizenTransactionHistoryStatus.finalizedSuccess ? '' : '1',
+      );
+      await tester.pumpWidget(const SizedBox());
+      await tester.runAsync(history.stop);
+    });
+  }
+
+  Future<void> openKeyboardForm(WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme,
+        home: Scaffold(
+          body: OnchainPaymentPanel(
+            title: '交易',
+            currentWalletLoader: () async => _wallet(
+              index: 0,
+              name: '测试钱包',
+              address: 'wallet_a',
+              accountId: _walletAAccountId,
+            ),
+            balanceLoader: (_) async => BigInt.from(10000),
+            localRecordsLoader: (_, {limit = 100}) async => const [],
+          ),
+        ),
+      ),
+    );
+    await _pumpUntilFound(tester, find.textContaining('钱包可用余额：100'));
+  }
+
+  testWidgets('金额和多行备注均可用键盘上方按钮收起，输入内容保留', (tester) async {
+    addTearDown(tester.view.resetViewInsets);
+    await openKeyboardForm(tester);
+    final fields = find.byType(TextField);
+    for (final index in [1, 2]) {
+      final field = fields.at(index);
+      await tester.ensureVisible(field);
+      await tester.enterText(field, index == 1 ? '12.50' : '备注第一行\n第二行');
+      await tester.pump();
+      expect(tester.testTextInput.isVisible, isTrue);
+      tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+      await tester.pump();
+      final hide = find.byKey(const ValueKey('transaction-hide-keyboard'));
+      expect(hide, findsOneWidget);
+      await tester.tap(hide);
+      await tester.pump();
+      expect(tester.testTextInput.isVisible, isFalse);
+      expect(
+        tester.widget<TextField>(field).controller!.text,
+        index == 1 ? '12.50' : '备注第一行\n第二行',
+      );
+      tester.view.resetViewInsets();
+      await tester.pump();
+      expect(hide, findsNothing);
+    }
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('金额完成键和点击输入框外均可收起键盘', (tester) async {
+    await openKeyboardForm(tester);
+    final amount = find.byType(TextField).at(1);
+    await tester.ensureVisible(amount);
+    await tester.enterText(amount, '2.50');
+    await tester.pump();
+    // 嵌套Scaffold或硬件键盘没有可见insets时，输入焦点仍提供收起入口。
+    expect(
+      find.byKey(const ValueKey('transaction-hide-keyboard')),
+      findsOneWidget,
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+    expect(tester.testTextInput.isVisible, isFalse);
+    await tester.enterText(amount, '3.50');
+    await tester.pump();
+    await tester.tap(find.text('金额'));
+    await tester.pump();
+    expect(tester.testTextInput.isVisible, isFalse);
+    expect(tester.widget<TextField>(amount).controller!.text, '3.50');
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('拖动表单可收起备注键盘，多行文字不丢失', (tester) async {
+    await openKeyboardForm(tester);
+    final remark = find.byType(TextField).at(2);
+    await tester.ensureVisible(remark);
+    await tester.enterText(remark, '保留备注\n另一行');
+    await tester.pump();
+    await tester.drag(find.byType(ListView).first, const Offset(0, 180));
+    await tester.pump();
+    expect(tester.testTextInput.isVisible, isFalse);
+    expect(tester.widget<TextField>(remark).controller!.text, '保留备注\n另一行');
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets('0x收款地址进入原确认弹窗，显示原始地址及解析账户，取消不准备交易', (tester) async {
     const address = '0x6D66a0cB155051055F3FB3Cc73d9230D3Fb4D5B5';

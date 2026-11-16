@@ -119,11 +119,15 @@ class CitizenServiceGate extends StatefulWidget {
     required this.description,
     this.child,
     this.builder,
+    this.fallbackFloatingActionButton,
   }) : assert((child == null) != (builder == null));
 
   final String title;
   final String description;
   final Widget? child;
+
+  /// 未就绪/未注册壳的固定展示入口；不提前挂载业务child或建立会话。
+  final Widget? fallbackFloatingActionButton;
   final Widget Function(String cidNumber)? builder;
 
   @override
@@ -179,6 +183,9 @@ class _CitizenServiceGateState extends State<CitizenServiceGate> {
     }
     return Scaffold(
       appBar: AppBar(title: Text(widget.title)),
+      floatingActionButton: widget.fallbackFloatingActionButton,
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+      floatingActionButtonAnimator: FloatingActionButtonAnimator.noAnimation,
       body: switch (decision?.status) {
         CidBusinessStatus.unregistered => IdentityRegisterGuide(
           description: widget.description,

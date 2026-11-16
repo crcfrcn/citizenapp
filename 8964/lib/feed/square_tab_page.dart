@@ -24,6 +24,10 @@ class SquareTab extends StatelessWidget {
   Widget build(BuildContext context) => CitizenServiceGate(
     title: '广场',
     description: '注册后即可浏览广场、发布内容。',
+    fallbackFloatingActionButton: const SquarePublishMenu(
+      enabled: false,
+      expanded: false,
+    ),
     child: SquareHomePage(
       onSquareUnreadChanged: onSquareUnreadChanged,
       selectedTab: selectedTab,

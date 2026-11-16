@@ -42,6 +42,7 @@ import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_user/identity/square_identity_state.dart';
 import 'package:citizen_user/identity/current_user_context.dart';
 import 'package:citizen_user/identity/cid_business_gate.dart';
+import 'package:citizen_user/identity/identity_register_guide.dart';
 import 'package:citizen_user/membership/membership_revision.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 import 'package:citizen_system/theme/app_theme.dart';
@@ -508,6 +509,24 @@ class _GateMlsSessions implements SquareSessionProvider {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+final _publishMain = find.byKey(const ValueKey('square-publish-main-button'));
+void _expectPublishEnabled(WidgetTester tester, bool enabled) {
+  expect(_publishMain, findsOneWidget);
+  final button = tester.widget<FloatingActionButton>(_publishMain);
+  expect(button.onPressed, enabled ? isNotNull : isNull);
+  expect(
+    button.backgroundColor,
+    enabled ? AppTheme.primary : AppTheme.surfaceMuted,
+  );
+}
+
+void _expectPublishPosition(WidgetTester tester, Rect initial) {
+  final rect = tester.getRect(_publishMain);
+  expect(rect.left, closeTo(initial.left, 0.01));
+  expect(rect.top, closeTo(initial.top, 0.01));
+  expect(rect.size, initial.size);
+}
+
 void main() {
   _squareTabGateTests();
   _squareOrderPersistenceTests();
@@ -794,7 +813,7 @@ void main() {
       expect(current.requests, hasLength(1));
       expect(walletReads, 1);
       expect(feed.calls, 1);
-      expect(find.byTooltip('发布'), findsNothing);
+      _expectPublishEnabled(tester, false);
 
       security.notifyDefaultAccountChanged();
       await tester.pump();
@@ -805,7 +824,7 @@ void main() {
       await _drainHomeIdentityReads(tester);
       expect(walletReads, 1);
       expect(feed.calls, 1);
-      expect(find.byTooltip('发布'), findsNothing);
+      _expectPublishEnabled(tester, false);
       expect(tester.takeException(), isNull);
 
       current.requests[1].complete(registered);
@@ -840,7 +859,7 @@ void main() {
       walletPresent = false;
       current.requests[2].complete(null);
       await tester.pumpAndSettle();
-      expect(find.byTooltip('发布'), findsNothing);
+      _expectPublishEnabled(tester, false);
       expect(walletReads, 2);
       expect(feed.calls, 2);
 
@@ -849,13 +868,13 @@ void main() {
       expect(current.requests, hasLength(3));
       expect(walletReads, 2);
       expect(feed.calls, 2);
-      expect(find.byTooltip('发布'), findsNothing);
+      _expectPublishEnabled(tester, false);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
     });
   });
 
-  testWidgets('身份延迟完成后通知父页面，feed未返回也显示原发布入口', (tester) async {
+  testWidgets('身份延迟时首帧即显示禁用发布入口，就绪原位启用', (tester) async {
     final identity = _DelayedComposeIdentityService();
     final feed = _PendingFeedSource();
     await tester.pumpWidget(
@@ -867,8 +886,19 @@ void main() {
         ),
       ),
     );
+    _expectPublishEnabled(tester, false);
+    final initial = tester.getRect(_publishMain);
+    for (var frame = 0; frame < 8; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      _expectPublishPosition(tester, initial);
+      _expectPublishEnabled(tester, false);
+    }
+    await tester.tap(_publishMain);
     await tester.pump();
-    expect(find.byTooltip('发布'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('square-publish-menu-scrim')),
+      findsNothing,
+    );
     identity.completer.complete(
       await const _StaticComposeIdentityService().loadCurrent(),
     );
@@ -877,8 +907,144 @@ void main() {
     expect(find.byTooltip('发布'), findsOneWidget);
     expect(find.byKey(const ValueKey('square-feed-progress')), findsOneWidget);
     expect(feed.calls, 1);
+    for (var frame = 0; frame < 20; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      _expectPublishPosition(tester, initial);
+      _expectPublishEnabled(tester, true);
+    }
     feed.completer.complete(const <SquarePost>[]);
     await tester.pumpAndSettle();
+  });
+
+  testWidgets('主按钮逐帧固定，公文文章视频仍沿圆弧展开', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        SquareHomePage(
+          tabOrderStore: const _MemoryTabOrderStore(),
+          identityService: const _StaticComposeIdentityService(),
+          feedSource: const _FakeFeedSource(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final initial = tester.getRect(_publishMain);
+    await tester.tap(_publishMain);
+    await tester.pump();
+    final article = find.byKey(const ValueKey('square-publish-article'));
+    final start = tester.getCenter(article);
+    await tester.pump(const Duration(milliseconds: 100));
+    final middle = tester.getCenter(article);
+    _expectPublishPosition(tester, initial);
+    expect((middle - start).distance, greaterThan(1));
+    await tester.pump(const Duration(milliseconds: 120));
+    final end = tester.getCenter(article);
+    expect((end - middle).distance, greaterThan(0.1));
+    _expectPublishPosition(tester, initial);
+    for (final type in ['document', 'article', 'video']) {
+      expect(find.byKey(ValueKey('square-publish-$type')), findsOneWidget);
+    }
+    await tester.tap(_publishMain);
+    await tester.pump();
+    for (var frame = 0; frame < 16; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      _expectPublishPosition(tester, initial);
+    }
+    expect(article, findsNothing);
+  });
+
+  for (final bottomInset in [0.0, 34.0]) {
+    testWidgets('入口门禁与业务页安全区底部=$bottomInset，按钮逐帧固定在右下角', (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(411, 914);
+      tester.view.padding = FakeViewPadding(top: 44, bottom: bottomInset);
+      tester.view.viewPadding = FakeViewPadding(top: 44, bottom: bottomInset);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetPadding);
+      addTearDown(tester.view.resetViewPadding);
+      final gate = _TabGate(CidBusinessStatus.ready)
+        ..pending = Completer<CidBusinessDecision>();
+      await tester.pumpWidget(
+        Provider<CidBusinessGate>.value(
+          value: gate,
+          child: MaterialApp(
+            theme: AppTheme.lightTheme,
+            home: CitizenServiceGate(
+              title: '广场',
+              description: '注册后即可浏览广场、发布内容。',
+              fallbackFloatingActionButton: const SquarePublishMenu(
+                enabled: false,
+                expanded: false,
+              ),
+              child: SquareHomePage(
+                tabOrderStore: const _MemoryTabOrderStore(),
+                identityService: const _StaticComposeIdentityService(),
+                feedSource: const _FakeFeedSource(),
+              ),
+            ),
+          ),
+        ),
+      );
+      _expectPublishEnabled(tester, false);
+      final initial = tester.getRect(_publishMain);
+      expect(411 - initial.right, closeTo(16, 0.01));
+      expect(914 - bottomInset - initial.bottom, closeTo(16, 0.01));
+      for (var frame = 0; frame < 6; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        _expectPublishPosition(tester, initial);
+        expect(find.byType(SquareHomePage), findsNothing);
+      }
+      gate.pending!.complete(
+        const CidBusinessDecision(
+          CidBusinessStatus.ready,
+          cidNumber: testMlsCidNumber,
+        ),
+      );
+      for (var frame = 0; frame < 24; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        _expectPublishPosition(tester, initial);
+      }
+      _expectPublishEnabled(tester, true);
+      await tester.pumpAndSettle();
+    });
+  }
+
+  testWidgets('身份重新核对立即关闭菜单，失败后主按钮仍原位禁用', (tester) async {
+    final identity = _QueuedHomeIdentityService();
+    await tester.pumpWidget(
+      _wrap(
+        SquareHomePage(
+          tabOrderStore: const _MemoryTabOrderStore(),
+          identityService: identity,
+          feedSource: const _FakeFeedSource(),
+        ),
+      ),
+    );
+    identity.requests.single.complete(
+      await const _StaticComposeIdentityService().loadCurrent(),
+    );
+    await tester.pumpAndSettle();
+    final initial = tester.getRect(_publishMain);
+    await tester.tap(_publishMain);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('square-publish-article')),
+      findsOneWidget,
+    );
+    IdentityBadgeSnapshotStore.revision.value++;
+    await tester.pump();
+    _expectPublishEnabled(tester, false);
+    _expectPublishPosition(tester, initial);
+    expect(
+      find.byKey(const ValueKey('square-publish-menu-scrim')),
+      findsNothing,
+    );
+    expect(find.byKey(const ValueKey('square-publish-article')), findsNothing);
+    identity.requests.last.completeError(StateError('identity unavailable'));
+    await tester.pumpAndSettle();
+    _expectPublishEnabled(tester, false);
+    _expectPublishPosition(tester, initial);
+    expect(tester.takeException(), isNull);
   });
 
   for (final state in [
@@ -888,7 +1054,7 @@ void main() {
       signMode: CitizenWalletSignMode.hot,
     ),
   ]) {
-    testWidgets('身份延迟返回${state.hasWallet ? '未注册' : '无钱包'}仍不显示发布入口', (
+    testWidgets('身份延迟返回${state.hasWallet ? '未注册' : '无钱包'}时发布入口保持禁用', (
       tester,
     ) async {
       final identity = _DelayedComposeIdentityService();
@@ -904,7 +1070,7 @@ void main() {
       await tester.pump();
       identity.completer.complete(state);
       await tester.pumpAndSettle();
-      expect(find.byTooltip('发布'), findsNothing);
+      _expectPublishEnabled(tester, false);
       expect(tester.takeException(), isNull);
     });
   }
@@ -939,7 +1105,7 @@ void main() {
       );
       await tester.pump();
       await tester.pump();
-      expect(find.byTooltip('发布'), registered ? findsOneWidget : findsNothing);
+      _expectPublishEnabled(tester, registered);
       identity.requests[0].complete(
         registered
             ? SquareIdentityState(accountId: _registeredWallet.accountId)
@@ -947,7 +1113,7 @@ void main() {
       );
       await tester.pump();
       await tester.pump();
-      expect(find.byTooltip('发布'), registered ? findsOneWidget : findsNothing);
+      _expectPublishEnabled(tester, registered);
       expect(feed.calls, 1);
       expect(tester.takeException(), isNull);
       feed.completer.complete(const <SquarePost>[]);
@@ -1750,13 +1916,20 @@ class _MemoryTabOrderStore extends SquareTabOrderStore {
 class _TabGate implements CidBusinessGate {
   _TabGate(this.status);
   CidBusinessStatus status;
+  Completer<CidBusinessDecision>? pending;
   @override
   final ValueNotifier<int> revision = ValueNotifier<int>(0);
   @override
-  Future<CidBusinessDecision> resolve() async => CidBusinessDecision(
-    status,
-    cidNumber: status == CidBusinessStatus.ready ? testMlsCidNumber : null,
-  );
+  Future<CidBusinessDecision> resolve() =>
+      pending?.future ??
+      Future.value(
+        CidBusinessDecision(
+          status,
+          cidNumber: status == CidBusinessStatus.ready
+              ? testMlsCidNumber
+              : null,
+        ),
+      );
   @override
   dynamic noSuchMethod(Invocation invocation) =>
       throw StateError('unconfigured CID boundary');
@@ -1873,7 +2046,10 @@ void _squareTabGateTests() {
         // 生产主页会顺序读取本地身份、徽章和资料；等待实际入口出现，不以空闲帧冒充完成。
         for (
           var attempt = 0;
-          attempt < 100 && find.byTooltip('发布').evaluate().isEmpty;
+          attempt < 100 &&
+              (_publishMain.evaluate().isEmpty ||
+                  tester.widget<FloatingActionButton>(_publishMain).onPressed ==
+                      null);
           attempt++
         ) {
           await tester.runAsync(
@@ -1951,7 +2127,7 @@ void _squareTabGateTests() {
         gate.status = status;
         await check(tester, () async {
           expect(find.byType(SquareHomePage), findsNothing);
-          expect(find.byTooltip('发布'), findsNothing);
+          _expectPublishEnabled(tester, false);
           expect(sessions.ensureCalls, 0);
           expect(sessions.resolveCalls, 0);
           expect(sessions.registrationCalls, 0);
@@ -1976,7 +2152,7 @@ void _squareTabGateTests() {
         expect(find.byType(SquareHomePage), findsNothing);
         expect(find.text('暂时无法核实公民号身份，请重试'), findsOneWidget);
         expect(find.text('尚未注册'), findsNothing);
-        expect(find.byTooltip('发布'), findsNothing);
+        _expectPublishEnabled(tester, false);
         expect(sessions.registrationCalls, 0);
       });
     });

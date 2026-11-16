@@ -886,14 +886,6 @@ void main() {
     final firstApi = CitizenProfileApi(client: client),
         secondApi = CitizenProfileApi(client: client);
     const cid = 'CN001-CTZN-000000001-2026';
-    expect(
-      () => firstApi.refreshProfile(
-        cid,
-        session: _session(),
-        userInitiated: false,
-      ),
-      throwsStateError,
-    );
     expect(await const CitizenProfileCache().read(cid), isNull);
     expect(requests, 0);
     final first = firstApi.refreshProfile(

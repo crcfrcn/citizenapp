@@ -14,12 +14,15 @@ class ChainDataService extends ChangeNotifier {
     required Future<String?> Function() getAccount,
     Stream<CitizenSdkEvent>? events,
     ChainDataStore? store,
+    DateTime Function()? now,
+    this.priceCacheDuration = const Duration(minutes: 60),
   }) : _reader = reader,
        _head = getFinalizedHead,
        _genesis = getGenesisHash,
        _account = getAccount,
        _events = events,
-       _store = store;
+       _store = store,
+       _now = now ?? DateTime.now;
   static final _instances = Expando<ChainDataService>();
   static ChainDataService forSdk(CitizenSdk sdk) {
     final existing = _instances[sdk];
@@ -46,6 +49,40 @@ class ChainDataService extends ChangeNotifier {
   final Future<String?> Function() _account;
   final Stream<CitizenSdkEvent>? _events;
   final ChainDataStore? _store;
+  final DateTime Function() _now;
+  final Duration priceCacheDuration;
+  final Map<String, ChainPriceSnapshot> _priceSnapshots = {};
+  final Set<String> _restoredPrices = {}, _verifiedPrices = {};
+  Future<ChainDataSnapshot?>? _priceFlight;
+  final Map<(String, String, String, int), Future<ChainDataSnapshot>>
+  _membershipFlights = {};
+
+  ChainPriceSnapshot? pricesFor(String genesis) => _priceSnapshots[genesis];
+  ChainPriceSnapshot? get priceSnapshot => _priceSnapshots[_scope];
+  bool get pricesReady => !isStale && _pricesFresh;
+  bool get _pricesFresh {
+    final prices = priceSnapshot, data = _snapshot;
+    if (prices == null ||
+        data == null ||
+        !_verifiedPrices.contains(prices.genesisHash) ||
+        prices.genesisHash != data.genesisHash ||
+        prices.runtimeSpecVersion != data.runtimeSpecVersion ||
+        prices.runtimeTransactionVersion != data.runtimeTransactionVersion)
+      return false;
+    final age = _now().millisecondsSinceEpoch - prices.checkedAtMillis;
+    return age >= 0 && age < priceCacheDuration.inMilliseconds;
+  }
+
+  Duration? get priceCacheRemaining {
+    if (!pricesReady) return null;
+    return Duration(
+      milliseconds:
+          priceSnapshot!.checkedAtMillis +
+          priceCacheDuration.inMilliseconds -
+          _now().millisecondsSinceEpoch,
+    );
+  }
+
   final _citizens = <String, int>{}, _creators = <String, int>{};
   StreamSubscription<CitizenSdkEvent>? _subscription;
   ChainDataSnapshot? _snapshot;
@@ -60,6 +97,9 @@ class ChainDataService extends ChangeNotifier {
   bool get isStale =>
       _error != null || !_verified || _latest?.hash != _snapshot?.block.hash;
   bool _verified = false;
+  // 本人档位随共享同步器存活；页面退出不会让后续快照丢掉已加载档位。
+  bool _ownCreatorRequested = false;
+  Future<ChainDataSnapshot>? _ownCreatorFlight;
   int _generation = 0;
   String? _activeAccount, _scope;
   CitizenBlockRef? _latest, _pending;
@@ -89,6 +129,10 @@ class ChainDataService extends ChangeNotifier {
       _snapshot = null;
       _verified = false;
       _restored = false;
+      _ownCreatorRequested = false;
+      _ownCreatorFlight = null;
+      _priceFlight = null;
+      _membershipFlights.clear();
       _pending = null;
       _flight = null;
       final pending = _completion;
@@ -115,7 +159,7 @@ class ChainDataService extends ChangeNotifier {
   int _priceWatchers = 0;
   VoidCallback watchPrices() {
     _priceWatchers++;
-    if (_snapshot?.pricesLoaded != true) {
+    if (!pricesReady) {
       _again = true;
       if (_foreground && _started) {
         _backgroundRefresh();
@@ -130,17 +174,158 @@ class ChainDataService extends ChangeNotifier {
     };
   }
 
-  Future<ChainDataSnapshot?> ensurePrices() async {
+  /// 展示命中缓存不查询最终块；交易和主动刷新显式强制核价。
+  Future<ChainDataSnapshot?> ensurePrices({bool forceRefresh = false}) async {
+    if (_closed) throw StateError('同步器已关闭');
+    if (!forceRefresh && pricesReady) return _snapshot;
+    if (forceRefresh) _again = true;
+    final pending = _priceFlight;
+    if (pending != null) return pending;
+    final previousPrice = priceSnapshot;
     final release = watchPrices();
+    late final Future<ChainDataSnapshot?> work;
+    work = () async {
+      var data = await refresh();
+      // 请求可能在上一轮同步即将结束时加入；该轮没有采集价格就补一轮。
+      if (data != null &&
+          (!pricesReady ||
+              forceRefresh && identical(priceSnapshot, previousPrice))) {
+        _again = true;
+        data = await refresh();
+      }
+      return data;
+    }();
+    _priceFlight = work;
     try {
-      return await refresh();
+      return await work;
     } finally {
       release();
+      if (identical(_priceFlight, work)) _priceFlight = null;
+    }
+  }
+
+  /// 会员页补取按完整身份合并；无会员也是可复用的已核实结果。
+  Future<ChainDataSnapshot> ensureMembership({
+    required String genesisHash,
+    required String accountId,
+    required String cidNumber,
+    required int bindRev,
+    bool forceRefresh = false,
+  }) async {
+    if (_closed) throw StateError('同步器已关闭');
+    bool matches(ChainDataSnapshot? data) =>
+        data?.genesisHash == genesisHash &&
+        data?.accountId == accountId &&
+        data?.ownCid == cidNumber &&
+        data?.own?.identity?.bindRev == bindRev;
+    if (!forceRefresh && matches(_snapshot) && !isStale && pricesReady)
+      return _snapshot!;
+    final owner = _generation;
+    if (await _account() != accountId || owner != _generation || _closed) {
+      throw StateError('会员身份已变化');
+    }
+    final key = (genesisHash, accountId, cidNumber, bindRev);
+    final pending = _membershipFlights[key];
+    if (pending != null) {
+      if (forceRefresh) _again = true;
+      return pending;
+    }
+    late final Future<ChainDataSnapshot> work;
+    work = () async {
+      ChainDataSnapshot? data;
+      if (!forceRefresh &&
+          _pricesFresh &&
+          _snapshot?.genesisHash == genesisHash) {
+        // 只让会员同步追到当前块，不因会员正在同步而重复核价。
+        data = await refresh();
+        if (!pricesReady) data = await ensurePrices();
+      } else {
+        data = await ensurePrices(
+          forceRefresh: forceRefresh || !matches(_snapshot),
+        );
+      }
+      if (data == null || !matches(data) || isStale || !pricesReady) {
+        throw StateError('会员数据尚未核验');
+      }
+      return data;
+    }();
+    _membershipFlights[key] = work;
+    try {
+      return await work;
+    } finally {
+      if (identical(_membershipFlights[key], work))
+        _membershipFlights.remove(key);
     }
   }
 
   VoidCallback watchCitizen(String cid) => _watch(_citizens, cid);
   VoidCallback watchCreator(String cid) => _watch(_creators, cid);
+
+  /// 本人管理页只需要本人的档位，不读取「本人订阅本人」关系。
+  /// 有效快照直接返回；补取共用任务，后台最终块继续维护这份缓存。
+  Future<ChainDataSnapshot> ensureOwnCreator({
+    required String genesisHash,
+    required String accountId,
+    required String cidNumber,
+    required int bindRev,
+  }) async {
+    if (_closed) {
+      throw StateError('同步器已关闭');
+    }
+    bool matches(ChainDataSnapshot? data) =>
+        data?.genesisHash == genesisHash &&
+        data?.accountId == accountId &&
+        data?.ownCid == cidNumber &&
+        data?.own?.identity?.bindRev == bindRev;
+    final cached = _snapshot;
+    if (matches(cached) && !isStale && cached!.own?.creatorTiers != null) {
+      _ownCreatorRequested = true;
+      return cached;
+    }
+    // 初次同步尚未结束时先与当前钱包核对，避免旧页面启用新账户的关注。
+    final owner = _generation;
+    if (await _account() != accountId || _closed || owner != _generation) {
+      throw StateError('创作者身份已变化');
+    }
+    if (_activeAccount != accountId || _scope != genesisHash) {
+      await refresh();
+      if (!matches(_snapshot)) {
+        throw StateError('创作者身份已变化');
+      }
+    }
+    final wasRequested = _ownCreatorRequested;
+    _ownCreatorRequested = true;
+    if (!matches(_snapshot) ||
+        !wasRequested && _snapshot?.own?.creatorTiers == null) {
+      _again = true;
+    }
+    final pending = _ownCreatorFlight;
+    late final Future<ChainDataSnapshot> work;
+    if (pending != null) {
+      work = pending;
+    } else {
+      work = () async {
+        final data = await refresh();
+        if (data == null || isStale || data.own?.creatorTiers == null) {
+          throw StateError('轻节点创作者数据尚未核验');
+        }
+        return data;
+      }();
+      _ownCreatorFlight = work;
+    }
+    try {
+      final data = await work;
+      if (!matches(data)) {
+        throw StateError('创作者身份已变化');
+      }
+      return data;
+    } finally {
+      if (identical(_ownCreatorFlight, work)) {
+        _ownCreatorFlight = null;
+      }
+    }
+  }
+
   VoidCallback _watch(Map<String, int> values, String cid) {
     if (cid.trim().isEmpty) {
       throw ArgumentError('CID为空');
@@ -262,6 +447,10 @@ class ChainDataService extends ChangeNotifier {
         _snapshot = null;
         _verified = false;
         _restored = false;
+        _ownCreatorRequested = false;
+        _ownCreatorFlight = null;
+        _priceFlight = null;
+        _membershipFlights.clear();
       }
       if (account == null) {
         notifyListeners();
@@ -272,7 +461,32 @@ class ChainDataService extends ChangeNotifier {
       if (_closed || owner != _generation) {
         throw StateError('账户已变化');
       }
+      if (_scope != null && _scope != scope) {
+        _generation++;
+        owner = _generation;
+        _snapshot = null;
+        _verified = false;
+        _restored = false;
+        _ownCreatorRequested = false;
+        _latest = null;
+        _ownCreatorFlight = null;
+        _priceFlight = null;
+        _membershipFlights.clear();
+        _pending = null;
+        _flight = null;
+      }
       _scope = scope;
+      if (_restoredPrices.add(scope) && !_priceSnapshots.containsKey(scope)) {
+        try {
+          final cachedPrices = await _store?.readPrices(scope);
+          if (!_closed && owner == _generation && cachedPrices != null) {
+            _priceSnapshots[scope] = cachedPrices;
+            notifyListeners();
+          }
+        } on Object {
+          /* 独立价格缓存故障不阻塞会员同步。 */
+        }
+      }
       if (!_restored) {
         _restored = true;
         try {
@@ -282,6 +496,7 @@ class ChainDataService extends ChangeNotifier {
               _snapshot == null &&
               cached != null) {
             _snapshot = cached;
+            _ownCreatorRequested = cached.own?.creatorTiers != null;
             notifyListeners();
           }
         } on Object {
@@ -385,6 +600,7 @@ class ChainDataService extends ChangeNotifier {
             if (_snapshot?.ownCid != null) _snapshot!.ownCid!,
           },
           creators: _creators.keys.toSet(),
+          ownCreator: _ownCreatorRequested,
           prices: _priceWatchers > 0,
         );
         if (!current()) {
@@ -404,10 +620,31 @@ class ChainDataService extends ChangeNotifier {
         if (!current()) {
           continue;
         }
+        ChainPriceSnapshot? prices;
+        if (value.pricesLoaded &&
+            value.runtimeSpecVersion != null &&
+            value.runtimeTransactionVersion != null) {
+          prices = ChainPriceSnapshot(
+            genesisHash: scope,
+            block: value.block,
+            runtimeSpecVersion: value.runtimeSpecVersion!,
+            runtimeTransactionVersion: value.runtimeTransactionVersion!,
+            checkedAtMillis: _now().millisecondsSinceEpoch,
+            prices: value.prices,
+          );
+          try {
+            await _store?.writePrices(prices, current);
+          } on Object {
+            /* 已核实内存价格仍可使用。 */
+          }
+          if (!current()) continue;
+          _priceSnapshots[scope] = prices;
+          _verifiedPrices.add(scope);
+        }
         _snapshot = value;
         _verified = true;
         _error = null;
-        if (changed) {
+        if (changed || prices != null) {
           notifyListeners();
         }
         if (_again) {

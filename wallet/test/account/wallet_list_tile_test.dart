@@ -111,9 +111,7 @@ void main() {
         tester
             .widget<Icon>(find.byIcon(Icons.account_balance_wallet_rounded))
             .color,
-        mode == CitizenWalletSignMode.hot
-            ? AppTheme.primaryDark
-            : AppTheme.info,
+        mode == CitizenWalletSignMode.hot ? AppTheme.danger : AppTheme.info,
       );
     }
   });

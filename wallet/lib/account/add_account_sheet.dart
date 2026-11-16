@@ -198,6 +198,11 @@ class _AddAccountSheetState extends State<AddAccountSheet> {
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    final accountType = switch (widget.derivation ??
+        CitizenSdk.defaultAccountDerivation) {
+      CitizenAccountDerivation.sr25519 => '经典账户',
+      CitizenAccountDerivation.mldsa65 => '量子账户',
+    };
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.fromLTRB(16, 8, 16, 16 + bottomInset),
@@ -222,7 +227,9 @@ class _AddAccountSheetState extends State<AddAccountSheet> {
                 ),
               ),
               Text(
-                widget.mode == AddAccountMode.next ? '添加下一个账户' : '添加指定账户',
+                widget.mode == AddAccountMode.next
+                    ? '添加下一个$accountType'
+                    : '添加指定$accountType',
                 style: TextStyle(
                   fontSize: AppLayout.scaled(context, 17),
                   fontWeight: FontWeight.w700,

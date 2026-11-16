@@ -10,7 +10,7 @@ class CreatorTierCard extends StatelessWidget {
   const CreatorTierCard({super.key, required this.tier, required this.onEdit});
 
   final CreatorTier tier;
-  final VoidCallback onEdit;
+  final VoidCallback? onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -45,7 +45,9 @@ class CreatorTierCard extends StatelessWidget {
                   child: Icon(
                     Icons.edit_outlined,
                     size: AppLayout.scaled(context, 18),
-                    color: AppTheme.primary,
+                    color: onEdit == null
+                        ? AppTheme.textTertiary
+                        : AppTheme.primary,
                   ),
                 ),
               ),
@@ -70,7 +72,9 @@ class CreatorTierCard extends StatelessWidget {
       BillingPeriod.quarterly => '季',
       BillingPeriod.yearly => '年',
     };
-    final label = has ? '$short ${formatFen(BigInt.from(fen), group: false, trimZeros: true)} 元' : '$short 未设';
+    final label = has
+        ? '$short ${formatFen(BigInt.from(fen), group: false, trimZeros: true)} 元'
+        : '$short 未设';
     return Container(
       padding: EdgeInsets.symmetric(
         horizontal: AppLayout.scaledValue(10),

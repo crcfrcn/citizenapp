@@ -1,3 +1,4 @@
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -75,6 +76,7 @@ Widget _wrap({
       home: UserProfilePage(
         cidNumber: _profileCidNumber,
         isSelf: isSelf,
+        initialProfile: cache is FakeProfileCache ? cache.seed : null,
         api: api,
         cache:
             cache ??
@@ -84,7 +86,7 @@ Widget _wrap({
         sessionProvider:
             sessionProvider ??
             FakeSessionProvider(
-              fakeSession(),
+              fakeSession(cidNumber: isSelf ? _profileCidNumber : null),
               citizenId: isSelf ? _profileCidNumber : null,
             ),
         initialMembershipDecision: initialMembershipDecision,
@@ -119,8 +121,16 @@ class _FollowApi extends FakeProfileApi {
     CitizenProfileCache? cache,
     CitizenProfileMediaCache? mediaCache,
   }) async {
+    if (!userInitiated)
+      return super.refreshProfile(
+        cidNumber,
+        session: session,
+        userInitiated: false,
+        isCurrent: isCurrent,
+        cache: cache,
+        mediaCache: mediaCache,
+      );
     refreshes++;
-    expect(userInitiated, isTrue);
     if (failRead) {
       throw const SquareApiException('fixture profile refresh failed');
     }
@@ -143,6 +153,10 @@ class _FollowApi extends FakeProfileApi {
 }
 
 void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    CitizenProfileApi.resetEntryRefreshMemory();
+  });
   _sdkHarness = TestCitizenSdkHarness();
   testWidgets('公开昵称、公民号、三项关系和四类内容计数按身份语义展示', (tester) async {
     tester.view.devicePixelRatio = 1;
@@ -778,16 +792,16 @@ void main() {
     expect(badge.style.checked, isTrue);
   });
 
-  testWidgets('本人首屏只读持久资料，不拉取或重写远端结果', (tester) async {
+  testWidgets('本人首帧使用持久资料，后台刷新更新并保存', (tester) async {
     final api = FakeProfileApi(sampleProfile(displayName: '刷新名'));
     final cache = FakeProfileCache(sampleProfile(displayName: '本地名'));
     await tester.pumpWidget(_wrap(isSelf: true, api: api, cache: cache));
-    await tester.pumpAndSettle();
-
-    expect(api.calls, 0);
-    expect(cache.wrote, isFalse);
     expect(find.text('本地名'), findsWidgets);
     expect(find.text('刷新名'), findsNothing);
+    await tester.pumpAndSettle();
+    expect(api.calls, 1);
+    expect(cache.wrote, isTrue);
+    expect(find.text('刷新名'), findsWidgets);
   });
 
   testWidgets('following a user optimistically flips the icon', (tester) async {
@@ -1038,7 +1052,13 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.textContaining('13 关注'), findsOneWidget);
-      expect(find.byIcon(Icons.how_to_reg), findsOneWidget);
+      // 十分钟内不重读云端关系，未知操作保持禁用。
+      expect(
+        tester
+            .widget<ProfileActionIcons>(find.byType(ProfileActionIcons))
+            .enabled,
+        isFalse,
+      );
     });
   }
   testWidgets('关注成功后资料回读失败不撤销关系或编造计数', (tester) async {

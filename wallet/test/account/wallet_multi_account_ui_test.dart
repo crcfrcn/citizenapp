@@ -2130,7 +2130,12 @@ void main() {
         ),
       );
       expect(find.text('账户1'), findsOneWidget);
-      expect(find.text('#1'), findsOneWidget);
+      expect(find.text('#1'), findsNothing);
+      final icon = tester.widget<Icon>(
+        find.byKey(const ValueKey('wallet-hot-account-icon')),
+      );
+      expect(icon.icon, Icons.account_balance_wallet_rounded);
+      expect(icon.color, AppTheme.danger);
       // 长 SS58 固定展示首 10 位与末 8 位，中间严格为 6 个 ASCII 句点。
       expect(find.text('w5Bc7ma8qU......Q86xBWrT'), findsOneWidget);
       expect(find.textContaining('…'), findsNothing);

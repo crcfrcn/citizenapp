@@ -14,7 +14,6 @@ import 'package:citizen_user/creator/creator_service.dart';
 import 'package:citizen_user/creator/creator_overview.dart';
 import 'package:citizen_user/creator/creator_plan.dart';
 import 'package:citizen_user/identity/cid_business_gate.dart';
-import 'package:citizen_user/membership/subscription_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -83,37 +82,17 @@ class _PendingCreatorService implements CreatorService {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-/// 主动刷新失败不能清掉已显示的本地数据。
-class _FailingCreatorService implements CreatorService {
-  @override
-  Future<CreatorOverview?> cachedOverview(String cid) async => null;
-  int loadCalls = 0;
-
-  @override
-  Future<CreatorPageData> load({String? expectedCidNumber}) async {
-    loadCalls++;
-    throw Exception('MLS设备认证校验失败');
-  }
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
-
 void main() {
   useIsolatedIsar();
   const cidNumber = 'CN220-CTZN2-100000001-2026';
 
-  testWidgets('入口旧 CID 在门禁未完成时不显示创作者业务，确认未注册后显示统一引导', (tester) async {
+  testWidgets('身份核对未完成时禁用创作者业务，确认未注册后显示统一引导', (tester) async {
     final decision = Completer<CidBusinessDecision>();
     final service = _PendingCreatorService();
     await tester.pumpWidget(
       _creatorApp(
         gate: _BusinessGate(decision.future),
-        home: CreatorPage(
-          service: service,
-          initialCidNumber: cidNumber,
-          initialMembershipDecision: MembershipDisplayDecision.activeConfirmed,
-        ),
+        home: CreatorPage(service: service),
       ),
     );
     expect(find.text('已开通'), findsNothing);
@@ -127,7 +106,7 @@ void main() {
     expect(service.lastSnapshotCid, isNull);
   });
 
-  testWidgets('入口 CID 与当前绑定不同，仅按已核实 CID 读取展示快照', (tester) async {
+  testWidgets('当前 CID 已核实但链快照缺失时不伪造会员状态', (tester) async {
     final service = _PendingCreatorService();
     const currentCid = 'CN220-CTZN2-100000002-2026';
     await tester.pumpWidget(
@@ -140,11 +119,7 @@ void main() {
             ),
           ),
         ),
-        home: CreatorPage(
-          service: service,
-          initialCidNumber: cidNumber,
-          initialMembershipDecision: MembershipDisplayDecision.activeConfirmed,
-        ),
+        home: CreatorPage(service: service),
       ),
     );
     await tester.pumpAndSettle();
@@ -152,7 +127,7 @@ void main() {
     expect(find.text('已开通'), findsNothing);
   });
 
-  testWidgets('身份核对故障时旧 CID 与刷新动作都不能读取创作者业务', (tester) async {
+  testWidgets('身份核对故障与重试均不能越过身份检查读取创作者业务', (tester) async {
     final service = _PendingCreatorService();
     await tester.pumpWidget(
       _creatorApp(
@@ -161,11 +136,7 @@ void main() {
             const CidBusinessDecision(CidBusinessStatus.unavailable),
           ),
         ),
-        home: CreatorPage(
-          service: service,
-          initialCidNumber: cidNumber,
-          initialMembershipDecision: MembershipDisplayDecision.activeConfirmed,
-        ),
+        home: CreatorPage(service: service),
       ),
     );
     await tester.pumpAndSettle();
@@ -227,7 +198,13 @@ void main() {
     }
     expect(find.textContaining('暂时无法核实公民号身份'), findsNothing);
     // 新CID没有会员快照时保持未确认展示，不借旧入口状态伪造无会员结论。
-    expect(find.byTooltip('刷新'), findsOneWidget);
+    expect(find.byTooltip('刷新'), findsNothing);
+    expect(
+      tester
+          .widget<TextButton>(find.byKey(const ValueKey('creator-subscribe')))
+          .onPressed,
+      isNull,
+    );
     expect(find.byType(RefreshIndicator), findsOneWidget);
     expect(find.text('已开通'), findsNothing);
     expect(resolver.calls, initialReads);
@@ -235,87 +212,28 @@ void main() {
     expect(core.fixture.calls, isNot(contains('beginSigning')));
   });
 
-  testWidgets('无会员缺失快照直接显示门禁且不自动联网', (tester) async {
+  testWidgets('缺失快照保持管理页和禁用订阅，不自动建立会话', (tester) async {
     final service = _PendingCreatorService();
-    await tester.pumpWidget(
-      _creatorApp(
-        home: CreatorPage(
-          service: service,
-          initialCidNumber: cidNumber,
-          initialMembershipDecision:
-              MembershipDisplayDecision.inactiveConfirmed,
-        ),
-      ),
-    );
-    await tester.pump();
-
-    expect(find.text('创作者'), findsOneWidget);
-    expect(find.text('去订阅平台会员'), findsOneWidget);
-    expect(find.textContaining('同步'), findsNothing);
-    expect(find.byType(LinearProgressIndicator), findsNothing);
-    expect(find.byType(CircularProgressIndicator), findsNothing);
-    expect(service.loadCalls, 0);
-    await tester.tap(find.byTooltip('刷新'));
-    await tester.pump();
-    expect(service.loadCalls, 1);
-
-    service.completer.complete(CreatorPageData.gated());
-  });
-
-  testWidgets('有会员缺失快照直接显示创作者页且不自动联网', (tester) async {
-    final service = _PendingCreatorService();
-    await tester.pumpWidget(
-      _creatorApp(
-        home: CreatorPage(
-          service: service,
-          initialCidNumber: cidNumber,
-          initialMembershipDecision: MembershipDisplayDecision.activeConfirmed,
-        ),
-      ),
-    );
-    await tester.pump();
-
+    await tester.pumpWidget(_creatorApp(home: CreatorPage(service: service)));
+    await tester.pumpAndSettle();
     expect(find.text('我的创作者会员'), findsOneWidget);
-    expect(find.text('我的创作者会员'), findsOneWidget);
+    expect(find.text('去订阅平台会员'), findsNothing);
     expect(find.text('已开通'), findsNothing);
+    expect(find.text('还没有会员档'), findsNothing);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(
+      tester
+          .widget<TextButton>(find.byKey(const ValueKey('creator-subscribe')))
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, '创建会员档'))
+          .onPressed,
+      isNull,
+    );
     expect(service.loadCalls, 0);
-    expect(find.textContaining('同步'), findsNothing);
-    expect(find.byType(LinearProgressIndicator), findsNothing);
-    expect(find.byType(CircularProgressIndicator), findsNothing);
-
-    service.completer.complete(
-      CreatorPageData.active(
-        plan: CreatorPlan.empty(),
-        overview: CreatorOverview.zero,
-      ),
-    );
-  });
-
-  testWidgets('无会员时只显示明确订阅门禁，不显示同步第三态', (tester) async {
-    final service = _PendingCreatorService();
-    await tester.pumpWidget(
-      _creatorApp(
-        home: CreatorPage(
-          service: service,
-          initialCidNumber: cidNumber,
-          initialMembershipDecision:
-              MembershipDisplayDecision.inactiveConfirmed,
-        ),
-      ),
-    );
-    await tester.pump();
-
-    expect(find.text('去订阅平台会员'), findsOneWidget);
-    expect(find.textContaining('同步'), findsNothing);
-    expect(find.byType(LinearProgressIndicator), findsNothing);
-    expect(find.byType(CircularProgressIndicator), findsNothing);
-
-    service.completer.complete(
-      CreatorPageData.active(
-        plan: CreatorPlan.empty(),
-        overview: CreatorOverview.zero,
-      ),
-    );
   });
 
   group('CreatorTier JSON', () {
@@ -412,32 +330,5 @@ void main() {
       expect(plan.isEmpty, isTrue);
       expect(CreatorPlan.maxTiers, 10);
     });
-  });
-
-  testWidgets('缺失快照不自动联网，主动刷新失败保留本地展示', (tester) async {
-    final service = _FailingCreatorService();
-    await tester.pumpWidget(
-      _creatorApp(
-        home: CreatorPage(
-          service: service,
-          initialCidNumber: cidNumber,
-          initialMembershipDecision: MembershipDisplayDecision.activeConfirmed,
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(service.loadCalls, 0);
-    expect(find.text('重试'), findsNothing);
-    expect(find.text('我的创作者会员'), findsOneWidget);
-    expect(find.text('已开通'), findsNothing);
-    expect(find.textContaining('同步'), findsNothing);
-    expect(find.textContaining('MLS设备认证校验失败'), findsNothing);
-    await tester.tap(find.byTooltip('刷新'));
-    await tester.pumpAndSettle();
-    expect(service.loadCalls, 1);
-    expect(find.text('我的创作者会员'), findsOneWidget);
-    expect(find.text('已开通'), findsNothing);
-    expect(find.textContaining('MLS设备认证校验失败'), findsOneWidget);
   });
 }

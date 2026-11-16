@@ -440,19 +440,15 @@ class _ContactBookPageState extends State<ContactBookPage> {
     final cidNumber = contact.cidNumber;
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
-        builder: (_) => CitizenServiceGate(
-          title: '用户主页',
-          description: '注册后即可查看用户主页。',
-          child: UserProfilePage(
-            cidNumber: cidNumber,
-            isSelf: false,
-            initialProfile: _profiles[cidNumber],
-            initialProfileMedia: _profileMedia[cidNumber],
-            api: _profileApi,
-            cache: _profileCache,
-            mediaCache: _profileMediaCache,
-            sessionProvider: _sessionProvider,
-          ),
+        builder: (_) => UserProfilePage(
+          cidNumber: cidNumber,
+          isSelf: false,
+          initialProfile: _profiles[cidNumber],
+          initialProfileMedia: _profileMedia[cidNumber],
+          api: _profileApi,
+          cache: _profileCache,
+          mediaCache: _profileMediaCache,
+          sessionProvider: _sessionProvider,
         ),
       ),
     );

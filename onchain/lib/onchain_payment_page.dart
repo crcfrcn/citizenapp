@@ -114,6 +114,43 @@ InputDecoration transactionFieldDecoration({
   );
 }
 
+/// 只接收本次prepared匹配的SDK记录；传输异常不能覆盖已核实的链上终态。
+@visibleForTesting
+({String message, bool succeeded})? onchainTransactionFeedback({
+  required OnchainPaymentStep step,
+  required CitizenTransactionHistoryRecord? record,
+  CitizenSdkErrorCode? errorCode,
+}) {
+  if (step == OnchainPaymentStep.preparation) return null;
+  if (record != null) {
+    return (
+      message: switch (record.status) {
+        CitizenTransactionHistoryStatus.finalizedSuccess =>
+          '交易已完成，tx=${record.transactionHash}',
+        CitizenTransactionHistoryStatus.finalizedFailed =>
+          '交易已最终失败，tx=${record.transactionHash}',
+        CitizenTransactionHistoryStatus.poolRejected =>
+          '交易池已拒绝，tx=${record.transactionHash}',
+        CitizenTransactionHistoryStatus.pending ||
+        CitizenTransactionHistoryStatus.inBlock => '交易结果待确认，请查看交易记录',
+      },
+      succeeded:
+          record.status == CitizenTransactionHistoryStatus.finalizedSuccess,
+    );
+  }
+  if (errorCode == null ||
+      const {
+        CitizenSdkErrorCode.network,
+        CitizenSdkErrorCode.unavailable,
+        CitizenSdkErrorCode.notReady,
+        CitizenSdkErrorCode.timeout,
+        CitizenSdkErrorCode.decode,
+      }.contains(errorCode)) {
+    return (message: '暂未取得交易确认结果，请查看交易记录', succeeded: false);
+  }
+  return null;
+}
+
 typedef OnchainWalletPicker = Future<PaymentAccountSelection?> Function();
 typedef OnchainCurrentWalletLoader =
     Future<CitizenWalletStateAccount?> Function();
@@ -203,6 +240,15 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
   final TextEditingController _toController = TextEditingController();
   final TextEditingController _amountController = TextEditingController();
   final TextEditingController _remarkController = TextEditingController();
+  final FocusNode _toFocus = FocusNode();
+  final FocusNode _amountFocus = FocusNode();
+  final FocusNode _remarkFocus = FocusNode();
+  bool get _editingInput =>
+      _toFocus.hasFocus || _amountFocus.hasFocus || _remarkFocus.hasFocus;
+  void _onInputFocusChanged() {
+    if (mounted) setState(() {});
+  }
+
   // CitizenChain 原生币在交易页统一展示为 GMB。
   final String _selectedSymbol = 'GMB';
 
@@ -241,6 +287,9 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     }
     _recipientCid = widget.initialRecipientCid;
     _remarkController.addListener(_onRemarkChanged);
+    for (final node in [_toFocus, _amountFocus, _remarkFocus]) {
+      node.addListener(_onInputFocusChanged);
+    }
   }
 
   @override
@@ -274,6 +323,10 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     _walletLoadGeneration += 1;
     _accountSecurity?.revision.removeListener(_onWalletsChanged);
     _remarkController.removeListener(_onRemarkChanged);
+    for (final node in [_toFocus, _amountFocus, _remarkFocus]) {
+      node.removeListener(_onInputFocusChanged);
+      node.dispose();
+    }
     _toController.dispose();
     _amountController.dispose();
     _remarkController.dispose();
@@ -454,6 +507,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
   }
 
   Future<void> _openWalletTab() async {
+    _dismissKeyboard();
     final picker = widget.walletPicker;
     final navigator = Navigator.of(context);
     final selected = picker != null
@@ -474,6 +528,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
   }
 
   Future<void> _openContactsPage() async {
+    _dismissKeyboard();
     const mode = ContactPickMode.pickForTransfer;
     final cid = await Navigator.of(context).push<String>(
       MaterialPageRoute<String>(
@@ -680,6 +735,21 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
       _submitting = true;
     });
     var paymentStep = OnchainPaymentStep.preparation;
+    CitizenTransactionHistoryRecord? observedRecord;
+    bool showReconciled([CitizenSdkErrorCode? code]) {
+      final feedback = onchainTransactionFeedback(
+        step: paymentStep,
+        record: observedRecord,
+        errorCode: code,
+      );
+      if (feedback == null) return false;
+      if (feedback.succeeded) _clearTransferForm();
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(feedback.message)));
+      return true;
+    }
+
     try {
       final wallet = _currentWallet!;
       final sdk = context.read<CitizenSdk>();
@@ -709,6 +779,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
         fromAddress: wallet.ss58Address,
         toAddress: toAddress,
         remark: remark,
+        onRecord: (record) => observedRecord = record,
         execute: () async => completeCitizenTransaction(
           await sdk.executePreparedTransaction(prepared.preparationId),
           requestResponse: (pending) {
@@ -726,7 +797,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
           cancelExecution: sdk.cancelPreparedTransactionExecution,
         ),
       );
-      if (!mounted) return;
+      if (!mounted || _currentWallet?.accountId != balanceAccountId) return;
       if (completed == null) {
         throw const AccountSecurityException('交易签名已取消');
       }
@@ -735,10 +806,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(_executionMessage(completed, txHash))),
       );
-      _toController.clear();
-      _recipientCid = null;
-      _amountController.clear();
-      _remarkController.clear();
+      _clearTransferForm();
     } on AccountSecurityException catch (e) {
       if (!mounted) {
         return;
@@ -766,7 +834,8 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
         '[链上交易] step=${paymentStep.name} code=${e.code.name} '
         'stage=${e.stage.name} method=$method',
       );
-      if (!mounted) return;
+      if (!mounted || _currentWallet?.accountId != balanceAccountId) return;
+      if (showReconciled(e.code)) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(onchainPaymentFailureText(paymentStep, e.code))),
       );
@@ -776,6 +845,8 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
       }
       // 未分类异常不得把可能携带交易内容的原始描述写入日志或弹窗。
       AppLog.d('[链上交易] 未分类异常类型: ${e.runtimeType}');
+      if (_currentWallet?.accountId != balanceAccountId) return;
+      if (showReconciled()) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('交易异常，请稍后重试')));
@@ -788,6 +859,13 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
     }
   }
 
+  void _clearTransferForm() {
+    _toController.clear();
+    _recipientCid = null;
+    _amountController.clear();
+    _remarkController.clear();
+  }
+
   String _executionMessage(
     CitizenTransactionExecutionCompleted completed,
     String txHash,
@@ -798,6 +876,8 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
       CitizenTransactionResolution.poolRejected => '交易池已拒绝，tx=$txHash',
     };
   }
+
+  void _dismissKeyboard() => FocusManager.instance.primaryFocus?.unfocus();
 
   Widget _buildFieldLabel(String label) {
     return Padding(
@@ -871,6 +951,8 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
             ),
             TextField(
               controller: _toController,
+              focusNode: _toFocus,
+              onTapOutside: (_) => _dismissKeyboard(),
               onChanged: (_) => setState(() => _recipientCid = null),
               style: TextStyle(
                 color: AppTheme.textPrimary,
@@ -897,6 +979,10 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
                       _buildFieldLabel('金额'),
                       TextField(
                         controller: _amountController,
+                        focusNode: _amountFocus,
+                        onTapOutside: (_) => _dismissKeyboard(),
+                        textInputAction: TextInputAction.done,
+                        onSubmitted: (_) => _dismissKeyboard(),
                         keyboardType: const TextInputType.numberWithOptions(
                           decimal: true,
                         ),
@@ -959,6 +1045,8 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
               children: [
                 TextField(
                   controller: _remarkController,
+                  focusNode: _remarkFocus,
+                  onTapOutside: (_) => _dismissKeyboard(),
                   minLines: 3,
                   maxLines: 3,
                   style: TextStyle(
@@ -1152,6 +1240,8 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
               child: RefreshIndicator(
                 onRefresh: _onPullRefresh,
                 child: ListView(
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: EdgeInsets.all(AppLayout.scaled(context, 16)),
                   children: [
@@ -1186,6 +1276,17 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
                 ),
               ),
             ),
+            // AppShell的外层Scaffold可能已消费键盘insets，以真实输入焦点判断。
+            if (_editingInput)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  key: const ValueKey('transaction-hide-keyboard'),
+                  onPressed: _dismissKeyboard,
+                  icon: const Icon(Icons.keyboard_hide_outlined),
+                  label: const Text('收起键盘'),
+                ),
+              ),
           ],
         ),
       ),

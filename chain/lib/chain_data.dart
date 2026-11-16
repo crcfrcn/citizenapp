@@ -46,6 +46,8 @@ final class ChainDataSnapshot {
     required Map<String, ChainSubscriptionState?> subscriptions,
     required Map<String, int> prices,
     this.pricesLoaded = false,
+    this.runtimeSpecVersion,
+    this.runtimeTransactionVersion,
   }) : citizens = Map.unmodifiable(citizens),
        subscriptions = Map.unmodifiable(subscriptions),
        prices = Map.unmodifiable(prices);
@@ -58,6 +60,8 @@ final class ChainDataSnapshot {
   final Map<String, ChainSubscriptionState?> subscriptions;
   final Map<String, int> prices;
   final bool pricesLoaded;
+  final int? runtimeSpecVersion;
+  final int? runtimeTransactionVersion;
   ChainCitizenData? get own => citizens[ownCid];
   String? identityLevel(String cid) =>
       citizens[cid]?.identityLevelAt(chainNowMs);
@@ -88,6 +92,8 @@ final class ChainDataSnapshot {
     'own_cid': ownCid,
     'prices': prices,
     'prices_loaded': pricesLoaded,
+    'runtime_spec': runtimeSpecVersion,
+    'runtime_transaction': runtimeTransactionVersion,
     'citizens': {
       for (final e in citizens.entries)
         e.key: {
@@ -177,9 +183,75 @@ final class ChainDataSnapshot {
         (k, v) => MapEntry(k, _subscriptionFrom(v)),
       ),
       pricesLoaded: v['prices_loaded'] == true,
+      runtimeSpecVersion: v['runtime_spec'] as int?,
+      runtimeTransactionVersion: v['runtime_transaction'] as int?,
       prices: (v['prices'] as Map<String, dynamic>).map(
         (k, v) => MapEntry(k, v as int),
       ),
+    );
+  }
+}
+
+/// 独立价格快照保留自己的最终块锚，不冒充后来会员快照中的同块数据。
+final class ChainPriceSnapshot {
+  ChainPriceSnapshot({
+    required this.genesisHash,
+    required this.block,
+    required this.runtimeSpecVersion,
+    required this.runtimeTransactionVersion,
+    required this.checkedAtMillis,
+    required Map<String, int> prices,
+  }) : prices = Map.unmodifiable(prices);
+
+  final String genesisHash;
+  final CitizenBlockRef block;
+  final int runtimeSpecVersion;
+  final int runtimeTransactionVersion;
+  final int checkedAtMillis;
+  final Map<String, int> prices;
+
+  Map<String, Object?> toJson() => {
+    'schema': 1,
+    'genesis': genesisHash,
+    'block': {'hash': block.hash, 'number': block.number.toString()},
+    'runtime_spec': runtimeSpecVersion,
+    'runtime_transaction': runtimeTransactionVersion,
+    'checked_at': checkedAtMillis,
+    'prices': prices,
+  };
+
+  static ChainPriceSnapshot decode(String raw, String genesis) {
+    final v = jsonDecode(raw) as Map<String, dynamic>;
+    final b = v['block'] as Map<String, dynamic>;
+    final hash = RegExp(r'^0x[0-9a-f]{64}$');
+    final prices = Map<String, int>.from(v['prices'] as Map);
+    if (v['schema'] != 1 ||
+        v['genesis'] != genesis ||
+        !hash.hasMatch(genesis) ||
+        !hash.hasMatch(b['hash'] as String) ||
+        BigInt.parse(b['number'] as String) < BigInt.zero ||
+        (v['runtime_spec'] as int) < 0 ||
+        (v['runtime_transaction'] as int) < 0 ||
+        (v['checked_at'] as int) <= 0 ||
+        prices.entries.any(
+          (e) =>
+              !const ['freedom', 'democracy', 'spark'].contains(e.key) ||
+              e.value <= 0 ||
+              e.value > 9007199254740991,
+        )) {
+      throw const FormatException('价格缓存无效');
+    }
+    return ChainPriceSnapshot(
+      genesisHash: genesis,
+      block: CitizenBlockRef(
+        hash: b['hash'] as String,
+        number: BigInt.parse(b['number'] as String),
+        finality: CitizenBlockFinality.finalized,
+      ),
+      runtimeSpecVersion: v['runtime_spec'] as int,
+      runtimeTransactionVersion: v['runtime_transaction'] as int,
+      checkedAtMillis: v['checked_at'] as int,
+      prices: prices,
     );
   }
 }

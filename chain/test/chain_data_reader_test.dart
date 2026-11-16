@@ -141,6 +141,48 @@ void main() {
       );
     }
   });
+  test('本人档位独立读取，与会员同块且不读取本人订阅本人', () async {
+    final data = await reader.read(
+      genesisHash: f.hash(0),
+      accountId: owner,
+      block: at,
+      citizens: {f.cidA},
+      ownCreator: true,
+    );
+    expect(data.memberActive(f.cidA), isTrue);
+    expect(data.own!.creatorTiers, isEmpty);
+    expect(data.subscriptions, isEmpty);
+    final keys = calls.expand((v) => v).toList();
+    expect(
+      keys,
+      isNot(
+        contains(
+          id(
+            SubscriptionChain.buildSubscriptionStorageKey(
+              runtime,
+              f.cidA,
+              f.cidA,
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(keys.toSet().length, keys.length);
+    expect(
+      keys,
+      contains(
+        id(
+          runtime.storageKey('SquarePost', 'CreatorPlans', [
+            (
+              scale: CitizenIdentityChainReader.encodeBoundedBytes(
+                utf8.encode(f.cidA),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  });
   test('登记集合的统计固定一个最终块，只计有效订阅并按周期估算', () async {
     Uint8List row(int until) => Uint8List.fromList([
       1,

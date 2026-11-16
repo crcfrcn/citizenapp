@@ -14,22 +14,21 @@ import 'package:citizen_user/identity/finalized_identity_resolver.dart';
 import 'package:citizen_scanner/qr_sign_session_page.dart';
 import 'package:citizen_chain/citizen_chain.dart';
 
-/// 创作者页展示态：无可用钱包账户会话 / 已开通（含计划与概览）。
+enum CreatorMembershipStatus { unresolved, inactive, active }
 
+/// 页面投影；会员、档位及统计分别就绪，链上事实仍来自统一读模型。
 class CreatorPageData {
-  const CreatorPageData._({required this.gated, this.plan, this.overview});
+  const CreatorPageData({
+    this.membershipStatus = CreatorMembershipStatus.unresolved,
+    this.memberLevel,
+    this.plan,
+    this.overview,
+  });
 
-  /// true = 无会话或没有当前有效的平台会员权益。
-  final bool gated;
+  final CreatorMembershipStatus membershipStatus;
+  final String? memberLevel;
   final CreatorPlan? plan;
   final CreatorOverview? overview;
-
-  factory CreatorPageData.gated() => const CreatorPageData._(gated: true);
-
-  factory CreatorPageData.active({
-    CreatorPlan? plan,
-    required CreatorOverview overview,
-  }) => CreatorPageData._(gated: false, plan: plan, overview: overview);
 }
 
 class CreatorException implements Exception {
@@ -148,13 +147,25 @@ class CreatorService {
     if (source == null) {
       throw const CreatorException('轻节点统计尚未就绪');
     }
-    final data = await source.ensureCitizen(session.cidNumber, creator: true);
+    final cached = source.snapshot;
+    if (cached == null) {
+      throw const CreatorException('轻节点身份尚未就绪');
+    }
+    final data = await source.ensureOwnCreator(
+      genesisHash: cached.genesisHash,
+      accountId: session.accountId,
+      cidNumber: session.cidNumber,
+      bindRev: session.bindRev,
+    );
     if (data.accountId != session.accountId ||
         data.own?.identity?.bindRev != session.bindRev) {
       throw const CreatorException('统计身份已变化');
     }
     if (!data.memberActive(session.cidNumber)) {
-      return CreatorPageData.gated();
+      return CreatorPageData(
+        membershipStatus: CreatorMembershipStatus.inactive,
+        plan: creatorPlanFromChain(data.own!.creatorTiers),
+      );
     }
     final ids = <String>{};
     String? cursor;
@@ -181,7 +192,9 @@ class CreatorService {
       overview.toJson(),
       () => session.isUsable,
     );
-    return CreatorPageData.active(
+    return CreatorPageData(
+      membershipStatus: CreatorMembershipStatus.active,
+      memberLevel: data.memberLevel(session.cidNumber),
       plan: creatorPlanFromChain(data.own!.creatorTiers),
       overview: overview,
     );

@@ -11,12 +11,14 @@ class CreatorOverviewCard extends StatelessWidget {
     super.key,
     required this.overview,
     this.resolved = true,
+    this.membershipActive = false,
   });
 
   final CreatorOverview overview;
 
   /// false 表示尚未取得本地展示快照；只展示中性结构，不出现等待或同步文案。
   final bool resolved;
+  final bool membershipActive;
 
   @override
   Widget build(BuildContext context) {
@@ -64,7 +66,7 @@ class CreatorOverviewCard extends StatelessWidget {
                   ),
                 ),
                 child: Text(
-                  resolved ? '已开通' : '创作者',
+                  membershipActive ? '已开通' : '创作者',
                   style: TextStyle(
                     fontSize: AppLayout.scaled(context, 11),
                     color: AppTheme.primaryDark,

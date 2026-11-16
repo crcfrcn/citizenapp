@@ -24,6 +24,7 @@ class ChainDataReader {
     required CitizenBlockRef block,
     Set<String> citizens = const {},
     Set<String> creators = const {},
+    bool ownCreator = false,
     bool prices = false,
   }) async {
     if (block.finality != CitizenBlockFinality.finalized) {
@@ -65,13 +66,14 @@ class ChainDataReader {
     Future<ChainCitizenData> citizen(
       String cid, [
       CitizenIdentityChainSnapshot? own,
+      bool loadOwnTiers = false,
     ]) async {
       final values = await Future.wait<Object?>([
         own == null
             ? identities.readByCidNumber(cid, at: block)
             : Future.value(own),
         subscriptions.fetchSubscriptionSnapshot(cidNumber: cid, at: block),
-        creators.contains(cid)
+        creators.contains(cid) || loadOwnTiers
             ? subscriptions.fetchCreatorPlansAtBlock(cid, block)
             : Future.value(null),
       ]);
@@ -98,8 +100,8 @@ class ChainDataReader {
     ]);
     final resolved = await common;
     final own = resolved[0] as CitizenIdentityChainSnapshot?;
-    if (own != null && !data.containsKey(own.cidNumber)) {
-      data[own.cidNumber] = citizen(own.cidNumber, own);
+    if (own != null && (!data.containsKey(own.cidNumber) || ownCreator)) {
+      data[own.cidNumber] = citizen(own.cidNumber, own, ownCreator);
     }
     final entries = await Future.wait(
       data.entries.map((e) async => MapEntry(e.key, await e.value)),
@@ -152,6 +154,8 @@ class ChainDataReader {
       subscriptions: subscribed,
       prices: decodedPrices,
       pricesLoaded: prices,
+      runtimeSpecVersion: runtime.specVersion,
+      runtimeTransactionVersion: runtime.transactionVersion,
     );
   }
 

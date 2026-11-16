@@ -5,7 +5,6 @@ import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_user/identity/square_session_provider.dart';
 import 'package:citizen_user/profile/citizen_profile_api.dart';
 import 'package:citizen_user/profile/user_profile_page.dart';
-import 'package:citizen_user/identity/identity_register_guide.dart';
 
 Widget squareLikerAvatar(
   Map<String, dynamic> row,
@@ -24,11 +23,7 @@ Widget squareLikerAvatar(
 void openSquareLiker(BuildContext context, String cid, String? self) {
   Navigator.of(context).push<void>(
     MaterialPageRoute(
-      builder: (_) => CitizenServiceGate(
-        title: '用户主页',
-        description: '注册后即可查看用户主页。',
-        child: UserProfilePage(cidNumber: cid, isSelf: cid == self),
-      ),
+      builder: (_) => UserProfilePage(cidNumber: cid, isSelf: cid == self),
     ),
   );
 }

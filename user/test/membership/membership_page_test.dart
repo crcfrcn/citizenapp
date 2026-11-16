@@ -8,6 +8,7 @@ import 'package:citizen_testing/mls_authentication_fixture.dart';
 import 'package:citizen_user/identity/finalized_identity_resolver.dart';
 import 'package:citizen_user/identity/square_session_provider.dart';
 import 'package:citizen_user/membership/membership_page.dart';
+import '../creator/creator_test_support.dart';
 import 'package:citizen_user/membership/subscription_service.dart';
 import 'package:citizen_user/square_api_client.dart';
 import 'package:flutter/material.dart';
@@ -235,6 +236,9 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: MembershipPage(
+          currentUserContext: CreatorTestUser()
+            ..ownerAccountId = sessions.session.accountId
+            ..cidNumber = sessions.session.cidNumber,
           sessionProvider: _Sessions(),
           subscriptionService: resources,
           chainData: source,

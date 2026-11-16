@@ -50,18 +50,21 @@ class ProfileKebabMenu extends StatelessWidget {
         }
       },
       itemBuilder: (context) => [
-        const PopupMenuItem(
+        PopupMenuItem(
+          enabled: onUserCode != null,
           value: ProfileMenuAction.userCode,
           child: _MenuRow(icon: Icons.qr_code_2, label: '用户码'),
         ),
         if (isSelf)
-          const PopupMenuItem(
+          PopupMenuItem(
+            enabled: onEditProfile != null,
             value: ProfileMenuAction.editProfile,
             child: _MenuRow(icon: Icons.edit_outlined, label: '编辑资料'),
           ),
         // 注销放末位（破坏性），仅本人可见，红色区分。
         if (isSelf)
-          const PopupMenuItem(
+          PopupMenuItem(
+            enabled: onDeleteAccount != null,
             value: ProfileMenuAction.deleteAccount,
             child: _MenuRow(
               icon: Icons.no_accounts,

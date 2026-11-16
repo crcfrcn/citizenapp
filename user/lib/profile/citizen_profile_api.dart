@@ -1,6 +1,11 @@
 import 'package:citizen_square/media/square_media_policy.dart';
 
 import 'dart:async';
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:citizen_user/identity/identity_binding.dart';
+import 'package:citizen_user/identity/square_session_provider.dart';
 import 'dart:ui' as ui;
 import 'dart:typed_data';
 
@@ -15,20 +20,88 @@ import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_square/post/square_post_store.dart';
 import 'package:citizen_system/app_log.dart';
 
+class ProfileEntryRefreshResult {
+  const ProfileEntryRefreshResult(this.profile, this.session);
+  final CitizenProfileLoadResult profile;
+  final SquareSession session;
+}
+
 /// 用户主页数据层门面：把主页资料、按作者拉帖、更新资料收敛到一个入口。
 ///
 /// 网络细节（登录态、解析、Worker 地址）复用 [SquareApiClient]，本类只做语义聚合。
 class CitizenProfileApi {
-  CitizenProfileApi({SquareApiClient? client, SquarePostStore? localPostStore})
-    : _client = client ?? SquareApiClient(),
-      _localPostStore = localPostStore ?? const SquarePostStore();
+  CitizenProfileApi({
+    SquareApiClient? client,
+    SquarePostStore? localPostStore,
+    DateTime Function()? now,
+  }) : _client = client ?? SquareApiClient(),
+       _localPostStore = localPostStore ?? const SquarePostStore(),
+       _now = now ?? DateTime.now;
 
   final SquareApiClient _client;
   final SquarePostStore _localPostStore;
   static final Map<String, Future<CitizenProfileLoadResult>> _refreshes = {};
-  static final Map<String, String> _refreshBindings = {};
+  final DateTime Function() _now;
+  static const entryRefreshInterval = Duration(minutes: 10);
+  static final Map<String, Future<ProfileEntryRefreshResult?>> _entryRefreshes =
+      {};
 
-  /// 页面显式刷新专用；普通页面读取只调用本地仓库。跨实例合并同CID、同绑定请求。
+  @visibleForTesting
+  static void resetEntryRefreshMemory() {
+    _entryRefreshes.clear();
+    _refreshes.clear();
+  }
+
+  /// 跨页面、API实例及进程重启限速；失败也占用本次十分钟窗口。
+  Future<ProfileEntryRefreshResult?> refreshOnEntry(
+    String targetCid, {
+    required IdentityBinding binding,
+    required SquareSessionProvider sessions,
+    CitizenProfileCache? cache,
+    CitizenProfileMediaCache? mediaCache,
+    bool Function()? isCurrentIdentity,
+  }) {
+    final key =
+        'profile.entry.${sha256.convert(utf8.encode(jsonEncode([_client.baseUrl, binding.genesisHash, binding.cidNumber, binding.accountId, binding.bindRev, targetCid])))}';
+    final running = _entryRefreshes[key];
+    if (running != null) return running;
+    late final Future<ProfileEntryRefreshResult?> task;
+    task = Future<ProfileEntryRefreshResult?>.microtask(() async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final now = _now().millisecondsSinceEpoch;
+        final previous = prefs.getInt(key);
+        if (previous != null &&
+            now - previous < entryRefreshInterval.inMilliseconds)
+          return null;
+        if (!(isCurrentIdentity?.call() ?? true)) return null;
+        if (!await prefs.setInt(key, now)) throw StateError('自动刷新限速记录保存失败');
+        final resolution = await sessions.resolveSession();
+        final session = resolution.session;
+        if (!(isCurrentIdentity?.call() ?? true) ||
+            session == null ||
+            session.cidNumber != binding.cidNumber ||
+            session.accountId != binding.accountId ||
+            session.bindRev != binding.bindRev)
+          throw StateError('主页刷新身份尚未就绪');
+        final result = await refreshProfile(
+          targetCid,
+          session: session,
+          userInitiated: false,
+          cache: cache,
+          mediaCache: mediaCache,
+          isCurrent: isCurrentIdentity,
+        );
+        return ProfileEntryRefreshResult(result, session);
+      } finally {
+        if (identical(_entryRefreshes[key], task)) _entryRefreshes.remove(key);
+      }
+    });
+    _entryRefreshes[key] = task;
+    return task;
+  }
+
+  /// 云端校准共用入口；进入页须通过refreshOnEntry限速，手动/写入后刷新可主动调用。
   Future<CitizenProfileLoadResult> refreshProfile(
     String cidNumber, {
     required SquareSession session,
@@ -37,9 +110,13 @@ class CitizenProfileApi {
     CitizenProfileCache? cache,
     CitizenProfileMediaCache? mediaCache,
   }) {
-    if (!userInitiated) throw StateError('普通加载不得刷新远端资料');
-    final binding =
-        '${session.cidNumber}:${session.accountId}:${session.bindRev}';
+    final key = jsonEncode([
+      _client.baseUrl,
+      cidNumber,
+      session.cidNumber,
+      session.accountId,
+      session.bindRev,
+    ]);
     void check() {
       if (!session.isUsable || !(isCurrent?.call() ?? true)) {
         throw StateError('资料刷新身份已变化');
@@ -47,14 +124,8 @@ class CitizenProfileApi {
     }
 
     check();
-    final running = _refreshes[cidNumber];
-    if (running != null) {
-      if (_refreshBindings[cidNumber] != binding) {
-        throw StateError('不能共用旧身份的资料刷新');
-      }
-      return running;
-    }
-    _refreshBindings[cidNumber] = binding;
+    final running = _refreshes[key];
+    if (running != null) return running;
     late final Future<CitizenProfileLoadResult> task;
     task = Future<CitizenProfileLoadResult>.microtask(() async {
       try {
@@ -67,13 +138,10 @@ class CitizenProfileApi {
           refreshMedia: true,
         );
       } finally {
-        if (identical(_refreshes[cidNumber], task)) {
-          _refreshes.remove(cidNumber);
-          _refreshBindings.remove(cidNumber);
-        }
+        if (identical(_refreshes[key], task)) _refreshes.remove(key);
       }
     });
-    _refreshes[cidNumber] = task;
+    _refreshes[key] = task;
     return task;
   }
 
