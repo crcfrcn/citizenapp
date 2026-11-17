@@ -4,6 +4,34 @@ import 'package:citizen_system/app_log.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('提案详情固定失败阶段在正式日志可用，不泄露异常正文或身份', () async {
+    final lines = <String>[];
+    runZoned(
+      () {
+        for (final stage in [
+          'proposal_ready',
+          'proposal_snapshot',
+          'proposal_threshold',
+          'proposal_status',
+          'proposal_tally',
+          'proposal_roles',
+          'institution_roles',
+        ]) {
+          AppLog.proposalFailure(
+            stage: stage,
+            error: StateError('synthetic-body-must-not-appear'),
+          );
+        }
+      },
+      zoneSpecification: ZoneSpecification(
+        print: (_, _, _, line) => lines.add(line),
+      ),
+    );
+    expect(lines, hasLength(7));
+    expect(lines.every((line) => line.contains('code=state')), isTrue);
+    expect(lines.join(), isNot(contains('synthetic-body')));
+    expect(lines.join(), isNot(contains('stage=other')));
+  });
   test('profile receive reports a closed result and numeric versions only', () {
     final lines = <String>[];
     runZoned(

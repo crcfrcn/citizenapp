@@ -6,6 +6,25 @@ import 'package:citizen_testing/isar_test_env.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   useIsolatedIsar();
+  test('同一钱包的岗位票据键完整保留CID和岗位大小写，不按地址去重', () async {
+    final account = '0x${'ab' * 32}';
+    final first = 'TEST-CID:COMMITTEE_MEMBER:$account';
+    final second = 'TEST-CID:DIRECTOR:$account';
+    final snapshot = ProposalDetailSnapshot(
+      proposalId: BigInt.from(78),
+      proposalKind: 'transfer',
+      updatedAt: 1,
+      admins: [account],
+      adminVotes: {first: true, second: false},
+    );
+    await ProposalDetailLocalStore.instance.put(snapshot);
+    final loaded = await ProposalDetailLocalStore.instance.read(
+      'transfer',
+      BigInt.from(78),
+    );
+    expect(loaded!.adminVotes, {first: true, second: false});
+    expect(loaded.admins, [account]);
+  });
 
   test('提案详情快照可持久化管理员投票和业务详情', () async {
     final snapshot = ProposalDetailSnapshot(

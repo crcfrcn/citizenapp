@@ -52,7 +52,6 @@ class InstitutionDetailPage extends StatefulWidget {
     this.subscriberCidNumberProvider,
     this.contextResolver,
     this.activationService,
-    this.walletStateReader,
   });
 
   final String cidNumber;
@@ -64,9 +63,6 @@ class InstitutionDetailPage extends StatefulWidget {
   /// 可注入原角色/激活接口；测试与生产共用同一名册和权限加载路径。
   final ProposalContextResolver? contextResolver;
   final ActivationService? activationService;
-
-  /// 本机账户目录读取；缺省仍读取当前真实SDK会话。
-  final Future<CitizenWalletState> Function()? walletStateReader;
 
   /// 当前已注册公民的永久 CID（只用于本地关注关系归属）。
   ///
@@ -80,7 +76,6 @@ class InstitutionDetailPage extends StatefulWidget {
 class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
   late final InstitutionChainState _chainState;
   InstitutionAdminService? _adminService;
-  CitizenSdk? _wallet;
   MultisigTransferProposalFeed? _multisigTransferFeed;
   ActivationService? _activationService;
   ProposalContextResolver? _contextResolver;
@@ -113,7 +108,6 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
   // 治理路径专用(管理员角色 / 激活 / 富提案列表)。
   List<CitizenWalletStateAccount> _adminWallets = const [];
   bool _isCurrentUserAdmin = false;
-  Set<String> _importedColdAccountIds = const {};
   Set<String> _activatedAccountIds = const {};
   List<LocalProposalSummary> _govProposals = const [];
   Map<BigInt, ProposalWithDetail> _govProposalDetailsById = const {};
@@ -155,7 +149,6 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
       return;
     }
     final wallet = sdk;
-    _wallet = wallet;
     final multisigService = MultisigTransferService(
       chain: sdk,
       transactions: sdk,
@@ -308,7 +301,6 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
       _roleFailed = false;
       _adminWallets = const [];
       _isCurrentUserAdmin = false;
-      _importedColdAccountIds = const {};
       _activatedAccountIds = const {};
     });
     try {
@@ -321,7 +313,6 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
       ]);
       final ctx = results[0] as ProposalContext;
       final activated = results[1] as List<ActivatedAdmin>;
-      final imported = await _loadImportedColdAccountIds();
       if (!mounted || generation != _roleGeneration) return;
       if (ctx.isAdmin) {
         ProposalContextResolver.markInstitutionAdmin(govInfo.cidNumber);
@@ -330,7 +321,6 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
         _govInfo = ctx.institution ?? govInfo;
         _adminWallets = ctx.adminWallets;
         _isCurrentUserAdmin = ctx.isAdmin;
-        _importedColdAccountIds = imported;
         _activatedAccountIds = activated.map((item) => item.accountId).toSet();
         _roleLoading = false;
       });
@@ -341,18 +331,6 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
         _roleFailed = true;
       });
     }
-  }
-
-  Future<Set<String>> _loadImportedColdAccountIds() async {
-    final wallet = _wallet;
-    final read = widget.walletStateReader;
-    if (wallet == null && read == null) return const {};
-    final state = await (read?.call() ?? wallet!.getWalletState().result);
-    // 只读本机冷账户集合；名单卡片仍按精确账户ID判断是否已导入。
-    return {
-      for (final account in state.accounts)
-        if (account.signMode == CitizenWalletSignMode.cold) account.accountId,
-    };
   }
 
   Future<void> _loadGovernanceProposals({bool force = false}) async {
@@ -663,7 +641,6 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
           institution: govInfo,
           accountIdentity: identity,
           admins: _adminViews,
-          importedColdAccountIds: _importedColdAccountIds,
           activatedAccountIds: _activatedAccountIds,
           badgeColor: AppTheme.primary,
           onActivated: () {
@@ -677,7 +654,10 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
   void _openPublicAdminList() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => PublicInstitutionAdminListPage(admins: _adminViews),
+        builder: (_) => PublicInstitutionAdminListPage(
+          admins: _adminViews,
+          accountIdentity: _accountIdentity,
+        ),
       ),
     );
   }

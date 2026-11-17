@@ -474,12 +474,12 @@ class MultisigTransferService {
   Future<List<EligibleVoterTicket>> fetchEligibleVoterTickets(
     BigInt proposalId,
     InstitutionInfo institution, {
-    bool includeNames = false,
+    bool includeRoleNames = false,
   }) {
     return _proposalQuery.fetchEligibleVoterTickets(
       proposalId,
       institution,
-      includeNames: includeNames,
+      includeRoleNames: includeRoleNames,
     );
   }
 

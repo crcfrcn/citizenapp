@@ -1,16 +1,124 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_system/app_log.dart';
 import 'package:citizen_citizen/administrators/admin_account.dart';
-import 'package:citizen_citizen/administrators/admin_account_service.dart';
+import 'package:citizen_citizen/administrators/institution_admin_service.dart';
 import 'package:citizen_citizen/institution/institution_code_label.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_citizen/proposal/proposal_models.dart';
 import 'package:citizen_citizen/institution/institution_role_models.dart';
 import 'package:citizen_citizen/institution/institution_role_storage_codec.dart';
 import 'package:citizen_citizen/proposal/internal_vote_query_service.dart';
+
+/// 详情只等待同一SDK的公开就绪事件；不轮询、不重启、不重试真实读取错误。
+/// 先订阅再取能力快照，且作废查询期间迟到的旧快照。
+Future<bool> waitForProposalRead({
+  required Future<CitizenCapabilitySnapshot> Function() getCapabilities,
+  required CitizenSdkLifecycle Function() lifecycle,
+  required Stream<CitizenSdkEvent> events,
+  required Future<void> cancelled,
+}) async {
+  var stopped = false;
+  var revision = 0;
+  Object? streamError;
+  Completer<void>? changed;
+  void wake() {
+    revision++;
+    if (changed != null && !changed.isCompleted) changed.complete();
+  }
+
+  final subscription = events.listen(
+    (event) {
+      if (event is CitizenSdkCapabilitiesChanged ||
+          event is CitizenSdkLifecycleChanged ||
+          event is CitizenSdkFinalizedBlockChanged)
+        wake();
+    },
+    onError: (Object error) {
+      streamError = error;
+      wake();
+    },
+    onDone: () {
+      streamError = StateError('提案读链事件流已关闭');
+      wake();
+    },
+  );
+  final stop = cancelled.then<CitizenCapabilitySnapshot?>((_) {
+    stopped = true;
+    wake();
+    return null;
+  });
+  try {
+    while (!stopped) {
+      if (streamError != null) throw streamError!;
+      changed = Completer<void>();
+      final before = revision;
+      final snapshot = await Future.any<CitizenCapabilitySnapshot?>([
+        getCapabilities(),
+        stop,
+      ]);
+      if (stopped || snapshot == null) return false;
+      if (revision != before) continue;
+      if (lifecycle() == CitizenSdkLifecycle.startFailed ||
+          lifecycle() == CitizenSdkLifecycle.stopped ||
+          lifecycle() == CitizenSdkLifecycle.disposed) {
+        throw StateError('提案读链实例已停止或启动失败');
+      }
+      final status = snapshot[CitizenCapabilityName.chainRead];
+      if (status.supported &&
+          status.available &&
+          status.enabled &&
+          status.ready)
+        return true;
+      if (!status.supported ||
+          !status.available ||
+          !status.enabled ||
+          !const {
+            CitizenCapabilityReason.engineNotRunning,
+            CitizenCapabilityReason.dependencyNotReady,
+            CitizenCapabilityReason.chainStarting,
+            CitizenCapabilityReason.chainUnsynced,
+          }.contains(status.reason)) {
+        throw StateError('提案读链能力不可用');
+      }
+      await Future.any<Object?>([changed.future, stop]);
+    }
+    return false;
+  } finally {
+    await subscription.cancel();
+  }
+}
+
+/// 保留原异常与堆栈，只通过正式包可用的固定阶段报告失败。
+Future<T> proposalReadStage<T>(String stage, Future<T> Function() read) async {
+  try {
+    return await read();
+  } on Object catch (error) {
+    AppLog.proposalFailure(stage: stage, error: error);
+    rethrow;
+  }
+}
+
+/// 每轮详情只领取一个finalized头，所有业务读取通过原服务固定到该块。
+Future<CitizenBlockRef?> readProposalBlock(
+  CitizenSdk sdk,
+  Future<void> cancelled,
+) async {
+  final ready = await proposalReadStage(
+    'proposal_ready',
+    () => waitForProposalRead(
+      getCapabilities: sdk.getCapabilities,
+      lifecycle: () => sdk.lifecycle,
+      events: sdk.events,
+      cancelled: cancelled,
+    ),
+  );
+  if (!ready) return null;
+  return proposalReadStage('proposal_ready', sdk.getFinalizedHead);
+}
 
 /// VotingEngine / InternalVote 通用查询服务。
 ///
@@ -33,11 +141,12 @@ class ProposalQueryService {
     )?
     getStorageBatch,
   }) : _block = block,
-       _adminService = AdminAccountService(
+       _adminService = InstitutionAdminService(
          chain: chain,
          getFinalizedHead: block == null ? getFinalizedHead : () async => block,
          getRuntimeContext: getStorageRuntimeContext ?? getRuntimeContext,
          getStorage: getStorage,
+         getStorageBatch: getStorageBatch,
        ),
        _internalVoteQuery = InternalVoteQueryService(
          chain: chain,
@@ -73,7 +182,7 @@ class ProposalQueryService {
   _getStorage;
 
   final CitizenBlockRef? _block;
-  final AdminAccountService _adminService;
+  final InstitutionAdminService _adminService;
   final InternalVoteQueryService _internalVoteQuery;
 
   /// 与 runtime `MaxActiveProposals = 10` 对齐的提案主体上限。
@@ -309,7 +418,7 @@ class ProposalQueryService {
   Future<List<EligibleVoterTicket>> fetchEligibleVoterTickets(
     BigInt proposalId,
     InstitutionInfo institution, {
-    bool includeNames = false,
+    bool includeRoleNames = false,
   }) async {
     if (isPersonalAccountIdentity(institution.cidNumber)) {
       final accountIds = await fetchAdminSnapshot(proposalId, institution);
@@ -343,21 +452,17 @@ class ProposalQueryService {
     if (tickets.isEmpty) {
       throw StateError('提案 $proposalId 没有当前机构的冻结岗位票据');
     }
-    if (!includeNames) return tickets;
-    // 姓名只从已有名册按账户匹配；绝不以当前名册筛除冻结票据。
-    // 仅详情页启用，列表和待投票检查不为展示名称增加读链。
+    if (!includeRoleNames) return tickets;
+    // 名称只作展示，按冻结票据岗位码去重读取；不依赖当前管理员姓名或任职。
+    // 仅详情页启用，列表和待投票检查不增加展示资料读取。
     Map<String, String> names = const {};
     try {
-      final admins = await _adminService.fetchAdmins(
+      names = await _adminService.fetchRoleNames(
         AdminAccountIdentity.fromInstitution(institution),
+        tickets.map((ticket) => ticket.voterRoleCode!),
       );
-      names = {
-        for (final admin in admins)
-          if ('${admin.familyName}${admin.givenName}'.trim().isNotEmpty)
-            admin.accountId: '${admin.familyName}${admin.givenName}'.trim(),
-      };
-    } on Object {
-      AppLog.d('proposal_voter_names_read_failed');
+    } on Object catch (error) {
+      AppLog.proposalFailure(stage: 'proposal_roles', error: error);
     }
     return [
       for (final ticket in tickets)
@@ -365,7 +470,7 @@ class ProposalQueryService {
           voterAccountId: ticket.voterAccountId,
           cidNumber: ticket.cidNumber,
           voterRoleCode: ticket.voterRoleCode,
-          voterName: names[ticket.voterAccountId],
+          voterRoleName: names[ticket.voterRoleCode],
         ),
     ];
   }

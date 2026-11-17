@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_system/app_log.dart';
 import 'package:citizen_citizen/institution/institution_role_models.dart';
 import 'package:citizen_citizen/institution/institution_role_storage_codec.dart';
 import 'package:citizen_citizen/administrators/admin_account.dart';
@@ -91,6 +92,42 @@ class InstitutionAdminService {
     return _accountService.fetchAdmins(identity);
   }
 
+  /// 按已知岗位码批量读名称；历史票据允许读取已停用岗位，不以当前任职筛选。
+  Future<Map<String, String>> fetchRoleNames(
+    AdminAccountIdentity identity,
+    Iterable<String> roleCodes,
+  ) async {
+    if (identity.type != AdminAccountIdentityType.institution) return const {};
+    final codes = roleCodes.toSet().toList(growable: false);
+    if (codes.isEmpty) return const {};
+    final runtime = await _getRuntimeContext(await _getFinalizedHead());
+    final pallet = identity.kind == 1 ? 'PrivateManage' : 'PublicManage';
+    final keys = [
+      for (final code in codes)
+        runtime.storageKey(pallet, 'InstitutionRoles', [
+          Uint8List.fromList(utf8.encode(identity.cidNumber!)),
+          Uint8List.fromList(utf8.encode(code)),
+        ]),
+    ];
+    final values = await _getStorageBatch(runtime.block, keys);
+    if (values.length != codes.length) {
+      throw const FormatException('岗位名称批量响应数量不符');
+    }
+    final names = <String, String>{};
+    for (var i = 0; i < codes.length; i++) {
+      final value = values[i];
+      if (value == null) continue;
+      final role = InstitutionRoleStorageCodec.decodeRole(value);
+      if (role == null ||
+          role.cidNumber != identity.cidNumber ||
+          role.roleCode != codes[i]) {
+        throw const FormatException('岗位名称资料与查询主体不一致');
+      }
+      names[codes[i]] = role.roleName;
+    }
+    return names;
+  }
+
   /// 从 entity 读取机构岗位和有效任职，并与独立 admins 钱包集合交叉校验。
   /// 管理员可以暂时不担任任何岗位，因此不要求岗位任职覆盖全部管理员。
   Future<List<InstitutionAdminAssignment>> fetchAssignments(
@@ -169,7 +206,8 @@ class InstitutionAdminService {
         admins,
         await fetchAssignments(identity, cidNumber),
       );
-    } on Object {
+    } on Object catch (error) {
+      AppLog.proposalFailure(stage: 'institution_roles', error: error);
       return mergeAdminViews(admins, const [], assignmentsLoaded: false);
     }
   }

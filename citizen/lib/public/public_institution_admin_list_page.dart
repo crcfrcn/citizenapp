@@ -1,21 +1,26 @@
 import 'package:citizen_widgets/chain_balance_scope.dart';
+import 'dart:async';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
-import 'package:citizen_citizen/institution/institution_assignment_card.dart';
+import 'package:citizen_citizen/institution/institution_admin_list_page.dart';
+import 'package:citizen_citizen/administrators/admin_account.dart';
 import 'package:citizen_citizen/institution/institution_role_models.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
-/// 公权机构管理员列表页(只读)。
-///
-/// **只读展示**entity 岗位任职与 PublicAdmins 管理员钱包；不做冷钱包导入/扫码激活
-/// ——那是治理机构 `AdminListPage` 的能力,公权端本期不引入重型桥接。无管理员时显示占位。
+/// 公权机构管理员列表；与机构列表复用同一本地钱包状态和激活控件。
 class PublicInstitutionAdminListPage extends StatefulWidget {
-  const PublicInstitutionAdminListPage({super.key, required this.admins});
+  const PublicInstitutionAdminListPage({
+    super.key,
+    required this.admins,
+    this.accountIdentity,
+  });
 
   final List<InstitutionAdminView> admins;
+  final AdminAccountIdentity? accountIdentity;
 
   @override
   State<PublicInstitutionAdminListPage> createState() =>
@@ -25,13 +30,32 @@ class PublicInstitutionAdminListPage extends StatefulWidget {
 class _PublicInstitutionAdminListPageState
     extends State<PublicInstitutionAdminListPage> {
   @override
-  void initState() {
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_data != null) return;
+    _data = AdminListState(
+      admins: widget.admins,
+      identity: widget.accountIdentity,
+      sdk: context.read<CitizenSdk?>(),
+    )..addListener(_changed);
+    unawaited(_data!.load());
+  }
+
+  AdminListState? _data;
+  void _changed() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _data?.removeListener(_changed);
+    _data?.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) => ChainBalanceScope(
-    accountIds: widget.admins.map((view) => view.admin.accountId),
+    accountIds: _data!.admins.map((view) => view.admin.accountId),
     builder: _buildBalanceView,
   );
 
@@ -51,18 +75,24 @@ class _PublicInstitutionAdminListPageState
         foregroundColor: AppTheme.textPrimary,
         elevation: 0,
       ),
-      body: widget.admins.isEmpty
+      body: _data!.admins.isEmpty
           ? _emptyState()
           : ListView.separated(
               padding: EdgeInsets.all(AppLayout.scaled(context, 16)),
-              itemCount: widget.admins.length,
+              itemCount: _data!.admins.length,
               separatorBuilder: (_, _) =>
                   SizedBox(height: AppLayout.scaled(context, 10)),
               itemBuilder: (context, i) {
-                final adminView = widget.admins[i];
-                return InstitutionAssignmentCard(
+                final adminView = _data!.admins[i];
+                final id = adminView.admin.accountId;
+                return InstitutionAdminTile(
                   adminView: adminView,
                   index: i + 1,
+                  accountIdentity: widget.accountIdentity,
+                  isImported:
+                      _data!.walletsReady && _data!.coldAccountIds.contains(id),
+                  isActivated: _data!.activatedAccountIds.contains(id),
+                  onActivated: () => _data!.markActivated(id),
                   balanceFen: balances
                       .accountState(adminView.admin.accountId)
                       .value

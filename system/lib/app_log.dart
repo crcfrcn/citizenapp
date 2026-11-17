@@ -163,6 +163,13 @@ class AppLog {
       'proposal_votes',
       'proposal_display',
       'proposal_summary',
+      'proposal_ready',
+      'proposal_snapshot',
+      'proposal_threshold',
+      'proposal_status',
+      'proposal_tally',
+      'proposal_roles',
+      'institution_roles',
     };
     const codes = {
       'identity_unregistered',

@@ -31,6 +31,9 @@ import 'package:citizen_citizen/proposal/proposal_models.dart';
 import 'package:citizen_citizen/proposal/proposal_query_service.dart';
 import 'package:citizen_citizen/proposal/proposal_cache.dart';
 import 'package:citizen_multisig/multisig_transfer_service.dart';
+import 'package:citizen_multisig/multisig_transfer_detail_page.dart';
+import 'package:citizen_multisig/multisig_transfer_models.dart';
+import 'package:citizen_citizen/proposal/proposal_detail_local_store.dart';
 
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 
@@ -427,9 +430,274 @@ Future<void> _refreshProposal(WidgetTester tester) =>
 ///
 /// 固化当前 runtime `MODULE_TAG + TransferAction` SCALE 布局，确保机构转账
 /// 始终按 actor CID + funding account 解码，短备注和空备注都不会静默消失。
+class _DetailReads extends MultisigTransferService {
+  _DetailReads(this.account, {this.roleName = '委员'});
+  final String account;
+  final String roleName;
+  int statusReads = 0;
+  bool failVotes = false;
+  Future<Map<String, bool?>>? pendingVotes;
+  EligibleVoterTicket get ticket => EligibleVoterTicket(
+    voterAccountId: account,
+    cidNumber: kNrc.first.cidNumber,
+    voterRoleCode: 'COMMITTEE_MEMBER',
+    voterRoleName: roleName,
+  );
+  @override
+  Future<List<EligibleVoterTicket>> fetchEligibleVoterTickets(
+    BigInt id,
+    InstitutionInfo institution, {
+    bool includeRoleNames = false,
+  }) async => [ticket];
+  @override
+  Future<int?> fetchInternalThresholdSnapshot(BigInt id) async => 1;
+  @override
+  Future<int?> fetchProposalStatus(BigInt id) async {
+    statusReads++;
+    return 0;
+  }
+
+  @override
+  Future<({int yes, int no})> fetchVoteTally(BigInt id) async =>
+      (yes: 0, no: 0);
+  @override
+  Future<TransferProposalInfo?> fetchProposalAction(BigInt id) async => null;
+  @override
+  Future<Map<String, bool?>> fetchTicketVotesBatch(
+    BigInt id,
+    Iterable<EligibleVoterTicket> tickets,
+  ) async {
+    if (failVotes) throw StateError('synthetic vote read failure');
+    if (pendingVotes != null) return await pendingVotes!;
+    return {ticket.ticketKey: null};
+  }
+}
+
 void main() {
   useIsolatedIsar();
-  testWidgets('票据仅替换公民姓名，圆圈序号、单行地址、发起人和逐岗位状态保留', (tester) async {
+  for (final reason in [
+    CitizenCapabilityReason.engineNotRunning,
+    CitizenCapabilityReason.dependencyNotReady,
+    CitizenCapabilityReason.chainStarting,
+    CitizenCapabilityReason.chainUnsynced,
+  ]) {
+    test('详情只等SDK就绪事件，不轮询或把${reason.name}直接当读取失败', () async {
+      final reads = _PageReads()
+        ..ready = false
+        ..reason = reason;
+      final closed = Completer<void>();
+      var calls = 0;
+      var done = false;
+      final wait =
+          waitForProposalRead(
+            getCapabilities: () {
+              calls++;
+              return reads.read();
+            },
+            lifecycle: () => reads.state,
+            events: reads.controller.stream,
+            cancelled: closed.future,
+          ).then((value) {
+            done = true;
+            return value;
+          });
+      await Future<void>.delayed(Duration.zero);
+      expect(done, isFalse);
+      expect(calls, 1);
+      reads.capability(isReady: true);
+      expect(await wait, isTrue);
+      expect(calls, 2);
+      closed.complete();
+      await reads.controller.close();
+    });
+  }
+  test('详情旧ready快照迟到不能覆盖未就绪事件；取消等待立即解除订阅', () async {
+    final reads = _PageReads();
+    final old = Completer<CitizenCapabilitySnapshot>();
+    final oldReady = reads.capabilities();
+    var calls = 0;
+    final closed = Completer<void>();
+    var done = false;
+    final wait =
+        waitForProposalRead(
+          getCapabilities: () => ++calls == 1 ? old.future : reads.read(),
+          lifecycle: () => reads.state,
+          events: reads.controller.stream,
+          cancelled: closed.future,
+        ).then((value) {
+          done = true;
+          return value;
+        });
+    reads.capability(
+      isReady: false,
+      why: CitizenCapabilityReason.chainUnsynced,
+    );
+    await Future<void>.delayed(Duration.zero);
+    old.complete(oldReady);
+    await Future<void>.delayed(Duration.zero);
+    expect(done, isFalse);
+    expect(calls, 2);
+    closed.complete();
+    expect(await wait, isFalse);
+    expect(reads.controller.hasListener, isFalse);
+    await reads.controller.close();
+  });
+  test('详情启动失败不永久等候，真实读取错误只报固定阶段且原样抛出', () async {
+    final reads = _PageReads()..state = CitizenSdkLifecycle.startFailed;
+    final closed = Completer<void>();
+    await expectLater(
+      waitForProposalRead(
+        getCapabilities: reads.read,
+        lifecycle: () => reads.state,
+        events: reads.controller.stream,
+        cancelled: closed.future,
+      ),
+      throwsStateError,
+    );
+    final failure = StateError('synthetic-private-body');
+    await expectLater(
+      proposalReadStage('proposal_votes', () async => throw failure),
+      throwsA(same(failure)),
+    );
+    closed.complete();
+    await reads.controller.close();
+  });
+
+  testWidgets('详情首次失败可重试，刷新防重入且失败保留内容并禁用投票', (tester) async {
+    final opened = await openTestSdk();
+    await tester.runAsync(() => UserIsar.instance.db());
+    final wallet = testCitizenWalletState().accounts.first;
+    final reads = _DetailReads(wallet.accountId)..failVotes = true;
+    final block = CitizenBlockRef(
+      hash: '0x${'11' * 32}',
+      number: BigInt.one,
+      finality: CitizenBlockFinality.finalized,
+    );
+    var blocks = 0;
+    final seenBlocks = <CitizenBlockRef>[];
+    await tester.pumpWidget(
+      Provider<CitizenSdk>.value(
+        value: opened.sdk,
+        child: MaterialApp(
+          home: MultisigTransferDetailPage(
+            institution: kNrc.first,
+            proposalId: BigInt.from(60001),
+            proposalContext: ProposalContext(
+              institution: kNrc.first,
+              adminWallets: [wallet],
+              role: ProposalRole.admin,
+            ),
+            readBlock: (_) async {
+              blocks++;
+              return block;
+            },
+            readService: (at) {
+              seenBlocks.add(at);
+              return reads;
+            },
+          ),
+        ),
+      ),
+    );
+    await _flush(tester);
+    await tester.pumpAndSettle();
+    expect(find.text('加载失败'), findsOneWidget);
+    reads.failVotes = false;
+    await tester.tap(find.text('重试'));
+    await _flush(tester);
+    await tester.pumpAndSettle();
+    expect(find.text('加载失败'), findsNothing);
+    expect(find.text('委员'), findsOneWidget);
+    expect(
+      tester
+          .widget<ProposalVoteActions>(find.byType(ProposalVoteActions))
+          .canVote,
+      isTrue,
+    );
+    final pending = Completer<Map<String, bool?>>();
+    reads.pendingVotes = pending.future;
+    final refresh = tester.widget<RefreshIndicator>(
+      find.byType(RefreshIndicator),
+    );
+    final first = refresh.onRefresh();
+    final second = refresh.onRefresh();
+    await _flush(tester);
+    expect(blocks, 3);
+    expect(reads.statusReads, 3);
+    expect(seenBlocks, everyElement(same(block)));
+    expect(
+      tester
+          .widget<ProposalVoteActions>(find.byType(ProposalVoteActions))
+          .canVote,
+      isFalse,
+    );
+    pending.completeError(StateError('synthetic refresh failure'));
+    await Future.wait([first, second]);
+    await _flush(tester);
+    await tester.pumpAndSettle();
+    expect(find.text('加载失败'), findsNothing);
+    expect(find.text('委员'), findsOneWidget);
+    expect(
+      tester
+          .widget<ProposalVoteActions>(find.byType(ProposalVoteActions))
+          .canVote,
+      isFalse,
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('详情退出后的迟到成功不能写回快照或覆盖新页面', (tester) async {
+    final opened = await openTestSdk();
+    await tester.runAsync(() => UserIsar.instance.db());
+    final wallet = testCitizenWalletState().accounts.first;
+    final old = _DetailReads(wallet.accountId, roleName: '旧岗位');
+    final next = _DetailReads(wallet.accountId, roleName: '新岗位');
+    final block = CitizenBlockRef(
+      hash: '0x${'11' * 32}',
+      number: BigInt.one,
+      finality: CitizenBlockFinality.finalized,
+    );
+    Widget page(int id, _DetailReads reads) => Provider<CitizenSdk>.value(
+      value: opened.sdk,
+      child: MaterialApp(
+        home: MultisigTransferDetailPage(
+          key: ValueKey(id),
+          institution: kNrc.first,
+          proposalId: BigInt.from(id),
+          proposalContext: ProposalContext(institution: kNrc.first),
+          readBlock: (_) async => block,
+          readService: (_) => reads,
+        ),
+      ),
+    );
+    await tester.pumpWidget(page(60002, old));
+    await _flush(tester);
+    await tester.pumpAndSettle();
+    final pending = Completer<Map<String, bool?>>();
+    old.pendingVotes = pending.future;
+    final flight = tester
+        .widget<RefreshIndicator>(find.byType(RefreshIndicator))
+        .onRefresh();
+    await _flush(tester);
+    await tester.pumpWidget(page(60003, next));
+    await _flush(tester);
+    await tester.pumpAndSettle();
+    pending.complete({old.ticket.ticketKey: true});
+    await flight;
+    await _flush(tester);
+    await tester.pumpAndSettle();
+    expect(find.text('新岗位'), findsOneWidget);
+    expect(find.text('旧岗位'), findsNothing);
+    final stored = await tester.runAsync(
+      () => ProposalDetailLocalStore.instance.read(
+        'transfer',
+        BigInt.from(60002),
+      ),
+    );
+    expect(stored!.adminVotes.values, everyElement(isNull));
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+  testWidgets('票据仅替换岗位名称，圆圈序号、单行地址、发起人和逐岗位状态保留', (tester) async {
     final account = '0x${'07' * 32}';
     final tickets = [
       for (final role in ['ROLE_A', 'ROLE_B'])
@@ -437,7 +705,7 @@ void main() {
           voterAccountId: account,
           cidNumber: 'CID',
           voterRoleCode: role,
-          voterName: '公民甲',
+          voterRoleName: '委员',
         ),
     ];
     final ss58 = citizenSs58FromAccountId(account);
@@ -468,7 +736,7 @@ void main() {
       );
     }
     expect(find.text(address), findsNWidgets(2));
-    expect(find.text('公民甲'), findsNWidgets(2));
+    expect(find.text('委员'), findsNWidgets(2));
     expect(find.text('ROLE_A'), findsNothing);
     expect(find.text('ROLE_B'), findsNothing);
     expect(find.text('发起人'), findsNWidgets(2));
@@ -476,7 +744,7 @@ void main() {
     expect(find.text('投票中'), findsOneWidget);
     for (var i = 0; i < 2; i++) {
       final a = tester.getRect(find.text(address).at(i));
-      final name = tester.getRect(find.text('公民甲').at(i));
+      final name = tester.getRect(find.text('委员').at(i));
       expect(a.right, lessThan(name.left));
       expect(a.center.dy, name.center.dy);
     }

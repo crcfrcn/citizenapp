@@ -9,8 +9,6 @@ import 'package:citizen_testing/fake_citizen_sdk.dart';
 import 'dart:convert';
 
 import 'package:citizen_citizen/proposal/proposal_query_service.dart';
-import 'package:citizen_citizen/administrators/admin_account_service.dart';
-import 'package:citizen_citizen/administrators/admin_account_storage_codec.dart';
 import 'package:citizen_citizen/institution/governance_registry.dart';
 
 final signer = Uint8List.fromList(List.filled(32, 1));
@@ -120,12 +118,11 @@ class Chain extends TestChainReads {
 }
 
 void main() {
-  test('详情姓名复用人员缓存；缺名或失败不增删冻结票据，列表不读取姓名', () async {
-    final root = Platform.environment['CITIZENCHAIN_ROOT']!;
+  test('详情按冻结岗位去重批量取名，缺失、失败和错CID不增删票据；列表不取名', () async {
     final fixture =
         jsonDecode(
               File(
-                '$root/runtime/primitives/tests/fixtures/role_permission.json',
+                '${Platform.environment['CITIZENCHAIN_ROOT']}/runtime/primitives/tests/fixtures/role_permission.json',
               ).readAsStringSync(),
             )
             as Map<String, dynamic>;
@@ -160,30 +157,17 @@ void main() {
         ),
       ]),
     );
-    final adminKey = base64.encode(
-      AdminAccountStorageCodec.institutionAdminStorageKey(
-        institution.cidNumber,
-        runtime: runtime,
-        orgCode: 'NRC',
-        adminKind: 0,
-      ),
-    );
+    final roleKey = runtime.storageKey('PublicManage', 'InstitutionRoles', [
+      Uint8List.fromList(utf8.encode(institution.cidNumber)),
+      Uint8List.fromList(utf8.encode('COMMITTEE_MEMBER')),
+    ]);
     final snapshot = Uint8List.fromList([
       8,
       ...List.filled(32, 7),
       ...List.filled(32, 8),
     ]);
-    final names = Uint8List.fromList([
-      ...utf8.encode('NRC\u0000'), 8,
-      ...List.filled(32, 7), ...text('CID-7'), ...text('公民'), ...text('甲'),
-      // 当前名册多出来的人不得被加入原票据，原票据已离任的人也不得被移除。
-      ...List.filled(32, 9), ...text('CID-9'), ...text('其他'), ...text('人员'),
-    ]);
-    final cache = AdminAccountService();
-    addTearDown(cache.clearCache);
-    for (final mode in ['ready', 'missing', 'failed']) {
-      cache.clearCache();
-      var nameReads = 0;
+    for (final mode in ['ready', 'missing', 'failed', 'wrongCid']) {
+      var roleReads = 0;
       final query = ProposalQueryService(
         block: block,
         getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
@@ -193,25 +177,38 @@ void main() {
           if (id == planKey)
             return fixtureBytes('vote_plan_resolution_issuance_joint');
           if (id == snapshotKey) return snapshot;
-          if (id == adminKey) {
-            nameReads++;
-            if (mode == 'failed') throw StateError('synthetic name failure');
-            return mode == 'missing' ? null : names;
-          }
-          throw StateError('unexpected storage read');
+          throw StateError('不应读取当前管理员姓名或额外storage');
+        },
+        getStorageBatch: (at, keys) async {
+          roleReads++;
+          expect(at.hash, block.hash);
+          expect(keys, hasLength(1), reason: '同岗位两张票据只读一次名称');
+          expect(keys.single, roleKey);
+          if (mode == 'failed') throw StateError('synthetic role failure');
+          return [
+            mode == 'missing'
+                ? null
+                : Uint8List.fromList([
+                    ...text(
+                      mode == 'wrongCid' ? 'OTHER-CID' : institution.cidNumber,
+                    ),
+                    ...text('COMMITTEE_MEMBER'), ...text('委员'), 0, 1,
+                    // 已停用岗位仍可为历史冻结票据提供名称，不代表当前授予投票资格。
+                  ]),
+          ];
         },
       );
       final plain = await query.fetchEligibleVoterTickets(
         BigInt.one,
         institution,
       );
-      expect(nameReads, 0);
+      expect(roleReads, 0);
       final named = await query.fetchEligibleVoterTickets(
         BigInt.one,
         institution,
-        includeNames: true,
+        includeRoleNames: true,
       );
-      expect(nameReads, 1);
+      expect(roleReads, 1);
       expect(
         named.map((ticket) => ticket.ticketKey),
         plain.map((ticket) => ticket.ticketKey),
@@ -220,16 +217,8 @@ void main() {
         '0x${'07' * 32}',
         '0x${'08' * 32}',
       ]);
-      expect(named.first.voterName, mode == 'ready' ? '公民甲' : isNull);
-      expect(named.last.voterName, isNull);
-      if (mode == 'ready') {
-        await query.fetchEligibleVoterTickets(
-          BigInt.one,
-          institution,
-          includeNames: true,
-        );
-        expect(nameReads, 1, reason: '同机构展示姓名应复用既有人员短缓存');
-      }
+      for (final ticket in named)
+        expect(ticket.voterRoleName, mode == 'ready' ? '委员' : isNull);
     }
   });
 

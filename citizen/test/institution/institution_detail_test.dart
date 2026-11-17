@@ -15,6 +15,8 @@ import 'package:citizen_citizen/proposal/proposal_models.dart';
 import 'package:citizen_citizen/proposal/proposal_entry_page.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_citizen/institution/institution_assignment_card.dart';
+import 'package:citizen_citizen/institution/institution_admin_list_page.dart';
+import 'package:citizen_citizen/public/public_institution_admin_list_page.dart';
 
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 
@@ -251,7 +253,6 @@ Future<void> _openDetails(
       chainState: chain,
       contextResolver: roles,
       activationService: activation,
-      walletStateReader: () async => testCitizenWalletState(),
       subscriberCidNumberProvider: () async => null,
     ),
   );
@@ -290,6 +291,190 @@ void _expectOriginalAdminCard() {
 
 void main() {
   _core = TestCitizenSdkHarness();
+  CitizenWalletState walletState({bool cold = false}) {
+    final base = testCitizenWalletState();
+    return CitizenWalletState(
+      revision: BigInt.one,
+      activeWalletIndex: 0,
+      hotProfile: base.hotProfile,
+      accounts: [
+        ...base.accounts,
+        if (cold)
+          CitizenWalletStateAccount(
+            signMode: CitizenWalletSignMode.cold,
+            walletIndex: 1,
+            accountIndex: 0,
+            accountId: _adminAccountId,
+            ss58Address: citizenSs58FromAccountId(_adminAccountId),
+            name: '合成冷账户',
+            createdAtMillis: BigInt.one,
+            isDefault: true,
+          ),
+      ],
+      initializationState: CitizenWalletInitializationState.ready,
+      cleanupPending: false,
+    );
+  }
+
+  test('管理员钱包目录读合并变更事件，旧结果不启用按钮；失败保留公共资料', () async {
+    final events = StreamController<CitizenSdkEvent>.broadcast();
+    final old = Completer<CitizenWalletState>();
+    var calls = 0;
+    final state = AdminListState(
+      admins: _rows(1, loaded: false),
+      identity: null,
+      events: events.stream,
+      walletReader: () =>
+          ++calls == 1 ? old.future : Future.value(walletState(cold: true)),
+      adminReader: () async => _rows(1),
+      activationReader: () async => {},
+    );
+    final load = state.load();
+    events.add(const CitizenSdkWalletChanged(sequence: 1));
+    events.add(const CitizenSdkWalletChanged(sequence: 2));
+    await Future<void>.delayed(Duration.zero);
+    expect(calls, 1);
+    expect(state.walletsReady, isFalse);
+    old.complete(walletState());
+    await load;
+    expect(calls, 2);
+    expect(state.walletsReady, isTrue);
+    expect(state.coldAccountIds, {_adminAccountId});
+    expect(state.admins.single.assignmentsLoaded, isTrue);
+    state.dispose();
+    await events.close();
+
+    final failed = AdminListState(
+      admins: _rows(1),
+      identity: null,
+      walletReader: () async => throw StateError('synthetic directory failure'),
+    );
+    await failed.load();
+    expect(failed.walletsReady, isFalse);
+    expect(failed.coldAccountIds, isEmpty);
+    expect(failed.admins, hasLength(1));
+    failed.dispose();
+  });
+
+  test('管理员列表退出后目录迟到不通知、不回填；仅热钱包不算可激活冷钱包', () async {
+    final late = Completer<CitizenWalletState>();
+    final state = AdminListState(
+      admins: _rows(1),
+      identity: null,
+      walletReader: () => late.future,
+    );
+    var notifications = 0;
+    state.addListener(() => notifications++);
+    final load = state.load();
+    final before = notifications;
+    state.dispose();
+    late.complete(walletState(cold: true));
+    await load;
+    expect(notifications, before);
+    expect(state.walletsReady, isFalse);
+    final hot = AdminListState(
+      admins: _rows(1),
+      identity: null,
+      walletReader: () async => walletState(),
+    );
+    await hot.load();
+    expect(hot.walletsReady, isTrue);
+    expect(hot.coldAccountIds, isEmpty);
+    hot.dispose();
+  });
+
+  for (final imported in [false, true]) {
+    testWidgets('管理员激活始终显示，匹配钱包=$imported时语义和触摸启用状态正确', (tester) async {
+      final identity = AdminAccountIdentity.institution(
+        cidNumber: _cid,
+        orgCode: 'CREG',
+        accountLabel: '合成机构',
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: InstitutionAdminTile(
+              index: 1,
+              adminView: _rows(1).single,
+              isImported: imported,
+              isActivated: false,
+              accountIdentity: identity,
+              onActivated: () {},
+              balanceFen: null,
+            ),
+          ),
+        ),
+      );
+      expect(find.text('激活'), findsOneWidget);
+      final gesture = tester.widget<GestureDetector>(
+        find
+            .ancestor(
+              of: find.text('激活'),
+              matching: find.byType(GestureDetector),
+            )
+            .first,
+      );
+      expect(gesture.onTap, imported ? isNotNull : isNull);
+      if (!imported) {
+        await tester.tap(find.text('激活'));
+        await tester.pump();
+        expect(find.text('未找到对应钱包'), findsNothing);
+      }
+      expect(find.text('管理员账户'), findsOneWidget);
+    });
+  }
+
+  testWidgets('已激活仍显示禁用控件，空姓名和空任职明确显示没有任职', (tester) async {
+    final empty = InstitutionAdminView(
+      admin: const AdminPerson(
+        accountId: _adminAccountId,
+        familyName: '',
+        givenName: '',
+      ),
+      assignments: const [],
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: InstitutionAdminTile(
+            index: 1,
+            adminView: empty,
+            isImported: true,
+            isActivated: true,
+            accountIdentity: null,
+            onActivated: () {},
+            balanceFen: null,
+          ),
+        ),
+      ),
+    );
+    expect(find.text('已激活'), findsOneWidget);
+    expect(find.text('没有任职'), findsNWidgets(4));
+    final gesture = tester.widget<GestureDetector>(
+      find
+          .ancestor(
+            of: find.text('已激活'),
+            matching: find.byType(GestureDetector),
+          )
+          .first,
+    );
+    expect(gesture.onTap, isNull);
+  });
+
+  testWidgets('公开机构列表同样始终提供灰色禁用激活入口', (tester) async {
+    await tester.pumpWidget(
+      _wrap(PublicInstitutionAdminListPage(admins: _rows(1))),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('激活'), findsOneWidget);
+    final gesture = tester.widget<GestureDetector>(
+      find
+          .ancestor(of: find.text('激活'), matching: find.byType(GestureDetector))
+          .first,
+    );
+    expect(gesture.onTap, isNull);
+    expect(find.text('管理员账户'), findsOneWidget);
+  });
   testWidgets('名册加载中不显示0人，余额未完成也不阻塞人员', (tester) async {
     final people = Completer<List<InstitutionAdminView>>();
     final balance = Completer<Map<String, BigInt>>();
@@ -441,7 +626,8 @@ void main() {
         ),
       );
       expect(find.text('合成管理员0'), findsOneWidget);
-      expect(find.text('暂无岗位'), loaded ? findsOneWidget : findsNothing);
+      expect(find.text('没有任职'), loaded ? findsNWidgets(3) : findsNothing);
+      expect(find.text('未读取'), loaded ? findsNothing : findsNWidgets(2));
       _expectOriginalAdminCard();
       expect(find.text('管理员账户'), findsOneWidget);
       expect(
@@ -479,7 +665,7 @@ void main() {
     );
     expect(find.text('合成管理员0'), findsOneWidget);
     expect(find.text('管理员账户'), findsOneWidget);
-    expect(find.text('暂无岗位'), findsNothing);
+    expect(find.text('没有任职'), findsNothing);
     expect(find.textContaining('旧岗位'), findsNothing);
     expect(find.textContaining('旧引用'), findsNothing);
     _expectOriginalAdminCard();
@@ -519,7 +705,7 @@ void main() {
     expect(find.text('合成岗位A、合成岗位B'), findsOneWidget);
     expect(find.text('1970/01/11-1970/01/21'), findsOneWidget);
     expect(find.text('注册局（依据：合成引用）'), findsOneWidget);
-    expect(find.text('暂无岗位'), findsNothing);
+    expect(find.text('没有任职'), findsNothing);
     expect(
       tester.getRect(find.text('来源')).top,
       tester.getRect(find.text('任期')).top,
@@ -554,7 +740,7 @@ void main() {
         voterAccountId: person.accountId,
         cidNumber: _cid,
         voterRoleCode: 'SYNTHETIC_ROLE',
-        voterName: '公民甲',
+        voterRoleName: '委员',
       );
       await tester.pumpWidget(
         MaterialApp(
@@ -621,7 +807,7 @@ void main() {
       );
       expect(find.text('1,280.50 元'), findsOneWidget);
       expect(find.text('SYNTHETIC_ROLE'), findsNothing);
-      expect(find.text('公民甲'), findsOneWidget);
+      expect(find.text('委员'), findsOneWidget);
       expect(find.text('赞成 ✓'), findsOneWidget);
       expect(
         find.text(citizenSs58FromAccountId(person.accountId)),

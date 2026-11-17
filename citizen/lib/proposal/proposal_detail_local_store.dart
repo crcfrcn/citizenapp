@@ -157,7 +157,8 @@ class ProposalDetailSnapshot {
     if (value is! Map) return const {};
     final result = <String, bool?>{};
     for (final entry in value.entries) {
-      final key = entry.key.toString().toLowerCase();
+      // 岗位票据键区分CID/岗位码大小写，禁止按地址规则改写。
+      final key = entry.key.toString();
       if (key.isEmpty) continue;
       final raw = entry.value;
       if (raw is bool) {

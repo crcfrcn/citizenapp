@@ -50,13 +50,19 @@ class _MultisigProposalDetailPageState
     extends State<MultisigProposalDetailPage> {
   static const int _statusVoting = 0;
 
-  late final ProposalQueryService _proposalService;
   final ProposalDetailLocalStore _detailStore =
       ProposalDetailLocalStore.instance;
   final InstitutionChainService _manageService = InstitutionChainService();
   late final PersonalManageService _personalManageService;
   late final InstitutionAdminService _adminService;
   bool _dependenciesReady = false;
+  int _generation = 0;
+  Future<void>? _loadFlight;
+  final Completer<void> _closed = Completer<void>();
+  bool _ticketsReady = false;
+  bool _hasDetails = false;
+  bool _isCurrent(int generation) => mounted && generation == _generation;
+
   AdminAccountIdentity get _accountIdentity =>
       AdminAccountIdentity.fromInstitution(widget.institution);
   bool _loading = true;
@@ -97,7 +103,6 @@ class _MultisigProposalDetailPageState
     super.didChangeDependencies();
     if (_dependenciesReady) return;
     final sdk = context.read<CitizenSdk>();
-    _proposalService = ProposalQueryService(chain: sdk);
     _personalManageService = PersonalManageService(
       chain: sdk,
       transactions: sdk,
@@ -107,16 +112,39 @@ class _MultisigProposalDetailPageState
     _load();
   }
 
-  Future<void> _load({bool showSpinner = true}) async {
+  @override
+  void dispose() {
+    ++_generation;
+    _closed.complete();
+    super.dispose();
+  }
+
+  Future<void> _load({bool showSpinner = true}) {
+    final pending = _loadFlight;
+    if (pending != null) return pending;
+    final generation = ++_generation;
+    late final Future<void> task;
+    task = _readDetails(generation, showSpinner: showSpinner).whenComplete(() {
+      if (identical(_loadFlight, task)) _loadFlight = null;
+    });
+    _loadFlight = task;
+    return task;
+  }
+
+  Future<void> _readDetails(int generation, {required bool showSpinner}) async {
+    if (!_isCurrent(generation)) return;
+    setState(() => _ticketsReady = false);
+
     AppLog.d('[VoteDetail._load] 开始 proposalId=${widget.proposalId}');
     ProposalDetailSnapshot? localSnapshot;
     if (showSpinner) {
       localSnapshot = await _applyLocalSnapshot();
     }
+    if (!_isCurrent(generation)) return;
     // 岗位票据包含 CID + 岗位码，旧的账户级本地详情快照不能作为投票资格真源；
     // 即使缓存新鲜也继续读取链上 VotePlan/VoterSnapshot。
 
-    if (showSpinner && localSnapshot == null) {
+    if (showSpinner && localSnapshot == null && !_hasDetails) {
       setState(() {
         _loading = true;
         _error = null;
@@ -126,24 +154,37 @@ class _MultisigProposalDetailPageState
     }
 
     try {
+      final sdk = context.read<CitizenSdk>();
+      final block = await readProposalBlock(sdk, _closed.future);
+      if (block == null || !_isCurrent(generation)) return;
+      final reads = ProposalQueryService(chain: sdk, block: block);
       // step1:并行加载合格选民快照、提案状态、投票计数、阈值快照。
       // 机构资格只来自岗位有效选民快照，个人资格来自管理员快照；缺失或损坏
       // 必须失败，禁止回落到当前 admins。
       AppLog.d(
         '[VoteDetail._load] step1: 并行 fetchSnapshot/Status/Tally/Threshold...',
       );
-      final thresholdFuture = _proposalService
-          .fetchInternalThresholdSnapshot(widget.proposalId)
-          .catchError((_) => null);
       final results = await Future.wait([
-        _proposalService.fetchEligibleVoterTickets(
-          widget.proposalId,
-          widget.institution,
-          includeNames: true,
+        proposalReadStage(
+          'proposal_snapshot',
+          () => reads.fetchEligibleVoterTickets(
+            widget.proposalId,
+            widget.institution,
+            includeRoleNames: true,
+          ),
         ),
-        _proposalService.fetchProposalStatus(widget.proposalId),
-        _proposalService.fetchVoteTally(widget.proposalId),
-        thresholdFuture,
+        proposalReadStage(
+          'proposal_status',
+          () => reads.fetchProposalStatus(widget.proposalId),
+        ),
+        proposalReadStage(
+          'proposal_tally',
+          () => reads.fetchVoteTally(widget.proposalId),
+        ),
+        proposalReadStage(
+          'proposal_threshold',
+          () => reads.fetchInternalThresholdSnapshot(widget.proposalId),
+        ),
       ]);
 
       final voterTickets = results[0] as List<EligibleVoterTicket>;
@@ -164,7 +205,10 @@ class _MultisigProposalDetailPageState
 
       // step2:加载提案业务数据（从 ProposalData 解码）
       AppLog.d('[VoteDetail._load] step2: fetchProposalData');
-      final raw = await _proposalService.fetchProposalData(widget.proposalId);
+      final raw = await proposalReadStage(
+        'proposal_details',
+        () => reads.fetchProposalData(widget.proposalId),
+      );
       AppLog.d('[VoteDetail._load] step2 完成 raw.len=${raw?.length ?? 0}');
       personal_models.CreateProposalInfo? createInfo;
       personal_models.CloseProposalInfo? closeInfo;
@@ -192,9 +236,9 @@ class _MultisigProposalDetailPageState
 
       // step3:批量查询每张快照票据的投票记录，避免逐条 RPC。
       AppLog.d('[VoteDetail._load] step3: 批量查岗位票据 (${voterTickets.length} 张)');
-      final votes = await _proposalService.fetchTicketVotesBatch(
-        widget.proposalId,
-        voterTickets,
+      final votes = await proposalReadStage(
+        'proposal_votes',
+        () => reads.fetchTicketVotesBatch(widget.proposalId, voterTickets),
       );
       AppLog.d('[VoteDetail._load] step3 完成');
 
@@ -210,7 +254,7 @@ class _MultisigProposalDetailPageState
         }
       }
 
-      if (!mounted) {
+      if (!_isCurrent(generation)) {
         AppLog.d('[VoteDetail._load] !mounted 提前返回');
         return;
       }
@@ -230,7 +274,7 @@ class _MultisigProposalDetailPageState
       } catch (_) {
         // 详情快照只是首屏加速，写入失败不能影响链上结果展示。
       }
-      if (!mounted) return;
+      if (!_isCurrent(generation)) return;
       AppLog.d('[VoteDetail._load] step5: setState');
       setState(() {
         _admins = admins;
@@ -246,18 +290,18 @@ class _MultisigProposalDetailPageState
         _closeInfo = closeInfo;
         _institutionCloseInfo = institutionCloseInfo;
         _loading = false;
+        _error = null;
+        _ticketsReady = true;
+        _hasDetails = true;
       });
       AppLog.d('[VoteDetail._load] 结束');
-    } catch (e, st) {
-      AppLog.d('[VoteDetail._load] catch 异常: $e\n$st');
-      if (!mounted) return;
-      if (localSnapshot != null) {
-        setState(() => _loading = false);
-        return;
-      }
+    } on Object catch (error) {
+      AppLog.proposalFailure(stage: 'proposal_display', error: error);
+      if (!_isCurrent(generation)) return;
       setState(() {
-        _error = '提案链状态暂时不可用';
+        _ticketsReady = false;
         _loading = false;
+        if (!_hasDetails) _error = '提案链状态暂时不可用';
       });
     }
   }
@@ -287,6 +331,7 @@ class _MultisigProposalDetailPageState
         return null;
       }
       setState(() {
+        _hasDetails = true;
         _admins = admins;
         _status = snapshot.status;
         _yesCount = snapshot.yesCount;
@@ -326,9 +371,8 @@ class _MultisigProposalDetailPageState
       noCount: tally.no,
       threshold: threshold,
       admins: admins.map(_requireAccountId).toList(growable: false),
-      adminVotes: votes.map(
-        (key, value) => MapEntry(_requireAccountId(key), value),
-      ),
+      // 票据键包含CID和岗位码，不是钱包地址，必须按原键保存。
+      adminVotes: Map.of(votes),
       pendingPublicKeys: const [],
       detail: createInfo != null
           ? _createInfoToJson(createInfo)
@@ -468,12 +512,14 @@ class _MultisigProposalDetailPageState
   bool get _isCurrentUserAdmin => widget.proposalContext.isAdmin;
 
   bool get _canVote {
+    if (!_ticketsReady) return false;
     if (_selectedVoteWallet == null) return false;
     if (_status != _statusVoting) return false;
     return _votableWallets.isNotEmpty;
   }
 
   bool get _allVoted {
+    if (!_ticketsReady) return false;
     if (widget.adminWallets.isEmpty) return false;
     for (final w in widget.adminWallets) {
       final accountId = _requireAccountId(w.accountId);
@@ -508,6 +554,7 @@ class _MultisigProposalDetailPageState
   }
 
   Future<void> _submitVote(bool approve) async {
+    if (!_ticketsReady) return;
     AppLog.d(
       '[VoteDetail] _submitVote 开始 approve=$approve proposalId=${widget.proposalId}',
     );

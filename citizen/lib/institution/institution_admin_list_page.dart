@@ -11,6 +11,8 @@ import 'package:citizen_citizen/administrators/institution_admin_service.dart';
 import 'package:citizen_citizen/institution/institution_assignment_card.dart';
 import 'package:citizen_citizen/institution/institution_role_models.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
+import 'package:citizen_citizen/proposal/proposal_query_service.dart';
+import 'package:citizen_system/app_log.dart';
 import 'package:citizen_scanner/qr_sign_session_page.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_system/theme/app_layout.dart';
@@ -24,7 +26,6 @@ class AdminListPage extends StatefulWidget {
     required this.institution,
     required this.accountIdentity,
     required this.admins,
-    required this.importedColdAccountIds,
     required this.activatedAccountIds,
     required this.badgeColor,
     this.onActivated,
@@ -35,9 +36,6 @@ class AdminListPage extends StatefulWidget {
 
   /// 机构管理员人员视图；同一管理员的多个岗位归在同一人员行。
   final List<InstitutionAdminView> admins;
-
-  /// 用户已导入冷钱包的规范 AccountId 集合。
-  final Set<String> importedColdAccountIds;
 
   /// 已激活管理员的规范 AccountId 集合。
   final Set<String> activatedAccountIds;
@@ -51,24 +49,40 @@ class AdminListPage extends StatefulWidget {
 }
 
 class _AdminListPageState extends State<AdminListPage> {
-  late Set<String> _activatedAccountIds;
+  AdminListState? _data;
 
   @override
-  void initState() {
-    super.initState();
-    _activatedAccountIds = Set.of(widget.activatedAccountIds);
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_data != null) return;
+    _data = AdminListState(
+      admins: widget.admins,
+      identity: widget.accountIdentity,
+      activatedAccountIds: widget.activatedAccountIds,
+      sdk: context.read<CitizenSdk?>(),
+    )..addListener(_changed);
+    unawaited(_data!.load());
+  }
+
+  void _changed() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _data?.removeListener(_changed);
+    _data?.dispose();
+    super.dispose();
   }
 
   void _onAdminActivated(String accountId) {
-    setState(() {
-      _activatedAccountIds.add(accountId);
-    });
+    _data!.markActivated(accountId);
     widget.onActivated?.call();
   }
 
   @override
   Widget build(BuildContext context) => ChainBalanceScope(
-    accountIds: widget.admins.map((view) => view.admin.accountId),
+    accountIds: _data!.admins.map((view) => view.admin.accountId),
     builder: _buildBalanceView,
   );
 
@@ -97,7 +111,7 @@ class _AdminListPageState extends State<AdminListPage> {
           SizedBox(height: AppLayout.scaled(context, 16)),
           // 管理员总数
           Text(
-            '共 ${widget.admins.length} 位管理员　通过阈值 ${widget.institution.internalThreshold}',
+            '共 ${_data!.admins.length} 位管理员　通过阈值 ${widget.institution.internalThreshold}',
             style: TextStyle(
               fontSize: AppLayout.scaled(context, 13),
               color: AppTheme.textTertiary,
@@ -105,7 +119,7 @@ class _AdminListPageState extends State<AdminListPage> {
           ),
           SizedBox(height: AppLayout.scaled(context, 12)),
           // 管理员列表
-          if (widget.admins.isEmpty)
+          if (_data!.admins.isEmpty)
             Padding(
               padding: EdgeInsets.symmetric(
                 vertical: AppLayout.scaled(context, 24),
@@ -121,19 +135,20 @@ class _AdminListPageState extends State<AdminListPage> {
               ),
             )
           else
-            ...List.generate(widget.admins.length, (index) {
-              final adminView = widget.admins[index];
+            ...List.generate(_data!.admins.length, (index) {
+              final adminView = _data!.admins[index];
               final accountId = adminView.admin.accountId;
-              final isImported = widget.importedColdAccountIds.contains(
+              final isImported =
+                  _data!.walletsReady &&
+                  _data!.coldAccountIds.contains(accountId);
+              final isActivated = _data!.activatedAccountIds.contains(
                 accountId,
               );
-              final isActivated = _activatedAccountIds.contains(accountId);
-              return _AdminTile(
+              return InstitutionAdminTile(
                 index: index + 1,
                 adminView: adminView,
                 isImported: isImported,
                 isActivated: isActivated,
-                institution: widget.institution,
                 accountIdentity: widget.accountIdentity,
                 onActivated: () => _onAdminActivated(accountId),
                 balanceFen: balances.accountState(accountId).value?.freeFen,
@@ -194,13 +209,169 @@ class _AdminListPageState extends State<AdminListPage> {
   }
 }
 
-class _AdminTile extends StatelessWidget {
-  const _AdminTile({
+/// 两个管理员列表共用本地钱包与激活状态；每个列表只读一次目录并合并变更事件。
+/// 岗位未读到时独立补读，任何本地钱包故障都不能抹去公共人员资料。
+class AdminListState extends ChangeNotifier {
+  AdminListState({
+    required List<InstitutionAdminView> admins,
+    required AdminAccountIdentity? identity,
+    CitizenSdk? sdk,
+    Set<String> activatedAccountIds = const {},
+    Future<CitizenWalletState> Function()? walletReader,
+    Future<Set<String>> Function()? activationReader,
+    Future<List<InstitutionAdminView>> Function()? adminReader,
+    Stream<CitizenSdkEvent>? events,
+  }) : admins = admins,
+       activatedAccountIds = Set.of(activatedAccountIds),
+       _sdk = sdk,
+       _walletReader =
+           walletReader ??
+           (sdk == null ? null : () => sdk.getWalletState().result),
+       _adminReader =
+           adminReader ??
+           (sdk == null || identity == null
+               ? null
+               : () => InstitutionAdminService(
+                   chain: sdk,
+                 ).fetchAdminViews(identity, identity.cidNumber!)),
+       _activationReader =
+           activationReader ??
+           (sdk == null || identity == null
+               ? null
+               : () async {
+                   final all = await ActivationService(
+                     adminService: InstitutionAdminService(chain: sdk),
+                   ).loadAll();
+                   final ids = admins
+                       .map((view) => view.admin.accountId)
+                       .toSet();
+                   return {
+                     for (final entry in all)
+                       if (entry.cidNumber == identity.cidNumber &&
+                           ids.contains(entry.accountId))
+                         entry.accountId,
+                   };
+                 }) {
+    _events = (events ?? sdk?.events)?.listen((event) {
+      if (event is CitizenSdkWalletChanged) unawaited(reloadWallets());
+    });
+  }
+
+  List<InstitutionAdminView> admins;
+  Set<String> activatedAccountIds;
+  Set<String> coldAccountIds = const {};
+  bool walletsReady = false;
+  final CitizenSdk? _sdk;
+  final Future<CitizenWalletState> Function()? _walletReader;
+  final Future<Set<String>> Function()? _activationReader;
+  final Future<List<InstitutionAdminView>> Function()? _adminReader;
+  StreamSubscription<CitizenSdkEvent>? _events;
+  Future<void>? _walletFlight;
+  bool _walletDirty = false;
+  bool _disposed = false;
+  final Completer<void> _closed = Completer<void>();
+
+  Future<void> load() async {
+    await Future.wait<void>([
+      reloadWallets(),
+      _loadActivation(),
+      _loadMissingAdmins(),
+    ]);
+  }
+
+  Future<void> reloadWallets() {
+    if (_disposed || _walletReader == null) return Future.value();
+    _walletDirty = true;
+    walletsReady = false;
+    notifyListeners();
+    final pending = _walletFlight;
+    if (pending != null) return pending;
+    late final Future<void> task;
+    task =
+        (() async {
+          while (_walletDirty && !_disposed) {
+            _walletDirty = false;
+            try {
+              final state = await _walletReader();
+              if (_disposed) return;
+              if (_walletDirty) continue;
+              coldAccountIds = {
+                for (final account in state.accounts)
+                  if (account.signMode == CitizenWalletSignMode.cold)
+                    account.accountId,
+              };
+              walletsReady = true;
+            } on Object {
+              if (_disposed) return;
+              coldAccountIds = const {};
+              walletsReady = false;
+            }
+            if (!_disposed) notifyListeners();
+          }
+        })().whenComplete(() {
+          if (identical(_walletFlight, task)) _walletFlight = null;
+        });
+    _walletFlight = task;
+    return task;
+  }
+
+  Future<void> _loadActivation() async {
+    if (_activationReader == null) return;
+    try {
+      final ids = await _activationReader();
+      if (_disposed) return;
+      activatedAccountIds = ids;
+      notifyListeners();
+    } on Object {
+      // 激活展示读取失败保留进入页面时的已有记录；执行时仍重新校验签名资格。
+    }
+  }
+
+  Future<void> _loadMissingAdmins() async {
+    if (_adminReader == null || admins.every((view) => view.assignmentsLoaded))
+      return;
+    try {
+      final sdk = _sdk;
+      if (sdk != null &&
+          !await waitForProposalRead(
+            getCapabilities: sdk.getCapabilities,
+            lifecycle: () => sdk.lifecycle,
+            events: sdk.events,
+            cancelled: _closed.future,
+          ))
+        return;
+      if (_disposed) return;
+      final rows = await _adminReader();
+      if (_disposed) return;
+      admins = rows;
+      notifyListeners();
+    } on Object catch (error) {
+      AppLog.proposalFailure(stage: 'institution_roles', error: error);
+    }
+  }
+
+  void markActivated(String accountId) {
+    if (_disposed) return;
+    activatedAccountIds.add(accountId);
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _closed.complete();
+    unawaited(_events?.cancel());
+    super.dispose();
+  }
+}
+
+class InstitutionAdminTile extends StatelessWidget {
+  const InstitutionAdminTile({
+    super.key,
     required this.index,
     required this.adminView,
     required this.isImported,
     required this.isActivated,
-    required this.institution,
     required this.accountIdentity,
     required this.onActivated,
     required this.balanceFen,
@@ -218,12 +389,13 @@ class _AdminTile extends StatelessWidget {
 
   /// 此管理员是否已激活。
   final bool isActivated;
-  final InstitutionInfo institution;
-  final AdminAccountIdentity accountIdentity;
+  final AdminAccountIdentity? accountIdentity;
   final VoidCallback onActivated;
   final BigInt? balanceFen;
 
   Future<void> _startActivation(BuildContext context) async {
+    final identity = accountIdentity;
+    if (!isImported || isActivated || identity == null) return;
     // 检查是否为冷钱包（热钱包不允许激活）
     final wallets =
         (await context.read<CitizenSdk>().getWalletState().result).accounts;
@@ -255,7 +427,7 @@ class _AdminTile extends StatelessWidget {
     );
     final payload = await activationService.buildActivationPayload(
       accountId: accountId,
-      identity: accountIdentity,
+      identity: identity,
     );
 
     if (!context.mounted) return;
@@ -272,7 +444,7 @@ class _AdminTile extends StatelessWidget {
     try {
       await activationService.activate(
         accountId: accountId,
-        identity: accountIdentity,
+        identity: identity,
       );
       onActivated();
       if (!context.mounted) return;
@@ -300,50 +472,39 @@ class _AdminTile extends StatelessWidget {
     );
   }
 
-  Widget? _buildActivationControl(BuildContext context) {
-    // 激活按钮：仅对已导入冷钱包的管理员显示。
-    if (!isImported) return null;
-    if (isActivated) {
-      return Container(
-        height: InstitutionAssignmentCard.actionHeight,
-        alignment: Alignment.center,
-        padding: EdgeInsets.symmetric(
-          horizontal: AppLayout.scaled(context, 8),
-          vertical: AppLayout.scaled(context, 4),
-        ),
-        decoration: BoxDecoration(
-          color: AppTheme.success.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(AppLayout.scaledValue(8)),
-        ),
-        child: Text(
-          '已激活',
-          style: TextStyle(
-            fontSize: AppLayout.scaled(context, 11),
-            color: AppTheme.success,
-            fontWeight: FontWeight.w600,
+  Widget _buildActivationControl(BuildContext context) {
+    // 公共资料不受本机钱包影响；激活入口始终占位，未就绪或不匹配时明确禁用。
+    final enabled = isImported && !isActivated && accountIdentity != null;
+    final color = isActivated
+        ? AppTheme.success
+        : enabled
+        ? AppTheme.primary
+        : AppTheme.textTertiary;
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      child: GestureDetector(
+        onTap: enabled ? () => _startActivation(context) : null,
+        child: Container(
+          height: InstitutionAssignmentCard.actionHeight,
+          alignment: Alignment.center,
+          padding: EdgeInsets.symmetric(
+            horizontal: AppLayout.scaled(context, 8),
+            vertical: AppLayout.scaled(context, 4),
           ),
-        ),
-      );
-    }
-    return GestureDetector(
-      onTap: () => _startActivation(context),
-      child: Container(
-        height: InstitutionAssignmentCard.actionHeight,
-        alignment: Alignment.center,
-        padding: EdgeInsets.symmetric(
-          horizontal: AppLayout.scaled(context, 8),
-          vertical: AppLayout.scaled(context, 4),
-        ),
-        decoration: BoxDecoration(
-          color: AppTheme.primary.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(AppLayout.scaledValue(8)),
-        ),
-        child: Text(
-          '激活',
-          style: TextStyle(
-            fontSize: AppLayout.scaled(context, 11),
-            color: AppTheme.primary,
-            fontWeight: FontWeight.w600,
+          decoration: BoxDecoration(
+            color: enabled || isActivated
+                ? color.withValues(alpha: 0.1)
+                : AppTheme.surfaceMuted,
+            borderRadius: BorderRadius.circular(AppLayout.scaledValue(8)),
+          ),
+          child: Text(
+            isActivated ? '已激活' : '激活',
+            style: TextStyle(
+              fontSize: AppLayout.scaled(context, 11),
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       ),

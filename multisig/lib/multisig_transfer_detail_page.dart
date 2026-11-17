@@ -12,6 +12,7 @@ import 'package:citizen_citizen/administrators/admin_account.dart';
 import 'package:citizen_citizen/administrators/institution_admin_service.dart';
 import 'package:citizen_citizen/proposal/proposal_context.dart';
 import 'package:citizen_citizen/proposal/proposal_models.dart';
+import 'package:citizen_citizen/proposal/proposal_query_service.dart';
 import 'package:citizen_citizen/proposal/proposal_detail_local_store.dart';
 import 'package:citizen_citizen/proposal/internal_vote_service.dart';
 import 'package:citizen_multisig/multisig_transfer_balance_guard.dart';
@@ -48,11 +49,17 @@ class MultisigTransferDetailPage extends StatefulWidget {
     required this.proposalId,
     required this.proposalContext,
     this.kind = MultisigTransferKind.transfer,
+    this.readBlock,
+    this.readService,
   });
 
   final InstitutionInfo institution;
   final BigInt proposalId;
   final MultisigTransferKind kind;
+
+  /// 只读边界可注入测试；正式路径始终消费SDK与同块业务服务。
+  final Future<CitizenBlockRef?> Function(Future<void> cancelled)? readBlock;
+  final MultisigTransferService Function(CitizenBlockRef block)? readService;
 
   /// 统一的提案上下文。
   final ProposalContext proposalContext;
@@ -70,11 +77,17 @@ class _MultisigTransferDetailPageState
     extends State<MultisigTransferDetailPage> {
   static const int _statusVoting = 0;
 
-  late final MultisigTransferService _proposalService;
   final ProposalDetailLocalStore _detailStore =
       ProposalDetailLocalStore.instance;
   late final InstitutionAdminService _adminService;
   bool _dependenciesReady = false;
+  int _generation = 0;
+  Future<void>? _loadFlight;
+  final Completer<void> _closed = Completer<void>();
+  bool _ticketsReady = false;
+  bool _hasDetails = false;
+  bool _isCurrent(int generation) => mounted && generation == _generation;
+
   AdminAccountIdentity get _accountIdentity =>
       AdminAccountIdentity.fromInstitution(widget.institution);
   bool _loading = true;
@@ -144,20 +157,42 @@ class _MultisigTransferDetailPageState
     super.didChangeDependencies();
     if (_dependenciesReady) return;
     final sdk = context.read<CitizenSdk>();
-    _proposalService = MultisigTransferService(chain: sdk, transactions: sdk);
     _adminService = InstitutionAdminService(chain: sdk);
     _dependenciesReady = true;
     _load();
   }
 
-  Future<void> _load({bool showSpinner = true}) async {
+  @override
+  void dispose() {
+    ++_generation;
+    _closed.complete();
+    super.dispose();
+  }
+
+  Future<void> _load({bool showSpinner = true}) {
+    final pending = _loadFlight;
+    if (pending != null) return pending;
+    final generation = ++_generation;
+    late final Future<void> task;
+    task = _readDetails(generation, showSpinner: showSpinner).whenComplete(() {
+      if (identical(_loadFlight, task)) _loadFlight = null;
+    });
+    _loadFlight = task;
+    return task;
+  }
+
+  Future<void> _readDetails(int generation, {required bool showSpinner}) async {
+    if (!_isCurrent(generation)) return;
+    setState(() => _ticketsReady = false);
+
     ProposalDetailSnapshot? localSnapshot;
     if (showSpinner) {
       localSnapshot = await _applyLocalSnapshot();
     }
-    // 岗位票据不可由旧的账户级本地缓存恢复，始终继续读取链上快照。
+    if (!_isCurrent(generation)) return;
+    // 本地快照仅展示；本轮票据和投票记录核验成功前不开放投票。
 
-    if (showSpinner && localSnapshot == null) {
+    if (showSpinner && localSnapshot == null && !_hasDetails) {
       setState(() {
         _loading = true;
         _error = null;
@@ -167,6 +202,17 @@ class _MultisigTransferDetailPageState
     }
 
     try {
+      final sdk = context.read<CitizenSdk>();
+      final block =
+          await (widget.readBlock?.call(_closed.future) ??
+              readProposalBlock(sdk, _closed.future));
+      if (block == null || !_isCurrent(generation)) return;
+      final reads =
+          widget.readService?.call(block) ??
+          MultisigTransferService(
+            chain: sdk,
+            getFinalizedHead: () async => block,
+          );
       // 根据 kind 选择对应的详情查询方法。
       // 不同 kind 写在不同的 storage map：
       //   transfer   → VotingEngine.ProposalData（带 multisig tag）
@@ -175,17 +221,13 @@ class _MultisigTransferDetailPageState
       final Future<dynamic> detailFuture;
       switch (widget.kind) {
         case MultisigTransferKind.transfer:
-          detailFuture = _proposalService.fetchProposalAction(
-            widget.proposalId,
-          );
+          detailFuture = reads.fetchProposalAction(widget.proposalId);
           break;
         case MultisigTransferKind.safetyFund:
-          detailFuture = _proposalService.fetchSafetyFundAction(
-            widget.proposalId,
-          );
+          detailFuture = reads.fetchSafetyFundAction(widget.proposalId);
           break;
         case MultisigTransferKind.sweep:
-          detailFuture = _proposalService.fetchSweepAction(widget.proposalId);
+          detailFuture = reads.fetchSweepAction(widget.proposalId);
           break;
       }
 
@@ -194,15 +236,27 @@ class _MultisigTransferDetailPageState
       // 机构路径不能使用当前 admins 或当前岗位任职，个人路径不能使用当前
       // 管理员集合；否则任职或人员变化后旧提案会显示错误。
       final results = await Future.wait([
-        _proposalService.fetchEligibleVoterTickets(
-          widget.proposalId,
-          widget.institution,
-          includeNames: true,
+        proposalReadStage(
+          'proposal_snapshot',
+          () => reads.fetchEligibleVoterTickets(
+            widget.proposalId,
+            widget.institution,
+            includeRoleNames: true,
+          ),
         ),
-        _proposalService.fetchInternalThresholdSnapshot(widget.proposalId),
-        _proposalService.fetchProposalStatus(widget.proposalId),
-        _proposalService.fetchVoteTally(widget.proposalId),
-        detailFuture,
+        proposalReadStage(
+          'proposal_threshold',
+          () => reads.fetchInternalThresholdSnapshot(widget.proposalId),
+        ),
+        proposalReadStage(
+          'proposal_status',
+          () => reads.fetchProposalStatus(widget.proposalId),
+        ),
+        proposalReadStage(
+          'proposal_tally',
+          () => reads.fetchVoteTally(widget.proposalId),
+        ),
+        proposalReadStage('proposal_details', () => detailFuture),
       ]);
 
       final voterTickets = results[0] as List<EligibleVoterTicket>;
@@ -215,9 +269,9 @@ class _MultisigTransferDetailPageState
       final tally = results[3] as ({int yes, int no});
       final detail = results[4];
       // 选民投票记录批量读取，避免逐个产生 RPC。
-      final votes = await _proposalService.fetchTicketVotesBatch(
-        widget.proposalId,
-        voterTickets,
+      final votes = await proposalReadStage(
+        'proposal_votes',
+        () => reads.fetchTicketVotesBatch(widget.proposalId, voterTickets),
       );
 
       // 筛选出至少仍有一张未投岗位票据的钱包。
@@ -232,7 +286,7 @@ class _MultisigTransferDetailPageState
         }
       }
 
-      if (!mounted) return;
+      if (!_isCurrent(generation)) return;
       try {
         await _detailStore.put(
           _snapshotFromChain(
@@ -248,7 +302,7 @@ class _MultisigTransferDetailPageState
         // 详情快照写入失败不能影响链上最新结果展示；仅留痕便于排查。
         AppLog.d('[MultisigDetail] 详情快照写入失败: $e');
       }
-      if (!mounted) return;
+      if (!_isCurrent(generation)) return;
       setState(() {
         _admins = admins;
         _status = status;
@@ -274,16 +328,17 @@ class _MultisigTransferDetailPageState
             break;
         }
         _loading = false;
+        _error = null;
+        _ticketsReady = true;
+        _hasDetails = true;
       });
-    } catch (e) {
-      if (!mounted) return;
-      if (localSnapshot != null) {
-        setState(() => _loading = false);
-        return;
-      }
+    } on Object catch (error) {
+      AppLog.proposalFailure(stage: 'proposal_display', error: error);
+      if (!_isCurrent(generation)) return;
       setState(() {
-        _error = '多签提案链状态暂时不可用';
+        _ticketsReady = false;
         _loading = false;
+        if (!_hasDetails) _error = '多签提案链状态暂时不可用';
       });
     }
   }
@@ -306,6 +361,7 @@ class _MultisigTransferDetailPageState
       }
       final detail = _detailFromSnapshot(snapshot);
       setState(() {
+        _hasDetails = true;
         _admins = admins;
         _status = snapshot.status;
         _yesCount = snapshot.yesCount;
@@ -355,9 +411,8 @@ class _MultisigTransferDetailPageState
       noCount: tally.no,
       threshold: thresholdSnapshot,
       admins: admins.map(_requireAccountId).toList(growable: false),
-      adminVotes: votes.map(
-        (key, value) => MapEntry(_requireAccountId(key), value),
-      ),
+      // 票据键包含CID和岗位码，不是钱包地址，必须按原键保存。
+      adminVotes: Map.of(votes),
       pendingPublicKeys: const [],
       detail: _detailToJson(detail),
     );
@@ -491,6 +546,7 @@ class _MultisigTransferDetailPageState
 
   /// 是否还有可投票的钱包（未投票的管理员钱包）。
   bool get _canVote {
+    if (!_ticketsReady) return false;
     if (_selectedVoteWallet == null) return false;
     if (_status != _statusVoting) return false;
     return _votableWallets.isNotEmpty;
@@ -498,6 +554,7 @@ class _MultisigTransferDetailPageState
 
   /// 所有管理员钱包都已投过票或正在投票中。
   bool get _allVoted {
+    if (!_ticketsReady) return false;
     if (widget.adminWallets.isEmpty) return false;
     for (final w in widget.adminWallets) {
       final accountId = _requireAccountId(w.accountId);
@@ -532,6 +589,7 @@ class _MultisigTransferDetailPageState
   }
 
   Future<void> _submitVote(bool approve) async {
+    if (!_ticketsReady) return;
     final wallet = _selectedVoteWallet;
     if (wallet == null) return;
 
