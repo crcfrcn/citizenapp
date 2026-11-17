@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:citizen_citizen/proposal/proposal_tab.dart';
+import 'package:citizen_citizen/proposal/proposal_vote_widgets.dart';
 import 'package:citizen_citizen/proposal/proposal_context.dart';
 import 'package:citizen_citizen/proposal/proposal_local_store.dart';
 import 'package:citizen_citizen/administrators/institution_admin_service.dart';
@@ -25,6 +26,7 @@ import 'package:citizen_storage/user_isar.dart' hide Group;
 import 'package:citizen_testing/institution/public_nav_harness.dart';
 
 import 'package:citizen_citizen/institution/institution_info.dart';
+import 'package:citizen_citizen/institution/governance_registry.dart';
 import 'package:citizen_citizen/proposal/proposal_models.dart';
 import 'package:citizen_citizen/proposal/proposal_query_service.dart';
 import 'package:citizen_citizen/proposal/proposal_cache.dart';
@@ -205,6 +207,7 @@ class _PageContext extends ProposalContextResolver {
         ),
       );
   Object? failure;
+  InstitutionInfo? institution;
   @override
   Future<List<ProposalContext>> resolveBatch(
     List<String?> actorCidNumbers, {
@@ -213,7 +216,10 @@ class _PageContext extends ProposalContextResolver {
     Map<String, InstitutionInfo> knownInstitutionsByCidNumber = const {},
   }) async {
     if (failure != null) throw failure!;
-    return [for (final _ in actorCidNumbers) ProposalContext()];
+    return [
+      for (final _ in actorCidNumbers)
+        ProposalContext(institution: institution),
+    ];
   }
 }
 
@@ -426,6 +432,169 @@ void main() {
   _proposalReadinessTests();
   _proposalReadResultTests();
   _proposalDiagnosticsTests();
+  for (final names in <(String, String)>[
+    ('家庭基金', '家庭基金'),
+    ('家庭基金账户甲乙', '家庭基金账户'),
+    ('👨‍👩‍👧‍👦家庭基金账户甲', '👨‍👩‍👧‍👦家庭基金账'),
+    ('e\u0301家庭基金账户甲', 'e\u0301家庭基金账'),
+  ]) {
+    testWidgets('个人多签统一首行保留前6个可见字符：${names.$1}', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 260,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: ProposalCardHeader(
+                      subjectName: names.$1,
+                      proposalNumber: '#123',
+                      personal: true,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text('投票中'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(find.text(names.$2), findsOneWidget);
+      final nameElement = tester.element(find.text(names.$2));
+      final nameText = tester.widget<Text>(find.text(names.$2));
+      final painter = TextPainter(
+        text: TextSpan(
+          text: names.$2,
+          style: DefaultTextStyle.of(nameElement).style.merge(nameText.style),
+        ),
+        textDirection: TextDirection.ltr,
+        textScaler: MediaQuery.textScalerOf(nameElement),
+      )..layout();
+      // 按真实字号测量，避免布局缩放导致固定像素断言误判；展示的六字不得被裁短。
+      expect(
+        tester.getSize(find.text(names.$2)).width + 0.1,
+        greaterThanOrEqualTo(painter.width),
+      );
+      painter.dispose();
+      expect(find.textContaining('...'), findsNothing);
+      expect(
+        tester.getRect(find.text(names.$2)).right,
+        lessThan(tester.getRect(find.text('#123')).left),
+      );
+      expect(
+        tester.getRect(find.text('#123')).right,
+        lessThan(tester.getRect(find.text('投票中')).left),
+      );
+      expect(tester.takeException(), isNull);
+    });
+  }
+  test('个人多签上下文按规范执行账户去重批量取真实名称，机构CID仍优先', () async {
+    final reads = TestChainReads();
+    final admins = InstitutionAdminService(
+      getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
+      getFinalizedHead: reads.getFinalizedHead,
+      getStorageKeysPaged: reads.getStorageKeysPaged,
+      getStorageBatch: reads.getStorageBatch,
+    );
+    final requested = <List<String>>[];
+    final id = '0x${'12' * 32}';
+    var failNames = false;
+    final resolver = ProposalContextResolver(
+      adminService: admins,
+      activationService: ActivationService(adminService: admins),
+      getWalletState: () => testCitizenOperation(testCitizenWalletState),
+      readNames: (ids) async {
+        requested.add(ids.toList());
+        if (failNames) throw StateError('synthetic name read failure');
+        return {id: '家庭基金账户甲乙'};
+      },
+    );
+    final bytes = List.filled(32, 0x12);
+    final contexts = await resolver.resolveBatch(
+      [null, null, kNrc.first.cidNumber],
+      executionAccountIds: [bytes, bytes, bytes],
+      internalCodeList: ['PMUL', 'pmul', 'PMUL'],
+    );
+    expect(requested, [
+      [id],
+    ]);
+    expect(contexts[0].institution!.shortName, '家庭基金账户甲乙');
+    expect(contexts[1].institution!.accountId, id);
+    expect(contexts[2].institution!.cidNumber, kNrc.first.cidNumber);
+    await resolver.resolveBatch(
+      [kNrc.first.cidNumber],
+      internalCodeList: ['NRC'],
+    );
+    expect(requested, hasLength(1));
+    failNames = true;
+    final unnamed = await resolver.resolveBatch(
+      [null],
+      executionAccountIds: [bytes],
+      internalCodeList: ['PMUL'],
+    );
+    expect(unnamed.single.institution!.shortName, isEmpty);
+    expect(unnamed.single.institution!.accountId, id);
+  });
+  for (final shortName in ['国储委', '合成机构的特别长简称用于验证卡片宽度约束', '']) {
+    testWidgets('提案卡片简称在编号左侧且窄屏大字号不遮挡状态：$shortName', (tester) async {
+      tester.view.physicalSize = const Size(320, 900);
+      tester.view.devicePixelRatio = 1;
+      tester.platformDispatcher.textScaleFactorTestValue = 1.6;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+        tester.platformDispatcher.clearTextScaleFactorTestValue();
+      });
+      final fullName = List.filled(12, '合成机构全称').join();
+      final resolver = _PageContext()
+        ..institution = kNrc.first.copyWith(
+          fullName: fullName,
+          shortName: shortName,
+        );
+      final feed = _PageFeed()
+        ..details = (_) async => [
+          ProposalWithDetail(
+            meta: ProposalMeta(
+              proposalId: BigInt.one,
+              kind: 1,
+              stage: 1,
+              status: 0,
+              internalCode: 'NRC',
+              displayMeta: ProposalDisplayMeta(
+                year: 4294967295,
+                seqInYear: BigInt.parse('18446744073709551615'),
+              ),
+            ),
+          ),
+        ];
+      await _openProposal(tester, feed, <int>[], resolver: resolver);
+      final number = find.text('429496729518446744073709551615');
+      final status = find.text('投票中');
+      expect(number, findsOneWidget);
+      expect(status, findsOneWidget);
+      expect(find.text(fullName), findsNothing);
+      if (shortName.isNotEmpty) {
+        final name = find.text(shortName);
+        expect(name, findsOneWidget);
+        expect(
+          tester.getRect(name).right,
+          lessThan(tester.getRect(number).left),
+        );
+        expect(
+          tester.getCenter(name).dy,
+          closeTo(tester.getCenter(number).dy, 0.1),
+        );
+      }
+      expect(
+        tester.getRect(number).right,
+        lessThan(tester.getRect(status).left),
+      );
+      expect(tester.getRect(status).right, lessThanOrEqualTo(320));
+      expect(tester.takeException(), isNull);
+    });
+  }
   testWidgets('提案合法空索引成功为空，不显示链不可用或错误', (tester) async {
     final feed = _PageFeed()..ids = [];
     final counts = <int>[];

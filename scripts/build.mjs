@@ -6,6 +6,7 @@ import {accessSync, constants, appendFileSync, copyFileSync, cpSync, existsSync,
 import {join, resolve, dirname, relative, sep} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {api,readReleases,releaseDownloadArgs} from '../.github/release.mjs';
+import {chainRepository} from './config.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const controller = new AbortController();
@@ -239,6 +240,24 @@ export function prepareTests(project){
 }
 
 // 两个平台及本机共用产品自己的工程装配，公开IO注入仅供既有合成回归。
+// 仅向本轮工程装配资源，不在App源码中保存第二份白皮书。
+export async function prepareWhitepaper(project,{sourceRoot=root,work=dirname(project),environment=process.env,execute=run}={}){
+ let source=environment.CITIZENCHAIN_WHITEPAPER_ROOT||resolve(sourceRoot,'../citizenchain');
+ if(!existsSync(join(source,'CitizenChainWhitepaper.md'))&&!environment.CITIZENCHAIN_WHITEPAPER_ROOT){
+  source=join(work,'whitepaper-source');
+  await execute('git',['clone','--depth=1','--filter=blob:none','--sparse','--branch=main','https://github.com/'+chainRepository+'.git',source],sourceRoot,false,environment,'白皮书源码读取');
+  await execute('git',['-C',source,'sparse-checkout','set','--no-cone','/CitizenChainWhitepaper.md','/icons/whitepaper-node-diagram.svg','/icons/whitepaper-reserve-architecture.svg'],sourceRoot,false,environment,'白皮书源码读取');
+ }
+ let markdown=readFileSync(join(source,'CitizenChainWhitepaper.md'),'utf8');
+ if(!markdown.trim())throw Error('白皮书正文为空');
+ for(const name of ['whitepaper-node-diagram.svg','whitepaper-reserve-architecture.svg']){
+  const svg=readFileSync(join(source,'icons',name));
+  markdown=markdown.replaceAll('./icons/'+name,'data:image/svg+xml;base64,'+svg.toString('base64'));
+ }
+ const output=join(project,'assets/documents/whitepaper.md');
+ mkdirSync(dirname(output),{recursive:true});writeFileSync(output,markdown);return output;
+}
+
 export async function assembleProject(environment,io={}){
  const execute=io.execFileSync||execFileSync;
 const root = environment.GITHUB_WORKSPACE, work = environment.WORK;
@@ -311,6 +330,7 @@ lock = lock.replace(new RegExp('  ' + name + ':\n(?:    .*\n)+'), () =>
     '  ' + name + ':\n    dependency: "direct main"\n    description:\n      path: "' + output +
     '"\n      relative: false\n    source: path\n    version: ' +
     JSON.stringify(/^version: (\S+)$/m.exec(readFileSync(join(output,'pubspec.yaml'),'utf8'))[1]) + '\n');
+await prepareWhitepaper(project,{sourceRoot:root,work,environment});
 prepareTests(project);
 // Flutter官方模板只写本轮工程；保留既有业务源码和平台工程原件。
 const flutter = join(environment.FLUTTER_ROOT, 'bin/flutter');

@@ -114,7 +114,7 @@ enum _WalletLoadState {
 /// - 正常态：唯一热钱包的各账户行 + 冷钱包行并列，点账户行进账户详情，
 ///   点冷钱包行进冷钱包详情；
 /// - 选择交易钱包态（selectForTrade）：逐个展示正常冷热账户，返回精确付款账户，不修改默认身份；
-/// - 钱包/账户图标按冷热配色：热=墨绿主色 / 冷=蓝(离线签名设备调性)；
+/// - 钱包/账户图标按冷热配色：热=红 / 冷=蓝(离线签名设备调性)；
 /// - 冷钱包行保留既有行为；热钱包账户行的竖三点菜单提供
 ///   「扫一扫 / 重命名 / 删除钱包或删除账户」，整卡点击进入账户详情。
 class _WalletTabState extends State<WalletTab> {
@@ -1235,9 +1235,7 @@ class _WalletTabState extends State<WalletTab> {
 
   @override
   Widget build(BuildContext context) => ChainBalanceScope(
-    accountIds: _accounts
-        .where((a) => a.signMode == CitizenWalletSignMode.cold)
-        .map((a) => a.accountId),
+    accountIds: _accounts.map((a) => a.accountId),
     balances: _balanceStore,
     onError: (error) => unawaited(_showBalanceError(error)),
     builder: _buildBalanceView,
@@ -1364,6 +1362,7 @@ class _WalletTabState extends State<WalletTab> {
           child: account.signMode == CitizenWalletSignMode.hot
               ? WalletAccountTile(
                   account: account,
+                  balanceState: _balanceStore.accountState(account.accountId),
                   isIdentity: account.accountId == _identityAccountId,
                   onTap: () => _selectPaymentAccount(account),
                   onScan: () {},
@@ -1494,6 +1493,7 @@ class _WalletTabState extends State<WalletTab> {
         padding: padding,
         child: WalletAccountTile(
           account: account,
+          balanceState: _balanceStore.accountState(account.accountId),
           isDefault: isDefault,
           isIdentity: account.accountId == _identityAccountId,
           onTap: () => _openAccountDetail(account),
@@ -1996,7 +1996,7 @@ class _DefaultAccountLabel extends StatelessWidget {
 
 /// 单行账户卡片：唯一热钱包下某个 `//index` 账户。
 ///
-/// 左侧红色钱包图标 → 账户名（默认标记紧邻名称右上侧）+ 短 SS58 → 身份徽标（如有）→
+/// 左侧红色钱包图标 → 账户名（默认标记紧邻名称右上侧）+ 链上余额 → 身份徽标（如有）→
 /// 竖三点。整卡点击进入账户详情；扫一扫收进菜单并锁定当前账户。
 ///
 /// 仅供 wallet_page 自己使用，通过 `@visibleForTesting` 暴露给 widget 测试。
@@ -2005,6 +2005,7 @@ class WalletAccountTile extends StatelessWidget {
   const WalletAccountTile({
     super.key,
     required this.account,
+    this.balanceState,
     required this.onTap,
     required this.onScan,
     required this.onRename,
@@ -2016,6 +2017,7 @@ class WalletAccountTile extends StatelessWidget {
   });
 
   final CitizenWalletStateAccount account;
+  final CitizenBalanceState<CitizenAccountBalance>? balanceState;
   final VoidCallback onTap;
   final VoidCallback onScan;
   final VoidCallback onRename;
@@ -2031,16 +2033,19 @@ class WalletAccountTile extends StatelessWidget {
   final bool actionsEnabled;
   final bool showActions;
 
-  String _shortAddress(String address) {
-    // 卡片固定显示前 10 位和后 8 位，中间严格使用 6 个 ASCII 句点；复制值仍是完整地址。
-    if (address.length <= 18) {
-      return address;
-    }
-    return '${address.substring(0, 10)}......${address.substring(address.length - 8)}';
-  }
-
   @override
   Widget build(BuildContext context) {
+    final state = balanceState;
+    if (state != null) {
+      return ListenableBuilder(
+        listenable: state,
+        builder: (context, _) => _build(context),
+      );
+    }
+    return _build(context);
+  }
+
+  Widget _build(BuildContext context) {
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -2098,14 +2103,18 @@ class WalletAccountTile extends StatelessWidget {
                       ],
                     ),
                     SizedBox(height: AppLayout.scaled(context, 4)),
-                    Text(
-                      _shortAddress(account.ss58Address),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: AppLayout.scaled(context, 13),
-                        color: AppTheme.textSecondary,
-                        fontFamily: 'monospace',
+                    Semantics(
+                      identifier: 'wallet-balance',
+                      child: Text(
+                        balanceState?.value != null
+                            ? formatFen(balanceState!.value!.freeFen)
+                            : '—',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: AppLayout.scaled(context, 13),
+                          color: AppTheme.textSecondary,
+                        ),
                       ),
                     ),
                   ],

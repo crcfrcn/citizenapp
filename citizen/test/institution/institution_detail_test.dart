@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:citizen_citizen/administrators/institution_admin_service.dart';
 import 'package:citizen_citizen/administrators/admin_activation_service.dart';
 import 'package:citizen_citizen/proposal/proposal_context.dart';
+import 'package:citizen_citizen/proposal/proposal_vote_widgets.dart';
 import 'package:citizen_citizen/proposal/proposal_entry_page.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_citizen/institution/institution_assignment_card.dart';
@@ -580,6 +581,7 @@ void main() {
         PublicInstitutionDto.fromJson(<String, dynamic>{
           'cid_number': _cid,
           'cid_full_name': '辽宁省身份注册局',
+          'cid_short_name': '辽省注册局',
           'province_code': 'GD',
           'city_code': '001',
           'institution_code': 'CREG',
@@ -636,6 +638,14 @@ void main() {
     // 提案列表。
     expect(find.text('提案列表'), findsOneWidget);
     expect(find.text('提案 #7'), findsOneWidget);
+    final header = find.byType(ProposalCardHeader);
+    expect(header, findsOneWidget);
+    final name = find.descendant(of: header, matching: find.text('辽省注册局'));
+    expect(name, findsOneWidget);
+    expect(
+      tester.getRect(name).right,
+      lessThan(tester.getRect(find.text('提案 #7')).left),
+    );
   });
 
   testWidgets('管理员入口点击进入可激活管理员列表页', (tester) async {

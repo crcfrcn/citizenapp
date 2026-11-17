@@ -6,6 +6,72 @@ import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_citizen/proposal/proposal_models.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
+/// 所有提案列表的统一首行：主体名称在左、编号在右，均单行限宽。
+/// 个人多签只截取展示名称的前6个可见字符，不修改原账户名称。
+class ProposalCardHeader extends StatelessWidget {
+  const ProposalCardHeader({
+    super.key,
+    required this.subjectName,
+    required this.proposalNumber,
+    this.personal = false,
+  });
+
+  final String? subjectName;
+  final String proposalNumber;
+  final bool personal;
+
+  @override
+  Widget build(BuildContext context) {
+    final original = subjectName?.trim() ?? '';
+    final name = personal ? original.characters.take(6).toString() : original;
+    return LayoutBuilder(
+      builder: (context, constraints) => Row(
+        children: [
+          if (name.isNotEmpty) ...[
+            ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: constraints.maxWidth * 0.6),
+              child: Container(
+                padding: EdgeInsets.symmetric(
+                  horizontal: AppLayout.scaledValue(6),
+                  vertical: 1,
+                ),
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryDark.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(AppLayout.scaledValue(8)),
+                ),
+                child: Text(
+                  name,
+                  style: TextStyle(
+                    fontSize: AppLayout.scaledValue(10),
+                    color: AppTheme.primaryDark,
+                  ),
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+            SizedBox(width: AppLayout.scaledValue(8)),
+          ],
+          Expanded(
+            child: Text(
+              proposalNumber,
+              style: TextStyle(
+                fontSize: AppLayout.scaledValue(15),
+                fontWeight: FontWeight.w600,
+                color: AppTheme.primaryDark,
+              ),
+              maxLines: 1,
+              softWrap: false,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ──── 投票进度组件 ────
 
 /// 提案投票进度条（赞成/反对计数 + 阈值 + 进度条）。

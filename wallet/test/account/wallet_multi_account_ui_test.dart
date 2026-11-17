@@ -323,52 +323,62 @@ void main() {
     }
   });
 
-  for (final selectForTrade in [false, true]) {
-    testWidgets('冷钱包已有余额在卡片首次出现时显示，身份未返回不阻塞：$selectForTrade', (tester) async {
-      _disposeWidgetBeforeStores(tester);
-      final snapshot = _coldWalletSnapshot();
-      final store = _scenario.balances;
-      await tester.runAsync(
-        () => store.getAccountBalance(snapshot.accounts.single.accountId),
-      );
-      // 清空内存且保留隔离库，验证首次卡片真正恢复磁盘余额，不能靠预热内存通过。
-      _scenario.balances = _scenario.balanceStore();
-      expect(
-        _scenario.balances
-            .accountState(snapshot.accounts.single.accountId)
-            .value,
-        isNull,
-      );
-      var queries = 0;
-      _scenario.balancesAction = (_) {
-        queries++;
-        throw StateError('禁止重复余额查询');
-      };
-      final identity = _identityGate = Completer<FinalizedIdentity?>();
-      await tester.pumpWidget(
-        _walletTabHost(() async => snapshot, selectForTrade: selectForTrade),
-      );
-      // 只等待钱包目录使卡片可见；不等待身份或余额从网络回来。
-      await _pumpUntil(
+  for (final isHot in [false, true]) {
+    for (final selectForTrade in [false, true]) {
+      testWidgets('冷热账户已有余额在卡片首次出现时显示，身份未返回不阻塞：$isHot/$selectForTrade', (
         tester,
-        () => find.byType(WalletListTile).evaluate().isNotEmpty,
-      );
-      expect(identity.isCompleted, isFalse);
-      expect(find.text('1.00'), findsOneWidget);
-      expect(queries, 0);
-      await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pumpWidget(
-        _walletTabHost(() async => snapshot, selectForTrade: selectForTrade),
-      );
-      await _pumpUntil(
-        tester,
-        () => find.byType(WalletListTile).evaluate().isNotEmpty,
-      );
-      expect(find.text('1.00'), findsOneWidget);
-      expect(queries, 0);
-      identity.complete(null);
-      await tester.pump();
-    });
+      ) async {
+        _disposeWidgetBeforeStores(tester);
+        final snapshot = isHot ? _hotWalletSnapshot() : _coldWalletSnapshot();
+        final store = _scenario.balances;
+        await tester.runAsync(
+          () => store.getAccountBalance(snapshot.accounts.single.accountId),
+        );
+        // 清空内存且保留隔离库，验证首次卡片真正恢复磁盘余额，不能靠预热内存通过。
+        _scenario.balances = _scenario.balanceStore();
+        expect(
+          _scenario.balances
+              .accountState(snapshot.accounts.single.accountId)
+              .value,
+          isNull,
+        );
+        var queries = 0;
+        _scenario.balancesAction = (_) {
+          queries++;
+          throw StateError('禁止重复余额查询');
+        };
+        final identity = _identityGate = Completer<FinalizedIdentity?>();
+        await tester.pumpWidget(
+          _walletTabHost(() async => snapshot, selectForTrade: selectForTrade),
+        );
+        // 只等待钱包目录使卡片可见；不等待身份或余额从网络回来。
+        await _pumpUntil(
+          tester,
+          () => find
+              .byType(isHot ? WalletAccountTile : WalletListTile)
+              .evaluate()
+              .isNotEmpty,
+        );
+        expect(identity.isCompleted, isFalse);
+        expect(find.text('1.00'), findsOneWidget);
+        expect(queries, 0);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpWidget(
+          _walletTabHost(() async => snapshot, selectForTrade: selectForTrade),
+        );
+        await _pumpUntil(
+          tester,
+          () => find
+              .byType(isHot ? WalletAccountTile : WalletListTile)
+              .evaluate()
+              .isNotEmpty,
+        );
+        expect(find.text('1.00'), findsOneWidget);
+        expect(queries, 0);
+        identity.complete(null);
+        await tester.pump();
+      });
+    }
   }
 
   CitizenWalletState orderedState({int revision = 1, String name = '原冷钱包'}) {
@@ -675,8 +685,12 @@ void main() {
     await tester.runAsync(() => saveIdentity(identity(null).snapshot));
     await tester.pumpWidget(_walletTabHost(() async => state));
     await _settleWallet(tester);
-    // 热账户行不展示金额，不应为徽标或目录读取发起余额查询。
-    expect(_scenario.calls.contains('getAccountBalances'), isFalse);
+    // 热账户行订阅本账户余额；后续身份徽标变化不得重复查询同块余额。
+    expect(find.text('1.00'), findsOneWidget);
+    final balanceReads = _scenario.calls
+        .where((call) => call == 'getAccountBalances')
+        .length;
+    expect(balanceReads, 1);
     expect(find.text('身份钱包'), findsNothing);
     await tester.runAsync(() => saveIdentity(identity(voting()).snapshot));
     _security.revision.value++;
@@ -686,6 +700,10 @@ void main() {
     _security.revision.value++;
     await _pumpUntil(tester, () => find.text('身份钱包').evaluate().isEmpty);
     expect(find.text('身份钱包'), findsNothing);
+    expect(
+      _scenario.calls.where((call) => call == 'getAccountBalances').length,
+      balanceReads,
+    );
   });
 
   for (final code in [
@@ -2114,13 +2132,19 @@ void main() {
     });
   });
   group('WalletAccountTile（账户行渲染 + 冷钱包共存）', () {
-    testWidgets('渲染账户名与短地址', (tester) async {
+    testWidgets('渲染账户名与链上余额并跟随余额更新', (tester) async {
       _disposeWidgetBeforeStores(tester);
+      final account = _makeAccount();
+      final balances = _scenario.balances;
+      await tester.runAsync(
+        () => balances.getAccountBalance(account.accountId),
+      );
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
             body: WalletAccountTile(
-              account: _makeAccount(),
+              account: account,
+              balanceState: balances.accountState(account.accountId),
               onTap: () {},
               onScan: () {},
               onRename: () {},
@@ -2136,9 +2160,28 @@ void main() {
       );
       expect(icon.icon, Icons.account_balance_wallet_rounded);
       expect(icon.color, AppTheme.danger);
-      // 长 SS58 固定展示首 10 位与末 8 位，中间严格为 6 个 ASCII 句点。
-      expect(find.text('w5Bc7ma8qU......Q86xBWrT'), findsOneWidget);
-      expect(find.textContaining('…'), findsNothing);
+      expect(find.text('1.00'), findsOneWidget);
+      expect(find.text(account.ss58Address), findsNothing);
+      expect(find.textContaining('......'), findsNothing);
+      _scenario.balancesAction = (ids) => [
+        for (final id in ids)
+          CitizenAccountBalance(
+            accountId: id,
+            block: CitizenBlockRef(
+              hash: '0x${'00' * 32}',
+              number: BigInt.one,
+              finality: CitizenBlockFinality.finalized,
+            ),
+            freeFen: BigInt.zero,
+            reservedFen: BigInt.zero,
+            totalFen: BigInt.zero,
+          ),
+      ];
+      await tester.runAsync(
+        () => balances.getAccountBalance(account.accountId, forceRefresh: true),
+      );
+      await tester.pump();
+      expect(find.text('0.00'), findsOneWidget);
     });
 
     testWidgets('点击账户行触发 onTap', (tester) async {
@@ -2202,9 +2245,9 @@ void main() {
       expect(labelRect.center.dy, lessThan(nameRect.center.dy));
       expect(tester.takeException(), isNull);
 
-      final address = tester.widget<Text>(find.textContaining('......'));
-      expect(address.maxLines, 1);
-      expect(address.overflow, TextOverflow.ellipsis);
+      final balance = tester.widget<Text>(find.text('—'));
+      expect(balance.maxLines, 1);
+      expect(balance.overflow, TextOverflow.ellipsis);
     });
 
     testWidgets('扫一扫是三点菜单第一项且只触发当前账户扫码', (tester) async {

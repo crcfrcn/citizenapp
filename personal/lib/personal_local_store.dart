@@ -6,6 +6,25 @@ import 'package:isar_community/isar.dart';
 import 'package:citizen_storage/user_isar.dart';
 import 'package:citizen_citizen/administrators/admin_account.dart';
 
+/// 按规范账户ID批量读已有名称；空集合不访问数据库，不查链或生成占位名称。
+Future<Map<String, String>> readMultisigNames(
+  Iterable<String> accountIds,
+) async {
+  final ids = accountIds.toSet().toList(growable: false);
+  if (ids.isEmpty) return const {};
+  if (ids.any((id) => !isCitizenAccountId(id))) {
+    throw const FormatException('个人多签名称查询需要规范account_id');
+  }
+  return UserIsar.instance.read((isar) async {
+    final rows = await isar.accounts.getAllByAccountId(ids);
+    return {
+      for (final row in rows)
+        if (row != null && row.accountName.trim().isNotEmpty)
+          row.accountId: row.accountName,
+    };
+  });
+}
+
 // 个人多签业务快照由交易包拥有，存储包只提供原实体和事务。
 /// 多签账户本地状态快照。
 ///

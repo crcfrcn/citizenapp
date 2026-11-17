@@ -10,6 +10,7 @@ import 'package:citizen_citizen/proposal/internal_vote_query_service.dart';
 import 'package:citizen_citizen/proposal/proposal_models.dart';
 import 'package:citizen_citizen/proposal/proposal_query_service.dart';
 import 'package:citizen_citizen/runtime/runtime_upgrade_service.dart';
+import 'package:citizen_personal/personal_local_store.dart';
 
 /// 用户与某个提案的关系上下文。
 ///
@@ -69,13 +70,27 @@ class ProposalContextResolver {
     required InstitutionAdminService adminService,
     required ActivationService activationService,
     CitizenSdkOperation<CitizenWalletState> Function()? getWalletState,
+    Future<Map<String, String>> Function(Iterable<String>)? readNames,
   }) : _adminService = adminService,
        _activationService = activationService,
+       _readNames = readNames ?? readMultisigNames,
        _getWalletState =
            getWalletState ??
            wallet?.getWalletState ??
            (() => throw StateError('未配置getWalletState'));
   final CitizenSdkOperation<CitizenWalletState> Function() _getWalletState;
+  final Future<Map<String, String>> Function(Iterable<String>) _readNames;
+
+  Future<Map<String, String>> _personalNames(Iterable<String> ids) async {
+    if (ids.isEmpty) return const {};
+    try {
+      return await _readNames(ids);
+    } catch (_) {
+      // 名称只是展示资料；读取失败不改变提案权限与状态，也不暴露账户或异常正文。
+      AppLog.d('proposal_personal_names_read_failed');
+      return const {};
+    }
+  }
 
   final InstitutionAdminService _adminService;
 
@@ -139,9 +154,15 @@ class ProposalContextResolver {
       final knownPersonalAccount = knownInstitution == null
           ? null
           : personalAccountIdFromIdentity(knownInstitution.cidNumber);
-      institution = knownPersonalAccount == executionAccountIdText
-          ? knownInstitution
-          : personalMultisigFromAccountId(executionAccountId);
+      if (knownPersonalAccount == executionAccountIdText) {
+        institution = knownInstitution;
+      } else {
+        final names = await _personalNames([executionAccountIdText]);
+        institution = personalMultisigFromAccountId(
+          executionAccountId,
+          accountName: names[executionAccountIdText],
+        );
+      }
     }
 
     // 匹配管理员钱包（通过激活状态判断）。
@@ -212,6 +233,21 @@ class ProposalContextResolver {
       for (final entry in knownInstitutionsByCidNumber.entries)
         entry.key.trim(): entry.value,
     };
+    final personalIds = <String>{};
+    for (var i = 0; i < actorCidNumbers.length; i++) {
+      if ((actorCidNumbers[i]?.trim().isEmpty ?? true) &&
+          internalCodeList != null &&
+          i < internalCodeList.length &&
+          internalCodeList[i]?.toUpperCase() == 'PMUL' &&
+          executionAccountIds != null &&
+          i < executionAccountIds.length) {
+        final bytes = executionAccountIds[i];
+        if (bytes != null && bytes.length == 32) {
+          personalIds.add(citizenAccountIdFromBytes(bytes));
+        }
+      }
+    }
+    final personalNames = await _personalNames(personalIds);
 
     for (var i = 0; i < actorCidNumbers.length; i++) {
       final actorCidNumber = actorCidNumbers[i];
@@ -231,7 +267,12 @@ class ProposalContextResolver {
         institution =
             knownInstitutions[actorCid] ?? findInstitutionByCidNumber(actorCid);
       } else if (code == 'PMUL' && executionAccountId != null) {
-        institution = personalMultisigFromAccountId(executionAccountId);
+        institution = personalMultisigFromAccountId(
+          executionAccountId,
+          accountName: executionAccountId.length == 32
+              ? personalNames[citizenAccountIdFromBytes(executionAccountId)]
+              : null,
+        );
       }
 
       if (institution == null) {

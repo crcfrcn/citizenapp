@@ -28,6 +28,7 @@ import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_citizen/proposal/proposal_context.dart';
 import 'package:citizen_citizen/proposal/proposal_local_store.dart';
 import 'package:citizen_citizen/proposal/proposal_models.dart';
+import 'package:citizen_citizen/proposal/proposal_vote_widgets.dart';
 import 'package:citizen_user/identity/current_user_context.dart';
 import 'package:citizen_multisig/multisig_transfer_proposal_adapter.dart';
 import 'package:citizen_multisig/multisig_transfer_service.dart';
@@ -826,13 +827,9 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: AppLayout.scaledValue(15),
-                    fontWeight: FontWeight.w600,
-                    color: AppTheme.primaryDark,
-                  ),
+                ProposalCardHeader(
+                  subjectName: _inst?.shortName,
+                  proposalNumber: title,
                 ),
                 if (subtitle != null && subtitle.isNotEmpty) ...[
                   SizedBox(height: AppLayout.scaledValue(2)),
@@ -847,6 +844,7 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
               ],
             ),
           ),
+          SizedBox(width: AppLayout.scaledValue(8)),
           Container(
             padding: EdgeInsets.symmetric(
               horizontal: AppLayout.scaledValue(8),

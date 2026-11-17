@@ -11,6 +11,8 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_citizen/proposal/proposal_query_service.dart';
 import 'package:citizen_personal/personal_proposal_history_service.dart';
+import 'package:citizen_personal/personal_local_store.dart';
+import 'package:citizen_storage/user_isar.dart' as store;
 
 import 'package:citizen_testing/isar_test_env.dart';
 import 'package:citizen_testing/fake_citizen_sdk.dart';
@@ -58,6 +60,23 @@ PersonalProposalHistoryService _service() {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   useIsolatedIsar();
+
+  test('多签名称只按指定账户从本地批量读取，完整名称不被截断', () async {
+    final id = '0x${'11' * 32}';
+    final missing = '0x${'22' * 32}';
+    await store.UserIsar.instance.writeTxn((isar) async {
+      await isar.accounts.put(
+        store.Account()
+          ..accountId = id
+          ..accountName = '家庭基金账户甲乙'
+          ..creatorAccount = id
+          ..addedAt = 1,
+      );
+    });
+    expect(await readMultisigNames([id, id, missing]), {id: '家庭基金账户甲乙'});
+    expect(await readMultisigNames([]), isEmpty);
+    await expectLater(readMultisigNames(['invalid']), throwsFormatException);
+  });
 
   const personalAccount =
       'aabbccddeeff00112233445566778899'

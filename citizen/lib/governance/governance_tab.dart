@@ -151,7 +151,7 @@ class GovernanceTab extends StatefulWidget {
   /// 用户本机顺序仓库；生产默认使用 [GovernanceInstitutionOrderStore]。
   final GovernanceInstitutionOrderStore? orderStore;
 
-  /// 白皮书阅读页注入点；生产固定使用官网唯一真源阅读页，
+  /// 白皮书阅读页注入点；生产固定使用同源内置的离线阅读页，
   /// 测试以轻量页面验证路由，避免启动平台 WebView。
   final WidgetBuilder? whitepaperPageBuilder;
 

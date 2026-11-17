@@ -17,6 +17,7 @@ dev_dependencies:
 
 flutter:
   assets:
+    - documents/whitepaper.md
     - stickers/
     - stickers/
     - profiles/

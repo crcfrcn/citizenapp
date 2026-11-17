@@ -1,4 +1,6 @@
 import {fileURLToPath} from 'node:url';
+// 白皮书正文及配图的唯一源码仓库；本机优先读取同级正式检出。
+export const chainRepository='crcfrcn/citizenchain';
 // 本产品配置需求的公开入口；只登记名称、类型和规则，不保存配置值。
 export const manifest=Object.freeze({
   "schema": 1,

@@ -9,8 +9,10 @@ import 'package:citizen_citizen/institution/institution_detail_page.dart';
 // 机构改由统一目录按机构码加载(注入 seeded fake 仓库),分组/折叠/拖拽 UI 保持。
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -342,14 +344,10 @@ void main() {
     expect(find.text('白皮书阅读页'), findsOneWidget);
   });
 
-  test('白皮书 WebView 只允许官网唯一主文档导航', () {
-    expect(isCitizenWhitepaperNavigationAllowed(citizenWhitepaperUrl), isTrue);
-    expect(
-      isCitizenWhitepaperNavigationAllowed(
-        '$citizenWhitepaperUrl#node-configuration',
-      ),
-      isTrue,
-    );
+  test('离线白皮书只允许本地文档及目录锚点导航', () {
+    expect(isCitizenWhitepaperNavigationAllowed('about:blank'), isTrue);
+    expect(isCitizenWhitepaperNavigationAllowed('about:blank#21节点概览'), isTrue);
+    expect(isCitizenWhitepaperNavigationAllowed('#21节点概览'), isTrue);
     expect(
       isCitizenWhitepaperNavigationAllowed('http://www.crcfrcn.com/whitepaper'),
       isFalse,
@@ -368,6 +366,62 @@ void main() {
       ),
       isFalse,
     );
+  });
+
+  test('离线渲染保留中英标题、表格和原图，中文目录可跳转', () {
+    final html = citizenWhitepaperHtml('''[节点概览](#21节点概览)
+
+## 2.1.节点概览<br><span class="whitepaper-heading-en">2.1. Node Overview</span>
+
+| 类型 | 说明 |
+| --- | --- |
+| 节点 | 完整正文 |
+
+<img src="data:image/svg+xml;base64,PHN2Zy8+" alt="原图">
+''');
+    expect(html, contains('id="21节点概览"'));
+    final fragment = RegExp(r'href="#([^"]+)"').firstMatch(html)![1]!;
+    expect(Uri.decodeComponent(fragment), '21节点概览');
+    expect(html, contains('2.1. Node Overview'));
+    expect(html, contains('<table>'));
+    expect(html, contains('data:image/svg+xml;base64,PHN2Zy8+'));
+    expect(html, contains("default-src 'none'"));
+    expect(() => citizenWhitepaperHtml(' \n'), throwsFormatException);
+  });
+
+  test('包内真实白皮书离线可读，原始目录锚点全部命中正文', () async {
+    final markdown = await rootBundle.loadString(citizenWhitepaperAsset);
+    final html = citizenWhitepaperHtml(markdown);
+    expect(markdown, contains('《公民链白皮书》'));
+    expect(markdown, isNot(contains('./icons/whitepaper-')));
+    expect('data:image/svg+xml;base64,'.allMatches(markdown), hasLength(2));
+    expect('<table>'.allMatches(html).length, greaterThan(5));
+    final ids = RegExp(
+      r' id="([^"]+)"',
+    ).allMatches(html).map((match) => match[1]).toSet();
+    for (final link in RegExp(r'href="#([^"]+)"').allMatches(html)) {
+      expect(ids, contains(Uri.decodeComponent(link[1]!)));
+    }
+    final work = Platform.environment['CITIZENAPP_TEST_WORK_DIR'];
+    if (work != null) await File('$work/whitepaper.html').writeAsString(html);
+  });
+
+  test('原文围栏中的标准表格正常渲染，目录树代码不变', () {
+    final html = citizenWhitepaperHtml('''```text
+| 节点 | 数量 |
+| --- | --- |
+| 全节点 | 无限 |
+```
+
+```text
+citizenchain/
+└── node/
+```
+''');
+    expect('<table>'.allMatches(html), hasLength(1));
+    expect('<pre>'.allMatches(html), hasLength(1));
+    expect(html, contains('<td>全节点</td>'));
+    expect(html, contains('citizenchain/\n└── node/'));
   });
 
   testWidgets('省储委会默认展开、省储行默认收起，国家储委会保持展示', (tester) async {

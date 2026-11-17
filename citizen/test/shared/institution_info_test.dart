@@ -5,6 +5,18 @@ import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_citizen/institution/governance_registry.dart';
 
 void main() {
+  test('个人多签真实名称完整进入上下文，未取得名称不伪造简称', () {
+    final bytes = List.filled(32, 0x12);
+    final named = personalMultisigFromAccountId(
+      bytes,
+      accountName: '家庭基金账户甲乙',
+    )!;
+    expect(named.shortName, '家庭基金账户甲乙');
+    expect(named.fullName, '家庭基金账户甲乙');
+    final unnamed = personalMultisigFromAccountId(bytes)!;
+    expect(unnamed.shortName, isEmpty);
+    expect(unnamed.accountId, named.accountId);
+  });
   test('个人多签身份只接受规范账户标识', () {
     final accountId = '0x${'aa' * 32}';
     expect(

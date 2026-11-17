@@ -17,6 +17,7 @@ import 'package:provider/provider.dart';
 
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_citizen/proposal/proposal_context.dart';
+import 'package:citizen_citizen/proposal/proposal_vote_widgets.dart';
 import 'package:citizen_citizen/navigation.dart';
 import 'package:citizen_multisig/multisig_transfer_detail_page.dart';
 import 'package:citizen_system/theme/app_theme.dart';
@@ -249,17 +250,14 @@ class _PersonalProposalListSectionState
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      '${_actionLabel(view.actionKind)} · #${view.proposalId}',
-                      style: TextStyle(
-                        fontSize: AppLayout.scaledValue(15),
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.primaryDark,
-                      ),
+                    ProposalCardHeader(
+                      subjectName: widget.institution.shortName,
+                      proposalNumber: '#${view.proposalId}',
+                      personal: true,
                     ),
                     SizedBox(height: AppLayout.scaledValue(2)),
                     Text(
-                      '赞成 ${view.yesCount} · 反对 ${view.noCount}',
+                      '${_actionLabel(view.actionKind)} · 赞成 ${view.yesCount} · 反对 ${view.noCount}',
                       style: TextStyle(
                         fontSize: AppLayout.scaledValue(12),
                         color: AppTheme.textTertiary,
@@ -268,6 +266,7 @@ class _PersonalProposalListSectionState
                   ],
                 ),
               ),
+              SizedBox(width: AppLayout.scaledValue(8)),
               Container(
                 padding: EdgeInsets.symmetric(
                   horizontal: AppLayout.scaledValue(8),

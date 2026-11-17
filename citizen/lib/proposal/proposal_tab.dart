@@ -20,6 +20,7 @@ import 'package:citizen_citizen/proposal/proposal_context.dart';
 import 'package:citizen_citizen/proposal/proposal_local_store.dart';
 import 'package:citizen_citizen/runtime/runtime_upgrade_detail_page.dart';
 import 'package:citizen_citizen/proposal/proposal_models.dart';
+import 'package:citizen_citizen/proposal/proposal_vote_widgets.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_multisig/multisig_transfer_proposal_adapter.dart';
 import 'package:citizen_multisig/multisig_transfer_service.dart';
@@ -383,7 +384,7 @@ class _ProposalViewState extends State<ProposalTab> {
     final fee = rows[1].accountId;
     return InstitutionInfo(
       fullName: inst.fullName,
-      shortName: inst.cidShortNameOrFullName,
+      shortName: inst.shortName?.trim() ?? '',
       cidFullNameEn: inst.fullName,
       cidShortNameEn: inst.cidShortNameOrFullName,
       cidNumber: inst.cidNumber,
@@ -741,6 +742,7 @@ class _ProposalViewState extends State<ProposalTab> {
   Widget _buildProposalCard(_ProposalDisplayItem item) {
     final statusColor = _statusColor(item.status);
     final statusLabel = _statusLabel(item.status);
+    final shortName = item.shortName;
 
     return PressableCard(
       child: Card(
@@ -782,41 +784,12 @@ class _ProposalViewState extends State<ProposalTab> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          Text(
-                            item.displayId,
-                            style: TextStyle(
-                              fontSize: AppLayout.scaledValue(15),
-                              fontWeight: FontWeight.w600,
-                              color: AppTheme.primaryDark,
-                            ),
-                          ),
-                          SizedBox(width: AppLayout.scaledValue(8)),
-                          if (item.fullName != null)
-                            Container(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: AppLayout.scaledValue(6),
-                                vertical: 1,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppTheme.primaryDark.withValues(
-                                  alpha: 0.08,
-                                ),
-                                borderRadius: BorderRadius.circular(
-                                  AppLayout.scaledValue(8),
-                                ),
-                              ),
-                              child: Text(
-                                item.fullName!,
-                                style: TextStyle(
-                                  fontSize: AppLayout.scaledValue(10),
-                                  color: AppTheme.primaryDark,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                        ],
+                      ProposalCardHeader(
+                        subjectName: shortName,
+                        proposalNumber: item.displayId,
+                        personal:
+                            item.context?.institution?.orgType ==
+                            OrgType.personalMultisig,
                       ),
                       SizedBox(height: AppLayout.scaledValue(2)),
                       Text(
@@ -829,6 +802,7 @@ class _ProposalViewState extends State<ProposalTab> {
                     ],
                   ),
                 ),
+                SizedBox(width: AppLayout.scaledValue(8)),
                 // 右侧状态 + 红点
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
@@ -1052,5 +1026,8 @@ class _ProposalDisplayItem {
   BigInt get proposalId => summary.proposalId;
   int get status => summary.status;
   String get displayId => summary.displayId;
-  String? get fullName => context?.institution?.fullName ?? summary.fullName;
+  String? get shortName {
+    final name = context?.institution?.shortName.trim();
+    return name == null || name.isEmpty ? null : name;
+  }
 }

@@ -270,7 +270,8 @@ class _AddAccountSheetState extends State<AddAccountSheet> {
                   decoration: const InputDecoration(
                     labelText: '账户序号',
                     hintText: '空格分隔，如 1 5 9',
-                    helperText: '连续或断续均可，范围 1–1989',
+                    helperText:
+                        '连续或断续均可，范围 1–${CitizenWalletProfile.maxAccountIndex}',
                     border: OutlineInputBorder(),
                   ),
                 ),
