@@ -57,11 +57,15 @@ class EligibleVoterTicket {
     required this.voterAccountId,
     this.cidNumber,
     this.voterRoleCode,
+    this.voterName,
   });
 
   final String voterAccountId;
   final String? cidNumber;
   final String? voterRoleCode;
+
+  /// 仅用于详情展示的公民姓名，不参与冻结资格、票据标识或签名。
+  final String? voterName;
 
   bool get isInstitution => cidNumber != null && voterRoleCode != null;
 

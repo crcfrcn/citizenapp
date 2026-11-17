@@ -197,6 +197,7 @@ class _MultisigTransferDetailPageState
         _proposalService.fetchEligibleVoterTickets(
           widget.proposalId,
           widget.institution,
+          includeNames: true,
         ),
         _proposalService.fetchInternalThresholdSnapshot(widget.proposalId),
         _proposalService.fetchProposalStatus(widget.proposalId),

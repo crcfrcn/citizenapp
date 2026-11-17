@@ -259,6 +259,39 @@ void main() {
     );
   });
 
+  for (final value in <(List<int>, String)>[
+    ([], ''),
+    (utf8.encode('登记-甲'), '登记-甲'),
+    ([0x80, 0, 0, 0, 0, 0, 0, 0], '0x8000000000000000'),
+    ([0x0a], '0x0a'),
+    ([0x7f], '0x7f'),
+    ([0xc2, 0x85], '0xc285'),
+  ]) {
+    test('任职来源引用按可读文本或完整二进制显示：${value.$2}', () {
+      final raw = Uint8List.fromList([
+        4,
+        ...bytes('CID-1'),
+        ...List.filled(32, 7),
+        ...bytes('MEMBER'),
+        ...List.filled(8, 0),
+        0,
+        ...compact(value.$1.length),
+        ...value.$1,
+        0,
+      ]);
+      final decoded = InstitutionRoleStorageCodec.decodeAssignments(raw)!;
+      expect(decoded.single.sourceRef, value.$2);
+      expect(decoded.single.accountId, '0x${'07' * 32}');
+      expect(decoded.single.roleCode, 'MEMBER');
+      expect(
+        InstitutionRoleStorageCodec.decodeAssignments(
+          Uint8List.fromList([...raw, 0]),
+        ),
+        isNull,
+      );
+    });
+  }
+
   test('任期窗口包含起止日且无任期岗位只接受零值', () {
     final base = InstitutionAdminAssignment(
       cidNumber: 'CID-1',
@@ -274,6 +307,7 @@ void main() {
     expect(base.isEffectiveOnDay(10), isTrue);
     expect(base.isEffectiveOnDay(20), isTrue);
     expect(base.isEffectiveOnDay(21), isFalse);
+    expect(base.termLabel, '1970/01/11-1970/01/21');
     final nonTerm = InstitutionAdminAssignment(
       cidNumber: 'CID-1',
       accountId: '0x${'07' * 32}',
@@ -285,6 +319,27 @@ void main() {
       active: true,
     );
     expect(nonTerm.isEffectiveOnDay(20), isTrue);
+    expect(nonTerm.termLabel, '无固定任期');
+  });
+
+  test('任期显示使用UTC日期并正确处理闰日和未写入端点', () {
+    String label(int start, int end) => InstitutionAdminAssignment(
+      cidNumber: 'CID-1',
+      accountId: '0x${'07' * 32}',
+      roleCode: 'MEMBER',
+      termStart: start,
+      termEnd: end,
+      termRequired: true,
+      source: InstitutionAssignmentSource.genesis,
+      sourceRef: '',
+      active: true,
+    ).termLabel;
+    final leap =
+        DateTime.utc(2028, 2, 29).millisecondsSinceEpoch ~/
+        Duration.millisecondsPerDay;
+    expect(label(leap, leap + 1), '2028/02/29-2028/03/01');
+    expect(label(0, 0), '待写入');
+    expect(label(0, leap), '—-2028/02/29');
   });
 
   test('岗位身份文本拒绝畸形 UTF-8 和非法 bool', () {

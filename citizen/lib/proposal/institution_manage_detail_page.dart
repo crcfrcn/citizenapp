@@ -139,6 +139,7 @@ class _MultisigProposalDetailPageState
         _proposalService.fetchEligibleVoterTickets(
           widget.proposalId,
           widget.institution,
+          includeNames: true,
         ),
         _proposalService.fetchProposalStatus(widget.proposalId),
         _proposalService.fetchVoteTally(widget.proposalId),

@@ -11,6 +11,7 @@ import 'package:citizen_citizen/administrators/institution_admin_service.dart';
 import 'package:citizen_citizen/administrators/admin_activation_service.dart';
 import 'package:citizen_citizen/proposal/proposal_context.dart';
 import 'package:citizen_citizen/proposal/proposal_vote_widgets.dart';
+import 'package:citizen_citizen/proposal/proposal_models.dart';
 import 'package:citizen_citizen/proposal/proposal_entry_page.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_citizen/institution/institution_assignment_card.dart';
@@ -440,9 +441,13 @@ void main() {
         ),
       );
       expect(find.text('合成管理员0'), findsOneWidget);
-      expect(find.text('岗位：暂无岗位'), loaded ? findsOneWidget : findsNothing);
+      expect(find.text('暂无岗位'), loaded ? findsOneWidget : findsNothing);
       _expectOriginalAdminCard();
-      expect(find.textContaining('管理员账户：'), findsOneWidget);
+      expect(find.text('管理员账户'), findsOneWidget);
+      expect(
+        find.text(citizenSs58FromAccountId(_adminAccountId)),
+        findsOneWidget,
+      );
     });
   }
 
@@ -473,8 +478,8 @@ void main() {
       ),
     );
     expect(find.text('合成管理员0'), findsOneWidget);
-    expect(find.textContaining('管理员账户：'), findsOneWidget);
-    expect(find.text('岗位：暂无岗位'), findsNothing);
+    expect(find.text('管理员账户'), findsOneWidget);
+    expect(find.text('暂无岗位'), findsNothing);
     expect(find.textContaining('旧岗位'), findsNothing);
     expect(find.textContaining('旧引用'), findsNothing);
     _expectOriginalAdminCard();
@@ -511,14 +516,120 @@ void main() {
         ),
       ),
     );
-    expect(find.text('岗位：合成岗位A'), findsOneWidget);
-    expect(find.text('岗位：合成岗位B'), findsOneWidget);
-    expect(find.text('任期：10 ~ 20（自纪元日序）'), findsNWidgets(2));
-    expect(find.text('任职来源：注册局'), findsNWidgets(2));
-    expect(find.text('来源引用：合成引用'), findsNWidgets(2));
-    expect(find.text('岗位：暂无岗位'), findsNothing);
+    expect(find.text('合成岗位A、合成岗位B'), findsOneWidget);
+    expect(find.text('1970/01/11-1970/01/21'), findsOneWidget);
+    expect(find.text('注册局（依据：合成引用）'), findsOneWidget);
+    expect(find.text('暂无岗位'), findsNothing);
+    expect(
+      tester.getRect(find.text('来源')).top,
+      tester.getRect(find.text('任期')).top,
+    );
+    expect(
+      tester.getRect(find.text('来源')).left,
+      lessThan(tester.getRect(find.text('任期')).left),
+    );
+    expect(
+      tester.getRect(find.text('账户余额')).top,
+      greaterThan(tester.getRect(find.text('任期')).bottom),
+    );
+    expect(
+      tester.getRect(find.text('管理员账户')).top,
+      greaterThan(tester.getRect(find.text('账户余额')).bottom),
+    );
     _expectOriginalAdminCard();
   });
+
+  for (final scale in [1.0, 1.6]) {
+    testWidgets('管理员圆圈序号与原票据一致，320窄屏字号$scale不溢出', (tester) async {
+      tester.view.physicalSize = const Size(320, 1000);
+      tester.view.devicePixelRatio = 1;
+      tester.platformDispatcher.textScaleFactorTestValue = scale;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+        tester.platformDispatcher.clearTextScaleFactorTestValue();
+      });
+      final person = _rows(1).single.admin;
+      final ticket = EligibleVoterTicket(
+        voterAccountId: person.accountId,
+        cidNumber: _cid,
+        voterRoleCode: 'SYNTHETIC_ROLE',
+        voterName: '公民甲',
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: Column(
+                children: [
+                  InstitutionAssignmentCard(
+                    index: 1,
+                    balanceFen: BigInt.from(128050),
+                    trailing: const Text('已激活'),
+                    adminView: InstitutionAdminView(
+                      admin: person,
+                      assignments: [
+                        InstitutionAdminAssignment(
+                          cidNumber: _cid,
+                          accountId: person.accountId,
+                          roleCode: 'ROLE',
+                          roleName: '测试岗位',
+                          termStart: 10,
+                          termEnd: 20,
+                          termRequired: true,
+                          source: InstitutionAssignmentSource.registry,
+                          sourceRef: '0x8000000000000000',
+                          active: true,
+                        ),
+                      ],
+                    ),
+                  ),
+                  ProposalAdminVoteList(
+                    admins: [person.accountId],
+                    voterTickets: [ticket],
+                    adminVotes: {ticket.ticketKey: true},
+                    pendingPublicKeys: const {},
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      final circles = tester
+          .widgetList<CircleAvatar>(find.byType(CircleAvatar))
+          .toList();
+      expect(circles, hasLength(2));
+      expect(circles[0].radius, circles[1].radius);
+      expect(circles[0].backgroundColor, circles[1].backgroundColor);
+      expect((circles[0].child! as Text).data, '1');
+      expect(
+        (circles[0].child! as Text).style,
+        (circles[1].child! as Text).style,
+      );
+      expect(
+        tester.getRect(find.byType(CircleAvatar).first).right,
+        lessThan(tester.getRect(find.text('测试岗位')).left),
+      );
+      expect(
+        tester.getRect(find.text('测试岗位')).right,
+        lessThan(tester.getRect(find.text('合成管理员0')).left),
+      );
+      expect(
+        tester.getRect(find.text('测试岗位')).center.dy,
+        tester.getRect(find.text('合成管理员0')).center.dy,
+      );
+      expect(find.text('1,280.50 元'), findsOneWidget);
+      expect(find.text('SYNTHETIC_ROLE'), findsNothing);
+      expect(find.text('公民甲'), findsOneWidget);
+      expect(find.text('赞成 ✓'), findsOneWidget);
+      expect(
+        find.text(citizenSs58FromAccountId(person.accountId)),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   group('institutionAccountIdRows(公权派生)', () {
     test('主/费/自定义三行,地址与卡0 派生吻合', () {

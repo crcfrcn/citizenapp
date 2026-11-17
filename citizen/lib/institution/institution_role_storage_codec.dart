@@ -165,7 +165,7 @@ class InstitutionRoleStorageCodec {
             termStart: termStart,
             termEnd: termEnd,
             source: InstitutionAssignmentSource.values[source],
-            sourceRef: utf8.decode(sourceRef.$1),
+            sourceRef: _displaySourceRef(sourceRef.$1),
             active: status == 0,
           ),
         );
@@ -174,6 +174,18 @@ class InstitutionRoleStorageCodec {
       }
     }
     return offset == data.length ? out : null;
+  }
+
+  /// 来源引用是业务字节：可读文本原样显示，其余与 Node 一样展示完整十六进制。
+  /// 仅此字段允许二进制；CID、岗位码及其余 SCALE 边界仍严格解码。
+  static String _displaySourceRef(List<int> bytes) {
+    try {
+      final text = utf8.decode(bytes);
+      if (!RegExp(r'[\x00-\x1f\x7f-\x9f]').hasMatch(text)) return text;
+    } on FormatException {
+      // 合法来源引用可以是提案编号等二进制数据，不属于结构解码错误。
+    }
+    return '0x${_hex(bytes)}';
   }
 
   /// 严格解码完整机构岗位授权主体。

@@ -2,6 +2,9 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_system/app_log.dart';
+import 'package:citizen_citizen/administrators/admin_account.dart';
+import 'package:citizen_citizen/administrators/admin_account_service.dart';
 import 'package:citizen_citizen/institution/institution_code_label.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_citizen/proposal/proposal_models.dart';
@@ -30,6 +33,12 @@ class ProposalQueryService {
     )?
     getStorageBatch,
   }) : _block = block,
+       _adminService = AdminAccountService(
+         chain: chain,
+         getFinalizedHead: block == null ? getFinalizedHead : () async => block,
+         getRuntimeContext: getStorageRuntimeContext ?? getRuntimeContext,
+         getStorage: getStorage,
+       ),
        _internalVoteQuery = InternalVoteQueryService(
          chain: chain,
          block: block,
@@ -58,11 +67,13 @@ class ProposalQueryService {
                throw StateError('未配置getStorage'));
   final Future<List<CitizenSystemEvent>> Function(CitizenBlockRef) _getFinalizedEvents;
   final Future<CitizenBlockRef> Function() _getFinalizedHead;
-  final Future<CitizenRuntimeContext> Function(CitizenBlockRef) _getStorageRuntimeContext;
+  final Future<CitizenRuntimeContext> Function(CitizenBlockRef)
+  _getStorageRuntimeContext;
   final Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)
   _getStorage;
 
   final CitizenBlockRef? _block;
+  final AdminAccountService _adminService;
   final InternalVoteQueryService _internalVoteQuery;
 
   /// 与 runtime `MaxActiveProposals = 10` 对齐的提案主体上限。
@@ -297,8 +308,9 @@ class ProposalQueryService {
   /// 返回提案全部冻结票据；同一钱包在多个岗位中会出现多次，禁止按账户去重。
   Future<List<EligibleVoterTicket>> fetchEligibleVoterTickets(
     BigInt proposalId,
-    InstitutionInfo institution,
-  ) async {
+    InstitutionInfo institution, {
+    bool includeNames = false,
+  }) async {
     if (isPersonalAccountIdentity(institution.cidNumber)) {
       final accountIds = await fetchAdminSnapshot(proposalId, institution);
       return accountIds
@@ -331,7 +343,31 @@ class ProposalQueryService {
     if (tickets.isEmpty) {
       throw StateError('提案 $proposalId 没有当前机构的冻结岗位票据');
     }
-    return tickets;
+    if (!includeNames) return tickets;
+    // 姓名只从已有名册按账户匹配；绝不以当前名册筛除冻结票据。
+    // 仅详情页启用，列表和待投票检查不为展示名称增加读链。
+    Map<String, String> names = const {};
+    try {
+      final admins = await _adminService.fetchAdmins(
+        AdminAccountIdentity.fromInstitution(institution),
+      );
+      names = {
+        for (final admin in admins)
+          if ('${admin.familyName}${admin.givenName}'.trim().isNotEmpty)
+            admin.accountId: '${admin.familyName}${admin.givenName}'.trim(),
+      };
+    } on Object {
+      AppLog.d('proposal_voter_names_read_failed');
+    }
+    return [
+      for (final ticket in tickets)
+        EligibleVoterTicket(
+          voterAccountId: ticket.voterAccountId,
+          cidNumber: ticket.cidNumber,
+          voterRoleCode: ticket.voterRoleCode,
+          voterName: names[ticket.voterAccountId],
+        ),
+    ];
   }
 
   Uint8List _encodeBoundedText(String value, int maxBytes, String field) {

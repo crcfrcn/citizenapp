@@ -473,9 +473,14 @@ class MultisigTransferService {
   /// 可投钱包筛选必须使用同一份创建时快照。
   Future<List<EligibleVoterTicket>> fetchEligibleVoterTickets(
     BigInt proposalId,
-    InstitutionInfo institution,
-  ) {
-    return _proposalQuery.fetchEligibleVoterTickets(proposalId, institution);
+    InstitutionInfo institution, {
+    bool includeNames = false,
+  }) {
+    return _proposalQuery.fetchEligibleVoterTickets(
+      proposalId,
+      institution,
+      includeNames: includeNames,
+    );
   }
 
   /// 查询提案状态。返回 status（0=voting, 1=passed, 2=rejected），null 表示不存在。

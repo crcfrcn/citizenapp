@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -8,6 +9,9 @@ import 'package:citizen_testing/fake_citizen_sdk.dart';
 import 'dart:convert';
 
 import 'package:citizen_citizen/proposal/proposal_query_service.dart';
+import 'package:citizen_citizen/administrators/admin_account_service.dart';
+import 'package:citizen_citizen/administrators/admin_account_storage_codec.dart';
+import 'package:citizen_citizen/institution/governance_registry.dart';
 
 final signer = Uint8List.fromList(List.filled(32, 1));
 final block = CitizenBlockRef(
@@ -116,11 +120,129 @@ class Chain extends TestChainReads {
 }
 
 void main() {
+  test('详情姓名复用人员缓存；缺名或失败不增删冻结票据，列表不读取姓名', () async {
+    final root = Platform.environment['CITIZENCHAIN_ROOT']!;
+    final fixture =
+        jsonDecode(
+              File(
+                '$root/runtime/primitives/tests/fixtures/role_permission.json',
+              ).readAsStringSync(),
+            )
+            as Map<String, dynamic>;
+    Uint8List fixtureBytes(String name) {
+      final entry = (fixture['cases'] as List)
+          .cast<Map<String, dynamic>>()
+          .singleWhere((row) => row['name'] == name);
+      final hex = entry['encoded_hex'] as String;
+      return Uint8List.fromList([
+        for (var i = 0; i < hex.length; i += 2)
+          int.parse(hex.substring(i, i + 2), radix: 16),
+      ]);
+    }
+
+    List<int> text(String value) => [
+      ...CitizenScale.compact(utf8.encode(value).length),
+      ...utf8.encode(value),
+    ];
+    final institution = kNrc.first;
+    final runtime = await CitizenSdkTestFixture.runtimeContext(block);
+    final planKey = base64.encode(
+      runtime.storageKey('VotingEngine', 'ProposalVotePlans', [BigInt.one]),
+    );
+    final snapshotKey = base64.encode(
+      runtime.storageKey('VotingEngine', 'VoterSnapshot', [
+        BigInt.one,
+        (
+          scale: Uint8List.fromList([
+            0,
+            ...fixtureBytes('role_subject_nrc_committee'),
+          ]),
+        ),
+      ]),
+    );
+    final adminKey = base64.encode(
+      AdminAccountStorageCodec.institutionAdminStorageKey(
+        institution.cidNumber,
+        runtime: runtime,
+        orgCode: 'NRC',
+        adminKind: 0,
+      ),
+    );
+    final snapshot = Uint8List.fromList([
+      8,
+      ...List.filled(32, 7),
+      ...List.filled(32, 8),
+    ]);
+    final names = Uint8List.fromList([
+      ...utf8.encode('NRC\u0000'), 8,
+      ...List.filled(32, 7), ...text('CID-7'), ...text('公民'), ...text('甲'),
+      // 当前名册多出来的人不得被加入原票据，原票据已离任的人也不得被移除。
+      ...List.filled(32, 9), ...text('CID-9'), ...text('其他'), ...text('人员'),
+    ]);
+    final cache = AdminAccountService();
+    addTearDown(cache.clearCache);
+    for (final mode in ['ready', 'missing', 'failed']) {
+      cache.clearCache();
+      var nameReads = 0;
+      final query = ProposalQueryService(
+        block: block,
+        getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
+        getStorage: (at, key) async {
+          expect(at.hash, block.hash);
+          final id = base64.encode(key);
+          if (id == planKey)
+            return fixtureBytes('vote_plan_resolution_issuance_joint');
+          if (id == snapshotKey) return snapshot;
+          if (id == adminKey) {
+            nameReads++;
+            if (mode == 'failed') throw StateError('synthetic name failure');
+            return mode == 'missing' ? null : names;
+          }
+          throw StateError('unexpected storage read');
+        },
+      );
+      final plain = await query.fetchEligibleVoterTickets(
+        BigInt.one,
+        institution,
+      );
+      expect(nameReads, 0);
+      final named = await query.fetchEligibleVoterTickets(
+        BigInt.one,
+        institution,
+        includeNames: true,
+      );
+      expect(nameReads, 1);
+      expect(
+        named.map((ticket) => ticket.ticketKey),
+        plain.map((ticket) => ticket.ticketKey),
+      );
+      expect(named.map((ticket) => ticket.voterAccountId), [
+        '0x${'07' * 32}',
+        '0x${'08' * 32}',
+      ]);
+      expect(named.first.voterName, mode == 'ready' ? '公民甲' : isNull);
+      expect(named.last.voterName, isNull);
+      if (mode == 'ready') {
+        await query.fetchEligibleVoterTickets(
+          BigInt.one,
+          institution,
+          includeNames: true,
+        );
+        expect(nameReads, 1, reason: '同机构展示姓名应复用既有人员短缓存');
+      }
+    }
+  });
+
   test('提案ID列表完整保留u128且拒绝旧宽度', () {
     final id = (BigInt.one << 127) + BigInt.from(19);
     final raw = Uint8List.fromList([4, ...CitizenScale.unsigned(id, 16)]);
     expect(ProposalQueryService.decodeActiveProposalIds(raw), [id]);
-    expect(ProposalQueryService.decodeActiveProposalIds(Uint8List.fromList([4, ...List.filled(8, 0)])), isNull);
+    expect(
+      ProposalQueryService.decodeActiveProposalIds(
+        Uint8List.fromList([4, ...List.filled(8, 0)]),
+      ),
+      isNull,
+    );
   });
 
   test('绑定块查询，缺失与损坏提案严格区分', () async {

@@ -138,7 +138,23 @@ class InstitutionAdminAssignment {
   final String sourceRef;
   final bool active;
 
-  String get termLabel => termRequired ? '$termStart ~ $termEnd（自纪元日序）' : '无任期';
+  /// 日序只用于链上比较；展示统一转换为 UTC 公历日期。
+  String get termLabel {
+    if (!termRequired) return '无固定任期';
+    if (termStart == 0 && termEnd == 0) return '待写入';
+    String day(int value) {
+      if (value == 0) return '—';
+      final date = DateTime.fromMillisecondsSinceEpoch(
+        value * Duration.millisecondsPerDay,
+        isUtc: true,
+      );
+      return '${date.year.toString().padLeft(4, '0')}/'
+          '${date.month.toString().padLeft(2, '0')}/'
+          '${date.day.toString().padLeft(2, '0')}';
+    }
+
+    return '${day(termStart)}-${day(termEnd)}';
+  }
 
   /// 与 runtime 一致按 UTC 纪元日判断有效任职；起止日均包含在任期内。
   bool isEffectiveOnDay(int currentDay) {

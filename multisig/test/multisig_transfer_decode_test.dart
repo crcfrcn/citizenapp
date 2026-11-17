@@ -429,6 +429,60 @@ Future<void> _refreshProposal(WidgetTester tester) =>
 /// 始终按 actor CID + funding account 解码，短备注和空备注都不会静默消失。
 void main() {
   useIsolatedIsar();
+  testWidgets('票据仅替换公民姓名，圆圈序号、单行地址、发起人和逐岗位状态保留', (tester) async {
+    final account = '0x${'07' * 32}';
+    final tickets = [
+      for (final role in ['ROLE_A', 'ROLE_B'])
+        EligibleVoterTicket(
+          voterAccountId: account,
+          cidNumber: 'CID',
+          voterRoleCode: role,
+          voterName: '公民甲',
+        ),
+    ];
+    final ss58 = citizenSs58FromAccountId(account);
+    final address =
+        '${ss58.substring(0, 6)}...${ss58.substring(ss58.length - 6)}';
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ProposalAdminVoteList(
+            admins: [account],
+            voterTickets: tickets,
+            adminVotes: {tickets.first.ticketKey: true},
+            pendingPublicKeys: {tickets.last.ticketKey},
+            proposerSs58: ss58,
+          ),
+        ),
+      ),
+    );
+    expect(find.text('合格投票票据明细（共 2 票）'), findsOneWidget);
+    expect(find.byType(CircleAvatar), findsNWidgets(2));
+    for (var i = 0; i < 2; i++) {
+      expect(
+        find.descendant(
+          of: find.byType(CircleAvatar).at(i),
+          matching: find.text('${i + 1}'),
+        ),
+        findsOneWidget,
+      );
+    }
+    expect(find.text(address), findsNWidgets(2));
+    expect(find.text('公民甲'), findsNWidgets(2));
+    expect(find.text('ROLE_A'), findsNothing);
+    expect(find.text('ROLE_B'), findsNothing);
+    expect(find.text('发起人'), findsNWidgets(2));
+    expect(find.text('赞成 ✓'), findsOneWidget);
+    expect(find.text('投票中'), findsOneWidget);
+    for (var i = 0; i < 2; i++) {
+      final a = tester.getRect(find.text(address).at(i));
+      final name = tester.getRect(find.text('公民甲').at(i));
+      expect(a.right, lessThan(name.left));
+      expect(a.center.dy, name.center.dy);
+    }
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
   _proposalReadinessTests();
   _proposalReadResultTests();
   _proposalDiagnosticsTests();
