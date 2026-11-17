@@ -251,7 +251,7 @@ iOS 正式包的扫码回归分别从交易页地址栏、我的钱包冷导入�
 
 公民-治理的《公民链白皮书》随App内置，正文真源为CitizenChain根目录CitizenChainWhitepaper.md，两张原图为icons/whitepaper-node-diagram.svg与icons/whitepaper-reserve-architecture.svg，与节点及官网同源。scripts/build.mjs在本轮工程装配时读取同级链仓；显式CITIZENCHAIN_WHITEPAPER_ROOT优先，缺少同级链仓时仅在本轮现场检出公民链main的这三件输入。正文和原始SVG编码后生成assets/documents/whitepaper.md，不回写源文件，不保存App独立正文副本；缺件或空正文直接失败。
 
-阅读页使用已锁定的markdown 7.3.1和现有WebView，本地渲染中英正文、中文目录锚点、表格及内嵌图片，禁止在线导航且不访问官网。成功正文在本次App进程中复用，失败保留重试；白皮书随App更新，不在运行时联网刷新。
+阅读页使用已锁定的markdown 7.3.1和现有WebView，本地渲染中英正文、中文目录锚点、表格及内嵌图片，禁止在线导航且不访问官网。markdown由citizen包声明，根pubspec.lock的依赖分类沿用官方Pub解析结果transitive，版本、来源及校验值保持；不手改为根包直接依赖。成功正文在本次App进程中复用，失败保留重试；白皮书随App更新，不在运行时联网刷新。
 
 ### wallet 余额唯一所有者
 
