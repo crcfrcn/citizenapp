@@ -23,7 +23,7 @@ class InstitutionAssignmentCard extends StatelessWidget {
   static const double actionHeight = 30;
 
   String _summary(String Function(InstitutionAdminAssignment) format) {
-    if (!adminView.assignmentsLoaded) return '未读取';
+    if (!adminView.assignmentsLoaded) return '—';
     final assignments = adminView.assignments;
     if (assignments.isEmpty) return '没有任职';
     final values = assignments.map(format).toList();
@@ -66,7 +66,7 @@ class InstitutionAssignmentCard extends StatelessWidget {
     final personName = name.isEmpty ? '没有任职' : name;
     // 岗位未知时不展示旧资料，也不把未知状态写成“暂无岗位”。
     final roleName = !adminView.assignmentsLoaded
-        ? '岗位未读取'
+        ? '—'
         : adminView.assignments.isEmpty
         ? '没有任职'
         : adminView.assignments

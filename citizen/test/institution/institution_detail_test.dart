@@ -627,7 +627,8 @@ void main() {
       );
       expect(find.text('合成管理员0'), findsOneWidget);
       expect(find.text('没有任职'), loaded ? findsNWidgets(3) : findsNothing);
-      expect(find.text('未读取'), loaded ? findsNothing : findsNWidgets(2));
+      expect(find.text('—'), loaded ? findsNothing : findsNWidgets(3));
+      expect(find.textContaining('未读取'), findsNothing);
       _expectOriginalAdminCard();
       expect(find.text('管理员账户'), findsOneWidget);
       expect(

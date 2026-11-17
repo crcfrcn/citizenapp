@@ -248,7 +248,7 @@ class ProposalAdminVoteList extends StatelessWidget {
                       if (ticket?.voterRoleCode != null) ...[
                         SizedBox(width: AppLayout.scaled(context, 6)),
                         Text(
-                          ticket!.voterRoleName ?? '岗位名称未读取',
+                          ticket!.voterRoleName ?? '—',
                           style: TextStyle(
                             fontSize: AppLayout.scaled(context, 10),
                             color: AppTheme.textTertiary,
