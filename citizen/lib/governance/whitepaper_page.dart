@@ -92,10 +92,14 @@ article{max-width:1100px;margin:auto;padding:16px 20px 48px}h1{font-size:26px}h2
 h1,h2,h3,h4,h5,h6{line-height:1.5;scroll-margin-top:16px}a{color:#18704a}img{max-width:100%;height:auto}
 table,pre{display:block;max-width:100%;overflow-x:auto}table{border-collapse:collapse;font-size:14px}th,td{border:1px solid #ccd8d2;padding:8px;min-width:72px}
 pre{padding:12px;background:#eaf0ec;font-size:13px;white-space:pre;overflow-wrap:normal}code{font-family:monospace}
+ul:has(details),ul:has(.whitepaper-toc-leaf){position:relative;left:-5px}
 li:has(details),li:has(.whitepaper-toc-leaf){list-style:none}
-.whitepaper-toc-leaf{font-weight:600;text-decoration:none}
+summary,.whitepaper-toc-leaf{display:grid;grid-template-columns:12px minmax(0,1fr);column-gap:8px;align-items:start}
+summary{list-style:none}summary::-webkit-details-marker{display:none}
+summary::before{content:'▸';text-align:center}details[open]>summary::before{content:'▾'}
+.whitepaper-toc-leaf{font-weight:600;text-decoration:none}.whitepaper-toc-leaf::before{content:''}
 .whitepaper-to-top{display:grid;place-items:center;padding:0;line-height:1;position:fixed;right:30px;bottom:30px;border:0;border-radius:999px;width:42px;height:42px;font-size:18px;background:#0f766e;color:#fff;box-shadow:0 8px 18px rgba(15,118,110,.25);z-index:50;text-decoration:none}
-details{margin:8px 0}summary{cursor:pointer;font-weight:600}details a{display:block}
+details{margin:8px 0}summary{cursor:pointer;font-weight:600}details a{display:block;padding-left:20px}
 .whitepaper-title-en,.whitepaper-heading-en,.whitepaper-en{color:#60756b;font-size:.85em;font-weight:400}
 </style></head><body><article id="whitepaper-top">$body</article><a class="whitepaper-to-top" href="#whitepaper-top" aria-label="回到顶部" title="回到顶部">↑</a></body></html>''';
 }
