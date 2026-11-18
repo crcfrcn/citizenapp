@@ -2011,12 +2011,15 @@ void _squareTabGateTests() {
       current = CurrentUserContext(
         getWalletState: sdk.getWalletState,
         accountSecurity: security,
-        bindingReader: (accountId) async => IdentityBinding(
-          genesisHash: '0x${'11' * 32}',
-          cidNumber: testMlsCidNumber,
-          accountId: accountId,
-          bindRev: 1,
-        ),
+        bindingReader: (accountId) async =>
+            gate.status != CidBusinessStatus.ready
+            ? null
+            : IdentityBinding(
+                genesisHash: '0x${'11' * 32}',
+                cidNumber: testMlsCidNumber,
+                accountId: accountId,
+                bindRev: 1,
+              ),
         identityReader: (_) async => null,
       );
     });
@@ -2123,34 +2126,35 @@ void _squareTabGateTests() {
       CidBusinessStatus.unavailable,
       CidBusinessStatus.noWallet,
     ]) {
-      testWidgets('CID事实${status.name}不挂载广场或准备会话', (tester) async {
+      testWidgets('CID事实${status.name}仍保留广场外观且不能发布', (tester) async {
         gate.status = status;
         await check(tester, () async {
-          expect(find.byType(SquareHomePage), findsNothing);
+          expect(find.byType(SquareHomePage), findsOneWidget);
+          expect(find.byType(SquareFeedTabs), findsOneWidget);
+          expect(
+            find.byKey(const ValueKey('square-person-tank-watermark')),
+            findsOneWidget,
+          );
+          expect(find.text('广场'), findsNothing);
           _expectPublishEnabled(tester, false);
-          expect(sessions.ensureCalls, 0);
+          expect(sessions.ensureCalls, greaterThan(0));
           expect(sessions.resolveCalls, 0);
           expect(sessions.registrationCalls, 0);
-          expect(
-            find.text('尚未注册'),
-            status == CidBusinessStatus.unregistered
-                ? findsOneWidget
-                : findsNothing,
-          );
-          if (status == CidBusinessStatus.unavailable) {
-            expect(find.text('暂时无法核实公民号身份，请重试'), findsOneWidget);
-          }
+          expect(find.text('暂时无法核实公民号身份，请重试'), findsNothing);
         });
       });
     }
-    testWidgets('CID事实改变后撤下旧广场，失败不冒充未注册', (tester) async {
+    testWidgets('身份改变后保留广场结构，撤销旧身份发布权限', (tester) async {
       await check(tester, () async {
         expect(find.byType(SquareHomePage), findsOneWidget);
         gate.status = CidBusinessStatus.unavailable;
         gate.revision.value++;
-        await tester.pumpAndSettle();
-        expect(find.byType(SquareHomePage), findsNothing);
-        expect(find.text('暂时无法核实公民号身份，请重试'), findsOneWidget);
+        current.invalidate();
+        security.notifyIdentityBindingChanged();
+        await _drainHomeIdentityReads(tester);
+        expect(find.byType(SquareHomePage), findsOneWidget);
+        expect(find.byType(SquareFeedTabs), findsOneWidget);
+        expect(find.text('暂时无法核实公民号身份，请重试'), findsNothing);
         expect(find.text('尚未注册'), findsNothing);
         _expectPublishEnabled(tester, false);
         expect(sessions.registrationCalls, 0);

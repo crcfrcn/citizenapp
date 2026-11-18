@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import 'package:citizen_square/feed/square_home_page.dart';
-import 'package:citizen_user/identity/identity_register_guide.dart';
 
 /// 底部“广场”Tab 入口。
 ///
@@ -21,17 +20,10 @@ class SquareTab extends StatelessWidget {
   final int tabIndex;
 
   @override
-  Widget build(BuildContext context) => CitizenServiceGate(
-    title: '广场',
-    description: '注册后即可浏览广场、发布内容。',
-    fallbackFloatingActionButton: const SquarePublishMenu(
-      enabled: false,
-      expanded: false,
-    ),
-    child: SquareHomePage(
-      onSquareUnreadChanged: onSquareUnreadChanged,
-      selectedTab: selectedTab,
-      tabIndex: tabIndex,
-    ),
+  // 广场外观不受身份门禁替换；首页内部仍核对会话，未就绪禁用发布。
+  Widget build(BuildContext context) => SquareHomePage(
+    onSquareUnreadChanged: onSquareUnreadChanged,
+    selectedTab: selectedTab,
+    tabIndex: tabIndex,
   );
 }

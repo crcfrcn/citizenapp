@@ -169,7 +169,9 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
         if (!changed && !_identityRetry) continue;
         _identityAccount = account.accountId;
         final state = await widget.identityService!.refreshState();
-        _identityRetry = state.status == MyIdStatus.queryFailed;
+        _identityRetry =
+            state.status == MyIdStatus.queryFailed ||
+            state.status == MyIdStatus.unknown;
       } on Object {
         _identityRetry = true;
         AppLog.d('identity_sync_unavailable');
@@ -181,8 +183,9 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
     try {
       await widget.startChain?.call();
       if (!_closing) {
-        await widget.transactionHistory.start();
+        // 身份同步不等待交易历史恢复；仍使用同一SDK和当前默认账户。
         _requestIdentitySync();
+        await widget.transactionHistory.start();
         await _chainData.start();
       }
     } on Object {

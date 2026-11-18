@@ -92,7 +92,7 @@ article{max-width:1100px;margin:auto;padding:16px 20px 48px}h1{font-size:26px}h2
 h1,h2,h3,h4,h5,h6{line-height:1.5;scroll-margin-top:16px}a{color:#18704a}img{max-width:100%;height:auto}
 table,pre{display:block;max-width:100%;overflow-x:auto}table{border-collapse:collapse;font-size:14px}th,td{border:1px solid #ccd8d2;padding:8px;min-width:72px}
 pre{padding:12px;background:#eaf0ec;font-size:13px;white-space:pre;overflow-wrap:normal}code{font-family:monospace}
-ul:has(details),ul:has(.whitepaper-toc-leaf){position:relative;left:-5px}
+ul:has(details),ul:has(.whitepaper-toc-leaf){position:relative;left:-25px}
 li:has(details),li:has(.whitepaper-toc-leaf){list-style:none}
 summary,.whitepaper-toc-leaf{display:grid;grid-template-columns:12px minmax(0,1fr);column-gap:8px;align-items:start}
 summary{list-style:none}summary::-webkit-details-marker{display:none}

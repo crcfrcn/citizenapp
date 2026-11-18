@@ -91,6 +91,59 @@ class _FixedGate implements CidBusinessGate {
 }
 
 void main() {
+  test('链完整性失败不能因并发出现本地绑定而放行', () async {
+    final current = _Current(
+      CurrentUser(account: account(accountId), binding: null),
+    );
+    final resolver = _Resolver(null)..pending = Completer<FinalizedIdentity?>();
+    final revision = ValueNotifier(0);
+    final gate = CidBusinessGate(
+      currentUserContext: current,
+      identityResolver: resolver,
+      revision: revision,
+      synchronizeIdentity: (_) async => fail('不应同步失败结果'),
+    );
+    final result = gate.resolve();
+    await Future<void>.delayed(Duration.zero);
+    current.value = CurrentUser(account: account(accountId), binding: binding);
+    revision.value++;
+    resolver.pending!.completeError(
+      const CitizenSdkException(
+        code: CitizenSdkErrorCode.integrity,
+        message: '合成完整性失败',
+      ),
+    );
+    expect((await result).status, CidBusinessStatus.unavailable);
+    revision.dispose();
+  });
+
+  test('并发同步已保存同一绑定时不误报不可用', () async {
+    final current = _Current(
+      CurrentUser(account: account(accountId), binding: null),
+    );
+    final resolver = _Resolver(null)..pending = Completer<FinalizedIdentity?>();
+    final revision = ValueNotifier(0);
+    final gate = CidBusinessGate(
+      currentUserContext: current,
+      identityResolver: resolver,
+      revision: revision,
+      synchronizeIdentity: (_) async => fail('不得重复保存已完成绑定'),
+    );
+    final result = gate.resolve();
+    await Future<void>.delayed(Duration.zero);
+    current.value = CurrentUser(account: account(accountId), binding: binding);
+    revision.value++;
+    resolver.pending!.complete(
+      FinalizedIdentity(
+        accountId: accountId,
+        accountAddress: 'test',
+        snapshot: snapshot(),
+      ),
+    );
+    expect((await result).status, CidBusinessStatus.ready);
+    revision.dispose();
+  });
+
   for (final status in [
     CidBusinessStatus.unregistered,
     CidBusinessStatus.unavailable,

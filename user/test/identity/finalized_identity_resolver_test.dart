@@ -93,6 +93,19 @@ void main() {
     );
   }
 
+  test('共享会员批次未就绪时只读取当前账户身份，不等待整批刷新', () async {
+    final reader = _FakeReader({_account0: _anonSnapshot()});
+    final reads = _FakeWallet(_default0);
+    final subject = FinalizedIdentityResolver(
+      getWalletState: reads.getWalletState,
+      chainReader: reader,
+      chainData: _PendingChainData(),
+    );
+    final result = await subject.resolve();
+    expect(result!.snapshot!.cidNumber, 'CID-TEST-0001');
+    expect(reader.calls, [_account0]);
+  });
+
   test('同账户同版本并发验真合并，完成后的新操作重新验真', () async {
     final reader = _DelayedReader();
     final subject = (() {
@@ -447,8 +460,9 @@ class _FakeReader extends CitizenIdentityChainReader {
 
   @override
   Future<CitizenIdentityChainSnapshot?> readByAccountId(
-    String accountId, {CitizenBlockRef? at}
-  ) async {
+    String accountId, {
+    CitizenBlockRef? at,
+  }) async {
     calls.add(accountId);
     if (accountId == throwFor) throw StateError('chain down');
     return _chain[accountId];
@@ -493,9 +507,23 @@ class _DelayedReader extends CitizenIdentityChainReader {
   final answer = Completer<CitizenIdentityChainSnapshot?>();
   int calls = 0;
   @override
-  Future<CitizenIdentityChainSnapshot?> readByAccountId(String accountId, {CitizenBlockRef? at}) {
+  Future<CitizenIdentityChainSnapshot?> readByAccountId(
+    String accountId, {
+    CitizenBlockRef? at,
+  }) {
     calls++;
     if (!started.isCompleted) started.complete();
     return answer.future;
   }
+}
+
+class _PendingChainData implements ChainDataService {
+  @override
+  ChainDataSnapshot? get snapshot => null;
+  @override
+  bool get isStale => true;
+  @override
+  Future<ChainDataSnapshot?> refresh() => throw StateError('身份不得等待整批会员刷新');
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

@@ -16,6 +16,7 @@ import 'package:citizen_user/profile/profile_avatar.dart';
 import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_user/navigation.dart';
 import 'package:citizen_user/identity/current_user_context.dart';
+import 'package:citizen_user/identity/identity_binding.dart';
 import 'package:citizen_user/membership/membership_revision.dart';
 import 'package:citizen_user/contacts/contact_service.dart';
 import 'package:citizen_user/contacts/contact_sort.dart';
@@ -99,6 +100,7 @@ class _ContactBookPageState extends State<ContactBookPage> {
   bool _unregistered = false;
   String _query = '';
   int _loadGeneration = 0;
+  Future<void> _profileRestore = Future<void>.value();
 
   @override
   void initState() {
@@ -106,6 +108,7 @@ class _ContactBookPageState extends State<ContactBookPage> {
     _profiles.addAll(widget.initialProfiles);
     _resolvedProfileCidNumbers.addAll(widget.initialProfiles.keys);
     MembershipRevision.instance.listenable.addListener(_onMembershipChanged);
+    CitizenProfileCache.revision.addListener(_onProfileChanged);
   }
 
   @override
@@ -150,6 +153,8 @@ class _ContactBookPageState extends State<ContactBookPage> {
 
   @override
   void dispose() {
+    _loadGeneration++;
+    CitizenProfileCache.revision.removeListener(_onProfileChanged);
     _service.syncState.removeListener(_onSyncStateChanged);
     _identityRevision?.removeListener(_onIdentityChanged);
     MembershipRevision.instance.listenable.removeListener(_onMembershipChanged);
@@ -164,7 +169,13 @@ class _ContactBookPageState extends State<ContactBookPage> {
   /// CID finalized 后即使绑定账户没变也要退出“尚未注册”态；当前用户快照已在广播前
   /// 失效，此处重读即可得到新的 cid_number，不依赖当前注册引导的局部回调。
   void _onIdentityChanged() {
-    if (mounted) unawaited(_load());
+    if (mounted) {
+      setState(() {
+        _contacts = const [];
+        _loading = true;
+      });
+      unawaited(_load());
+    }
   }
 
   /// 只刷新通讯录中与事件 CID 匹配的公开资料，避免会员变化触发整本通讯录同步。
@@ -178,13 +189,70 @@ class _ContactBookPageState extends State<ContactBookPage> {
     unawaited(_refreshMembershipProfiles(matching));
   }
 
+  void _onProfileChanged() {
+    final event = CitizenProfileCache.revision.value;
+    if (!mounted || event == null) return;
+    final matching = _contacts
+        .where((c) => c.cidNumber == event.cidNumber)
+        .toList();
+    if (matching.isNotEmpty) unawaited(_refreshMembershipProfiles(matching));
+  }
+
+  // 恢复关系后后台补齐公开资料，跨页面复用十分钟限速；最多两个并发读取。
+  // 批次顺序排队，旧身份任务退出后才启动新批次，不让切换账户扩大并发。
+  void _restoreProfiles(
+    List<UserContact> contacts,
+    IdentityBinding binding,
+    int generation,
+  ) {
+    bool current() => mounted && generation == _loadGeneration;
+    _profileRestore = _profileRestore.then((_) async {
+      var next = 0;
+      Future<void> read() async {
+        while (current() && next < contacts.length) {
+          final cid = contacts[next++].cidNumber;
+          try {
+            final result = await _profileApi.refreshOnEntry(
+              cid,
+              binding: binding,
+              sessions: _sessionProvider,
+              cache: _profileCache,
+              mediaCache: _profileMediaCache,
+              isCurrentIdentity: current,
+            );
+            if (!current()) return;
+            if (result != null) {
+              _profiles[cid] = result.profile.profile;
+              _resolvedProfileCidNumbers.add(cid);
+              try {
+                final media = await _profileMediaCache.read(
+                  result.profile.profile,
+                );
+                if (!current()) return;
+                _profileMedia[cid] = media;
+              } on Object {
+                /* 单个媒体失败仍显示已恢复的昵称。 */
+              }
+              if (current()) setState(() {});
+            }
+          } on Object {
+            // 单个资料失败保留本地展示，其余联系人继续恢复。
+          }
+        }
+      }
+
+      await Future.wait([read(), read()]);
+    });
+  }
+
   Future<void> _refreshMembershipProfiles(List<UserContact> contacts) async {
+    final generation = _loadGeneration;
     for (final contact in contacts) {
       _profiles.remove(contact.cidNumber);
       _profileMedia.remove(contact.cidNumber);
     }
-    await _loadCachedProfiles(contacts);
-    if (mounted) setState(() {});
+    await _loadCachedProfiles(contacts, generation: generation);
+    if (mounted && generation == _loadGeneration) setState(() {});
   }
 
   Future<void> _load() async {
@@ -224,13 +292,14 @@ class _ContactBookPageState extends State<ContactBookPage> {
       final contacts = await _service.getContacts();
       final syncState = await _service.readSyncState();
       if (!mounted || generation != _loadGeneration) return;
-      await _loadCachedProfiles(contacts);
+      await _loadCachedProfiles(contacts, generation: generation);
       if (!mounted || generation != _loadGeneration) return;
       setState(() {
         _contacts = contacts;
         _syncState = syncState;
         _loading = false;
       });
+      _restoreProfiles(contacts, identity.binding!, generation);
     } on Object catch (error) {
       if (!mounted || generation != _loadGeneration) return;
       final failure = SquareSessionResolution.fromError(error);
@@ -254,12 +323,18 @@ class _ContactBookPageState extends State<ContactBookPage> {
       final contacts = await _service.sync();
       final syncState = await _service.readSyncState();
       if (!mounted || generation != _loadGeneration) return;
-      await _loadCachedProfiles(contacts);
+      await _loadCachedProfiles(contacts, generation: generation);
       if (!mounted || generation != _loadGeneration) return;
       setState(() {
         _contacts = contacts;
         _syncState = syncState;
       });
+      final identity = await _currentUserContext.resolve();
+      if (mounted &&
+          generation == _loadGeneration &&
+          identity?.binding != null) {
+        _restoreProfiles(contacts, identity!.binding!, generation);
+      }
     } on Object catch (error) {
       if (!mounted || generation != _loadGeneration) return;
       final failure = SquareSessionResolution.fromError(error);
@@ -284,18 +359,24 @@ class _ContactBookPageState extends State<ContactBookPage> {
 
   /// 联系人关系和公开资料缓存先在内存中完成同一首帧装配，再一次性显示列表；资料尚未
   /// 解析时保持中性占位，不能把“未知”误画成用户从未设置头像的内置照片。
-  Future<void> _loadCachedProfiles(List<UserContact> contacts) async {
+  Future<void> _loadCachedProfiles(
+    List<UserContact> contacts, {
+    required int generation,
+  }) async {
     await Future.wait(
       contacts.map((contact) async {
         final cidNumber = contact.cidNumber;
         try {
           final profile =
               _profiles[cidNumber] ?? await _profileCache.read(cidNumber);
-          if (profile == null) return;
+          if (profile == null || !mounted || generation != _loadGeneration)
+            return;
           _profiles[cidNumber] = profile;
           _resolvedProfileCidNumbers.add(cidNumber);
           try {
-            _profileMedia[cidNumber] = await _profileMediaCache.read(profile);
+            final media = await _profileMediaCache.read(profile);
+            if (!mounted || generation != _loadGeneration) return;
+            _profileMedia[cidNumber] = media;
           } on Object {
             // 资料 JSON 已解析时仍可显示真实昵称和徽章；单个媒体文件故障不阻塞联系人。
           }

@@ -1,3 +1,4 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_user/identity/current_user_context.dart';
 import 'package:citizen_user/identity/finalized_identity_resolver.dart';
 
@@ -82,9 +83,20 @@ interface class CidBusinessGate {
       // 链读取期间默认账户可能变化；未注册结论也必须绑定仍然有效的账户。
       final latest = await _currentUser.resolve();
       if (verified.accountId != current.accountId ||
-          latest?.accountId != current.accountId ||
-          latest?.binding != null ||
-          revision.value != expectedRevision) {
+          latest?.accountId != current.accountId) {
+        return const CidBusinessDecision(CidBusinessStatus.unavailable);
+      }
+      final restoredBinding = latest?.binding;
+      if (restoredBinding != null &&
+          restoredBinding.accountId == current.accountId &&
+          restoredBinding.cidNumber == verified.snapshot?.cidNumber &&
+          restoredBinding.bindRev == verified.snapshot?.bindRev) {
+        return CidBusinessDecision(
+          CidBusinessStatus.ready,
+          cidNumber: restoredBinding.cidNumber,
+        );
+      }
+      if (revision.value != expectedRevision || restoredBinding != null) {
         return const CidBusinessDecision(CidBusinessStatus.unavailable);
       }
       final snapshot = verified.snapshot;
@@ -109,7 +121,26 @@ interface class CidBusinessGate {
         CidBusinessStatus.ready,
         cidNumber: binding!.cidNumber,
       );
+    } on CitizenSdkException {
+      // 原生完整性及链读取错误不能被本地缓存掩盖。
+      return const CidBusinessDecision(CidBusinessStatus.unavailable);
+    } on FormatException {
+      return const CidBusinessDecision(CidBusinessStatus.unavailable);
     } on Object {
+      // 另一公开同步完成可能使在途验真过期；仅接纳当前同账户的已保存绑定。
+      try {
+        final latest = await _currentUser.resolve();
+        final binding = latest?.binding;
+        if (latest?.accountId == current.accountId &&
+            binding?.accountId == current.accountId) {
+          return CidBusinessDecision(
+            CidBusinessStatus.ready,
+            cidNumber: binding!.cidNumber,
+          );
+        }
+      } on Object {
+        /* 本机状态不确定时继续拒绝。 */
+      }
       return const CidBusinessDecision(CidBusinessStatus.unavailable);
     }
   }

@@ -183,6 +183,20 @@ class _FakeProfileApi extends CitizenProfileApi {
 
   final CitizenProfile profile;
   int cardReads = 0;
+  int entryReads = 0;
+
+  @override
+  Future<ProfileEntryRefreshResult?> refreshOnEntry(
+    String targetCid, {
+    required IdentityBinding binding,
+    required SquareSessionProvider sessions,
+    CitizenProfileCache? cache,
+    CitizenProfileMediaCache? mediaCache,
+    bool Function()? isCurrentIdentity,
+  }) async {
+    entryReads++;
+    return null;
+  }
 
   @override
   Future<CitizenProfileCard> fetchCard(
@@ -352,6 +366,145 @@ class _MutableIdentityCache implements CurrentUserContext {
 }
 
 void main() {
+  testWidgets('主页写入资料缓存后，通讯录就地更新昵称和头像声明', (tester) async {
+    final old = _profile.copyWith(displayName: '旧昵称', profileAt: 1);
+    final cache = _ChangedProfileCache(old);
+    final previous = CitizenProfileCache.revision.value;
+    await tester.pumpWidget(
+      _page(
+        profile: old,
+        profileCache: cache,
+        profileMediaCache: _MemoryProfileMediaCache(
+          const CitizenProfileMediaSnapshot(avatarPath: '/cached/avatar.webp'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('旧昵称'), findsOneWidget);
+    cache.profile = _profile.copyWith(
+      profileAt: 3,
+      avatarKey:
+          'i/$_contactCidNumber/avatar/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    );
+    CitizenProfileCache.revision.value = CitizenProfileRevisionEvent(
+      cidNumber: _contactCidNumber,
+      revision: (previous?.revision ?? 0) + 1,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Rhett'), findsOneWidget);
+    expect(find.text('旧昵称'), findsNothing);
+    final avatar = tester.widget<ProfileAvatar>(find.byType(ProfileAvatar));
+    expect(avatar.userImageSet, isTrue);
+    expect(avatar.imagePath, '/cached/avatar.webp');
+    await tester.pumpWidget(const SizedBox.shrink());
+    CitizenProfileCache.revision.value = previous;
+  });
+
+  testWidgets('批量资料最多并发两项，单项失败继续，页面关闭后停止后续恢复', (tester) async {
+    final api = _QueuedProfileApi();
+    final contacts = _FakeContacts()
+      ..contacts = [
+        for (var n = 1; n <= 4; n++)
+          UserContact(
+            cidNumber: 'CN220-CTZN2-10000000$n-2026',
+            contactRemark: '',
+            updatedAt: 1,
+          ),
+      ];
+    await tester.pumpWidget(
+      _page(
+        service: contacts,
+        initialProfiles: const {},
+        profileApi: api,
+        profileCache: const _MemoryProfileCache(null),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(api.pending, hasLength(2));
+    api.pending.first.completeError(StateError('单个请求失败'));
+    await tester.pumpAndSettle();
+    expect(api.pending, hasLength(3));
+    await tester.pumpWidget(const SizedBox.shrink());
+    api.pending[1].complete(null);
+    api.pending[2].complete(null);
+    await tester.pumpAndSettle();
+    expect(api.pending, hasLength(3));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('恢复公开资料期间切换身份，迟到昵称和头像不得写入新页面', (tester) async {
+    final api = _RestoringProfileApi();
+    final current = _MutableIdentityCache()..registered = true;
+    final revision = ValueNotifier(0);
+    await tester.pumpWidget(
+      _page(
+        initialProfiles: const {},
+        profileApi: api,
+        currentUserContext: current,
+        identityRevision: revision,
+        profileCache: const _MemoryProfileCache(null),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(api.requests, 1);
+    current.registered = false;
+    revision.value++;
+    await tester.pumpAndSettle();
+    final session = (await _FakeSessionProvider().ensureSession())!;
+    api.pending.complete(
+      ProfileEntryRefreshResult(
+        const CitizenProfileLoadResult(
+          _profile,
+          CitizenProfileLoadStatus.updated,
+        ),
+        session,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Rhett'), findsNothing);
+    expect(find.text('尚未注册'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    revision.dispose();
+  });
+
+  testWidgets('恢复联系人后后台补齐昵称和头像，不阻塞本地列表', (tester) async {
+    final api = _RestoringProfileApi();
+    await tester.pumpWidget(
+      _page(
+        initialProfiles: const {},
+        profileApi: api,
+        profileCache: const _MemoryProfileCache(null),
+        profileMediaCache: _MemoryProfileMediaCache(
+          const CitizenProfileMediaSnapshot(avatarPath: '/restored-avatar.jpg'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('contact-card-$_contactCidNumber')),
+      findsOneWidget,
+    );
+    expect(find.text('Rhett'), findsNothing);
+    expect(api.requests, 1);
+    final session = (await _FakeSessionProvider().ensureSession())!;
+    api.pending.complete(
+      ProfileEntryRefreshResult(
+        const CitizenProfileLoadResult(
+          _profile,
+          CitizenProfileLoadStatus.updated,
+        ),
+        session,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Rhett'), findsOneWidget);
+    expect(
+      tester.widget<ProfileAvatar>(find.byType(ProfileAvatar)).imagePath,
+      '/restored-avatar.jpg',
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
     for (final brokenCache in [false, true]) {
       testWidgets('$platform非空通讯录独立加载徽章，资料缓存故障=$brokenCache', (tester) async {
@@ -457,18 +610,20 @@ void main() {
     }
     expect(sdk.fixture.nativeResources, isEmpty);
   });
-  testWidgets('进页只读本地，下拉只同步通讯录且不逐人刷新资料', (tester) async {
+  testWidgets('首帧读本地，后台复用资料刷新入口，下拉不改用聊天资料卡', (tester) async {
     final service = _FakeContacts();
     final profiles = _FakeProfileApi(_profile);
     await tester.pumpWidget(_page(service: service, profileApi: profiles));
     await tester.pumpAndSettle();
     expect(profiles.cardReads, 0);
+    expect(profiles.entryReads, 1);
     expect(service.syncCalls, 0);
     await tester
         .widget<RefreshIndicator>(find.byType(RefreshIndicator))
         .onRefresh();
     await tester.pumpAndSettle();
     expect(service.syncCalls, 1);
+    expect(profiles.entryReads, 2);
     expect(profiles.cardReads, 0);
   });
   testWidgets('备注对话框打开后身份变化，不能把旧编辑保存给当前身份', (tester) async {
@@ -886,4 +1041,47 @@ class _LateSyncContacts extends _FakeContacts {
   final completion = Completer<List<UserContact>>();
   @override
   Future<List<UserContact>> sync() => completion.future;
+}
+
+class _RestoringProfileApi extends _FakeProfileApi {
+  _RestoringProfileApi() : super(_profile);
+  final pending = Completer<ProfileEntryRefreshResult?>();
+  int requests = 0;
+  @override
+  Future<ProfileEntryRefreshResult?> refreshOnEntry(
+    String targetCid, {
+    required IdentityBinding binding,
+    required SquareSessionProvider sessions,
+    CitizenProfileCache? cache,
+    CitizenProfileMediaCache? mediaCache,
+    bool Function()? isCurrentIdentity,
+  }) {
+    requests++;
+    return pending.future;
+  }
+}
+
+class _QueuedProfileApi extends _FakeProfileApi {
+  _QueuedProfileApi() : super(_profile);
+  final pending = <Completer<ProfileEntryRefreshResult?>>[];
+  @override
+  Future<ProfileEntryRefreshResult?> refreshOnEntry(
+    String targetCid, {
+    required IdentityBinding binding,
+    required SquareSessionProvider sessions,
+    CitizenProfileCache? cache,
+    CitizenProfileMediaCache? mediaCache,
+    bool Function()? isCurrentIdentity,
+  }) {
+    final task = Completer<ProfileEntryRefreshResult?>();
+    pending.add(task);
+    return task.future;
+  }
+}
+
+class _ChangedProfileCache extends CitizenProfileCache {
+  _ChangedProfileCache(this.profile);
+  CitizenProfile profile;
+  @override
+  Future<CitizenProfile?> read(String cidNumber) async => profile;
 }

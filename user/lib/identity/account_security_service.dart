@@ -76,11 +76,13 @@ interface class AccountSecurityService {
     return null;
   }
 
+  /// 完整公开同步可延后通知，待绑定和展示均收尾后由调用方统一广播一次。
   Future<void> activateIdentityBinding({
     required String genesisHash,
     required String cidNumber,
     required int bindRev,
     required String accountId,
+    bool notify = true,
   }) async {
     final next = IdentityBinding(
       genesisHash: genesisHash,
@@ -97,7 +99,7 @@ interface class AccountSecurityService {
       return;
     }
     await _bindings.activate(next);
-    notifyIdentityBindingChanged();
+    if (notify) notifyIdentityBindingChanged();
   }
 
   Future<IdentityBinding?> readIdentityBindingForCid(String cid) =>

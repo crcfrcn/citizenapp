@@ -354,6 +354,21 @@ class MyIdService {
       } finally {
         if (identical(_identityReads[key], pending)) _identityReads.remove(key);
       }
+    } on CitizenSdkException catch (error) {
+      if (error.code == CitizenSdkErrorCode.notReady ||
+          error.code == CitizenSdkErrorCode.unavailable ||
+          error.code == CitizenSdkErrorCode.busy) {
+        return const MyIdState(
+          tier: MyIdTier.visitor,
+          status: MyIdStatus.unknown,
+          errorMessage: '正在同步公民号身份，核实后自动更新',
+        );
+      }
+      return const MyIdState(
+        tier: MyIdTier.visitor,
+        status: MyIdStatus.queryFailed,
+        errorMessage: '身份同步失败，请重试',
+      );
     } on Object {
       return const MyIdState(
         tier: MyIdTier.visitor,
@@ -367,18 +382,30 @@ class MyIdService {
     String accountId,
     BigInt walletRevision,
   ) async {
-    final resolved = await _identityResolver.resolve();
-    // 请求排队期间默认账户也可能变化；不能把新账户结果装入旧账户的在途任务。
-    if (resolved == null ||
-        resolved.accountId != accountId ||
-        (resolved.walletRevision != null &&
-            resolved.walletRevision != walletRevision)) {
-      throw const AccountSecurityException(
-        '当前用户已变化，请重试',
-        code: 'identityChanged',
+    final elapsed = Stopwatch()..start();
+    try {
+      final resolved = await _identityResolver.resolve();
+      // 请求排队期间默认账户也可能变化；不能把新账户结果装入旧账户的在途任务。
+      if (resolved == null ||
+          resolved.accountId != accountId ||
+          (resolved.walletRevision != null &&
+              resolved.walletRevision != walletRevision)) {
+        throw const AccountSecurityException(
+          '当前用户已变化，请重试',
+          code: 'identityChanged',
+        );
+      }
+      final state = await _applyIdentityState(resolved);
+      AppLog.identitySync(stage: 'sync', elapsed: elapsed.elapsed);
+      return state;
+    } catch (error) {
+      AppLog.identitySync(
+        stage: 'sync',
+        elapsed: elapsed.elapsed,
+        error: error,
       );
+      rethrow;
     }
-    return _applyIdentityState(resolved);
   }
 
   Future<MyIdState> _applyIdentityState(FinalizedIdentity identity) async {
@@ -746,7 +773,6 @@ class MyIdService {
     Future<void> Function()? requireCurrent,
   }) async {
     var bindingChanged = false;
-    var activationRevision = _accountSecurity.revision.value;
     try {
       await requireCurrent?.call();
       // 已有完整身份优先；注册收尾仅在没有同代次完整快照时构造匿名展示。
@@ -770,13 +796,21 @@ class MyIdService {
             bindRev: current.bindRev,
             votingIdentity: null,
           );
-      final revision = _accountSecurity.revision.value;
-      await _badgeSnapshotStore.writeVerified(
-        accountId: current.accountId,
-        identity: display,
-        isCurrent: () => _accountSecurity.revision.value == revision,
-      );
-      await requireCurrent?.call();
+      Future<void> publishDisplay() async {
+        await requireCurrent?.call();
+        final revision = _accountSecurity.revision.value;
+        await _badgeSnapshotStore.writeVerified(
+          accountId: current.accountId,
+          identity: display,
+          isCurrent: () => _accountSecurity.revision.value == revision,
+        );
+        await requireCurrent?.call();
+        if (bindingChanged ||
+            saved?.verified == true && saved?.identity == null) {
+          _currentUserContext.invalidate();
+        }
+      }
+
       final previous = await _accountSecurity.readIdentityBindingForCid(
         current.cidNumber,
       );
@@ -786,18 +820,20 @@ class MyIdService {
           previous.cidNumber == current.cidNumber &&
           previous.accountId == current.accountId &&
           previous.bindRev == current.bindRev) {
+        await publishDisplay();
         return;
       }
-      activationRevision = _accountSecurity.revision.value;
       await _accountSecurity.activateIdentityBinding(
         genesisHash: current.genesisHash,
         cidNumber: current.cidNumber,
         bindRev: current.bindRev,
         accountId: current.accountId,
+        // 展示写入后由本次完整同步统一广播，避免中途被视为未注册。
+        notify: false,
       );
       bindingChanged = true;
+      await publishDisplay();
       await requireCurrent?.call();
-      _currentUserContext.invalidate();
       if (previous != null) {
         _sessionProvider.invalidateAccount(previous.accountId);
       }
@@ -812,10 +848,8 @@ class MyIdService {
     } finally {
       if (bindingChanged) {
         _currentUserContext.invalidate();
-        // 激活器已广播时沿用该版本；只在实际绑定变化时补齐通知。
-        if (_accountSecurity.revision.value == activationRevision) {
-          _accountSecurity.notifyIdentityBindingChanged();
-        }
+        // 业务绑定和展示均收尾后统一广播；失败也使已变更绑定的旧缓存失效。
+        _accountSecurity.notifyIdentityBindingChanged();
       }
     }
   }

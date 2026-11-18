@@ -410,6 +410,9 @@ class _MyIdPageState extends State<MyIdPage> {
                 isError: true,
                 onRetry: _loading ? null : _refreshState,
               ),
+            ] else if (_loading && _state.status == MyIdStatus.unknown) ...[
+              SizedBox(height: AppLayout.scaled(context, 12)),
+              const _PassportMessageBanner(message: '正在同步公民号身份，核实后自动更新'),
             ] else if ((_state.errorMessage ?? '').trim().isNotEmpty) ...[
               SizedBox(height: AppLayout.scaled(context, 12)),
               _PassportMessageBanner(message: _state.errorMessage!),

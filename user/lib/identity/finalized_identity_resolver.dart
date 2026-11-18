@@ -1,7 +1,7 @@
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/foundation.dart';
 
-import 'package:citizen_user/identity/identity_badge_snapshot_store.dart';
+import 'package:citizen_system/app_log.dart';
 
 import 'package:citizen_chain/citizen_chain.dart';
 
@@ -45,7 +45,6 @@ class FinalizedIdentityResolver {
     CitizenSdk? wallet,
     CitizenSdk? chain,
     CitizenIdentityChainReader? chainReader,
-    IdentityBadgeSnapshotStore? snapshotStore,
     ValueListenable<int>? identityRevision,
     CitizenSdkOperation<CitizenWalletState> Function()? getWalletState,
     Future<CitizenBlockRef> Function()? getFinalizedHead,
@@ -57,7 +56,6 @@ class FinalizedIdentityResolver {
     Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
     getStorage,
   }) : _chainData = chainData,
-       _snapshotStore = snapshotStore,
        _identityRevision = identityRevision,
        _chainReader =
            chainReader ??
@@ -75,7 +73,6 @@ class FinalizedIdentityResolver {
 
   final CitizenIdentityChainReader _chainReader;
   final ChainDataService? _chainData;
-  final IdentityBadgeSnapshotStore? _snapshotStore;
   final ValueListenable<int>? _identityRevision;
   final _inflight = <(String, BigInt, int), Future<FinalizedIdentity?>>{};
   int _generation = 0;
@@ -117,13 +114,27 @@ class FinalizedIdentityResolver {
     (String, BigInt, int) key,
     int generation,
   ) async {
-    final data = await _chainData?.refresh();
-    if (_chainData != null && (data?.accountId != account.accountId || _chainData.isStale)) {
-      throw StateError('轻节点身份尚未核验');
+    final elapsed = Stopwatch()..start();
+    final CitizenIdentityChainSnapshot? snapshot;
+    try {
+      // 仅复用已经核实且属于当前账户的共享快照；缺失时只读身份闭环，
+      // 不等待会员、价格和其他CID的整批任务，仍保留原finalized完整性校验。
+      final data = _chainData?.snapshot;
+      snapshot =
+          data != null &&
+              !_chainData!.isStale &&
+              data.accountId == account.accountId
+          ? data.own?.identity
+          : await _chainReader.readByAccountId(account.accountId);
+      AppLog.identitySync(stage: 'read', elapsed: elapsed.elapsed);
+    } catch (error) {
+      AppLog.identitySync(
+        stage: 'read',
+        elapsed: elapsed.elapsed,
+        error: error,
+      );
+      rethrow;
     }
-    final snapshot = _chainData == null
-        ? await _chainReader.readByAccountId(account.accountId)
-        : data?.own?.identity;
     final result = FinalizedIdentity(
       accountId: account.accountId,
       accountAddress: account.ss58Address,
@@ -135,12 +146,7 @@ class FinalizedIdentityResolver {
     bool isCurrent() =>
         generation == _generation && (_identityRevision?.value ?? 0) == key.$3;
     if (!isCurrent()) throw StateError('身份上下文已变化，请重新操作');
-    await _snapshotStore?.writeVerified(
-      accountId: account.accountId,
-      identity: snapshot,
-      isCurrent: isCurrent,
-    );
-    await assertCurrent(result);
+    // 展示快照仅由MyIdService在业务绑定落盘后发布，解析器不提前通知页面。
     return result;
   }
 

@@ -90,6 +90,7 @@ class _SessionWalletManager implements AccountSecurityService {
     required String cidNumber,
     required int bindRev,
     required String accountId,
+    bool notify = true,
   }) async {}
 
   @override

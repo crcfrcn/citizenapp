@@ -265,6 +265,38 @@ void main() {
     expect(wallet.mlsDeviceRegistrationCalls, 0);
   });
 
+  for (final code in [
+    CitizenSdkErrorCode.notReady,
+    CitizenSdkErrorCode.integrity,
+  ]) {
+    test('SDK ${code.name} 区分同步未就绪与完整性失败', () async {
+      final service = testService(
+        identityResolver: _SdkErrorResolver(
+          _registeredIdentity(_validAccountId),
+          code,
+        ),
+      );
+      expect(
+        (await service.refreshState()).status,
+        code == CitizenSdkErrorCode.notReady
+            ? MyIdStatus.unknown
+            : MyIdStatus.queryFailed,
+      );
+    });
+  }
+
+  test('展示快照发布时业务绑定必须已经保存', () async {
+    final wallet = _FakeWalletManager(_aliceWallet);
+    final store = _OrderedBadgeStore(wallet);
+    final service = testService(
+      wallet: wallet,
+      badgeSnapshotStore: store,
+      identityResolver: _SyncResolver(_registeredIdentity(_validAccountId)),
+    );
+    await service.refreshState();
+    expect(store.publishedAfterBinding, isTrue);
+  });
+
   test('同一账户并发刷新共用完整同步，不只合并链读取', () async {
     final wallet = _FakeWalletManager(_aliceWallet);
     final resolver = _SyncResolver(_registeredIdentity(_validAccountId))
@@ -1130,6 +1162,7 @@ class _FakeWalletManager extends TestWalletReads
     required String cidNumber,
     required int bindRev,
     required String accountId,
+    bool notify = true,
   }) async {
     expect(genesisHash, '0x${'42' * 32}');
     events.add('activate');
@@ -1176,14 +1209,16 @@ class _NotifyingWalletManager extends _FakeWalletManager {
     required String cidNumber,
     required int bindRev,
     required String accountId,
+    bool notify = true,
   }) async {
     await super.activateIdentityBinding(
       genesisHash: genesisHash,
       cidNumber: cidNumber,
       bindRev: bindRev,
       accountId: accountId,
+      notify: notify,
     );
-    notifyIdentityBindingChanged();
+    if (notify) notifyIdentityBindingChanged();
   }
 }
 
@@ -1573,4 +1608,28 @@ class _SyncSessions implements SquareSessionProvider {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _OrderedBadgeStore extends _FakeBadgeStore {
+  _OrderedBadgeStore(this.wallet);
+  final _FakeWalletManager wallet;
+  bool publishedAfterBinding = false;
+  @override
+  Future<void> writeVerified({
+    required String accountId,
+    required CitizenIdentityChainSnapshot? identity,
+    required bool Function() isCurrent,
+  }) async {
+    publishedAfterBinding =
+        wallet.activeBinding?.accountId == accountId &&
+        wallet.activeBinding?.cidNumber == identity?.cidNumber;
+  }
+}
+
+class _SdkErrorResolver extends _SyncResolver {
+  _SdkErrorResolver(super.identity, this.code);
+  final CitizenSdkErrorCode code;
+  @override
+  Future<FinalizedIdentity?> resolve() async =>
+      throw CitizenSdkException(code: code, message: '合成错误');
 }

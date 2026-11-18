@@ -43,7 +43,6 @@ import 'package:citizen_user/identity/current_user_context.dart';
 import 'package:citizen_user/identity/finalized_identity_resolver.dart';
 import 'package:citizen_user/identity/cid_business_gate.dart';
 import 'package:citizen_user/identity/myid_service.dart';
-import 'package:citizen_user/identity/identity_badge_snapshot_store.dart';
 import 'package:citizen_storage/user_isar.dart';
 import 'package:citizenapp/security/app_permission_gate.dart';
 import 'package:citizen_system/update/app_update.dart';
@@ -144,7 +143,6 @@ Future<void> main() async {
     chainData: chainData,
     wallet: citizenSdk,
     chain: citizenSdk,
-    snapshotStore: IdentityBadgeSnapshotStore(),
     identityRevision: accountSecurity.revision,
   );
   SquareApiClient.resourceGate = SubscriptionService.resourceGate;

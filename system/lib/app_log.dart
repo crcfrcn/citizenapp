@@ -351,6 +351,27 @@ class AppLog {
     }
   }
 
+  /// 身份同步只记录固定阶段、耗时及错误枚举，不含账户、CID或异常原文。
+  static void identitySync({
+    required String stage,
+    required Duration elapsed,
+    Object? error,
+  }) {
+    final reason = error == null
+        ? 'none'
+        : switch (error) {
+            CitizenSdkException() => 'sdk_${error.code.name}',
+            StateError() => 'state',
+            FormatException() => 'format',
+            TimeoutException() => 'timeout',
+            _ => 'other',
+          };
+    debugPrintSynchronously(
+      '[CitizenIdentity] stage=${stage == 'read' ? 'read' : 'sync'} '
+      'state=${error == null ? 'ready' : 'failed'} elapsed_ms=${elapsed.inMilliseconds} code=$reason',
+    );
+  }
+
   /// 主页加载诊断只输出固定原因、资料版本和标准调用栈位置，不输出资料正文或凭据。
   static void profileLoadFailure({
     required String stage,
