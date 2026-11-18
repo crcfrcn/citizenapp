@@ -1897,7 +1897,13 @@ class SquareApiClient
     if (profile is! Map<String, dynamic>) {
       throw const SquareApiException('更新资料响应缺少资料数据');
     }
-    return CitizenProfile.fromJson(profile);
+    final updated = CitizenProfile.fromJson(profile);
+    if (data['is_ok'] != true ||
+        updated.cidNumber != session.cidNumber ||
+        updated.profileAt <= 0) {
+      throw const SquareApiException('资料尚未确认写入云端，请重试');
+    }
+    return updated;
   }
 
   /// 关注一个身份（写接口带 session；关注者 cid 由 Worker 从 session 派生，

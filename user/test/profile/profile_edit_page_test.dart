@@ -1,3 +1,7 @@
+import 'dart:convert';
+import 'dart:typed_data';
+import 'package:crypto/crypto.dart';
+import 'package:citizen_user/profile/profile_asset_service.dart';
 import 'package:citizen_testing/mls_authentication_fixture.dart';
 
 import 'package:citizen_storage/user_isar.dart';
@@ -45,6 +49,7 @@ Widget _wrap(
   FakeProfileApi api, {
   SquareSessionProvider? sessionProvider,
   _FakeProfileCache? cache,
+  ProfileAssetService? assetService,
 }) {
   return MaterialApp(
     home: CitizenProfileEditPage(
@@ -52,6 +57,7 @@ Widget _wrap(
       initialProfile: sampleProfile(displayName: '旧名', profileBio: '旧签名'),
       api: api,
       cache: cache ?? _FakeProfileCache(),
+      assetService: assetService,
       sessionProvider:
           sessionProvider ??
           FakeSessionProvider(
@@ -183,6 +189,136 @@ void main() {
     expect(session.calls, 1);
     expect(api.lastUpdate, isNull);
   });
+
+  testWidgets('远端返回版本0不关闭页面或显示已保存', (tester) async {
+    final api = FakeProfileApi(sampleProfile().copyWith(profileAt: 0));
+    final cache = _FakeProfileCache();
+    await tester.pumpWidget(_wrap(api, cache: cache));
+    await tester.pumpAndSettle();
+    await _save(tester);
+    expect(cache.wrote, isFalse);
+    expect(cache.attempts, 0);
+    expect(find.text('保存未完成，点击保存可恢复上次修改'), findsOneWidget);
+    expect(find.text('远端已保存，本机收尾未完成，点击保存可恢复'), findsNothing);
+  });
+
+  testWidgets('重新打开已确认任务必须先核对云端，取消恢复不重传', (tester) async {
+    final cache = _FakeProfileCache();
+    await tester.runAsync(() async {
+      await cache.prepareUpdate(
+        sampleProfile().cidNumber!,
+        request: {'display_name': '旧名', 'profile_bio': '旧签名'},
+      );
+      await cache.confirmUpdate(
+        sampleProfile(displayName: '旧名', profileBio: '旧签名'),
+      );
+    });
+    final api = FakeProfileApi(sampleProfile().copyWith(profileAt: 0));
+    await tester.pumpWidget(_wrap(api, cache: cache));
+    await tester.pumpAndSettle();
+    await _openResume(tester);
+    expect(api.calls, 1);
+    expect(cache.attempts, 0);
+    expect(api.lastUpdate, isNull);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(api.lastUpdate, isNull);
+  });
+
+  testWidgets('云端资料缺失时确认恢复，原头像和背景先重传再提交', (tester) async {
+    final cache = _FakeProfileCache();
+    final png = base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWQAAAABJRU5ErkJggg==',
+    );
+    final hash = sha256.convert(png).toString();
+    await tester.runAsync(() async {
+      await cache.prepareUpdate(
+        sampleProfile().cidNumber!,
+        request: {
+          'display_name': '旧名',
+          'profile_bio': '旧签名',
+          'avatar_hash': hash,
+          'banner_hash': hash,
+        },
+        avatarBytes: png,
+        bannerBytes: png,
+      );
+      await cache.confirmUpdate(
+        sampleProfile(
+          displayName: '旧名',
+          profileBio: '旧签名',
+          avatarKey: 'i/${sampleProfile().cidNumber}/avatar/$hash',
+          bannerKey: 'i/${sampleProfile().cidNumber}/banner/$hash',
+        ),
+      );
+    });
+    final api = _MissingRemoteApi(sampleProfile());
+    final assets = _RestoreAssets(api);
+    await tester.pumpWidget(_wrap(api, cache: cache, assetService: assets));
+    await tester.pumpAndSettle();
+    await _openResume(tester);
+    await tester.tap(find.text('继续保存'));
+    await tester.pump();
+    for (var n = 0; n < 100 && !cache.wrote; n++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump();
+    }
+    expect(assets.roles, ['avatar', 'banner']);
+    expect(api.lastUpdate!['avatar_hash'], hash);
+    expect(api.lastUpdate!['banner_hash'], hash);
+    expect(cache.wrote, isTrue);
+  });
+
+  testWidgets('恢复原图片摘要不符时禁止提交资料', (tester) async {
+    final cache = _FakeProfileCache();
+    final png = base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWQAAAABJRU5ErkJggg==',
+    );
+    await tester.runAsync(
+      () => cache.prepareUpdate(
+        sampleProfile().cidNumber!,
+        request: {
+          'display_name': '旧名',
+          'avatar_hash': sha256.convert(png).toString(),
+        },
+        avatarBytes: png,
+      ),
+    );
+    final api = _MissingRemoteApi(sampleProfile());
+    final assets = _RestoreAssets(api, mismatch: true);
+    await tester.pumpWidget(_wrap(api, cache: cache, assetService: assets));
+    await tester.pumpAndSettle();
+    await _openResume(tester);
+    await tester.tap(find.text('继续保存'));
+    await tester.pumpAndSettle();
+    expect(find.text('恢复图片内容与原修改不一致'), findsOneWidget);
+    expect(api.lastUpdate, isNull);
+    expect(cache.attempts, 0);
+  });
+
+  testWidgets('重开已确认任务云端仍匹配时不再上传或提交', (tester) async {
+    final cache = _FakeProfileCache();
+    final profile = sampleProfile(displayName: '旧名', profileBio: '旧签名');
+    await tester.runAsync(() async {
+      await cache.prepareUpdate(
+        profile.cidNumber!,
+        request: {'display_name': '旧名', 'profile_bio': '旧签名'},
+      );
+      await cache.confirmUpdate(profile);
+    });
+    final api = FakeProfileApi(profile);
+    final assets = _RestoreAssets(api);
+    await tester.pumpWidget(_wrap(api, cache: cache, assetService: assets));
+    await tester.pumpAndSettle();
+    await _save(tester);
+    expect(api.calls, 1);
+    expect(api.lastUpdate, isNull);
+    expect(assets.roles, isEmpty);
+    expect(cache.wrote, isTrue);
+  });
+
   testWidgets('远端成功而本地失败保留页面，再次保存只重试本地', (tester) async {
     final api = FakeProfileApi(sampleProfile());
     final cache = _FakeProfileCache()..failNext = true;
@@ -263,4 +399,49 @@ void main() {
     expect(api.lastUpdate, isNull);
     expect(find.text('请先在「我的 → 我的钱包」创建热钱包'), findsOneWidget);
   });
+}
+
+Future<void> _openResume(WidgetTester tester) async {
+  await tester.tap(find.text('保存'));
+  for (var n = 0; n < 100 && find.byType(AlertDialog).evaluate().isEmpty; n++) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
+    await tester.pump();
+  }
+  expect(find.byType(AlertDialog), findsOneWidget);
+}
+
+class _RestoreAssets extends ProfileAssetService {
+  _RestoreAssets(this.api, {this.mismatch = false});
+  final bool mismatch;
+  final FakeProfileApi api;
+  final roles = <String>[];
+  @override
+  Future<ProfileAssetResult> upload({
+    required SquareSession session,
+    required String uploadKind,
+    required Uint8List bytes,
+    required String contentType,
+  }) async {
+    expect(api.lastUpdate, isNull, reason: '必须先完成图片上传再提交资料');
+    expect(contentType, 'image/webp');
+    roles.add(uploadKind);
+    return ProfileAssetResult(
+      contentHash: mismatch ? '0' * 64 : sha256.convert(bytes).toString(),
+      bytes: bytes,
+    );
+  }
+}
+
+class _MissingRemoteApi extends FakeProfileApi {
+  _MissingRemoteApi(super.result);
+  @override
+  Future<CitizenProfile> fetchProfile(
+    String cidNumber, {
+    SquareSession? session,
+  }) async {
+    calls++;
+    return result.copyWith(profileAt: 0);
+  }
 }

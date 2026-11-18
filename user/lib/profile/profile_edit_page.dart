@@ -20,7 +20,7 @@ import 'package:citizen_system/theme/app_layout.dart';
 ///
 /// 公开昵称唯一真源是按 `cid_number` 寻址的 `display_name`；本机钱包名只是
 /// 钱包标签，本页不得读取或修改它。
-/// 头像/背景上传到 R2（不上链），保存时随 `PUT /profile` 写入 object_key。
+/// 头像/背景上传到 R2（不上链），保存时随 `PUT /user/profile` 提交内容哈希。
 class CitizenProfileEditPage extends StatefulWidget {
   const CitizenProfileEditPage({
     super.key,
@@ -151,7 +151,10 @@ class _CitizenProfileEditPageState extends State<CitizenProfileEditPage> {
     setState(() => _saving = true);
     try {
       final pending = await _cache.readUpdate(widget.cidNumber);
-      if (pending?.jobState == 'confirmed') {
+      // 同页已持有成功回执时，只重试本地收尾；重新进入则先核对云端事实。
+      if (pending?.jobState == 'confirmed' &&
+          _savedRemotely != null &&
+          _cache.updateMatches(pending!, _savedRemotely!)) {
         await _saveLocal();
         return;
       }
@@ -203,6 +206,32 @@ class _CitizenProfileEditPageState extends State<CitizenProfileEditPage> {
         final request = Map<String, String>.from(
           jsonDecode(pending.requestData) as Map,
         );
+        // 用户确认恢复后重传原始已规范化图片，不能假设旧R2媒体仍存在。
+        for (final role in ['avatar', 'banner']) {
+          final hash = request['${role}_hash'];
+          if (hash == null || hash.isEmpty) continue;
+          final bytes = role == 'avatar'
+              ? pending.avatarBytes
+              : pending.bannerBytes;
+          if (bytes.isEmpty) {
+            throw const SquarePreflightException(
+              '原图片不完整，无法恢复上次保存',
+              'profile_media_missing',
+            );
+          }
+          final asset = await _assetService.upload(
+            session: session,
+            uploadKind: role,
+            bytes: Uint8List.fromList(bytes),
+            contentType: 'image/webp',
+          );
+          if (asset.contentHash != hash) {
+            throw const SquarePreflightException(
+              '恢复图片内容与原修改不一致',
+              'profile_media_mismatch',
+            );
+          }
+        }
         final updated = await _sendUpdate(session, request);
         await _cache.confirmUpdate(updated);
         _savedRemotely = updated;
@@ -256,8 +285,8 @@ class _CitizenProfileEditPageState extends State<CitizenProfileEditPage> {
       final updated = await _sendUpdate(session, request);
 
       // 远端成功后保留响应；本地失败时只重试本地事务，不再次上传或修改远端。
-      _savedRemotely = updated;
       await _cache.confirmUpdate(updated);
+      _savedRemotely = updated;
       await _saveLocal();
     } on SquarePreflightException catch (error) {
       if (mounted) {
@@ -301,8 +330,9 @@ class _CitizenProfileEditPageState extends State<CitizenProfileEditPage> {
   }
 
   void _snack(String message) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   String _contentTypeForPath(String path) {

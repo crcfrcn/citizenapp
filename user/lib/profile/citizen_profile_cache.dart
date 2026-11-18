@@ -156,7 +156,9 @@ class CitizenProfileCache {
   }
 
   bool updateMatches(user_store.Edit row, CitizenProfile profile) {
-    if (row.cidNumber != profile.cidNumber) return false;
+    // 版本0是只读占位，不能证明这次修改已经写入R2。
+    if (row.cidNumber != profile.cidNumber || profile.profileAt <= 0)
+      return false;
     final request = jsonDecode(row.requestData) as Map<String, dynamic>;
     final actual = profile.toJson();
     return request.entries.every((entry) {

@@ -1037,6 +1037,31 @@ void main() {
   });
 
   group('CitizenProfileCache', () {
+    test('版本0字段即使匹配也不能确认保存，正版本才可提交本地', () async {
+      const cache = CitizenProfileCache();
+      await cache.prepareUpdate(
+        _profileCid,
+        request: {'display_name': '', 'profile_bio': ''},
+      );
+      final empty = CitizenProfile.fromJson({
+        ..._profileJson(),
+        'display_name': '',
+        'profile_bio': '',
+        'avatar_key': null,
+        'banner_key': null,
+        'profile_at': 0,
+      });
+      final row = (await cache.readUpdate(_profileCid))!;
+      expect(cache.updateMatches(row, empty), isFalse);
+      await expectLater(cache.confirmUpdate(empty), throwsStateError);
+      expect((await cache.readUpdate(_profileCid))!.jobState, 'pending');
+      expect(await cache.read(_profileCid), isNull);
+      await cache.confirmUpdate(empty.copyWith(profileAt: 1));
+      await cache.finishUpdate(_profileCid);
+      expect((await cache.read(_profileCid))!.profileAt, 1);
+      expect(await cache.readUpdate(_profileCid), isNull);
+    });
+
     setUp(TestWidgetsFlutterBinding.ensureInitialized);
 
     // 缓存主键 = 身份主键 cid_number（_profileJson 的 cid_number）。
@@ -1646,6 +1671,24 @@ void main() {
   });
 
   group('SquareApiClient profile endpoints', () {
+    for (final mode in ['zero', 'wrong-cid', 'not-ok']) {
+      test('资料更新200但$mode不能作为R2保存成功', () async {
+        final profile = _profileJson(cidNumber: _session().cidNumber);
+        if (mode == 'zero') profile['profile_at'] = 0;
+        if (mode == 'wrong-cid')
+          profile['cid_number'] = 'CN220-CTZN2-100000001-2026';
+        final client = _client(
+          MockClient(
+            (_) async => _ok({'is_ok': mode != 'not-ok', 'profile': profile}),
+          ),
+        );
+        await expectLater(
+          client.updateProfile(session: _session(), displayName: '名字'),
+          throwsA(isA<SquareApiException>()),
+        );
+      });
+    }
+
     test(
       'fetchUserProfile parses the profile and forwards the session',
       () async {
@@ -1832,7 +1875,10 @@ void main() {
             body = jsonDecode(request.body) as Map<String, dynamic>;
             return _ok({
               'is_ok': true,
-              'profile': _profileJson(displayName: '新名字'),
+              'profile': _profileJson(
+                displayName: '新名字',
+                cidNumber: _session().cidNumber,
+              ),
             });
           }),
         );
@@ -1851,6 +1897,8 @@ void main() {
           'banner_hash': _photoHash,
         });
         expect(updated.displayName, '新名字');
+        expect(updated.cidNumber, _session().cidNumber);
+        expect(updated.profileAt, greaterThan(0));
       },
     );
   });
