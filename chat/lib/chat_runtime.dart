@@ -5207,7 +5207,14 @@ class ChatRuntime {
         _mailboxMessageReceipts.remove(receiptKey);
         // ACK 的唯一条件是密文已经成功验密并写入本机。格式、身份、OpenMLS、附件或
         // ChatIsar 任一失败都保留服务端副本到后续重试/七天 TTL；禁止永久丢消息。
-        transport.lastRealtimeDiagnosticCode = 'chat_mailbox_message_retry';
+        final code = chatDiagnosticCode(error);
+        if (transport.lastRealtimeDiagnosticCode != code) {
+          final stage = error is MlsException
+              ? error.diagnosticOperation
+              : 'message';
+          debugPrint('[ChatTrace] direction=inbound stage=$stage code=$code');
+        }
+        transport.lastRealtimeDiagnosticCode = code;
         return false;
       }
     }

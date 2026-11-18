@@ -119,6 +119,7 @@ final class _Host
 
 final class _Crypto implements MlsGroupCrypto {
   int processed = 0;
+  Object? processFailure;
   @override
   Future<MlsKeyPackage> createKeyPackage(
     ChatDevice identity, {
@@ -137,7 +138,7 @@ final class _Crypto implements MlsGroupCrypto {
   Future<GroupInbound> groupProcess(MlsWireMessage wire) async {
     processed++;
     if (wire.wireBytes.first == 255) {
-      throw StateError('synthetic decrypt failure');
+      throw processFailure ?? StateError('synthetic decrypt failure');
     }
     return GroupInbound(
       groupId: wire.conversationId,
@@ -1262,6 +1263,40 @@ void main() {
     expect(fixture.transport.fetches, 6);
     expect(fixture.crypto.processed, 205);
   });
+
+  for (final native in [false, true]) {
+    test('收件失败保留固定原因并按同一原因去重 native=$native', () async {
+      final f = await _Fixture.create();
+      await f.runtime.ensureReady(_account.accountId);
+      final diagnostics = <String>[];
+      final previousPrint = debugPrint;
+      debugPrint = (String? text, {int? wrapWidth}) {
+        if (text != null) diagnostics.add(text);
+      };
+      addTearDown(() {
+        debugPrint = previousPrint;
+      });
+      f.crypto.processFailure = native
+          ? MlsException.fromTechnicalMessage(
+              'MLS Welcome不能覆盖已消费的组',
+              operation: MlsOperation.groupProcess,
+            )
+          : StateError('synthetic-private-detail');
+      f.transport.messages.addAll([
+        _Message(1, poison: true),
+        _Message(2, poison: true),
+      ]);
+      await f.runtime.handleWake();
+      await f.runtime.close();
+      expect(f.transport.acknowledged, isEmpty);
+      expect(f.transport.messages, hasLength(2));
+      expect(diagnostics.where((row) => row.contains('direction=inbound')), [
+        '[ChatTrace] direction=inbound stage=${native ? 'group_process' : 'message'} code=${native ? 'welcome_conflict' : 'operation_failed'}',
+      ]);
+      expect(diagnostics.join(), isNot(contains('synthetic-private-detail')));
+      expect(diagnostics.join(), isNot(contains('MLS Welcome')));
+    });
+  }
 
   test('并发 wake 共用一次补拉链，毒化密文无进展后停止', () async {
     final fixture = await _Fixture.create();
