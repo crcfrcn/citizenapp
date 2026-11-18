@@ -81,7 +81,7 @@ class ChatTab extends StatefulWidget {
 class _ChatTabState extends State<ChatTab> {
   List<ChatConversationPreview> _conversations = const [];
   // 用户确认删除后先从所有页面读取结果中屏蔽该会话；物理清理即使仍在
-  // 等待文件 lease，轮询、Realtime 或路由返回重载也不得把卡片重新插回。
+  // 等待文件 lease，Realtime 或路由返回重载也不得把卡片重新插回。
   final Set<String> _conversationDeletesInFlight = <String>{};
   late final CitizenProfileCache _profileCache =
       widget.profileCache ?? const CitizenProfileCache();
@@ -126,6 +126,12 @@ class _ChatTabState extends State<ChatTab> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _requestCoordinate());
   }
 
+  void _onConnectionState() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
   void _createListController() {
     final generation = ++_controllerGeneration;
     _listController = ChatConversationListController(
@@ -133,6 +139,7 @@ class _ChatTabState extends State<ChatTab> {
       onCoordinate: () => _reload(syncFirst: true),
       onRefresh: (account) => _syncAndRefresh(account, generation),
     );
+    _listController.addListener(_onConnectionState);
     _listController.start(visible: _isTabSelected);
   }
 
@@ -164,7 +171,9 @@ class _ChatTabState extends State<ChatTab> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_dependenciesReady) return;
+    if (_dependenciesReady) {
+      return;
+    }
     if (widget.cidNumber != null && widget.accountId != null) {
       _wallet = widget.wallet;
       _sessionProvider = widget.sessionProvider;
@@ -221,7 +230,9 @@ class _ChatTabState extends State<ChatTab> {
       _subscriptionService = widget.subscriptionService ?? _subscriptionService;
       _contactService = widget.contactService ?? _contactService;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _requestCoordinate();
+        if (mounted) {
+          _requestCoordinate();
+        }
       });
     }
     _onSelectedTabChanged();
@@ -246,11 +257,15 @@ class _ChatTabState extends State<ChatTab> {
 
   void _onProfileRevision() {
     final event = CitizenProfileCache.revision.value;
-    if (!mounted || event == null) return;
+    if (!mounted || event == null) {
+      return;
+    }
     final matches = _conversations.any(
       (preview) => !preview.isGroup && preview.peerUserId == event.cidNumber,
     );
-    if (!matches) return;
+    if (!matches) {
+      return;
+    }
     unawaited(_readCachedPeerProfiles(_conversations, force: true));
   }
 
@@ -272,15 +287,21 @@ class _ChatTabState extends State<ChatTab> {
     setState(() => _checkingIdentity = true);
     try {
       final identity = await _readIdentity();
-      if (!mounted || probe != _identityProbe) return;
+      if (!mounted || probe != _identityProbe) {
+        return;
+      }
       if (identity.accountId == _accountId &&
           identity.cidNumber == _cidNumber) {
         return;
       }
       final previous = _accountId;
       setState(_resetScope);
-      if (previous.isNotEmpty) await widget.runtime.invalidateAccount(previous);
-      if (!mounted || probe != _identityProbe) return;
+      if (previous.isNotEmpty) {
+        await widget.runtime.invalidateAccount(previous);
+      }
+      if (!mounted || probe != _identityProbe) {
+        return;
+      }
       _checkingIdentity = false;
       _requestCoordinate();
     } on Object catch (error) {
@@ -348,7 +369,7 @@ class _ChatTabState extends State<ChatTab> {
       if (ownerUserId.isEmpty) {
         // 默认账户未注册 CID 是合法状态；禁止回退到其他账户，必须在此
         // 短路。会话存储读取第一步就要解析密钥绑定,对未注册身份必抛
-        // AccountSecurityException,catch 成 _error 横幅后会盖住注册引导;轮询/realtime
+        // AccountSecurityException,catch 成 _error 横幅后会盖住注册引导;realtime
         // 同样是注定失败的空转。渲染层 `_cidNumber.isEmpty` 分支显示统一注册引导。
         _pauseSync();
         return;
@@ -393,8 +414,8 @@ class _ChatTabState extends State<ChatTab> {
       if (syncFirst) {
         _listController.synchronizeScope(serviceAccountId);
       } else if (mounted && _isActive && generation == _reloadGeneration) {
-        // 二级页返回只需恢复既有轮询/Realtime，不重复执行首次补发链。
-        _configurePolling(serviceAccountId);
+        // 二级页返回只需恢复既有既有Realtime订阅，不重复执行首次补发链。
+        _listController.configureScope(serviceAccountId);
       }
     }
   }
@@ -404,9 +425,13 @@ class _ChatTabState extends State<ChatTab> {
     String cidNumber,
     int reloadGeneration,
   ) async {
-    if (cidNumber.isEmpty) return;
+    if (cidNumber.isEmpty) {
+      return;
+    }
     final sessionProvider = _sessionProvider;
-    if (sessionProvider == null || _subscriptionService == null) return;
+    if (sessionProvider == null || _subscriptionService == null) {
+      return;
+    }
     if (!mounted ||
         reloadGeneration != _reloadGeneration ||
         cidNumber != _cidNumber) {
@@ -441,7 +466,7 @@ class _ChatTabState extends State<ChatTab> {
   }
 
   /// 本地首屏完成后静默收敛聊天服务。该 Future 不进入页面 loading/error，
-  /// 服务失败时保留已经显示的本地列表，由后续轮询或下一次进入页面重试。
+  /// 服务失败时保留已经显示的本地列表，由后续连接恢复或下一次进入页面重试。
   Iterable<String> _directPeerCidNumbers(
     List<ChatConversationPreview> conversations,
   ) sync* {
@@ -466,7 +491,9 @@ class _ChatTabState extends State<ChatTab> {
     final mediaCache = widget.profileMediaCache ?? _profileMediaCache;
     await Future.wait(
       _directPeerCidNumbers(conversations).map((peer) async {
-        if (!force && _resolvedPeerCidNumbers.contains(peer)) return;
+        if (!force && _resolvedPeerCidNumbers.contains(peer)) {
+          return;
+        }
         final request = ++_cacheSequence;
         _profileRequests[peer] = request;
         try {
@@ -494,7 +521,9 @@ class _ChatTabState extends State<ChatTab> {
         }
       }),
     );
-    if (force && _displayCurrent(generation, owner, account)) setState(() {});
+    if (force && _displayCurrent(generation, owner, account)) {
+      setState(() {});
+    }
   }
 
   /// 会话标题先用 ChatIsar 已有预览立即显示；公开资料缓存随后把中性头像替换为真实
@@ -508,7 +537,9 @@ class _ChatTabState extends State<ChatTab> {
     unawaited(_hydrateContactRemarks(conversations));
     try {
       await _readCachedPeerProfiles(conversations);
-      if (_displayCurrent(generation, owner, account)) setState(() {});
+      if (_displayCurrent(generation, owner, account)) {
+        setState(() {});
+      }
     } on Exception {
       // 公开资料是 Chat UI 的联合展示数据；失败不影响加密会话本身。
     }
@@ -522,13 +553,19 @@ class _ChatTabState extends State<ChatTab> {
     final ownerUserId = _cidNumber,
         generation = _reloadGeneration,
         account = _accountId;
-    if (ownerUserId.isEmpty) return;
+    if (ownerUserId.isEmpty) {
+      return;
+    }
     final contactService = _contactService;
-    if (contactService == null) return;
+    if (contactService == null) {
+      return;
+    }
     final peers = _directPeerCidNumbers(conversations).toSet();
     try {
       final contacts = await contactService.getContacts();
-      if (!_displayCurrent(generation, ownerUserId, account)) return;
+      if (!_displayCurrent(generation, ownerUserId, account)) {
+        return;
+      }
       final remarks = <String, String>{
         for (final contact in contacts)
           if (peers.contains(contact.cidNumber) &&
@@ -545,21 +582,17 @@ class _ChatTabState extends State<ChatTab> {
     }
   }
 
-  void _configurePolling(String activeWallet) {
-    if (!_isActive || activeWallet.isEmpty) {
-      _pauseSync();
-      return;
-    }
-    _listController.configureScope(activeWallet);
-  }
-
   Future<bool> _syncAndRefresh(
     String accountId,
     int controllerGeneration,
   ) async {
     final generation = _reloadGeneration, owner = _cidNumber;
-    if (controllerGeneration != _controllerGeneration) return false;
-    if (!_isActive || _accountId != accountId) return false;
+    if (controllerGeneration != _controllerGeneration) {
+      return false;
+    }
+    if (!_isActive || _accountId != accountId) {
+      return false;
+    }
     final conversations = await widget.store.readConversationPreviews(
       ownerUserId: _cidNumber,
       currentAccountId: accountId,
@@ -617,7 +650,9 @@ class _ChatTabState extends State<ChatTab> {
         generation == _controllerGeneration &&
         cid == _cidNumber &&
         account == _accountId;
-    if (!_conversationDeletesInFlight.add(conversationId)) return;
+    if (!_conversationDeletesInFlight.add(conversationId)) {
+      return;
+    }
     setState(() {
       _conversations = _conversations
           .where((item) => item.conversationId != conversationId)
@@ -626,13 +661,23 @@ class _ChatTabState extends State<ChatTab> {
     });
     try {
       await _deleteLocalConversation(conversationId);
-      if (!current()) return;
-      if (!_checkingIdentity) await _reload();
-      if (current()) _conversationDeletesInFlight.remove(conversationId);
+      if (!current()) {
+        return;
+      }
+      if (!_checkingIdentity) {
+        await _reload();
+      }
+      if (current()) {
+        _conversationDeletesInFlight.remove(conversationId);
+      }
     } catch (error) {
-      if (!current()) return;
+      if (!current()) {
+        return;
+      }
       _conversationDeletesInFlight.remove(conversationId);
-      if (!_checkingIdentity) await _reload();
+      if (!_checkingIdentity) {
+        await _reload();
+      }
       if (current() && !_checkingIdentity) {
         setState(() => _error = chatUserErrorMessage(error));
       }
@@ -658,7 +703,9 @@ class _ChatTabState extends State<ChatTab> {
   }
 
   void _openConversation(ChatConversationPreview preview) {
-    if (!_requireChatIdentity()) return;
+    if (!_requireChatIdentity()) {
+      return;
+    }
     if (preview.isGroup) {
       openGroupChat(
         context,
@@ -673,7 +720,9 @@ class _ChatTabState extends State<ChatTab> {
   }
 
   void _openCreateGroup() {
-    if (!_requireChatIdentity()) return;
+    if (!_requireChatIdentity()) {
+      return;
+    }
     final opener = widget.openers?.openCreateGroup;
     if (opener != null) {
       unawaited(opener(context));
@@ -686,7 +735,9 @@ class _ChatTabState extends State<ChatTab> {
 
   /// 没有默认钱包账户时统一提示并拦截；冷热钱包均可作为当前账户。
   bool _requireAccount() {
-    if (_checkingIdentity) return false;
+    if (_checkingIdentity) {
+      return false;
+    }
     if (_accountId.isEmpty) {
       setState(() => _error = '请先在「我的 → 我的钱包」添加钱包账户');
       return false;
@@ -698,7 +749,9 @@ class _ChatTabState extends State<ChatTab> {
   ///
   /// 未注册时只保留页面内统一注册引导；动作不得绕过引导直接弹注册面板。
   bool _requireChatIdentity() {
-    if (!_requireAccount()) return false;
+    if (!_requireAccount()) {
+      return false;
+    }
     if (_cidNumber.isEmpty) {
       _requestCoordinate();
       return false;
@@ -735,7 +788,9 @@ class _ChatTabState extends State<ChatTab> {
       return;
     }
     final wallet = (await walletPort.getWalletState().result).defaultAccount;
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     await context.read<ScanDispatch>().openScanDispatchFlow(
       context: context,
       paymentWallet: wallet,
@@ -747,7 +802,9 @@ class _ChatTabState extends State<ChatTab> {
   /// 本入口最终归属是收款码（`k=4`，带金额与备注、临时有效），当前其生成方尚未实现，
   /// 暂出账户码；收款码落地时只切这一处，码型契约由共享 QR registry 固定。
   Future<void> _openReceivePay() async {
-    if (!_requireAccount()) return;
+    if (!_requireAccount()) {
+      return;
+    }
     final opener = widget.openers?.openReceivePay;
     if (opener != null) {
       await opener(context);
@@ -759,7 +816,9 @@ class _ChatTabState extends State<ChatTab> {
       return;
     }
     final wallet = (await walletPort.getWalletState().result).defaultAccount;
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     if (wallet == null) {
       setState(() => _error = '请先在「我的 → 我的钱包」添加钱包账户');
       return;
@@ -773,7 +832,9 @@ class _ChatTabState extends State<ChatTab> {
 
   /// 发私信 = 通讯录单选，点联系人直接开私聊。
   Future<void> _openSendMessage() async {
-    if (!_requireChatIdentity()) return;
+    if (!_requireChatIdentity()) {
+      return;
+    }
     final opener = widget.openers?.openSendMessage;
     if (opener != null) {
       await opener(context);
@@ -785,13 +846,17 @@ class _ChatTabState extends State<ChatTab> {
             const ContactBookPage(mode: ContactPickMode.pickForMessage),
       ),
     );
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     await _reload();
   }
 
   /// 加好友 = 扫对方二维码写入本人密文通讯录。
   Future<void> _openAddFriend() async {
-    if (!_requireChatIdentity()) return;
+    if (!_requireChatIdentity()) {
+      return;
+    }
     final opener = widget.openers?.openAddFriend;
     if (opener != null) {
       await opener(context);
@@ -802,7 +867,9 @@ class _ChatTabState extends State<ChatTab> {
 
   /// 搜索 = 进入独立搜索页；透传 store 与账户，避免搜索页重复解析依赖。
   Future<void> _openSearch() async {
-    if (!_requireChatIdentity()) return;
+    if (!_requireChatIdentity()) {
+      return;
+    }
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         builder: (_) => ChatSearchPage(
@@ -816,7 +883,9 @@ class _ChatTabState extends State<ChatTab> {
   }
 
   void _openGroupManage(ChatConversationPreview preview) {
-    if (!_requireChatIdentity()) return;
+    if (!_requireChatIdentity()) {
+      return;
+    }
     Navigator.of(context)
         .push(
           MaterialPageRoute<void>(
@@ -960,7 +1029,7 @@ class _ChatTabState extends State<ChatTab> {
           _conversationItem(context, preview),
       ],
       loading: _loading || _checkingIdentity,
-      errorMessage: _error,
+      errorMessage: _error ?? _listController.connectionError,
       unavailable: unavailable,
     );
   }

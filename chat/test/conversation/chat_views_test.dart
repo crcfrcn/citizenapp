@@ -103,7 +103,9 @@ void main() {
             40 * AppLayout.visualScaleForSize(Size(scenario.width, 914)),
           ),
         );
-        if (scenario.name == '基准') expect(rowRect.height, closeTo(40, 0.01));
+        if (scenario.name == '基准') {
+          expect(rowRect.height, closeTo(40, 0.01));
+        }
       }
       expect(tester.takeException(), isNull);
       await tester.tap(find.text(labels.last));
@@ -153,7 +155,7 @@ void main() {
       var starts = 0;
       var stops = 0;
       final runtime = _Runtime(
-        onStart: ({required onNotice, onDisconnected}) async {
+        onStart: ({required onNotice, onConnectionChanged}) async {
           starts += 1;
           return () async => stops += 1;
         },
@@ -174,6 +176,43 @@ void main() {
       expect(stops, 1);
     },
   );
+
+  testWidgets('连接失败不会被本地刷新清除且页面不发周期网络补发', (tester) async {
+    Future<void> Function(bool)? connection;
+    var syncs = 0;
+    final c = ChatConversationController(
+      conversationId: 'dm:a:b',
+      currentUserId: 'a',
+      loadSnapshot: () async =>
+          (messages: <ChatStoredMessage>[], integrityFailureCount: 0),
+      onSendText: (_) async {},
+      onSendMedia: null,
+      onSendSticker: null,
+      onSync: () async {
+        syncs++;
+        return 0;
+      },
+      onStartRealtime: ({required onNotice, onConnectionChanged}) async {
+        connection = onConnectionChanged;
+        await connection?.call(false);
+        return () async {};
+      },
+      onDownloadAttachment: null,
+      onResolveMediaPaths: null,
+      onMarkRead: null,
+      isVisible: () => true,
+    );
+    c.start();
+    await tester.pump();
+    expect(c.error, isNotNull);
+    await c.reloadMessages();
+    await tester.pump(const Duration(seconds: 60));
+    expect(c.error, isNotNull);
+    expect(syncs, 0);
+    await connection!.call(true);
+    expect(c.error, isNull);
+    c.dispose();
+  });
 
   test('conversation timestamps use local calendar buckets', () {
     final now = DateTime(2026, 8, 30, 18);
@@ -272,7 +311,9 @@ void main() {
           ],
           selectedUserIds: const <String>{},
           onSelectionChanged: (userId, value) {
-            if (value) selected = userId;
+            if (value) {
+              selected = userId;
+            }
           },
           canCreate: false,
           onCreate: () {},
@@ -298,7 +339,7 @@ void main() {
 typedef _RealtimeStart =
     Future<Future<void> Function()?> Function({
       required Future<void> Function() onNotice,
-      Future<void> Function()? onDisconnected,
+      Future<void> Function(bool ready)? onConnectionChanged,
     });
 
 class _Runtime extends TestChatRuntime {
@@ -315,10 +356,8 @@ class _Runtime extends TestChatRuntime {
   @override
   Future<Future<void> Function()?> startRealtimeSync({
     required Future<void> Function() onNotice,
-    Future<void> Function()? onDisconnected,
-    Future<void> Function(Map<String, dynamic> signal)? onSignal,
-    bool retryOutgoingOnConnect = true,
-  }) => onStart(onNotice: onNotice, onDisconnected: onDisconnected);
+    Future<void> Function(bool ready)? onConnectionChanged,
+  }) => onStart(onNotice: onNotice, onConnectionChanged: onConnectionChanged);
 }
 
 class _Host implements ChatRuntimeFixture {

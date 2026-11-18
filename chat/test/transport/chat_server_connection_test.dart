@@ -1,5 +1,6 @@
 import 'package:citizen_testing/chat_access_fixture.dart';
 import 'dart:async';
+import 'dart:io';
 
 import 'package:fake_async/fake_async.dart';
 import 'package:fixnum/fixnum.dart';
@@ -24,7 +25,9 @@ final class _FakeSocket implements ChatSocket {
 
   @override
   void add(List<int> bytes) {
-    if (refuseSend) throw StateError('synthetic-private-socket-detail');
+    if (refuseSend) {
+      throw StateError('synthetic-private-socket-detail');
+    }
     sent.add(ChatFrame.fromBuffer(bytes));
   }
 
@@ -32,7 +35,9 @@ final class _FakeSocket implements ChatSocket {
 
   @override
   Future<void> close() async {
-    if (closed) return;
+    if (closed) {
+      return;
+    }
     closed = true;
     await _events.close();
   }
@@ -45,6 +50,32 @@ ChatAccess _access() => ChatAccessFixture(
 );
 
 void main() {
+  for (final status in [401, 403, 429, 503]) {
+    test('系统WebSocket握手保留HTTP$status且不额外探测', () async {
+      final client = _HandshakeHttpClient(status);
+      await HttpOverrides.runZoned(() async {
+        final transport = ChatConnection(
+          identity: const ChatDevice(userId: 'user-a', deviceId: 'device-a'),
+          accessProvider: () async => _access(),
+        );
+        await expectLater(
+          transport.connect(),
+          throwsA(
+            isA<ChatConnectionException>().having(
+              (e) => e.code,
+              'HTTP类别',
+              'realtime_http_$status',
+            ),
+          ),
+        );
+        await transport.dispose();
+      }, createHttpClient: (_) => client);
+      expect(client.requests, 1);
+      expect(client.request.followRedirects, isFalse);
+      expect(client.request.response.socket.destroyed, isTrue);
+    });
+  }
+
   test('不匹配的响应不能结清当前命令预留，关闭连接保留不确定消耗', () async {
     final socket = _FakeSocket(), gate = _ResourceGate();
     final transport = ChatConnection(
@@ -199,7 +230,7 @@ void main() {
       clock.elapse(const Duration(seconds: 26));
       expect(socket.sent, isEmpty);
       expect(socket.closed, isFalse);
-      List<ChatMailboxMessage>? mailbox;
+      ({List<ChatMailboxMessage> messages, String? nextCursor})? mailbox;
       transport.fetchMailbox().then((value) {
         mailbox = value;
       });
@@ -207,7 +238,7 @@ void main() {
       expect(socket.sent.single.whichBody(), ChatFrame_Body.syncMessages);
       socket.receive(ChatFrame()..messageBatch = MessageBatch());
       clock.flushMicrotasks();
-      expect(mailbox, isEmpty);
+      expect(mailbox?.messages, isEmpty);
       transport.dispose().then((_) {
         closed = true;
       });
@@ -272,7 +303,9 @@ void main() {
     );
     final mailbox = await pending;
     expect(
-      EncryptedMessage.fromBuffer(mailbox.single.messageBytes).writeToBuffer(),
+      EncryptedMessage.fromBuffer(
+        mailbox.messages.single.messageBytes,
+      ).writeToBuffer(),
       message.writeToBuffer(),
     );
     final ack = transport.acknowledgeMailbox(
@@ -441,6 +474,73 @@ void main() {
   }
 }
 
+// 只替代HTTP边界；异常由Dart系统WebSocket真实握手检查产生。
+final class _HandshakeHttpClient implements HttpClient {
+  _HandshakeHttpClient(int status) : request = _HandshakeRequest(status);
+  final _HandshakeRequest request;
+  int requests = 0;
+  @override
+  Future<HttpClientRequest> openUrl(String method, Uri url) async {
+    expect(method, 'GET');
+    expect(url.scheme, 'https');
+    requests++;
+    return request;
+  }
+
+  @override
+  void close({bool force = false}) {}
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+final class _HandshakeRequest implements HttpClientRequest {
+  _HandshakeRequest(int status) : response = _HandshakeResponse(status);
+  final _HandshakeResponse response;
+  @override
+  bool followRedirects = true;
+  @override
+  final HttpHeaders headers = _HandshakeHeaders();
+  @override
+  Future<HttpClientResponse> close() async => response;
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+final class _HandshakeResponse implements HttpClientResponse {
+  _HandshakeResponse(this.statusCode);
+  @override
+  final int statusCode;
+  final socket = _RejectedSocket();
+  @override
+  final HttpHeaders headers = _HandshakeHeaders();
+  @override
+  Future<Socket> detachSocket() async => socket;
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+final class _HandshakeHeaders implements HttpHeaders {
+  @override
+  List<String>? operator [](String name) => null;
+  @override
+  void add(String name, Object value, {bool preserveHeaderCase = false}) {}
+  @override
+  void set(String name, Object value, {bool preserveHeaderCase = false}) {}
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+final class _RejectedSocket implements Socket {
+  bool destroyed = false;
+  @override
+  void destroy() {
+    destroyed = true;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 final class _ResourceGate implements ChatResourceFixture {
   bool reject = false;
   Completer<void>? wait;
@@ -455,7 +555,9 @@ final class _ResourceGate implements ChatResourceFixture {
     int bytes = 0,
   }) async {
     actions.add(action);
-    if (action == 'chat_connect') await connectWait?.future;
+    if (action == 'chat_connect') {
+      await connectWait?.future;
+    }
     if (reject) {
       throw StateError('synthetic-local-limit');
     }

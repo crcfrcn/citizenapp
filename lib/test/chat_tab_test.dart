@@ -160,7 +160,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
   }
 
-  /// 菜单开合有动画，但聊天列表有轮询计时器，测试使用固定步长推进动画。
+  /// 菜单开合有动画，测试使用固定步长推进到真实可交互状态。
   Future<void> openMenu(WidgetTester tester) async {
     await tester.tap(find.byIcon(Icons.add_rounded));
     await tester.pump();
@@ -232,7 +232,6 @@ void main() {
           lastMessage: 'hi',
           lastUpdatedAt: DateTime.fromMillisecondsSinceEpoch(2),
           unreadCount: 0,
-          deliveryState: ChatMessageDeliveryState.sent,
         ),
       ],
     );
@@ -486,7 +485,7 @@ void main() {
     await tester.pump();
   });
 
-  testWidgets('隐藏 Chat Tab 不初始化，进入后 init/resume 只同步一次', (tester) async {
+  testWidgets('隐藏 Chat Tab 不初始化，进入和恢复仅登记一次实时订阅', (tester) async {
     final selectedTab = ValueNotifier<int>(0);
     final runtime = _FakeRuntime(
       address:
@@ -513,15 +512,18 @@ void main() {
 
     selectedTab.value = 2;
     await tester.pump(const Duration(milliseconds: 100));
-    expect(runtime.syncCount, 1);
+    expect(runtime.syncCount, 0);
+    expect(runtime.realtimeStartCount, 1);
 
-    // 一次 pause/resume 可以同步一次；同一 resume burst 不得创建两条链。
+    // 一次pause/resume只重订阅一次；同一resume burst不得重复登记。
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pump(const Duration(milliseconds: 100));
-    expect(runtime.syncCount, 2);
+    expect(runtime.syncCount, 0);
+    expect(runtime.realtimeStartCount, 2);
 
+    await tester.pumpWidget(const SizedBox.shrink());
     selectedTab.dispose();
   });
 
@@ -533,7 +535,6 @@ void main() {
         lastMessage: '本机消息',
         lastUpdatedAt: DateTime.fromMillisecondsSinceEpoch(1),
         unreadCount: 0,
-        deliveryState: ChatMessageDeliveryState.receivedByDevice,
       );
   Future<void> settleLocal(WidgetTester tester) async {
     for (var i = 0; i < 8; i++) {
@@ -806,7 +807,6 @@ void main() {
           lastMessage: 'hello',
           lastUpdatedAt: DateTime.fromMillisecondsSinceEpoch(1),
           unreadCount: 1,
-          deliveryState: ChatMessageDeliveryState.receivedByDevice,
         ),
       ],
     );
@@ -860,7 +860,6 @@ void main() {
           lastMessage: '',
           lastUpdatedAt: DateTime.fromMillisecondsSinceEpoch(1),
           unreadCount: 0,
-          deliveryState: ChatMessageDeliveryState.receivedByDevice,
         ),
       ],
     );
@@ -919,7 +918,6 @@ void main() {
           lastMessage: 'hi',
           lastUpdatedAt: DateTime.fromMillisecondsSinceEpoch(2),
           unreadCount: 0,
-          deliveryState: ChatMessageDeliveryState.sent,
         ),
       ],
     );
@@ -963,15 +961,7 @@ void main() {
       'fluent3d',
       'grinning_face',
     ]);
-    expect(
-      runtime.retryScopes,
-      contains((
-        recipientUserId: _peerUserId,
-        conversationId: _directConversationId,
-      )),
-      reason: '进入私聊只能重试当前对端的当前会话队列',
-    );
-    expect(runtime.realtimeRetryOutgoingOnConnect, contains(false));
+    expect(runtime.retryScopes, isEmpty, reason: '进入私聊只订阅同一Hub，不从页面发起补发');
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(const Duration(milliseconds: 300));
@@ -990,7 +980,6 @@ void main() {
           lastMessage: 'hello',
           lastUpdatedAt: DateTime.fromMillisecondsSinceEpoch(2),
           unreadCount: 0,
-          deliveryState: ChatMessageDeliveryState.sent,
         ),
         ChatConversationPreview(
           conversationId: 'dm:alice-wallet:carol-wallet',
@@ -999,7 +988,6 @@ void main() {
           lastMessage: 'keep',
           lastUpdatedAt: DateTime.fromMillisecondsSinceEpoch(1),
           unreadCount: 0,
-          deliveryState: ChatMessageDeliveryState.sent,
         ),
       ],
     );
@@ -1070,7 +1058,6 @@ void main() {
           lastMessage: 'hello',
           lastUpdatedAt: DateTime.fromMillisecondsSinceEpoch(2),
           unreadCount: 0,
-          deliveryState: ChatMessageDeliveryState.sent,
         ),
       ],
       messages: [
@@ -1172,7 +1159,7 @@ void main() {
     expect(find.text('请先在「我的 → 我的钱包」添加钱包账户'), findsOneWidget);
   });
 
-  testWidgets('聊天 Tab 打开后自动重试本机发送队列', (tester) async {
+  testWidgets('聊天列表只订阅Hub，停留期间不轮询或再次补发', (tester) async {
     final runtime = _FakeRuntime(
       address:
           '0x1111111111111111111111111111111111111111111111111111111111111111',
@@ -1194,26 +1181,27 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 100));
 
-    expect(runtime.syncCount, 1);
-    // 首次本地读立即出首屏；发送队列重试完成后再读一次以合并最新状态。
+    expect(runtime.syncCount, 0);
+    expect(runtime.realtimeStartCount, 1);
     expect(store.readPreviewCount, 2);
 
     await tester.pump(const Duration(seconds: 15));
     await tester.pump();
 
-    expect(runtime.syncCount, 2);
-    expect(store.readPreviewCount, 3);
+    expect(runtime.syncCount, 0);
+    expect(runtime.realtimeStartCount, 1);
+    expect(store.readPreviewCount, 2);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
   });
 
   testWidgets('本地空会话先结束加载，静默后台服务不得阻塞首屏', (tester) async {
-    final retryCompleter = Completer<int>();
+    final realtimeReady = Completer<void>();
     final runtime = _FakeRuntime(
       address:
           '0x1111111111111111111111111111111111111111111111111111111111111111',
-      retryCompleter: retryCompleter,
+      realtimeReady: realtimeReady,
     );
     final store = _FakeChatStore();
 
@@ -1233,7 +1221,7 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(runtime.syncCount, 1);
+    expect(runtime.syncCount, 0);
     expect(find.text('暂无会话'), findsOneWidget);
     expect(find.text('正在读取本地会话'), findsNothing);
     expect(find.byKey(const ValueKey('chat-sync-progress')), findsNothing);
@@ -1247,10 +1235,11 @@ void main() {
         lastMessage: '后台补发完成后的本地结果',
         lastUpdatedAt: DateTime.fromMillisecondsSinceEpoch(2),
         unreadCount: 0,
-        deliveryState: ChatMessageDeliveryState.receivedByDevice,
       ),
     ]);
-    retryCompleter.complete(0);
+    realtimeReady.complete();
+    await tester.pump();
+    await runtime.realtimeNotice?.call();
     await tester.pump(const Duration(milliseconds: 100));
 
     expect(find.text('Bob'), findsOneWidget);
@@ -1261,11 +1250,11 @@ void main() {
     await tester.pump();
   });
 
-  testWidgets('后台聊天服务失败保留已显示的本地会话且不显示连接文案', (tester) async {
+  testWidgets('连接失败保留本地会话并显示真实连接提示', (tester) async {
     final runtime = _FakeRuntime(
       address:
           '0x1111111111111111111111111111111111111111111111111111111111111111',
-      retryError: StateError('测试后台服务失败'),
+      enableRealtime: false,
     );
     final store = _FakeChatStore(
       conversations: [
@@ -1276,7 +1265,6 @@ void main() {
           lastMessage: '本地会话必须保留',
           lastUpdatedAt: DateTime.fromMillisecondsSinceEpoch(1),
           unreadCount: 0,
-          deliveryState: ChatMessageDeliveryState.receivedByDevice,
         ),
       ],
     );
@@ -1298,6 +1286,7 @@ void main() {
 
     expect(find.text('Bob'), findsOneWidget);
     expect(find.text('本地会话必须保留'), findsOneWidget);
+    expect(find.text('聊天连接暂不可用，正在自动重试'), findsOneWidget);
     expect(find.text('正在读取本地会话'), findsNothing);
     expect(find.textContaining('正在连接'), findsNothing);
 
@@ -1305,9 +1294,7 @@ void main() {
     await tester.pump();
   });
 
-  testWidgets('聊天 Tab uses realtime notice before polling fallback', (
-    tester,
-  ) async {
+  testWidgets('聊天 Tab的数据通知只刷新本地且不驱动网络补发', (tester) async {
     final runtime = _FakeRuntime(
       address:
           '0x1111111111111111111111111111111111111111111111111111111111111111',
@@ -1330,18 +1317,18 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 100));
 
-    expect(runtime.syncCount, 1);
+    expect(runtime.syncCount, 0);
     expect(runtime.realtimeStartCount, 1);
 
     await tester.pump(const Duration(seconds: 15));
     await tester.pump();
 
-    expect(runtime.syncCount, 1);
+    expect(runtime.syncCount, 0);
 
     await runtime.realtimeNotice?.call();
     await tester.pump();
 
-    expect(runtime.syncCount, 2);
+    expect(runtime.syncCount, 0);
     expect(store.readPreviewCount, greaterThanOrEqualTo(2));
 
     await tester.pumpWidget(const SizedBox.shrink());
@@ -1521,7 +1508,7 @@ class _FakeChatStore extends ChatStore {
     required String currentAccountId,
     required String conversationId,
   }) async {
-    // 测试替身必须走当前聊天窗口读取契约，同时保留子类对旧读取入口的可控 Future。
+    // 测试替身必须走当前聊天窗口读取契约，同时保留子类对本地读取的可控Future。
     final messages = await readMessages(
       ownerUserId: ownerUserId,
       currentAccountId: currentAccountId,
@@ -1679,10 +1666,9 @@ class _FakeRuntime extends ChatRuntime {
     super.store,
     super.squareSessionProvider,
     super.subscriptionService,
-    this.enableRealtime = false,
+    this.enableRealtime = true,
     this.onDeleteConversation,
-    this.retryCompleter,
-    this.retryError,
+    this.realtimeReady,
   });
 
   @override
@@ -1699,16 +1685,14 @@ class _FakeRuntime extends ChatRuntime {
   final String address;
   final bool enableRealtime;
   final Future<void> Function(String conversationId)? onDeleteConversation;
-  final Completer<int>? retryCompleter;
-  final Object? retryError;
+  final Completer<void>? realtimeReady;
   int syncCount = 0;
   int realtimeStartCount = 0;
   int realtimeStopCount = 0;
   final List<({String? recipientUserId, String? conversationId})> retryScopes =
       [];
-  final List<bool> realtimeRetryOutgoingOnConnect = [];
   Future<void> Function()? realtimeNotice;
-  Future<void> Function()? realtimeDisconnected;
+  Future<void> Function(bool ready)? realtimeConnectionChanged;
   // 记录贴纸发送接线的四参,验证 chat_tab 委托到 runtime.sendSticker 无换位/漏接。
   final List<List<String>> sentStickers = <List<String>>[];
 
@@ -1741,14 +1725,6 @@ class _FakeRuntime extends ChatRuntime {
       recipientUserId: recipientUserId,
       conversationId: conversationId,
     ));
-    final error = retryError;
-    if (error != null) {
-      throw error;
-    }
-    final completer = retryCompleter;
-    if (completer != null) {
-      return completer.future;
-    }
     return 0;
   }
 
@@ -1764,17 +1740,14 @@ class _FakeRuntime extends ChatRuntime {
   @override
   Future<Future<void> Function()?> startRealtimeSync({
     required Future<void> Function() onNotice,
-    Future<void> Function()? onDisconnected,
-    Future<void> Function(Map<String, dynamic> signal)? onSignal,
-    bool retryOutgoingOnConnect = true,
+    Future<void> Function(bool ready)? onConnectionChanged,
   }) async {
     realtimeStartCount += 1;
-    realtimeRetryOutgoingOnConnect.add(retryOutgoingOnConnect);
+
     realtimeNotice = onNotice;
-    realtimeDisconnected = onDisconnected;
-    if (!enableRealtime) {
-      return null;
-    }
+    realtimeConnectionChanged = onConnectionChanged;
+    await realtimeReady?.future;
+    await onConnectionChanged?.call(enableRealtime);
     return () async {
       realtimeStopCount += 1;
     };

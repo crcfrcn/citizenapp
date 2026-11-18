@@ -1,5 +1,6 @@
-// ignore_for_file: experimental_member_use
 // GENERATED CODE - DO NOT MODIFY BY HAND
+
+// ignore_for_file: experimental_member_use
 
 part of 'chat_isar.dart';
 
@@ -30,27 +31,22 @@ const ChatConversationEntitySchema = CollectionSchema(
       name: r'conversation_id',
       type: IsarType.string,
     ),
-    r'delivery_state': PropertySchema(
-      id: 3,
-      name: r'delivery_state',
-      type: IsarType.string,
-    ),
-    r'kind': PropertySchema(id: 4, name: r'kind', type: IsarType.string),
+    r'kind': PropertySchema(id: 3, name: r'kind', type: IsarType.string),
     r'owner_id': PropertySchema(
-      id: 5,
+      id: 4,
       name: r'owner_id',
       type: IsarType.string,
     ),
-    r'peer_id': PropertySchema(id: 6, name: r'peer_id', type: IsarType.string),
-    r'summary': PropertySchema(id: 7, name: r'summary', type: IsarType.string),
-    r'title': PropertySchema(id: 8, name: r'title', type: IsarType.string),
+    r'peer_id': PropertySchema(id: 5, name: r'peer_id', type: IsarType.string),
+    r'summary': PropertySchema(id: 6, name: r'summary', type: IsarType.string),
+    r'title': PropertySchema(id: 7, name: r'title', type: IsarType.string),
     r'unread_count': PropertySchema(
-      id: 9,
+      id: 8,
       name: r'unread_count',
       type: IsarType.long,
     ),
     r'updated_at': PropertySchema(
-      id: 10,
+      id: 9,
       name: r'updated_at',
       type: IsarType.long,
     ),
@@ -124,7 +120,6 @@ int _chatConversationEntityEstimateSize(
   var bytesCount = offsets.last;
   bytesCount += 3 + object.accountId.length * 3;
   bytesCount += 3 + object.conversationId.length * 3;
-  bytesCount += 3 + object.lastDeliveryState.length * 3;
   {
     final value = object.conversationKind;
     if (value != null) {
@@ -152,14 +147,13 @@ void _chatConversationEntitySerialize(
   writer.writeString(offsets[0], object.accountId);
   writer.writeLong(offsets[1], object.bindingRevision);
   writer.writeString(offsets[2], object.conversationId);
-  writer.writeString(offsets[3], object.lastDeliveryState);
-  writer.writeString(offsets[4], object.conversationKind);
-  writer.writeString(offsets[5], object.ownerUserId);
-  writer.writeString(offsets[6], object.peerUserId);
-  writer.writeString(offsets[7], object.lastMessageSummary);
-  writer.writeString(offsets[8], object.title);
-  writer.writeLong(offsets[9], object.unreadCount);
-  writer.writeLong(offsets[10], object.updatedAtMillis);
+  writer.writeString(offsets[3], object.conversationKind);
+  writer.writeString(offsets[4], object.ownerUserId);
+  writer.writeString(offsets[5], object.peerUserId);
+  writer.writeString(offsets[6], object.lastMessageSummary);
+  writer.writeString(offsets[7], object.title);
+  writer.writeLong(offsets[8], object.unreadCount);
+  writer.writeLong(offsets[9], object.updatedAtMillis);
 }
 
 ChatConversationEntity _chatConversationEntityDeserialize(
@@ -172,15 +166,14 @@ ChatConversationEntity _chatConversationEntityDeserialize(
   object.accountId = reader.readString(offsets[0]);
   object.bindingRevision = reader.readLong(offsets[1]);
   object.conversationId = reader.readString(offsets[2]);
-  object.lastDeliveryState = reader.readString(offsets[3]);
   object.id = id;
-  object.conversationKind = reader.readStringOrNull(offsets[4]);
-  object.ownerUserId = reader.readString(offsets[5]);
-  object.peerUserId = reader.readString(offsets[6]);
-  object.lastMessageSummary = reader.readString(offsets[7]);
-  object.title = reader.readStringOrNull(offsets[8]);
-  object.unreadCount = reader.readLong(offsets[9]);
-  object.updatedAtMillis = reader.readLong(offsets[10]);
+  object.conversationKind = reader.readStringOrNull(offsets[3]);
+  object.ownerUserId = reader.readString(offsets[4]);
+  object.peerUserId = reader.readString(offsets[5]);
+  object.lastMessageSummary = reader.readString(offsets[6]);
+  object.title = reader.readStringOrNull(offsets[7]);
+  object.unreadCount = reader.readLong(offsets[8]);
+  object.updatedAtMillis = reader.readLong(offsets[9]);
   return object;
 }
 
@@ -198,20 +191,18 @@ P _chatConversationEntityDeserializeProp<P>(
     case 2:
       return (reader.readString(offset)) as P;
     case 3:
-      return (reader.readString(offset)) as P;
-    case 4:
       return (reader.readStringOrNull(offset)) as P;
+    case 4:
+      return (reader.readString(offset)) as P;
     case 5:
       return (reader.readString(offset)) as P;
     case 6:
       return (reader.readString(offset)) as P;
     case 7:
-      return (reader.readString(offset)) as P;
-    case 8:
       return (reader.readStringOrNull(offset)) as P;
-    case 9:
+    case 8:
       return (reader.readLong(offset)) as P;
-    case 10:
+    case 9:
       return (reader.readLong(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -1241,187 +1232,6 @@ extension ChatConversationEntityQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.greaterThan(property: r'conversation_id', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<
-    ChatConversationEntity,
-    ChatConversationEntity,
-    QAfterFilterCondition
-  >
-  lastDeliveryStateEqualTo(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(
-          property: r'delivery_state',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    ChatConversationEntity,
-    ChatConversationEntity,
-    QAfterFilterCondition
-  >
-  lastDeliveryStateGreaterThan(
-    String value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'delivery_state',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    ChatConversationEntity,
-    ChatConversationEntity,
-    QAfterFilterCondition
-  >
-  lastDeliveryStateLessThan(
-    String value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'delivery_state',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    ChatConversationEntity,
-    ChatConversationEntity,
-    QAfterFilterCondition
-  >
-  lastDeliveryStateBetween(
-    String lower,
-    String upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'delivery_state',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    ChatConversationEntity,
-    ChatConversationEntity,
-    QAfterFilterCondition
-  >
-  lastDeliveryStateStartsWith(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.startsWith(
-          property: r'delivery_state',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    ChatConversationEntity,
-    ChatConversationEntity,
-    QAfterFilterCondition
-  >
-  lastDeliveryStateEndsWith(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.endsWith(
-          property: r'delivery_state',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    ChatConversationEntity,
-    ChatConversationEntity,
-    QAfterFilterCondition
-  >
-  lastDeliveryStateContains(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.contains(
-          property: r'delivery_state',
-          value: value,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    ChatConversationEntity,
-    ChatConversationEntity,
-    QAfterFilterCondition
-  >
-  lastDeliveryStateMatches(String pattern, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.matches(
-          property: r'delivery_state',
-          wildcard: pattern,
-          caseSensitive: caseSensitive,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<
-    ChatConversationEntity,
-    ChatConversationEntity,
-    QAfterFilterCondition
-  >
-  lastDeliveryStateIsEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'delivery_state', value: ''),
-      );
-    });
-  }
-
-  QueryBuilder<
-    ChatConversationEntity,
-    ChatConversationEntity,
-    QAfterFilterCondition
-  >
-  lastDeliveryStateIsNotEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(property: r'delivery_state', value: ''),
       );
     });
   }
@@ -2658,20 +2468,6 @@ extension ChatConversationEntityQuerySortBy
   }
 
   QueryBuilder<ChatConversationEntity, ChatConversationEntity, QAfterSortBy>
-  sortByLastDeliveryState() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'delivery_state', Sort.asc);
-    });
-  }
-
-  QueryBuilder<ChatConversationEntity, ChatConversationEntity, QAfterSortBy>
-  sortByLastDeliveryStateDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'delivery_state', Sort.desc);
-    });
-  }
-
-  QueryBuilder<ChatConversationEntity, ChatConversationEntity, QAfterSortBy>
   sortByConversationKind() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'kind', Sort.asc);
@@ -2820,20 +2616,6 @@ extension ChatConversationEntityQuerySortThenBy
   }
 
   QueryBuilder<ChatConversationEntity, ChatConversationEntity, QAfterSortBy>
-  thenByLastDeliveryState() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'delivery_state', Sort.asc);
-    });
-  }
-
-  QueryBuilder<ChatConversationEntity, ChatConversationEntity, QAfterSortBy>
-  thenByLastDeliveryStateDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'delivery_state', Sort.desc);
-    });
-  }
-
-  QueryBuilder<ChatConversationEntity, ChatConversationEntity, QAfterSortBy>
   thenById() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'id', Sort.asc);
@@ -2973,16 +2755,6 @@ extension ChatConversationEntityQueryWhereDistinct
   }
 
   QueryBuilder<ChatConversationEntity, ChatConversationEntity, QDistinct>
-  distinctByLastDeliveryState({bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(
-        r'delivery_state',
-        caseSensitive: caseSensitive,
-      );
-    });
-  }
-
-  QueryBuilder<ChatConversationEntity, ChatConversationEntity, QDistinct>
   distinctByConversationKind({bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'kind', caseSensitive: caseSensitive);
@@ -3063,13 +2835,6 @@ extension ChatConversationEntityQueryProperty
   conversationIdProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'conversation_id');
-    });
-  }
-
-  QueryBuilder<ChatConversationEntity, String, QQueryOperations>
-  lastDeliveryStateProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'delivery_state');
     });
   }
 

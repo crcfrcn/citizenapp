@@ -29,6 +29,7 @@ class ChatMessageListView extends StatelessWidget {
     required this.composerBuilder,
     required this.onDownloadAttachment,
     required this.onMessagesChanged,
+    this.onRetry,
     this.isGroup = false,
     this.loading = false,
     this.error,
@@ -42,6 +43,7 @@ class ChatMessageListView extends StatelessWidget {
   final Widget Function(BuildContext context) composerBuilder;
   final Future<void> Function(String controlPlaintext) onDownloadAttachment;
   final Future<void> Function() onMessagesChanged;
+  final Future<void> Function()? onRetry;
   final bool isGroup;
   final bool loading;
   final String? error;
@@ -70,14 +72,25 @@ class ChatMessageListView extends StatelessWidget {
                     horizontal: AppLayout.scaled(context, 16),
                   ),
                   color: AppTheme.danger.withValues(alpha: 0.08),
-                  child: Text(
-                    error!,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: AppTheme.danger,
-                      fontSize: AppLayout.scaled(context, 12),
-                    ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          error!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: AppTheme.danger,
+                            fontSize: AppLayout.scaled(context, 12),
+                          ),
+                        ),
+                      ),
+                      if (onRetry != null)
+                        TextButton(
+                          onPressed: () => unawaited(onRetry!()),
+                          child: const Text('重试'),
+                        ),
+                    ],
                   ),
                 ),
         ),
@@ -395,7 +408,9 @@ class ChatMessageListView extends StatelessWidget {
         !isSentByMe &&
         senderId != null &&
         (groupStatus?.isFirst ?? true);
-    if (!showSender) return aligned;
+    if (!showSender) {
+      return aligned;
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -489,7 +504,9 @@ class ChatMessageListView extends StatelessWidget {
   );
 
   Future<void> _downloadAndReload(String control) async {
-    if (control.isEmpty) return;
+    if (control.isEmpty) {
+      return;
+    }
     await onDownloadAttachment(control);
     await onMessagesChanged();
   }
@@ -529,7 +546,9 @@ double _mediaAspectRatio(double? width, double? height) {
 }
 
 String formatChatByteSize(int bytes) {
-  if (bytes < 1024) return '$bytes B';
+  if (bytes < 1024) {
+    return '$bytes B';
+  }
   if (bytes < 1024 * 1024) {
     return '${(bytes / 1024).toStringAsFixed(1)} KB';
   }
@@ -561,11 +580,21 @@ Message storedMessageToChatMessage(
     'message_kind': message.messageKind.name,
   };
 
+  final status = message.direction != 'outgoing'
+      ? null
+      : switch (message.deliveryState) {
+          ChatMessageDeliveryState.queued ||
+          ChatMessageDeliveryState.sending => MessageStatus.sending,
+          ChatMessageDeliveryState.sent => MessageStatus.sent,
+          ChatMessageDeliveryState.failed => MessageStatus.error,
+          ChatMessageDeliveryState.receivedByDevice => MessageStatus.delivered,
+        };
   // 门④:控制消息声明的大小超出该类型上限 → 渲染"已拒收"占位,永不解析/展示其
   // 字节(接收端本就在字节层拒收,此处保证 UI 一致,不诱导用户去拉取)。
   if (content.isMedia &&
       mediaLimits.exceedsForKind(content.kind, content.byteSize ?? 0)) {
     return Message.text(
+      status: status,
       id: message.messageId,
       authorId: message.senderUserId,
       createdAt: createdAt,
@@ -577,6 +606,7 @@ Message storedMessageToChatMessage(
   switch (content.kind) {
     case ChatMessageKind.text:
       return Message.text(
+        status: status,
         id: message.messageId,
         authorId: message.senderUserId,
         createdAt: createdAt,
@@ -585,6 +615,7 @@ Message storedMessageToChatMessage(
       );
     case ChatMessageKind.image:
       return Message.image(
+        status: status,
         id: message.messageId,
         authorId: message.senderUserId,
         createdAt: createdAt,
@@ -602,6 +633,7 @@ Message storedMessageToChatMessage(
       );
     case ChatMessageKind.video:
       return Message.video(
+        status: status,
         id: message.messageId,
         authorId: message.senderUserId,
         createdAt: createdAt,
@@ -620,6 +652,7 @@ Message storedMessageToChatMessage(
       );
     case ChatMessageKind.file:
       return Message.file(
+        status: status,
         id: message.messageId,
         authorId: message.senderUserId,
         createdAt: createdAt,
@@ -635,6 +668,7 @@ Message storedMessageToChatMessage(
       );
     case ChatMessageKind.audio:
       return Message.audio(
+        status: status,
         id: message.messageId,
         authorId: message.senderUserId,
         createdAt: createdAt,
@@ -652,6 +686,7 @@ Message storedMessageToChatMessage(
       // 贴纸走 Message.custom,由 host chat page 的 customMessageBuilder 按 id 渲染内置
       // Fluent 3D PNG(无气泡大图);id 未内置(对端资产旧/缺)时降级为占位。
       return Message.custom(
+        status: status,
         id: message.messageId,
         authorId: message.senderUserId,
         createdAt: createdAt,

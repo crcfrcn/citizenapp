@@ -105,10 +105,14 @@ message SendMessage {
 
 message SyncMessages {
   uint32 limit = 1;
+  // 当前设备邮箱中最后实际扫描的位置；客户端只透传服务端返回值。
+  string cursor = 2;
 }
 
 message MessageBatch {
   repeated EncryptedMessage messages = 1;
+  // 空值表示本轮到末尾；空消息页仍可能存在下一扫描位置。
+  string next_cursor = 2;
 }
 
 message AcknowledgeMessages {

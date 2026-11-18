@@ -49,7 +49,6 @@ const _physicalColumns = <String, Set<String>>{
     'summary',
     'updated_at',
     'unread_count',
-    'delivery_state',
     'kind',
   },
   'message': {

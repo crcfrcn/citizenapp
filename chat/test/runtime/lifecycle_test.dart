@@ -41,7 +41,9 @@ void main() {
     var attempts = 0;
     chat.debugRegisterContextDisposerForTest(() async {
       attempts++;
-      if (attempts == 1) throw StateError('test close failure');
+      if (attempts == 1) {
+        throw StateError('test close failure');
+      }
     });
     await chat.start();
     await expectLater(chat.stop(), throwsStateError);
@@ -112,11 +114,12 @@ class _Runtime extends TestChatRuntime {
   @override
   Future<Future<void> Function()?> startRealtimeSync({
     required Future<void> Function() onNotice,
-    Future<void> Function()? onDisconnected,
-    bool retryOutgoingOnConnect = true,
+    Future<void> Function(bool ready)? onConnectionChanged,
   }) async {
     starts++;
-    if (failStart) throw StateError('test start failure');
+    if (failStart) {
+      throw StateError('test start failure');
+    }
     final stop = debugRegisterRealtimeSessionForTest(
       stopSocket: () async {
         closedResources++;

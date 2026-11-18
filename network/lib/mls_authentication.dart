@@ -304,16 +304,14 @@ class MlsException implements Exception {
   String toString() => technicalMessage;
 }
 
-/// 返回可持久记录的脱敏错误码；非 native 错误统一收敛，不读取异常原文。
-String chatDiagnosticCode(Object error) =>
-    error is MlsException ? error.diagnosticCode : 'operation_failed';
-
 /// 将聊天MLS异常收敛为可公开展示的固定中文文案。
 ///
 /// 未列入白名单的底层异常统一返回 [fallback]；禁止把 `Bad state`、动态库路径、native
 /// 调试文本或损坏字节直接渲染到 Android/iOS 页面。
 String chatErrorMessage(Object error, {String fallback = '聊天暂时无法使用，请稍后重试'}) {
-  if (error is MlsException) return error.userMessage;
+  if (error is MlsException) {
+    return error.userMessage;
+  }
   final technical = error.toString();
   if (technical.contains('当前默认账户尚未注册用户身份')) {
     return '当前默认账户尚未注册用户身份，无法使用聊天';

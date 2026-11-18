@@ -113,7 +113,9 @@ class ChatAccess {
     bool accepted = true,
     String? errorCode,
   }) {
-    if (lease == null) return;
+    if (lease == null) {
+      return;
+    }
     final operation = _operations[lease];
     _operations[lease] = null;
     if (operation != null) {
@@ -264,7 +266,8 @@ abstract interface class ChatServiceTransport
 
   Future<void> publishKeyPackage(MlsKeyPackage keyPackage);
   Future<List<MlsKeyPackage>> resolveKeyPackages(String recipientUserId);
-  Future<List<ChatMailboxMessage>> fetchMailbox();
+  Future<({List<ChatMailboxMessage> messages, String? nextCursor})>
+  fetchMailbox({String? cursor});
   Future<void> acknowledgeMailbox(List<String> messageIds);
 
   Future<Future<void> Function()> connectRealtime({
@@ -376,9 +379,27 @@ Future<ChatSocket> _connectIoSocket(
       });
   try {
     return await opening.timeout(_responseDeadline);
-  } catch (_) {
+  } catch (error) {
     abandoned = true;
     client.close(force: true);
+    if (error is ChatConnectionException) {
+      rethrow;
+    }
+    if (error is WebSocketException &&
+        const {
+          400,
+          401,
+          403,
+          404,
+          413,
+          429,
+          500,
+          502,
+          503,
+          504,
+        }.contains(error.httpStatusCode)) {
+      throw ChatConnectionException('realtime_http_${error.httpStatusCode}');
+    }
     throw const ChatConnectionException('realtime_socket_failed');
   }
 }
@@ -401,16 +422,22 @@ final class _CloseAction {
   Future<void>? flight;
   bool done = false;
   Future<void> run() {
-    if (done) return Future<void>.value();
+    if (done) {
+      return Future<void>.value();
+    }
     final existing = flight;
-    if (existing != null) return existing.timeout(_responseDeadline);
+    if (existing != null) {
+      return existing.timeout(_responseDeadline);
+    }
     late final Future<void> created;
     created = Future<void>.sync(close)
         .then((_) {
           done = true;
         })
         .whenComplete(() {
-          if (identical(flight, created)) flight = null;
+          if (identical(flight, created)) {
+            flight = null;
+          }
         });
     flight = created;
     return created.timeout(_responseDeadline);
@@ -501,8 +528,12 @@ final class ChatConnection implements ChatServiceTransport {
   @override
   Future<void> connect() async {
     final closing = _disconnecting;
-    if (closing != null) await closing;
-    if (_closeActions.isNotEmpty) await _closeResources();
+    if (closing != null) {
+      await closing;
+    }
+    if (_closeActions.isNotEmpty) {
+      await _closeResources();
+    }
     if (_disposed) {
       throw const ChatConnectionException('transport_disposed');
     }
@@ -518,7 +549,9 @@ final class ChatConnection implements ChatServiceTransport {
       }
     }
     final connecting = _connecting;
-    if (connecting != null) return connecting.future;
+    if (connecting != null) {
+      return connecting.future;
+    }
 
     final completer = Completer<void>();
     _connecting = completer;
@@ -575,8 +608,11 @@ final class ChatConnection implements ChatServiceTransport {
       late final ChatSocket socket;
       try {
         socket = await opening.timeout(_responseDeadline);
-      } catch (_) {
+      } catch (error) {
         abandoned = true;
+        if (error is ChatConnectionException) {
+          rethrow;
+        }
         throw const ChatConnectionException('realtime_socket_failed');
       }
       _ensureCurrent(generation);
@@ -603,13 +639,19 @@ final class ChatConnection implements ChatServiceTransport {
       );
       _subscription = socket.events.listen(
         (event) {
-          if (_current(generation)) _handleSocketEvent(event);
+          if (_current(generation)) {
+            _handleSocketEvent(event);
+          }
         },
         onError: (Object error, StackTrace stackTrace) {
-          if (_current(generation)) _disconnectSafely('realtime_stream_error');
+          if (_current(generation)) {
+            _disconnectSafely('realtime_stream_error');
+          }
         },
         onDone: () {
-          if (_current(generation)) _disconnectSafely('realtime_closed');
+          if (_current(generation)) {
+            _disconnectSafely('realtime_closed');
+          }
         },
         cancelOnError: false,
       );
@@ -618,13 +660,17 @@ final class ChatConnection implements ChatServiceTransport {
       _ensureCurrent(generation);
       _readySuccess = true;
       lastRealtimeDiagnosticCode = null;
-      if (!completer.isCompleted) completer.complete();
+      if (!completer.isCompleted) {
+        completer.complete();
+      }
     } catch (error, stackTrace) {
       localResource?.cancel();
       if (identical(_connectResource, localResource)) {
         _connectResource = null;
       }
-      if (!completer.isCompleted) completer.completeError(error, stackTrace);
+      if (!completer.isCompleted) {
+        completer.completeError(error, stackTrace);
+      }
       if (_current(generation)) {
         try {
           await _disconnect('realtime_connect_failed', notify: false);
@@ -633,7 +679,9 @@ final class ChatConnection implements ChatServiceTransport {
         }
       }
     } finally {
-      if (identical(_connecting, completer)) _connecting = null;
+      if (identical(_connecting, completer)) {
+        _connecting = null;
+      }
     }
   }
 
@@ -778,7 +826,9 @@ final class ChatConnection implements ChatServiceTransport {
       decode: decode,
     );
     _commands.add(pending as _PendingCommand<Object?>);
-    if (_commands.length == 1) _dispatchNext();
+    if (_commands.length == 1) {
+      _dispatchNext();
+    }
     return pending.completer.future;
   }
 
@@ -787,7 +837,9 @@ final class ChatConnection implements ChatServiceTransport {
       return;
     }
     final command = _commands.first;
-    if (command.sent) return;
+    if (command.sent) {
+      return;
+    }
     command.sent = true; // 仅锁住本队头；响应计时在实际发送之后开始。
     unawaited(_dispatch(command));
   }
@@ -955,10 +1007,13 @@ final class ChatConnection implements ChatServiceTransport {
   }
 
   @override
-  Future<List<ChatMailboxMessage>> fetchMailbox() {
-    return _command<List<ChatMailboxMessage>>(
+  Future<({List<ChatMailboxMessage> messages, String? nextCursor})>
+  fetchMailbox({String? cursor}) {
+    return _command<({List<ChatMailboxMessage> messages, String? nextCursor})>(
       frame: frame_protocol.ChatFrame()
-        ..syncMessages = (frame_protocol.SyncMessages()..limit = 100),
+        ..syncMessages = (frame_protocol.SyncMessages()
+          ..limit = 100
+          ..cursor = cursor ?? ''),
       accept: (frame) =>
           frame.whichBody() == frame_protocol.ChatFrame_Body.messageBatch,
       decode: (frame) {
@@ -966,7 +1021,10 @@ final class ChatConnection implements ChatServiceTransport {
           throw const ChatConnectionException('mailbox_batch_invalid');
         }
         final ids = <String>{};
-        return frame.messageBatch.messages
+        if (frame.messageBatch.nextCursor.length > 1024) {
+          throw const ChatConnectionException('mailbox_cursor_invalid');
+        }
+        final messages = frame.messageBatch.messages
             .map((message) {
               final value = _MailboxMessage(message);
               if (value.recipientUserId != identity.userId ||
@@ -979,6 +1037,12 @@ final class ChatConnection implements ChatServiceTransport {
               return value;
             })
             .toList(growable: false);
+        return (
+          messages: messages,
+          nextCursor: frame.messageBatch.nextCursor.isEmpty
+              ? null
+              : frame.messageBatch.nextCursor,
+        );
       },
     );
   }
@@ -1091,7 +1155,9 @@ final class ChatConnection implements ChatServiceTransport {
       ..createdAtMillis = fixnum.Int64(createdAtMillis);
     // 只有 Ready 是完成证明。未得到证明时以原元数据继续幂等 begin；
     // storage_unavailable 也可能是缺块断言失败，不能据此 abort 或声称成功。
-    if (await _attachmentIsComplete(attachmentId)) return;
+    if (await _attachmentIsComplete(attachmentId)) {
+      return;
+    }
     await _command<void>(
       frame: frame_protocol.ChatFrame()
         ..beginAttachment = (frame_protocol.BeginAttachment()
@@ -1099,7 +1165,9 @@ final class ChatConnection implements ChatServiceTransport {
       accept: (frame) => _success(frame, 'attachment.begun', id: attachmentId),
       decode: (_) {},
     );
-    if (await _attachmentIsComplete(attachmentId)) return;
+    if (await _attachmentIsComplete(attachmentId)) {
+      return;
+    }
 
     {
       final attachments = _attachments;
@@ -1199,8 +1267,12 @@ final class ChatConnection implements ChatServiceTransport {
         throw const ChatConnectionException('attachment_hash_mismatch');
       }
     } catch (_) {
-      if (output != null) await output.close();
-      if (await target.exists()) await target.delete();
+      if (output != null) {
+        await output.close();
+      }
+      if (await target.exists()) {
+        await target.delete();
+      }
       rethrow;
     }
   }
@@ -1235,7 +1307,9 @@ final class ChatConnection implements ChatServiceTransport {
     await connect();
     var active = true;
     return () async {
-      if (!active) return;
+      if (!active) {
+        return;
+      }
       if (owner != _realtimeOwner) {
         active = false;
         return;
@@ -1264,7 +1338,9 @@ final class ChatConnection implements ChatServiceTransport {
         } catch (_) {
           failed = true;
         }
-        if (action.done) _closeActions.remove(action);
+        if (action.done) {
+          _closeActions.remove(action);
+        }
       }),
     );
     if (failed) {
@@ -1274,7 +1350,9 @@ final class ChatConnection implements ChatServiceTransport {
 
   Future<void> _disconnect(String code, {required bool notify}) {
     final existing = _disconnecting;
-    if (existing != null) return existing;
+    if (existing != null) {
+      return existing;
+    }
     // 代际先失效，再等待资源关闭。迟到 provider/socket 和旧 stream 不能重新交付。
     ++_generation;
     _connectResource?.cancel();
@@ -1321,7 +1399,9 @@ final class ChatConnection implements ChatServiceTransport {
     if (subscription != null) {
       _closeActions.add(_CloseAction(subscription.cancel));
     }
-    if (socket != null) _closeActions.add(_CloseAction(socket.close));
+    if (socket != null) {
+      _closeActions.add(_CloseAction(socket.close));
+    }
     if (attachments != null) {
       _closeActions.add(_CloseAction(attachments.dispose));
     }
@@ -1341,7 +1421,9 @@ final class ChatConnection implements ChatServiceTransport {
             }
           }
         }().whenComplete(() {
-          if (identical(_disconnecting, created)) _disconnecting = null;
+          if (identical(_disconnecting, created)) {
+            _disconnecting = null;
+          }
         });
     _disconnecting = created;
     return created;

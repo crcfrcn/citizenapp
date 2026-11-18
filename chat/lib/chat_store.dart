@@ -387,7 +387,9 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
     final row = await isar.chatBindingFenceEntitys.getByOwnerUserId(
       token.ownerUserId,
     );
-    if (row == null) throw StateError('Chat 持久绑定门闩缺失');
+    if (row == null) {
+      throw StateError('Chat 持久绑定门闩缺失');
+    }
     _validateFence(row);
     if (row.fenceState != _fenceActive ||
         row.generation != token.generation ||
@@ -407,7 +409,9 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
     final row = await isar.chatBindingFenceEntitys.getByOwnerUserId(
       ownerUserId,
     );
-    if (row == null) throw StateError('Chat 公开绑定尚未激活');
+    if (row == null) {
+      throw StateError('Chat 公开绑定尚未激活');
+    }
     _validateFence(row);
     if (row.fenceState != _fenceActive ||
         row.accountId != currentAccountId ||
@@ -494,12 +498,16 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
     final out = <ChatConversationPreview>[];
     for (final row in rows) {
       final title = await _chatIsar.read((isar) async {
-        if (row.conversationKind != 'group') return row.title;
+        if (row.conversationKind != 'group') {
+          return row.title;
+        }
         final group = await isar.chatGroupEntitys.getByOwnerUserIdGroupId(
           ownerUserId,
           row.conversationId,
         );
-        if (group == null) throw StateError('群会话缺少群记录');
+        if (group == null) {
+          throw StateError('群会话缺少群记录');
+        }
         return group.groupName;
       });
       out.add(
@@ -581,7 +589,9 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
           .where((row) => row.ownerUserId == ownerUserId)
           .toList(growable: false);
     });
-    if (conversationRows.isEmpty) return const <ChatStoredMessage>[];
+    if (conversationRows.isEmpty) {
+      return const <ChatStoredMessage>[];
+    }
 
     final binding = await _resolveBinding(
       ownerUserId: ownerUserId,
@@ -597,7 +607,9 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
             )
             .toList(growable: false)
           ..sort((a, b) => a.createdAtMillis.compareTo(b.createdAtMillis));
-    if (rows.isEmpty) return const <ChatStoredMessage>[];
+    if (rows.isEmpty) {
+      return const <ChatStoredMessage>[];
+    }
 
     final out = <ChatStoredMessage>[];
     for (final row in rows) {
@@ -745,7 +757,9 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
 
     final hits = <ChatStoredMessage>[];
     for (final row in candidates) {
-      if (hits.length >= limit) break;
+      if (hits.length >= limit) {
+        break;
+      }
       final plaintext = row.payloadJson;
       if (!_messageSummary(plaintext).toLowerCase().contains(needle)) {
         continue; // 索引假阳性，复验滤掉
@@ -774,8 +788,12 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
       await _requireBindingTokenInTxn(isar, bindingToken);
       final conversation = await isar.chatConversationEntitys
           .getByOwnerUserIdConversationId(ownerUserId, conversationId);
-      if (conversation == null || conversation.unreadCount == 0) return true;
-      if (conversation.updatedAtMillis > readThroughMillis) return false;
+      if (conversation == null || conversation.unreadCount == 0) {
+        return true;
+      }
+      if (conversation.updatedAtMillis > readThroughMillis) {
+        return false;
+      }
       conversation.unreadCount = 0;
       await isar.chatConversationEntitys.putByOwnerUserIdConversationId(
         conversation,
@@ -984,7 +1002,6 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
           lastMessageSummary: summary,
           updatedAtMillis: createdAtMillis,
           unreadDelta: 0,
-          deliveryState: ChatMessageDeliveryState.queued,
         );
         await isar.chatMessageEntitys.putByOwnerUserIdMessageId(
           ChatMessageEntity()
@@ -1047,7 +1064,9 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
               left.createdAtMillis.compareTo(right.createdAtMillis),
         );
     });
-    if (rows.isEmpty) return const <ChatPendingOutgoingMessage>[];
+    if (rows.isEmpty) {
+      return const <ChatPendingOutgoingMessage>[];
+    }
     final binding = await _resolveBinding(
       ownerUserId: ownerUserId,
       currentAccountId: currentAccountId,
@@ -1075,30 +1094,6 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
     }
     await validateBindingFenceToken(bindingToken);
     return List<ChatPendingOutgoingMessage>.unmodifiable(pending);
-  }
-
-  /// 本机待发消息超过云端统一 7 天存活期后保留为失败历史，但不再进入补发队列。
-  Future<void> markPendingOutgoingFailed({
-    required ChatBindingFenceToken bindingToken,
-    required String ownerUserId,
-    required String localMessageId,
-  }) {
-    _requireWriterContext(bindingToken: bindingToken, ownerUserId: ownerUserId);
-    return _chatIsar.writeTxn((isar) async {
-      await _requireBindingTokenInTxn(isar, bindingToken);
-      final pending = await isar.chatMessageEntitys.getByOwnerUserIdMessageId(
-        ownerUserId,
-        localMessageId,
-      );
-      if (pending == null ||
-          pending.direction != 'outgoing' ||
-          !pending.messageId.startsWith('pending:') ||
-          pending.messageBytesHex.isNotEmpty) {
-        return;
-      }
-      pending.deliveryState = ChatMessageDeliveryState.failed.name;
-      await isar.chatMessageEntitys.putByOwnerUserIdMessageId(pending);
-    });
   }
 
   @override
@@ -1162,7 +1157,6 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
           lastMessageSummary: summary,
           updatedAtMillis: messageAtMillis,
           unreadDelta: 0,
-          deliveryState: deliveryState,
         );
         await isar.chatMessageEntitys.putByOwnerUserIdMessageId(
           _messageEntity(
@@ -1286,7 +1280,9 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
         // WSS 与七天邮箱可能送达同一 Message；重复项只由运行态继续 ACK，
         // 不能再次推进会话未读数或覆盖最后消息时间。
         if (existing != null) {
-          if (existing.direction == 'incoming') return;
+          if (existing.direction == 'incoming') {
+            return;
+          }
           throw StateError('Chat Message ID 与本机出站记录冲突');
         }
         await _putConversationInTxn(
@@ -1300,7 +1296,6 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
           lastMessageSummary: summary,
           updatedAtMillis: message.createdAtMillis.toInt(),
           unreadDelta: 1,
-          deliveryState: ChatMessageDeliveryState.receivedByDevice,
         );
         await isar.chatMessageEntitys.putByOwnerUserIdMessageId(
           _messageEntity(
@@ -1344,9 +1339,6 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
             effectiveState == ChatMessageDeliveryState.sent ||
             terminalMessageFailure) {
           await isar.chatOutboundQueueEntitys.delete(queue.id);
-        } else {
-          queue.updatedAtMillis = DateTime.now().millisecondsSinceEpoch;
-          await isar.chatOutboundQueueEntitys.putByOwnerUserIdMessageId(queue);
         }
       }
       final message = await isar.chatMessageEntitys.getByOwnerUserIdMessageId(
@@ -1354,18 +1346,9 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
         messageId,
       );
       if (message != null) {
-        message.deliveryState = effectiveState.name;
-        await isar.chatMessageEntitys.putByOwnerUserIdMessageId(message);
-        final conversation = await isar.chatConversationEntitys
-            .getByOwnerUserIdConversationId(
-              ownerUserId,
-              message.conversationId,
-            );
-        if (conversation != null) {
-          conversation.lastDeliveryState = effectiveState.name;
-          await isar.chatConversationEntitys.putByOwnerUserIdConversationId(
-            conversation,
-          );
+        if (message.deliveryState != effectiveState.name) {
+          message.deliveryState = effectiveState.name;
+          await isar.chatMessageEntitys.putByOwnerUserIdMessageId(message);
         }
       }
     });
@@ -1643,10 +1626,7 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
           ..conversationKind = 'group'
           ..lastMessageSummary = conversation?.lastMessageSummary ?? ''
           ..updatedAtMillis = conversation?.updatedAtMillis ?? now
-          ..unreadCount = conversation?.unreadCount ?? 0
-          ..lastDeliveryState =
-              conversation?.lastDeliveryState ??
-              ChatMessageDeliveryState.queued.name;
+          ..unreadCount = conversation?.unreadCount ?? 0;
         await isar.chatConversationEntitys.putByOwnerUserIdConversationId(
           shell,
         );
@@ -1702,7 +1682,9 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
         ownerUserId,
         groupId,
       );
-      if (group == null) return null;
+      if (group == null) {
+        return null;
+      }
       final members = await isar.chatGroupMemberEntitys
           .filter()
           .ownerUserIdEqualTo(ownerUserId)
@@ -1826,7 +1808,9 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
           .groupIdEqualTo(groupId)
           .messageEpochEqualTo(messageEpoch)
           .findAll();
-      if (rows.isEmpty) return null;
+      if (rows.isEmpty) {
+        return null;
+      }
       rows.sort((a, b) => a.createdAtMillis.compareTo(b.createdAtMillis));
       final row = rows.first;
       await isar.chatGroupPendingCommitEntitys.delete(row.id);
@@ -1895,7 +1879,6 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
           lastMessageSummary: summary,
           updatedAtMillis: createdAtMillis,
           unreadDelta: 0,
-          deliveryState: ChatMessageDeliveryState.queued,
         );
         await isar.chatMessageEntitys.putByOwnerUserIdMessageId(
           ChatMessageEntity()
@@ -1963,7 +1946,9 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
         final existing = await isar.chatMessageEntitys
             .getByOwnerUserIdMessageId(ownerUserId, message.messageId);
         if (existing != null) {
-          if (existing.direction == 'incoming') return;
+          if (existing.direction == 'incoming') {
+            return;
+          }
           throw StateError('Chat Message ID 与本机出站记录冲突');
         }
         await _touchGroupConversationInTxn(
@@ -1975,7 +1960,6 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
           lastMessageSummary: summary,
           updatedAtMillis: message.createdAtMillis.toInt(),
           unreadDelta: 1,
-          deliveryState: ChatMessageDeliveryState.receivedByDevice,
         );
         await isar.chatMessageEntitys.putByOwnerUserIdMessageId(
           _messageEntity(
@@ -1995,7 +1979,7 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
     });
   }
 
-  /// 更新群会话的 lastMessage/未读/投递态,群名只读group记录，类型保持group。
+  /// 更新群会话的摘要与未读数,群名只读group记录，类型保持group。
   Future<void> _touchGroupConversationInTxn({
     required Isar isar,
     required String ownerUserId,
@@ -2005,7 +1989,6 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
     required String lastMessageSummary,
     required int updatedAtMillis,
     required int unreadDelta,
-    required ChatMessageDeliveryState deliveryState,
   }) async {
     final existing = await isar.chatConversationEntitys
         .getByOwnerUserIdConversationId(ownerUserId, groupId);
@@ -2030,10 +2013,7 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
       ..updatedAtMillis = replacesLatest
           ? updatedAtMillis
           : existing.updatedAtMillis
-      ..unreadCount = (existing?.unreadCount ?? 0) + unreadDelta
-      ..lastDeliveryState = replacesLatest
-          ? deliveryState.name
-          : existing.lastDeliveryState;
+      ..unreadCount = (existing?.unreadCount ?? 0) + unreadDelta;
     await isar.chatConversationEntitys.putByOwnerUserIdConversationId(entity);
   }
 
@@ -2069,14 +2049,13 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
     required String lastMessageSummary,
     required int updatedAtMillis,
     required int unreadDelta,
-    required ChatMessageDeliveryState deliveryState,
   }) async {
     final existing = await isar.chatConversationEntitys
         .getByOwnerUserIdConversationId(ownerUserId, conversationId);
     final entity = existing ?? ChatConversationEntity();
     // 待发送行按创建顺序转换为正式 Message。转换较早消息时，不能把已经由
     // 后续待发送消息推进的会话摘要和排序时间回退，否则下一条暂时失败会让列表
-    // 长期显示旧消息。相同时间允许正式状态替换本地 queued 状态。
+    // 长期显示旧消息。投递状态只保存在消息行。
     final replacesLatest =
         existing == null || updatedAtMillis >= existing.updatedAtMillis;
     entity
@@ -2092,10 +2071,7 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
       ..updatedAtMillis = replacesLatest
           ? updatedAtMillis
           : existing.updatedAtMillis
-      ..unreadCount = (existing?.unreadCount ?? 0) + unreadDelta
-      ..lastDeliveryState = replacesLatest
-          ? deliveryState.name
-          : existing.lastDeliveryState;
+      ..unreadCount = (existing?.unreadCount ?? 0) + unreadDelta;
     await isar.chatConversationEntitys.putByOwnerUserIdConversationId(entity);
   }
 }
@@ -2146,7 +2122,6 @@ ChatConversationPreview _conversationPreviewFromEntity(
     lastMessage: lastMessage,
     lastUpdatedAt: DateTime.fromMillisecondsSinceEpoch(row.updatedAtMillis),
     unreadCount: row.unreadCount,
-    deliveryState: _deliveryStateFromName(row.lastDeliveryState),
     conversationKind: row.conversationKind ?? 'dm',
   );
 }
@@ -2231,14 +2206,18 @@ String _messageSummary(String? plaintext) {
 
 ChatMessageDeliveryState _deliveryStateFromName(String value) {
   for (final state in ChatMessageDeliveryState.values) {
-    if (state.name == value) return state;
+    if (state.name == value) {
+      return state;
+    }
   }
   throw FormatException('Chat 投递状态未知：$value');
 }
 
 ChatMessageKind _messageKindFromName(String value) {
   for (final kind in ChatMessageKind.values) {
-    if (kind.name == value) return kind;
+    if (kind.name == value) {
+      return kind;
+    }
   }
   throw FormatException('Chat 消息类型未知：$value');
 }

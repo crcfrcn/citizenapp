@@ -1,3 +1,4 @@
+import 'transport/attachment_transfer.dart';
 import 'package:citizen_network/mls_authentication.dart';
 import 'package:citizen_user/square_api_client.dart';
 
@@ -25,6 +26,55 @@ final class ChatException implements Exception {
 
   @override
   String toString() => 'ChatException(${code.name}: $message)';
+}
+
+/// 聊天诊断只输出已知固定码；底层动态异常、正文和凭证不进入日志。
+String chatDiagnosticCode(Object error) {
+  if (error is MlsException) {
+    return error.diagnosticCode;
+  }
+  if (error is ChatConnectionException) {
+    return error.code;
+  }
+  if (error is SquarePreflightException) {
+    return const {
+          'resource_limit',
+          'session_expired',
+          'identity_changed',
+          'invalid_resource_cost',
+        }.contains(error.code)
+        ? error.code
+        : 'preflight_failed';
+  }
+  if (error is SquareApiException) {
+    final code = error.errorCode;
+    if (const {
+      'cid_not_bound',
+      'identity_unregistered',
+      'device_not_registered',
+      'chat_device_not_registered',
+      'invalid_mls_signature',
+      'invalid_mls_proof',
+      'cid_binding_changed',
+      'missing_session',
+      'invalid_session',
+      'session_expired',
+      'chat_server_not_configured',
+      'chain_rpc_budget_exceeded',
+    }.contains(code)) {
+      return code!;
+    }
+    return switch (error.statusCode) {
+      401 => 'service_unauthorized',
+      403 => 'service_forbidden',
+      429 => 'resource_limit',
+      _ => 'service_unavailable',
+    };
+  }
+  if (error is ChatException) {
+    return error.code.name;
+  }
+  return 'operation_failed';
 }
 
 String chatUserErrorMessage(

@@ -55,8 +55,6 @@ class ChatConversationEntity {
 
   @Name('unread_count')
   late int unreadCount;
-  @Name('delivery_state')
-  late String lastDeliveryState;
 
   /// 会话类型:null/"dm"=私聊,"group"=私密小群。免每次 join 群表判定。
   @Name('kind')
@@ -447,10 +445,14 @@ class ChatIsar {
     _ensureActive();
 
     final current = _isar;
-    if (current != null && current.isOpen) return current;
+    if (current != null && current.isOpen) {
+      return current;
+    }
 
     final opening = _opening;
-    if (opening != null) return opening;
+    if (opening != null) {
+      return opening;
+    }
 
     final generation = _generation;
     final task = _openForGeneration(generation);
@@ -578,24 +580,34 @@ class ChatIsar {
       }
       throw const _ChatOpeningCancelled();
     } catch (error) {
-      if (error is _ChatOpeningCancelled) rethrow;
+      if (error is _ChatOpeningCancelled) {
+        rethrow;
+      }
       throw _ChatOpeningCancelled(error);
     }
   }
 
   Future<bool> _deleteInstance(Isar isar) {
     final deleting = _deleteInFlight;
-    if (deleting != null) return deleting;
-    if (!isar.isOpen) return Future<bool>.value(true);
+    if (deleting != null) {
+      return deleting;
+    }
+    if (!isar.isOpen) {
+      return Future<bool>.value(true);
+    }
 
     final task = isar.close(deleteFromDisk: true);
     _deleteInFlight = task;
     task.then<void>(
       (_) {
-        if (identical(_deleteInFlight, task)) _deleteInFlight = null;
+        if (identical(_deleteInFlight, task)) {
+          _deleteInFlight = null;
+        }
       },
       onError: (Object _, StackTrace _) {
-        if (identical(_deleteInFlight, task)) _deleteInFlight = null;
+        if (identical(_deleteInFlight, task)) {
+          _deleteInFlight = null;
+        }
       },
     );
     return task;
@@ -645,12 +657,16 @@ class ChatIsar {
   }
 
   static Future<void> _verifySystemProtection() async {
-    if (IsarCoreBootstrap.isFlutterTest) return;
+    if (IsarCoreBootstrap.isFlutterTest) {
+      return;
+    }
     await SystemProtectedStorage.prepareChatDataDirectory();
   }
 
   Future<void> resetForTest() async {
-    if (!IsarCoreBootstrap.isFlutterTest) return;
+    if (!IsarCoreBootstrap.isFlutterTest) {
+      return;
+    }
 
     // 必须先完成同一套有界关闭；失败时保持终态，禁止带着晚到的打开任务复活测试库。
     await closeAndDeleteFromDisk();
@@ -679,7 +695,9 @@ class ChatIsar {
     late final Future<void> task;
     task = _closeAndDeleteInternal().whenComplete(() {
       _lifecycle = _ChatIsarLifecycle.closed;
-      if (identical(_closing, task)) _closing = null;
+      if (identical(_closing, task)) {
+        _closing = null;
+      }
     });
     _closing = task;
     return task;
@@ -714,12 +732,16 @@ class ChatIsar {
     final candidates = <Isar>[];
     final tracked = _isar;
     final registered = Isar.getInstance('chat');
-    if (tracked != null) candidates.add(tracked);
+    if (tracked != null) {
+      candidates.add(tracked);
+    }
     if (registered != null && !identical(registered, tracked)) {
       candidates.add(registered);
     }
     for (final candidate in candidates) {
-      if (!candidate.isOpen) continue;
+      if (!candidate.isOpen) {
+        continue;
+      }
       deleteWasAttempted = true;
       try {
         final deleted = await _deleteInstance(
@@ -761,7 +783,9 @@ class ChatIsar {
       }
     }
 
-    if ((_isar?.isOpen ?? false) == false) _isar = null;
+    if ((_isar?.isOpen ?? false) == false) {
+      _isar = null;
+    }
     if (failures.isNotEmpty) {
       throw StateError(failures.join('\n'));
     }

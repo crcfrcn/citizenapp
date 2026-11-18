@@ -28,7 +28,7 @@ typedef ChatSyncCallback = Future<int> Function();
 typedef ChatStartRealtimeCallback =
     Future<Future<void> Function()?> Function({
       required Future<void> Function() onNotice,
-      Future<void> Function()? onDisconnected,
+      Future<void> Function(bool ready)? onConnectionChanged,
     });
 typedef ChatDownloadAttachmentCallback =
     Future<ChatDownloadedAttachment> Function(String controlPlaintext);
@@ -42,7 +42,7 @@ String _defaultChatErrorMessage(Object _) => '聊天操作失败，请稍后重�
 
 /// 单个会话的通用 UI 运行控制器。
 ///
-/// 控制器只管理本地消息快照、乐观气泡、WSS 通知、轮询降级和前后台生命周期。
+/// 控制器只管理本地消息快照、乐观气泡、WSS 通知、数据刷新和前后台生命周期。
 /// 完整会话页从同一 ChatRuntime 生成这些运行回调；产品App只提供展示、发送资格和产品动作。
 class ChatConversationController extends ChangeNotifier
     with WidgetsBindingObserver {
@@ -64,10 +64,6 @@ class ChatConversationController extends ChangeNotifier
     this.errorMessage = _defaultChatErrorMessage,
   });
 
-  static const _normalPollInterval = Duration(seconds: 8);
-  static const _backoffPollInterval = Duration(seconds: 30);
-  static const _heartbeatPollInterval = Duration(seconds: 20);
-
   final String conversationId;
   final String currentUserId;
   final ChatLoadMessageSnapshotCallback loadSnapshot;
@@ -87,29 +83,31 @@ class ChatConversationController extends ChangeNotifier
   final InMemoryChatController chatController = InMemoryChatController();
   final Map<String, String> _resolvedMediaPaths = <String, String>{};
   final Map<String, Message> _optimisticMessages = <String, Message>{};
-  Timer? _pollTimer;
   Future<void> Function()? _stopRealtime;
   Future<void>? _openCoordinatorInFlight;
   bool _started = false;
   bool _disposed = false;
   bool _appResumed = false;
-  bool _polling = false;
   bool _realtimeConnecting = false;
+  bool _realtimeConnected = false;
   bool _loading = true;
   bool _attachmentBusy = false;
   String? _error;
+  String? _connectionError;
   int _messageReloadGeneration = 0;
   int? _renderedMessageFingerprint;
   int _optimisticMessageSequence = 0;
 
   bool get loading => _loading;
   bool get attachmentBusy => _attachmentBusy;
-  String? get error => _error;
+  String? get error => _error ?? _connectionError;
   int get optimisticMessageCount => _optimisticMessages.length;
 
   /// 启动一次控制器。重复调用不会重复注册生命周期或建立实时订阅。
   void start() {
-    if (_started || _disposed) return;
+    if (_started || _disposed) {
+      return;
+    }
     _started = true;
     final lifecycleState = WidgetsBinding.instance.lifecycleState;
     _appResumed =
@@ -120,32 +118,44 @@ class ChatConversationController extends ChangeNotifier
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (_disposed) return;
+    if (_disposed) {
+      return;
+    }
     if (state == AppLifecycleState.resumed) {
       _appResumed = true;
       _requestOpenCoordinate();
       return;
     }
     _appResumed = false;
-    if (onPause != null) unawaited(onPause!());
+    if (onPause != null) {
+      unawaited(onPause!());
+    }
     _pauseSync();
   }
 
   void showError(String? value) {
-    if (_disposed || _error == value) return;
+    if (_disposed || _error == value) {
+      return;
+    }
     _error = value;
     notifyListeners();
   }
 
-  /// 主动暂停当前会话的计时器和实时订阅；再次进入前台时由生命周期统一恢复。
+  /// 主动暂停实时订阅；再次进入前台时由生命周期统一恢复。
   void pause() {
-    if (_disposed) return;
-    if (onPause != null) unawaited(onPause!());
+    if (_disposed) {
+      return;
+    }
+    if (onPause != null) {
+      unawaited(onPause!());
+    }
     _pauseSync();
   }
 
   void _requestOpenCoordinate() {
-    if (_disposed || !_appResumed || _openCoordinatorInFlight != null) return;
+    if (_disposed || !_appResumed || _openCoordinatorInFlight != null) {
+      return;
+    }
     late final Future<void> created;
     created = _syncOnOpen().whenComplete(() {
       if (identical(_openCoordinatorInFlight, created)) {
@@ -158,11 +168,15 @@ class ChatConversationController extends ChangeNotifier
 
   /// 读取本地真值并原位刷新消息。网络通知只负责触发此方法。
   Future<void> reloadMessages() async {
-    if (_disposed) return;
+    if (_disposed) {
+      return;
+    }
     final generation = ++_messageReloadGeneration;
     try {
       final batch = await loadSnapshot();
-      if (_disposed || generation != _messageReloadGeneration) return;
+      if (_disposed || generation != _messageReloadGeneration) {
+        return;
+      }
       final messages = batch.messages;
       final fingerprint = Object.hashAll(
         messages.map(
@@ -181,7 +195,9 @@ class ChatConversationController extends ChangeNotifier
           _visibleMessages(messages),
           animated: false,
         );
-        if (_disposed || generation != _messageReloadGeneration) return;
+        if (_disposed || generation != _messageReloadGeneration) {
+          return;
+        }
         _renderedMessageFingerprint = fingerprint;
       }
       unawaited(_resolveAndApplyMediaPaths(messages, generation));
@@ -215,12 +231,18 @@ class ChatConversationController extends ChangeNotifier
     } catch (_) {
       // 已读写入失败时保留未读数；下次当前页快照刷新会自然重试。
     }
-    if (_disposed || generation != _messageReloadGeneration) return;
+    if (_disposed || generation != _messageReloadGeneration) {
+      return;
+    }
   }
 
   void _commitReloadState(int generation, String? nextError) {
-    if (_disposed || generation != _messageReloadGeneration) return;
-    if (!_loading && _error == nextError) return;
+    if (_disposed || generation != _messageReloadGeneration) {
+      return;
+    }
+    if (!_loading && _error == nextError) {
+      return;
+    }
     _loading = false;
     _error = nextError;
     notifyListeners();
@@ -231,13 +253,17 @@ class ChatConversationController extends ChangeNotifier
     int generation,
   ) async {
     final resolver = onResolveMediaPaths;
-    if (resolver == null) return;
+    if (resolver == null) {
+      return;
+    }
     try {
       final contents = <ChatContent>[];
       for (final message in messages) {
         final content = ChatPayloadCodec.decode(message.plaintext ?? '');
         final attachmentId = content.attachmentId ?? '';
-        if (!content.isMedia || attachmentId.isEmpty) continue;
+        if (!content.isMedia || attachmentId.isEmpty) {
+          continue;
+        }
         if (mediaLimits.exceedsForKind(content.kind, content.byteSize ?? 0)) {
           continue;
         }
@@ -245,7 +271,9 @@ class ChatConversationController extends ChangeNotifier
           contents.add(content);
         }
       }
-      if (contents.isEmpty) return;
+      if (contents.isEmpty) {
+        return;
+      }
       final paths = await resolver(contents);
       if (_disposed ||
           generation != _messageReloadGeneration ||
@@ -264,29 +292,30 @@ class ChatConversationController extends ChangeNotifier
 
   Future<void> _syncOnOpen() async {
     await reloadMessages();
-    if (_disposed || onSync == null) return;
-    final realtimeFuture = _startRealtime();
-    await _syncOnly(silent: true);
-    final realtimeReady = await realtimeFuture;
-    if (!realtimeReady && !_disposed && onSync != null) {
-      _schedulePoll(_normalPollInterval);
+    if (!_disposed) {
+      await _startRealtime();
     }
   }
 
   Future<bool> _startRealtime() async {
     final starter = onStartRealtime;
-    if (!_appResumed || starter == null || _disposed) return false;
+    if (!_appResumed || starter == null || _disposed) {
+      return false;
+    }
     if (_stopRealtime != null || _realtimeConnecting) {
-      return _stopRealtime != null;
+      return _realtimeConnected;
     }
     _realtimeConnecting = true;
     try {
       final stop = await starter(
         onNotice: reloadMessages,
-        onDisconnected: () async {
-          if (_appResumed && !_disposed && onSync != null) {
-            _schedulePoll(_backoffPollInterval);
+        onConnectionChanged: (ready) async {
+          if (_disposed || !_appResumed) {
+            return;
           }
+          _realtimeConnected = ready;
+          _connectionError = ready ? null : '聊天连接暂不可用，正在自动重试';
+          notifyListeners();
         },
       );
       if (_disposed || !_appResumed) {
@@ -294,18 +323,28 @@ class ChatConversationController extends ChangeNotifier
         return false;
       }
       _stopRealtime = stop;
-      if (stop != null) _schedulePoll(_heartbeatPollInterval);
       return stop != null;
-    } catch (_) {
+    } catch (error) {
+      _connectionError = errorMessage(error);
+      if (!_disposed) {
+        notifyListeners();
+      }
       return false;
     } finally {
       _realtimeConnecting = false;
     }
   }
 
+  /// 用户重试复用原会话发送入口；网络恢复仍由账户Hub单飞处理。
+  Future<void> retry() async {
+    await _syncAndReload(silent: false);
+  }
+
   Future<bool> _syncAndReload({required bool silent}) async {
     final ok = await _syncOnly(silent: silent);
-    if (!ok) return false;
+    if (!ok) {
+      return false;
+    }
     await reloadMessages();
     return true;
   }
@@ -313,48 +352,28 @@ class ChatConversationController extends ChangeNotifier
   Future<bool> _syncOnly({required bool silent}) async {
     final sync = onSync;
     if (sync == null) {
-      if (!silent) showError('当前会话尚未绑定同步链路');
+      if (!silent) {
+        showError('当前会话尚未绑定同步链路');
+      }
       return false;
     }
     try {
       await sync();
       return true;
     } catch (error) {
-      if (!silent) showError(errorMessage(error));
+      if (!silent) {
+        showError(errorMessage(error));
+      }
       return false;
     }
   }
 
-  void _schedulePoll(Duration delay) {
-    if (!_appResumed || _disposed) return;
-    _pollTimer?.cancel();
-    _pollTimer = Timer(delay, _runPoll);
-  }
-
   void _pauseSync() {
-    _pollTimer?.cancel();
-    _pollTimer = null;
     final stop = _stopRealtime;
     _stopRealtime = null;
-    if (stop != null) unawaited(stop());
-  }
-
-  Future<void> _runPoll() async {
-    if (_disposed || !_appResumed || onSync == null) return;
-    if (_polling) {
-      _schedulePoll(_backoffPollInterval);
-      return;
+    if (stop != null) {
+      unawaited(stop());
     }
-    _polling = true;
-    final ok = await _syncAndReload(silent: true);
-    _polling = false;
-    if (_disposed || !_appResumed || onSync == null) return;
-    if (_stopRealtime != null) {
-      _schedulePoll(_heartbeatPollInterval);
-      return;
-    }
-    if (ok && await _startRealtime()) return;
-    _schedulePoll(ok ? _normalPollInterval : _backoffPollInterval);
   }
 
   List<Message> _visibleMessages(List<ChatStoredMessage> storedMessages) {
@@ -468,7 +487,9 @@ class ChatConversationController extends ChangeNotifier
   Future<void> _insertOptimisticMessage(Message message) async {
     _optimisticMessages[message.id] = message;
     await chatController.insertMessage(message, animated: false);
-    if (!_disposed) notifyListeners();
+    if (!_disposed) {
+      notifyListeners();
+    }
   }
 
   Future<void> _discardOptimisticMessages(Iterable<String> messageIds) async {
@@ -476,12 +497,16 @@ class ChatConversationController extends ChangeNotifier
     for (final messageId in messageIds) {
       removed = _optimisticMessages.remove(messageId) != null || removed;
     }
-    if (removed && !_disposed) await reloadMessages();
+    if (removed && !_disposed) {
+      await reloadMessages();
+    }
   }
 
   Future<void> sendText(String text) async {
     final normalized = text.trim();
-    if (normalized.isEmpty || _disposed) return;
+    if (normalized.isEmpty || _disposed) {
+      return;
+    }
     final sender = onSendText;
     if (sender == null) {
       showError('当前会话尚未绑定发送链路');
@@ -499,7 +524,9 @@ class ChatConversationController extends ChangeNotifier
   }
 
   Future<void> sendMediaDrafts(Iterable<ChatMediaDraft> drafts) async {
-    if (_attachmentBusy || _disposed) return;
+    if (_attachmentBusy || _disposed) {
+      return;
+    }
     final sender = onSendMedia;
     if (sender == null) {
       showError('当前会话尚未绑定媒体发送链路');
@@ -521,7 +548,9 @@ class ChatConversationController extends ChangeNotifier
         await sender(
           item.draft,
           onLocalCommitted: () async {
-            if (reconciled) return;
+            if (reconciled) {
+              return;
+            }
             reconciled = true;
             await _discardOptimisticMessages(<String>[item.message.id]);
           },
@@ -542,7 +571,9 @@ class ChatConversationController extends ChangeNotifier
   }
 
   Future<void> sendSticker(String packId, String stickerId) async {
-    if (_disposed) return;
+    if (_disposed) {
+      return;
+    }
     final sender = onSendSticker;
     if (sender == null) {
       showError('当前会话尚未绑定发送链路');
@@ -579,10 +610,14 @@ class ChatConversationController extends ChangeNotifier
 
   @override
   void dispose() {
-    if (_disposed) return;
+    if (_disposed) {
+      return;
+    }
     _disposed = true;
     _messageReloadGeneration += 1;
-    if (_started) WidgetsBinding.instance.removeObserver(this);
+    if (_started) {
+      WidgetsBinding.instance.removeObserver(this);
+    }
     _pauseSync();
     chatController.dispose();
     super.dispose();
@@ -593,7 +628,7 @@ typedef ChatConversationListCoordinateCallback = Future<void> Function();
 typedef ChatConversationListRefreshCallback =
     Future<bool> Function(String scope);
 
-/// 会话列表共用的生命周期、单飞协调、待发重试、WSS 订阅与轮询降级控制器。
+/// 会话列表只协调生命周期、WSS订阅和本地刷新；恢复与补发由Runtime唯一处理。
 ///
 /// 控制器直接持有同一 ChatRuntime；产品列表只提供业务数据刷新，不接触具体实时连接入口。
 class ChatConversationListController extends ChangeNotifier
@@ -604,13 +639,9 @@ class ChatConversationListController extends ChangeNotifier
     required this.onRefresh,
   }) : _runtime = runtime;
 
-  static const _normalPollInterval = Duration(seconds: 15);
-  static const _backoffPollInterval = Duration(seconds: 30);
-
   final ChatRuntime _runtime;
   final ChatConversationListCoordinateCallback onCoordinate;
   final ChatConversationListRefreshCallback onRefresh;
-  Timer? _pollTimer;
   Future<void> Function()? _stopRealtime;
   Future<void>? _coordinatorInFlight;
   String? _scope;
@@ -618,15 +649,18 @@ class ChatConversationListController extends ChangeNotifier
   bool _disposed = false;
   bool _visible = false;
   bool _appResumed = false;
-  bool _polling = false;
   bool _realtimeConnecting = false;
   bool _realtimeConnected = false;
-  int _refreshGeneration = 0;
+
+  String? get connectionError =>
+      _scope == null || _realtimeConnected ? null : '聊天连接暂不可用，正在自动重试';
 
   bool get isActive => !_disposed && _visible && _appResumed;
 
   void start({required bool visible}) {
-    if (_started || _disposed) return;
+    if (_started || _disposed) {
+      return;
+    }
     _started = true;
     _visible = visible;
     final lifecycleState = WidgetsBinding.instance.lifecycleState;
@@ -636,7 +670,9 @@ class ChatConversationListController extends ChangeNotifier
   }
 
   void setVisible(bool visible) {
-    if (_disposed || _visible == visible) return;
+    if (_disposed || _visible == visible) {
+      return;
+    }
     _visible = visible;
     if (isActive) {
       requestCoordinate();
@@ -648,7 +684,9 @@ class ChatConversationListController extends ChangeNotifier
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (_disposed) return;
+    if (_disposed) {
+      return;
+    }
     _appResumed = state == AppLifecycleState.resumed;
     if (isActive) {
       requestCoordinate();
@@ -659,7 +697,9 @@ class ChatConversationListController extends ChangeNotifier
   }
 
   void requestCoordinate() {
-    if (!isActive || _coordinatorInFlight != null) return;
+    if (!isActive || _coordinatorInFlight != null) {
+      return;
+    }
     late final Future<void> created;
     created = onCoordinate().whenComplete(() {
       if (identical(_coordinatorInFlight, created)) {
@@ -680,71 +720,44 @@ class ChatConversationListController extends ChangeNotifier
       _stopSync(clearScope: true);
       _scope = normalized;
     }
-    if (_stopRealtime != null) return;
-    _schedulePoll(_normalPollInterval);
     unawaited(_startRealtime(normalized));
   }
 
-  /// 本地首屏完成后的首次静默收敛。补发、刷新和实时建连共享同一世代，
-  /// 身份或页面状态变化后，旧任务不得重新启动计时器或订阅。
   void synchronizeScope(String scope) {
-    final normalized = scope.trim();
-    if (!isActive || normalized.isEmpty) {
-      pause();
-      return;
+    configureScope(scope);
+    if (isActive && _scope == scope.trim()) {
+      unawaited(_refresh(scope.trim()));
     }
-    if (_scope != normalized) {
-      _stopSync(clearScope: true);
-      _scope = normalized;
-    }
-    final generation = ++_refreshGeneration;
-    unawaited(_synchronizeAndConnect(normalized, generation));
-  }
-
-  Future<void> _synchronizeAndConnect(String scope, int generation) async {
-    final ok = await _refresh(scope);
-    if (!isActive || _scope != scope || generation != _refreshGeneration) {
-      return;
-    }
-    if (ok && await _startRealtime(scope)) return;
-    _schedulePoll(ok ? _normalPollInterval : _backoffPollInterval);
   }
 
   void pause() => _stopSync(clearScope: true);
 
   Future<bool> _startRealtime(String scope) async {
-    if (!isActive || scope != _scope) return false;
+    if (!isActive || scope != _scope) {
+      return false;
+    }
     if (_stopRealtime != null || _realtimeConnecting) {
       return _realtimeConnected;
     }
     _realtimeConnecting = true;
     try {
-      // 具体 WSS 入口只在 公民聊天 内使用；App列表页只接收刷新通知。
       final stop = await _runtime.startRealtimeSync(
         onNotice: () async {
-          _realtimeConnected = true;
-          _pollTimer?.cancel();
-          _pollTimer = null;
           await _refresh(scope);
         },
-        onDisconnected: () async {
-          _realtimeConnected = false;
-          if (isActive && _scope == scope) {
-            _schedulePoll(_backoffPollInterval);
+        onConnectionChanged: (ready) async {
+          if (!isActive || _scope != scope) {
+            return;
           }
+          _realtimeConnected = ready;
+          notifyListeners();
         },
-        retryOutgoingOnConnect: false,
       );
       if (!isActive || _scope != scope) {
         await stop?.call();
         return false;
       }
       _stopRealtime = stop;
-      _realtimeConnected = stop != null;
-      if (_realtimeConnected) {
-        _pollTimer?.cancel();
-        _pollTimer = null;
-      }
       return _realtimeConnected;
     } catch (_) {
       return false;
@@ -754,59 +767,37 @@ class ChatConversationListController extends ChangeNotifier
   }
 
   Future<bool> _refresh(String scope) async {
-    if (!isActive || _scope != scope) return false;
-    var outgoingReady = true;
-    try {
-      await _runtime.retryOutgoing();
-    } catch (_) {
-      outgoingReady = false;
+    if (!isActive || _scope != scope) {
+      return false;
     }
     try {
-      return await onRefresh(scope) && outgoingReady;
+      return await onRefresh(scope);
     } catch (_) {
       return false;
     }
   }
 
-  void _schedulePoll(Duration delay) {
-    if (!isActive || _scope == null) return;
-    _pollTimer?.cancel();
-    _pollTimer = Timer(delay, _runPoll);
-  }
-
-  Future<void> _runPoll() async {
-    final scope = _scope;
-    if (!isActive || scope == null) return;
-    if (_polling) {
-      _schedulePoll(_backoffPollInterval);
-      return;
-    }
-    _polling = true;
-    final ok = await _refresh(scope);
-    _polling = false;
-    if (!isActive || _scope != scope) return;
-    if (_stopRealtime == null && ok && await _startRealtime(scope)) return;
-    if (!_realtimeConnected) {
-      _schedulePoll(ok ? _normalPollInterval : _backoffPollInterval);
-    }
-  }
-
   void _stopSync({required bool clearScope}) {
-    _refreshGeneration += 1;
-    _pollTimer?.cancel();
-    _pollTimer = null;
     _realtimeConnected = false;
     final stop = _stopRealtime;
     _stopRealtime = null;
-    if (clearScope) _scope = null;
-    if (stop != null) unawaited(stop());
+    if (clearScope) {
+      _scope = null;
+    }
+    if (stop != null) {
+      unawaited(stop());
+    }
   }
 
   @override
   void dispose() {
-    if (_disposed) return;
+    if (_disposed) {
+      return;
+    }
     _disposed = true;
-    if (_started) WidgetsBinding.instance.removeObserver(this);
+    if (_started) {
+      WidgetsBinding.instance.removeObserver(this);
+    }
     _stopSync(clearScope: true);
     super.dispose();
   }

@@ -5,6 +5,22 @@ import 'package:citizen_network/protocol/message.dart';
 import 'package:citizen_network/protocol/message.pb.dart';
 
 void main() {
+  test('邮箱进度按唯一Proto往返，空消息页也可继续', () {
+    final request = ChatFrame()
+      ..syncMessages = (SyncMessages()
+        ..limit = 100
+        ..cursor = 'scanned-key');
+    final response = ChatFrame()
+      ..messageBatch = (MessageBatch()..nextCursor = 'next-key');
+    expect(
+      ChatFrame.fromBuffer(request.writeToBuffer()).syncMessages.cursor,
+      'scanned-key',
+    );
+    final page = ChatFrame.fromBuffer(response.writeToBuffer()).messageBatch;
+    expect(page.messages, isEmpty);
+    expect(page.nextCursor, 'next-key');
+  });
+
   test('宿主资源回执只扩展原帧，指标与窗口完整往返', () {
     final frame = ChatFrame()
       ..success = Success(kind: 'fixture')

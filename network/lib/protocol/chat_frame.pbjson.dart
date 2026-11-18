@@ -485,12 +485,14 @@ const SyncMessages$json = {
   '1': 'SyncMessages',
   '2': [
     {'1': 'limit', '3': 1, '4': 1, '5': 13, '10': 'limit'},
+    {'1': 'cursor', '3': 2, '4': 1, '5': 9, '10': 'cursor'},
   ],
 };
 
 /// Descriptor for `SyncMessages`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List syncMessagesDescriptor =
-    $convert.base64Decode('CgxTeW5jTWVzc2FnZXMSFAoFbGltaXQYASABKA1SBWxpbWl0');
+final $typed_data.Uint8List syncMessagesDescriptor = $convert.base64Decode(
+    'CgxTeW5jTWVzc2FnZXMSFAoFbGltaXQYASABKA1SBWxpbWl0EhYKBmN1cnNvchgCIAEoCVIGY3'
+    'Vyc29y');
 
 @$core.Deprecated('Use messageBatchDescriptor instead')
 const MessageBatch$json = {
@@ -504,13 +506,14 @@ const MessageBatch$json = {
       '6': '.chat.protocol.EncryptedMessage',
       '10': 'messages'
     },
+    {'1': 'next_cursor', '3': 2, '4': 1, '5': 9, '10': 'nextCursor'},
   ],
 };
 
 /// Descriptor for `MessageBatch`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List messageBatchDescriptor = $convert.base64Decode(
     'CgxNZXNzYWdlQmF0Y2gSOwoIbWVzc2FnZXMYASADKAsyHy5jaGF0LnByb3RvY29sLkVuY3J5cH'
-    'RlZE1lc3NhZ2VSCG1lc3NhZ2Vz');
+    'RlZE1lc3NhZ2VSCG1lc3NhZ2VzEh8KC25leHRfY3Vyc29yGAIgASgJUgpuZXh0Q3Vyc29y');
 
 @$core.Deprecated('Use acknowledgeMessagesDescriptor instead')
 const AcknowledgeMessages$json = {

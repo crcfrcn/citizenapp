@@ -24,7 +24,6 @@ final _dmPreview = ChatConversationPreview(
   lastMessage: '明天见',
   lastUpdatedAt: DateTime.fromMillisecondsSinceEpoch(20),
   unreadCount: 0,
-  deliveryState: ChatMessageDeliveryState.sent,
 );
 
 final _groupPreview = ChatConversationPreview(
@@ -34,7 +33,6 @@ final _groupPreview = ChatConversationPreview(
   lastMessage: '资料已上传',
   lastUpdatedAt: DateTime.fromMillisecondsSinceEpoch(10),
   unreadCount: 0,
-  deliveryState: ChatMessageDeliveryState.sent,
   conversationKind: 'group',
 );
 
@@ -183,7 +181,6 @@ void main() {
               lastMessage: '',
               lastUpdatedAt: DateTime.fromMillisecondsSinceEpoch(1),
               unreadCount: 0,
-              deliveryState: ChatMessageDeliveryState.sent,
             ),
           ]);
     await tester.pumpWidget(scoped(store, _ownerUserId));
@@ -314,7 +311,6 @@ void main() {
           lastMessage: 'hello',
           lastUpdatedAt: DateTime.fromMillisecondsSinceEpoch(5),
           unreadCount: 0,
-          deliveryState: ChatMessageDeliveryState.sent,
         ),
       ],
     );

@@ -9,7 +9,6 @@ class ChatConversationPreview {
     required this.lastMessage,
     required this.lastUpdatedAt,
     required this.unreadCount,
-    required this.deliveryState,
     this.conversationKind = 'dm',
   });
 
@@ -27,7 +26,6 @@ class ChatConversationPreview {
 
   final DateTime lastUpdatedAt;
   final int unreadCount;
-  final ChatMessageDeliveryState deliveryState;
 
   /// dm for direct chat, group for a private group.
   final String conversationKind;

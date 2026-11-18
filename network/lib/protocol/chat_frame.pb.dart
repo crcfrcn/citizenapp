@@ -1403,9 +1403,11 @@ class SendMessage extends $pb.GeneratedMessage {
 class SyncMessages extends $pb.GeneratedMessage {
   factory SyncMessages({
     $core.int? limit,
+    $core.String? cursor,
   }) {
     final result = create();
     if (limit != null) result.limit = limit;
+    if (cursor != null) result.cursor = cursor;
     return result;
   }
 
@@ -1423,6 +1425,7 @@ class SyncMessages extends $pb.GeneratedMessage {
       package: const $pb.PackageName(_omitMessageNames ? '' : 'chat.protocol'),
       createEmptyInstance: create)
     ..aI(1, _omitFieldNames ? '' : 'limit', fieldType: $pb.PbFieldType.OU3)
+    ..aOS(2, _omitFieldNames ? '' : 'cursor')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1452,14 +1455,26 @@ class SyncMessages extends $pb.GeneratedMessage {
   $core.bool hasLimit() => $_has(0);
   @$pb.TagNumber(1)
   void clearLimit() => $_clearField(1);
+
+  /// 当前设备邮箱中最后实际扫描的位置；客户端只透传服务端返回值。
+  @$pb.TagNumber(2)
+  $core.String get cursor => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set cursor($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasCursor() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearCursor() => $_clearField(2);
 }
 
 class MessageBatch extends $pb.GeneratedMessage {
   factory MessageBatch({
     $core.Iterable<$0.EncryptedMessage>? messages,
+    $core.String? nextCursor,
   }) {
     final result = create();
     if (messages != null) result.messages.addAll(messages);
+    if (nextCursor != null) result.nextCursor = nextCursor;
     return result;
   }
 
@@ -1478,6 +1493,7 @@ class MessageBatch extends $pb.GeneratedMessage {
       createEmptyInstance: create)
     ..pPM<$0.EncryptedMessage>(1, _omitFieldNames ? '' : 'messages',
         subBuilder: $0.EncryptedMessage.create)
+    ..aOS(2, _omitFieldNames ? '' : 'nextCursor')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1501,6 +1517,16 @@ class MessageBatch extends $pb.GeneratedMessage {
 
   @$pb.TagNumber(1)
   $pb.PbList<$0.EncryptedMessage> get messages => $_getList(0);
+
+  /// 空值表示本轮到末尾；空消息页仍可能存在下一扫描位置。
+  @$pb.TagNumber(2)
+  $core.String get nextCursor => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set nextCursor($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasNextCursor() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearNextCursor() => $_clearField(2);
 }
 
 class AcknowledgeMessages extends $pb.GeneratedMessage {

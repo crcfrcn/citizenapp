@@ -1,3 +1,5 @@
+import 'chat_error.dart';
+import 'transport/attachment_transfer.dart';
 import 'package:citizen_user/identity/current_user_context.dart';
 import 'package:citizen_user/identity/account_security_service.dart';
 import 'package:citizen_user/identity/square_session_provider.dart';
@@ -72,7 +74,9 @@ class _RetryableAsyncDisposer {
 
   Future<void> dispose() {
     final running = _running;
-    if (running != null) return running;
+    if (running != null) {
+      return running;
+    }
 
     late final Future<void> source;
     try {
@@ -84,7 +88,9 @@ class _RetryableAsyncDisposer {
     task = source.then<void>(
       (_) {},
       onError: (Object error, StackTrace stackTrace) {
-        if (identical(_running, task)) _running = null;
+        if (identical(_running, task)) {
+          _running = null;
+        }
         Error.throwWithStackTrace(error, stackTrace);
       },
     );
@@ -136,7 +142,9 @@ class _ChatRealtimeSession {
   }
 
   void markInitializationDone() {
-    if (!_initializationDone.isCompleted) _initializationDone.complete();
+    if (!_initializationDone.isCompleted) {
+      _initializationDone.complete();
+    }
   }
 
   bool belongsToAccount(String value) => accountId == value;
@@ -148,7 +156,9 @@ class _ChatRealtimeSession {
   }
 
   Future<void> runCallback(Future<void> Function() operation) {
-    if (!_acceptingCallbacks) return Future<void>.value();
+    if (!_acceptingCallbacks) {
+      return Future<void>.value();
+    }
     // WebSocket 可能在上一个 callback 尚未完成时继续推送 Welcome/Application；
     // MLS ratchet 必须严格按到达顺序推进，因此所有实时来源共用一条串行尾链。
     final previous = _callbackTail;
@@ -193,7 +203,9 @@ class _ChatRealtimeSession {
     while (_callbacks.isNotEmpty) {
       await Future.wait<void>(_callbacks.toList(growable: false));
     }
-    if (failures.isNotEmpty) throw StateError(failures.join('\n'));
+    if (failures.isNotEmpty) {
+      throw StateError(failures.join('\n'));
+    }
   }
 
   static Future<void> _captureFailure(
@@ -212,11 +224,11 @@ class _ChatRealtimeSession {
 class _ChatRealtimeListener {
   const _ChatRealtimeListener({
     required this.onNotice,
-    required this.onDisconnected,
+    required this.onConnectionChanged,
   });
 
   final Future<void> Function() onNotice;
-  final Future<void> Function()? onDisconnected;
+  final Future<void> Function(bool ready)? onConnectionChanged;
 }
 
 /// 一个账户在当前 isolate 内唯一的前台实时通道。聊天 Tab、私聊页和群聊页只
@@ -227,11 +239,11 @@ class _ChatRealtimeHub {
   final ChatRuntimeAccount account;
   final Set<_ChatRealtimeListener> listeners = <_ChatRealtimeListener>{};
   Future<bool>? connecting;
+  Future<int>? outgoing;
   Future<void> Function()? stopPhysical;
   ChatServiceTransport? transport;
   Timer? reconnectTimer;
   int reconnectAttempt = 0;
-  bool retryOutgoingOnConnect = false;
   bool closed = false;
 }
 
@@ -273,7 +285,9 @@ class _ChatCrossIsolateCoordinator {
     Directory documentsRoot,
     String userId,
   ) async {
-    if (userId.isEmpty) throw StateError('Chat user ID 文件协调键不能为空');
+    if (userId.isEmpty) {
+      throw StateError('Chat user ID 文件协调键不能为空');
+    }
     await _throwIfCurrentProcessWipeRequested(documentsRoot);
     final digest = crypto_hash.sha256.convert(utf8.encode(userId)).toString();
     final leaseFile = _directFile(
@@ -550,7 +564,9 @@ class _ChatCrossIsolateCoordinator {
   static Future<bool> _hasStartupBarrier(Directory documentsRoot) async {
     final barrier = _directFile(documentsRoot, _startupBarrierName);
     final type = await FileSystemEntity.type(barrier.path, followLinks: false);
-    if (type == FileSystemEntityType.notFound) return false;
+    if (type == FileSystemEntityType.notFound) {
+      return false;
+    }
     if (type != FileSystemEntityType.file) {
       throw StateError('Chat 启动 barrier 类型异常');
     }
@@ -646,7 +662,9 @@ class _ChatCrossIsolateCoordinator {
     if (state == ChatPersistentWipeState.none) {
       throw StateError('缺少 pending marker，禁止标记数据擦除完成');
     }
-    if (state == ChatPersistentWipeState.complete) return;
+    if (state == ChatPersistentWipeState.complete) {
+      return;
+    }
 
     final complete = _directFile(documentsRoot, _completeMarkerName);
     final nonce = List<int>.generate(
@@ -710,7 +728,9 @@ class _ChatCrossIsolateCoordinator {
           entity.path,
           followLinks: false,
         );
-        if (type != FileSystemEntityType.file) return true;
+        if (type != FileSystemEntityType.file) {
+          return true;
+        }
         if (!await _reapExpiredOwnedLease(
           File(entity.path),
           allowSameProcess: false,
@@ -724,7 +744,9 @@ class _ChatCrossIsolateCoordinator {
           entity.path,
           followLinks: false,
         );
-        if (type != FileSystemEntityType.file) return true;
+        if (type != FileSystemEntityType.file) {
+          return true;
+        }
         if (!await _reapExpiredUserMutationLease(File(entity.path))) {
           return true;
         }
@@ -743,7 +765,9 @@ class _ChatCrossIsolateCoordinator {
           (name.startsWith(_leasePrefix) && name.endsWith(_leaseSuffix)) ||
           (removeStagedComplete && name.startsWith('.$_completeMarkerName.'));
       final belongsToCurrentProcess = name.startsWith(_currentLeasePrefix);
-      if (!isProtocolArtifact || belongsToCurrentProcess) continue;
+      if (!isProtocolArtifact || belongsToCurrentProcess) {
+        continue;
+      }
       final type = await FileSystemEntity.type(entity.path, followLinks: false);
       if (name.startsWith(_leasePrefix) && name.endsWith(_leaseSuffix)) {
         if (type != FileSystemEntityType.file) {
@@ -783,7 +807,9 @@ class _ChatCrossIsolateCoordinator {
       leaseFile.path,
       followLinks: false,
     );
-    if (firstType == FileSystemEntityType.notFound) return true;
+    if (firstType == FileSystemEntityType.notFound) {
+      return true;
+    }
     if (firstType != FileSystemEntityType.file) {
       throw StateError('Chat 跨 isolate lease 类型异常');
     }
@@ -801,7 +827,9 @@ class _ChatCrossIsolateCoordinator {
       leaseFile.path,
       followLinks: false,
     );
-    if (secondType == FileSystemEntityType.notFound) return true;
+    if (secondType == FileSystemEntityType.notFound) {
+      return true;
+    }
     if (secondType != FileSystemEntityType.file) {
       throw StateError('Chat 跨 isolate lease 类型异常');
     }
@@ -836,7 +864,9 @@ class _ChatCrossIsolateCoordinator {
       leaseFile.path,
       followLinks: false,
     );
-    if (type == FileSystemEntityType.notFound && allowMissing) return;
+    if (type == FileSystemEntityType.notFound && allowMissing) {
+      return;
+    }
     if (type != FileSystemEntityType.file) {
       throw StateError('Chat 跨 isolate lease 已丢失或类型异常');
     }
@@ -856,7 +886,9 @@ class _ChatCrossIsolateCoordinator {
       leaseFile.path,
       followLinks: false,
     );
-    if (firstType == FileSystemEntityType.notFound) return true;
+    if (firstType == FileSystemEntityType.notFound) {
+      return true;
+    }
     if (firstType != FileSystemEntityType.file) {
       throw StateError('Chat user ID 文件协调 lease 类型异常');
     }
@@ -881,7 +913,9 @@ class _ChatCrossIsolateCoordinator {
       leaseFile.path,
       followLinks: false,
     );
-    if (secondType == FileSystemEntityType.notFound) return true;
+    if (secondType == FileSystemEntityType.notFound) {
+      return true;
+    }
     if (secondType != FileSystemEntityType.file) {
       throw StateError('Chat user ID 文件协调 lease 类型异常');
     }
@@ -918,7 +952,9 @@ class _ChatCrossIsolateCoordinator {
       leaseFile.path,
       followLinks: false,
     );
-    if (type == FileSystemEntityType.notFound) return;
+    if (type == FileSystemEntityType.notFound) {
+      return;
+    }
     if (type != FileSystemEntityType.file) {
       throw StateError('Chat 启动预检发现异常 user ID lease 类型');
     }
@@ -970,7 +1006,9 @@ class _ChatCrossIsolateCoordinator {
       leaseFile.path,
       followLinks: false,
     );
-    if (type == FileSystemEntityType.notFound && allowMissing) return;
+    if (type == FileSystemEntityType.notFound && allowMissing) {
+      return;
+    }
     if (type != FileSystemEntityType.file) {
       throw StateError('Chat user ID 文件协调 lease 已丢失或类型异常');
     }
@@ -1015,7 +1053,9 @@ class _ChatUserLeaseOwner {
 
   static _ChatUserLeaseOwner? decode(String raw) {
     final lines = raw.split('\n');
-    if (lines.length != 4 || lines.last.isNotEmpty) return null;
+    if (lines.length != 4 || lines.last.isNotEmpty) {
+      return null;
+    }
     final processId = int.tryParse(lines[0]);
     if (processId == null ||
         processId <= 0 ||
@@ -1050,10 +1090,14 @@ class _ChatUserMutationLease {
   bool _released = false;
 
   void _scheduleHeartbeat() {
-    if (_released || _heartbeatError != null) return;
+    if (_released || _heartbeatError != null) {
+      return;
+    }
     _heartbeatTail = _heartbeatTail
         .then<void>((_) async {
-          if (_released || _heartbeatError != null) return;
+          if (_released || _heartbeatError != null) {
+            return;
+          }
           final actual = await _ChatCrossIsolateCoordinator._readUserLeaseOwner(
             _file,
           );
@@ -1086,7 +1130,9 @@ class _ChatUserMutationLease {
   }
 
   Future<void> release() async {
-    if (_released) return;
+    if (_released) {
+      return;
+    }
     _heartbeat.cancel();
     await _heartbeatTail;
     Object? healthError = _heartbeatError;
@@ -1202,7 +1248,9 @@ class _ChatBindingFencedMlsCrypto
 
   void dispose() {
     final delegate = _delegate;
-    if (delegate is MlsCrypto) delegate.dispose();
+    if (delegate is MlsCrypto) {
+      delegate.dispose();
+    }
   }
 
   @override
@@ -1244,7 +1292,9 @@ class _ChatBindingFencedMlsCrypto
       }
       if (content?.isMedia == true) {
         final id = Zone.current[_messageGuardZoneKey] as String?;
-        if (id == null) throw StateError('附件控制缺少事务标识');
+        if (id == null) {
+          throw StateError('附件控制缺少事务标识');
+        }
         final saved = await _delegate.pendingMessageResults(id);
         if (saved.any(
           (r) => (r['result'] as Map)['application_wire_hex'] is String,
@@ -1290,10 +1340,14 @@ class _ChatCrossIsolateLease {
   bool _released = false;
 
   void _scheduleHeartbeat() {
-    if (_released || _heartbeatError != null) return;
+    if (_released || _heartbeatError != null) {
+      return;
+    }
     _heartbeatTail = _heartbeatTail
         .then<void>((_) async {
-          if (_released || _heartbeatError != null) return;
+          if (_released || _heartbeatError != null) {
+            return;
+          }
           final actual = await _ChatCrossIsolateCoordinator._readLeaseOwner(
             _file,
           );
@@ -1309,7 +1363,9 @@ class _ChatCrossIsolateLease {
   }
 
   Future<void> release() async {
-    if (_released) return;
+    if (_released) {
+      return;
+    }
     _heartbeat.cancel();
     await _heartbeatTail;
     Object? error = _heartbeatError;
@@ -1517,7 +1573,9 @@ class ChatRuntime {
     required String accountId,
   }) async {
     final account = await _readAccount(expectedAccountId: accountId);
-    if (account.userId != userId) throw const SquareApiException('当前公民会话不可用');
+    if (account.userId != userId) {
+      throw const SquareApiException('当前公民会话不可用');
+    }
     if (!await _prepareAttachmentAuthorization(account, allowRefresh: true)) {
       throw const SquareApiException('当前会员附件资格不可用');
     }
@@ -1525,7 +1583,9 @@ class ChatRuntime {
 
   Future<bool> canSend(String userId) async {
     final session = await squareSessionProvider!.ensureSession();
-    if (session == null || session.cidNumber != userId) return false;
+    if (session == null || session.cidNumber != userId) {
+      return false;
+    }
     SubscriptionService.rememberCitizenSession(session);
     return SubscriptionService.chatAuthorizedFor(userId);
   }
@@ -1572,14 +1632,18 @@ class ChatRuntime {
     if (generation != accountSecurity!.revision.value) {
       throw StateError('聊天身份已变化，请重新进入聊天');
     }
-    if (current == null) return null;
+    if (current == null) {
+      return null;
+    }
     final defaultAccount = current.account;
     if (expectedAccountId != null &&
         defaultAccount.accountId != expectedAccountId) {
       throw StateError('身份账户已切换，请重新进入聊天');
     }
     final binding = current.binding;
-    if (binding == null) return null;
+    if (binding == null) {
+      return null;
+    }
     if (binding.accountId != defaultAccount.accountId) {
       throw StateError('当前用户绑定与默认账户不一致');
     }
@@ -1686,8 +1750,9 @@ class ChatRuntime {
     Future<Directory> Function()? documentsDirectoryProvider,
   }) {
     _processWipeRequested = true;
-    return _resolveWipeDocumentsRoot(documentsDirectoryProvider)
-        .then(_ChatCrossIsolateCoordinator.ensureWipePending);
+    return _resolveWipeDocumentsRoot(
+      documentsDirectoryProvider,
+    ).then(_ChatCrossIsolateCoordinator.ensureWipePending);
   }
 
   static Future<ChatPersistentWipeState> readPersistentAppDataWipeState({
@@ -1711,7 +1776,9 @@ class ChatRuntime {
         );
         return;
       } catch (_) {
-        if (attempt == 2) rethrow;
+        if (attempt == 2) {
+          rethrow;
+        }
         await Future<void>.delayed(const Duration(seconds: 1));
       }
     }
@@ -1769,7 +1836,9 @@ class ChatRuntime {
       byUser.path,
       followLinks: false,
     );
-    if (byUserType == FileSystemEntityType.notFound) return;
+    if (byUserType == FileSystemEntityType.notFound) {
+      return;
+    }
     if (byUserType != FileSystemEntityType.directory) {
       throw StateError('Chat 明文清扫根路径类型异常');
     }
@@ -1783,7 +1852,9 @@ class ChatRuntime {
       }
       final userDirectory = Directory(userEntity.path);
       final userPathKey = userDirectory.path.split(Platform.pathSeparator).last;
-      if (userPathKey.isEmpty) throw StateError('Chat 明文清扫 user ID 分区名为空');
+      if (userPathKey.isEmpty) {
+        throw StateError('Chat 明文清扫 user ID 分区名为空');
+      }
       final lease = await _ChatCrossIsolateCoordinator.acquireUserMutationLease(
         documentsRoot,
         userPathKey,
@@ -1805,7 +1876,9 @@ class ChatRuntime {
       '${Platform.pathSeparator}${AttachmentVault.plainDirName}',
     );
     final type = await FileSystemEntity.type(plain.path, followLinks: false);
-    if (type == FileSystemEntityType.notFound) return;
+    if (type == FileSystemEntityType.notFound) {
+      return;
+    }
     if (type != FileSystemEntityType.directory ||
         await plain.resolveSymbolicLinks() != plain.absolute.path) {
       throw StateError('Chat 临时附件路径类型异常');
@@ -1850,7 +1923,9 @@ class ChatRuntime {
   }) {
     _processWipeRequested = true;
     final running = _localFileWipeInFlight;
-    if (running != null) return running;
+    if (running != null) {
+      return running;
+    }
 
     final provider =
         documentsDirectoryProvider ??
@@ -2015,7 +2090,9 @@ class ChatRuntime {
     final lease = await _ChatCrossIsolateCoordinator.acquireBackgroundLease(
       root,
     );
-    if (checkLocalTerminal) _ensureProcessActive();
+    if (checkLocalTerminal) {
+      _ensureProcessActive();
+    }
     // operation 必须把业务错误内部收敛，只在所有 runtime/push 清理成功
     // 后返回。任何 cleanup 异常均故意保留 lease，禁止 wipe 误报成功。
     final result = await operation();
@@ -2064,7 +2141,9 @@ class ChatRuntime {
 
     void release() {
       _runtimeOperations.remove(token);
-      if (!drained.isCompleted) drained.complete();
+      if (!drained.isCompleted) {
+        drained.complete();
+      }
     }
 
     late final Future<T> running;
@@ -2254,7 +2333,9 @@ class ChatRuntime {
 
     void release() {
       _fileMutations.remove(token);
-      if (!drained.isCompleted) drained.complete();
+      if (!drained.isCompleted) {
+        drained.complete();
+      }
     }
 
     late final Future<T> running;
@@ -2422,10 +2503,11 @@ class ChatRuntime {
   ) {
     final key = '${context.bindingToken.accountId}|$conversationId';
     unawaited(
-      _runRuntimeOperation(() => _outboundDeliveryGate.run(key, delivery))
-          .catchError((Object _) {
-            // 静默后台投递失败不覆盖本地消息；队列事实仍在，下次重试继续发送。
-          }),
+      _runRuntimeOperation(
+        () => _outboundDeliveryGate.run(key, delivery),
+      ).catchError((Object _) {
+        // 静默后台投递失败不覆盖本地消息；队列事实仍在，下次重试继续发送。
+      }),
     );
   }
 
@@ -2576,7 +2658,9 @@ class ChatRuntime {
   Future<({String accountId, String userId})> _readCurrentUser() async {
     _ensureActive();
     final account = await currentAccount();
-    if (account == null) return (accountId: '', userId: '');
+    if (account == null) {
+      return (accountId: '', userId: '');
+    }
     return (accountId: account.accountId, userId: account.userId);
   }
 
@@ -2695,7 +2779,9 @@ class ChatRuntime {
     _mailboxDrainRequested.remove(accountId);
     _mailboxMessageReceipts.removeWhere((key) => key.startsWith('$accountId|'));
     final realtimeHub = _realtimeHubs[accountId];
-    if (realtimeHub != null) await _closeRealtimeHub(realtimeHub);
+    if (realtimeHub != null) {
+      await _closeRealtimeHub(realtimeHub);
+    }
     final invalidatedFlights = _readyFlights.entries
         .where((entry) => entry.key.endsWith('|$accountId'))
         .toList(growable: false);
@@ -2717,7 +2803,9 @@ class ChatRuntime {
     final key = _accountContextKeys.remove(accountId);
     if (key != null) {
       final context = _readyContexts.remove(key);
-      if (context != null) contexts.add(context);
+      if (context != null) {
+        contexts.add(context);
+      }
     }
     final failures = <String>[];
     for (final session in sessions) {
@@ -2768,12 +2856,18 @@ class ChatRuntime {
       );
     }
     await invalidateProductAccount(accountId);
-    if (failures.isNotEmpty) throw StateError(failures.join('\n'));
-    if (!keepBlocked) _blockedAccountIds.remove(accountId);
+    if (failures.isNotEmpty) {
+      throw StateError(failures.join('\n'));
+    }
+    if (!keepBlocked) {
+      _blockedAccountIds.remove(accountId);
+    }
   }
 
   void _trackInvalidatedReadyFlight(Future<ChatRuntimeAccountContext> flight) {
-    if (!_readyFlightsPendingInvalidation.add(flight)) return;
+    if (!_readyFlightsPendingInvalidation.add(flight)) {
+      return;
+    }
     unawaited(
       flight.then<void>(
         (_) {
@@ -2869,7 +2963,7 @@ class ChatRuntime {
   }
 
   /// 本地待发送行已经成立后，网络/MLS 转换在后台按账户+会话保序执行。失败不删除
-  /// 本地消息；实时重连、轮询、网络恢复或推送唤醒都会再次进入同一收敛入口。
+  /// 本地消息；实时重连、网络恢复或推送唤醒都会再次进入同一收敛入口。
   void _schedulePendingOutgoing({
     required ChatRuntimeAccount account,
     String? recipientUserId,
@@ -2878,42 +2972,32 @@ class ChatRuntime {
   }) {
     final key = '${account.accountId}|$conversationId';
     _outboundRetryTimers.remove(key)?.cancel();
-    if (resetBackoff) _outboundRetryAttempts.remove(key);
+    if (resetBackoff) {
+      _outboundRetryAttempts.remove(key);
+    }
     unawaited(
-      _runRuntimeOperation(
-        () => _outboundDeliveryGate.run(key, () async {
-          final current = await _readAccount(
-            expectedAccountId: account.accountId,
-          );
-          final context = await _readyContext(current);
-          final pendingConversionFailed = await _flushPendingOutgoing(
-            context,
+      retryOutgoing(
             recipientUserId: recipientUserId,
             conversationId: conversationId,
-          );
-          final delivery = await _retryQueuedMessages(
-            context,
-            recipientUserId: recipientUserId,
-            conversationId: conversationId,
-          );
-          if (pendingConversionFailed || delivery.retryNeeded) {
-            throw StateError('chat_outbound_retry_required');
-          }
-          _outboundRetryAttempts.remove(key);
-        }),
-      ).catchError((Object error) {
-        debugPrint(
-          '[ChatTrace] direction=outbound stage=context '
-          'code=${chatDiagnosticCode(error)}',
-        );
-        // 本机状态已经完成单次重建仍失败时停止盲重试；其它网络失败继续有界退避。
-        _schedulePendingOutgoingRetry(
-          key: key,
-          account: account,
-          recipientUserId: recipientUserId,
-          conversationId: conversationId,
-        );
-      }),
+          )
+          .then((_) {
+            _outboundRetryAttempts.remove(key);
+          })
+          .catchError((Object error) {
+            debugPrint(
+              '[ChatTrace] direction=outbound stage=delivery code=${chatDiagnosticCode(error)}',
+            );
+            final hub = _realtimeHubs[account.accountId];
+            // 未就绪只等待同一Hub；不能由每个会话重新鉴权或重置网络退避。
+            if (hub == null || hub.stopPhysical != null) {
+              _schedulePendingOutgoingRetry(
+                key: key,
+                account: account,
+                recipientUserId: recipientUserId,
+                conversationId: conversationId,
+              );
+            }
+          }),
     );
   }
 
@@ -2923,7 +3007,9 @@ class ChatRuntime {
     required String? recipientUserId,
     required String conversationId,
   }) {
-    if (_closed || _processWipeRequested) return;
+    if (_closed || _processWipeRequested) {
+      return;
+    }
     final attempt = _outboundRetryAttempts[key] ?? 0;
     if (attempt >= _outboundRetryDelays.length ||
         _outboundRetryTimers.containsKey(key)) {
@@ -2932,7 +3018,9 @@ class ChatRuntime {
     _outboundRetryAttempts[key] = attempt + 1;
     late final Timer timer;
     timer = Timer(_outboundRetryDelays[attempt], () {
-      if (!identical(_outboundRetryTimers[key], timer)) return;
+      if (!identical(_outboundRetryTimers[key], timer)) {
+        return;
+      }
       _outboundRetryTimers.remove(key);
       _schedulePendingOutgoing(
         account: account,
@@ -2970,7 +3058,9 @@ class ChatRuntime {
   }
 
   void _requireAttachmentSize(ChatMessageKind kind, int? byteSize) {
-    if (byteSize == null || byteSize < 0) throw StateError('附件大小无效');
+    if (byteSize == null || byteSize < 0) {
+      throw StateError('附件大小无效');
+    }
     if (mediaLimits.exceedsForKind(kind, byteSize)) {
       throw ChatMediaTooLargeException(
         byteSize: byteSize,
@@ -3028,7 +3118,9 @@ class ChatRuntime {
         attachmentId,
       );
       await _runBindingFileMutation(bindingToken, () async {
-        if (await staged.exists()) await staged.delete();
+        if (await staged.exists()) {
+          await staged.delete();
+        }
       });
       rethrow;
     }
@@ -3054,7 +3146,9 @@ class ChatRuntime {
       audience = await context.crypto.groupState(conversationId);
     } else {
       final peer = peerUserId;
-      if (peer == null) throw StateError('附件私聊收件人缺失');
+      if (peer == null) {
+        throw StateError('附件私聊收件人缺失');
+      }
       final packages = await _resolveKeyPackages(context, peer);
       audience = await _messageFlow(context).prepareAttachmentAudience(
         conversationId: conversationId,
@@ -3155,7 +3249,9 @@ class ChatRuntime {
       }
       try {
         await _runBindingFileMutation(bindingToken, () async {
-          if (await target.exists()) await target.delete();
+          if (await target.exists()) {
+            await target.delete();
+          }
         });
       } catch (_) {
         debugPrint(
@@ -3223,12 +3319,16 @@ class ChatRuntime {
     ChatPendingOutgoingMessage pending,
   ) async {
     final content = ChatPayloadCodec.decode(pending.payload);
-    if (!content.isMedia) throw StateError('只能终结准确附件操作');
+    if (!content.isMedia) {
+      throw StateError('只能终结准确附件操作');
+    }
     final id = content.attachmentId!;
-    await _store.markPendingOutgoingFailed(
+    await _store.markOutgoingDelivery(
       bindingToken: context.bindingToken,
       ownerUserId: context.account.userId,
-      localMessageId: pending.localMessageId,
+      messageId: pending.localMessageId,
+      state: ChatMessageDeliveryState.failed,
+      errorMessage: 'chat_message_expired',
     );
     await _runBindingFileMutation(context.bindingToken, () async {
       final cipher = await _pendingAttachmentUploadFile(
@@ -3241,8 +3341,12 @@ class ChatRuntime {
         pending.conversationId,
         id,
       );
-      if (await cipher.exists()) await cipher.delete();
-      if (await marker.exists()) await marker.delete();
+      if (await cipher.exists()) {
+        await cipher.delete();
+      }
+      if (await marker.exists()) {
+        await marker.delete();
+      }
     });
     try {
       await context.transport.abortAttachment(id);
@@ -3442,7 +3546,9 @@ class ChatRuntime {
           groupId,
           attachmentId,
         );
-        if (await staged.exists()) await staged.delete();
+        if (await staged.exists()) {
+          await staged.delete();
+        }
         rethrow;
       }
     }();
@@ -3520,7 +3626,9 @@ class ChatRuntime {
     required String conversationId,
     required List<ChatContent> contents,
   }) async {
-    if (contents.isEmpty) return const <String, String>{};
+    if (contents.isEmpty) {
+      return const <String, String>{};
+    }
     try {
       final account = await _readAccount();
       // 已有缓存只依赖本机绑定；离线冷启动也必须可展示。
@@ -3535,7 +3643,9 @@ class ChatRuntime {
         // 每项只读系统保护缓存，复核当前公开绑定和明文大小。
         for (final content in contents) {
           final attachmentId = content.attachmentId ?? '';
-          if (!content.isMedia || attachmentId.isEmpty) continue;
+          if (!content.isMedia || attachmentId.isEmpty) {
+            continue;
+          }
           try {
             final cached = await ChatFlow.readCachedAttachment(
               conversationId: conversationId,
@@ -3547,7 +3657,9 @@ class ChatRuntime {
               plainDirectory: plainDirectory,
             );
             final path = cached?.filePath;
-            if (path != null && path.isNotEmpty) paths[attachmentId] = path;
+            if (path != null && path.isNotEmpty) {
+              paths[attachmentId] = path;
+            }
           } catch (_) {
             // 单个缓存损坏或仍未完整到达时跳过该项，不能拖累同批其它媒体。
           }
@@ -3713,23 +3825,171 @@ class ChatRuntime {
   ///
   /// 媒体先完成私有 encrypted object storage 密文上传，再发送端到端加密控制消息；附件网络失败只保留
   /// 当前本机 pending，不得越过同会话顺序或阻塞其它会话。
-  Future<int> retryOutgoing({String? recipientUserId, String? conversationId}) {
-    // 重连补发同样会解析设备及投递密文，资源授权可回调MLS认证；文件改写沿各自
-    // 绑定边界取得短锁，不能用外层文件锁包住整个网络重试。
-    return _runWithReadyContext((context) async {
-      await _flushPendingOutgoing(
-        context,
-        recipientUserId: recipientUserId,
-        conversationId: conversationId,
-      );
-      final delivery = await _retryQueuedMessages(
-        context,
-        recipientUserId: recipientUserId,
-        conversationId: conversationId,
-      );
-      return delivery.sent;
-    });
+  static bool _messageExpired(int created, int now) =>
+      now - created >= chatMessageRetention.inMilliseconds;
+
+  /// 在本地有效围栏内先终结过期项；没有可发送内容不为补发建立网络。
+  Future<bool> _prepareOutgoing(
+    ChatRuntimeAccount account, {
+    String? recipientUserId,
+    String? conversationId,
+  }) async {
+    final token = await _convergeBindingFence(account);
+    final pending = await _store.readPendingOutgoingMessages(
+      bindingToken: token,
+      ownerUserId: account.userId,
+      currentAccountId: account.accountId,
+      recipientUserId: recipientUserId,
+      conversationId: conversationId,
+    );
+    final queued = await _store.readQueuedMessages(
+      bindingToken: token,
+      ownerUserId: account.userId,
+      recipientUserId: recipientUserId,
+      conversationId: conversationId,
+    );
+    final now = DateTime.now().millisecondsSinceEpoch;
+    var available = false, changed = false;
+    for (final item in pending) {
+      if (_messageExpired(item.createdAtMillis, now)) {
+        await _expirePendingOutgoing(token, account, item);
+        changed = true;
+      } else {
+        available = true;
+      }
+    }
+    for (final item in queued) {
+      EncryptedMessage? message;
+      try {
+        message = EncryptedMessage.fromBuffer(item.messageBytes);
+      } catch (_) {
+        /* 下方统一终结坏队列。 */
+      }
+      if (message == null ||
+          _messageExpired(message.createdAtMillis.toInt(), now)) {
+        await _store.markOutgoingDelivery(
+          bindingToken: token,
+          ownerUserId: account.userId,
+          messageId: item.messageId,
+          state: ChatMessageDeliveryState.failed,
+          errorMessage: message == null
+              ? 'chat_message_invalid'
+              : 'chat_message_expired',
+        );
+        changed = true;
+      } else {
+        available = true;
+      }
+    }
+    final hub = _realtimeHubs[account.accountId];
+    if (changed && hub != null) {
+      await _notifyRealtimeHub(hub);
+    }
+    return available;
   }
+
+  Future<int> retryOutgoing({
+    String? recipientUserId,
+    String? conversationId,
+  }) => _runRuntimeOperation(() async {
+    final account = await _readAccount();
+    if (_receiveOnly ||
+        !await _prepareOutgoing(
+          account,
+          recipientUserId: recipientUserId,
+          conversationId: conversationId,
+        )) {
+      return 0;
+    }
+    final hub = await _realtimeHub(account);
+    final existing = hub.outgoing;
+    if (existing != null) {
+      return existing;
+    }
+    // 无页面监听的一次发送仍复用同一Hub，完成后释放这次订阅租约。
+    final temporary = hub.listeners.isEmpty
+        ? _ChatRealtimeListener(
+            onNotice: () async {},
+            onConnectionChanged: null,
+          )
+        : null;
+    if (temporary != null) {
+      hub.listeners.add(temporary);
+    }
+    late final Future<int> flight;
+    flight =
+        (() async {
+          if (hub.stopPhysical == null) {
+            if (!await _ensureRealtimeHubConnected(hub)) {
+              throw const ChatConnectionException('realtime_reconnecting');
+            }
+          }
+          // 一个账户只有一个真实出站编排，各会话的失败在转换内部隔离。
+          return _flushOutgoing(await _readyContext(account));
+        })().whenComplete(() async {
+          if (identical(hub.outgoing, flight)) {
+            hub.outgoing = null;
+          }
+          if (temporary != null) {
+            hub.listeners.remove(temporary);
+            if (hub.listeners.isEmpty) {
+              await _closeRealtimeHub(hub);
+            }
+          }
+        });
+    hub.outgoing = flight;
+    return flight;
+  });
+
+  Future<void> _scheduleRemainingOutgoing(ChatRuntimeAccount account) async {
+    final hub = _realtimeHubs[account.accountId];
+    if (hub == null || hub.stopPhysical == null) {
+      return;
+    }
+    final token = await _convergeBindingFence(account);
+    final pending = await _store.readPendingOutgoingMessages(
+      bindingToken: token,
+      ownerUserId: account.userId,
+      currentAccountId: account.accountId,
+    );
+    final queued = await _store.readQueuedMessages(
+      bindingToken: token,
+      ownerUserId: account.userId,
+    );
+    final conversations = <String, String>{
+      for (final row in pending) row.conversationId: row.recipientUserId,
+    };
+    for (final row in queued) {
+      try {
+        final m = EncryptedMessage.fromBuffer(row.messageBytes);
+        conversations[m.conversationId] = m.recipientUserId;
+      } catch (_) {
+        /* 下轮本地准备统一终结。 */
+      }
+    }
+    for (final row in conversations.entries) {
+      _schedulePendingOutgoingRetry(
+        key: '${account.accountId}|${row.key}',
+        account: account,
+        recipientUserId: row.value,
+        conversationId: row.key,
+      );
+    }
+  }
+
+  Future<int> _flushOutgoing(ChatRuntimeAccountContext context) =>
+      _outboundDeliveryGate.run(context.account.accountId, () async {
+        final failed = await _flushPendingOutgoing(context);
+        final delivery = await _retryQueuedMessages(context);
+        final hub = _realtimeHubs[context.account.accountId];
+        if (hub != null) {
+          await _notifyRealtimeHub(hub);
+        }
+        if (failed || delivery.retryNeeded) {
+          throw const ChatConnectionException('outbound_retry_required');
+        }
+        return delivery.sent;
+      });
 
   /// 把本机系统保护存储中的待发送行按会话顺序转换为正式 MLS Message。
   ///
@@ -3737,59 +3997,70 @@ class ChatRuntime {
   /// 上传缓慢的图片会把同会话后续文字、表情和贴纸全部堵在本机 pending。附件
   /// 上传完成后重新进入本方法生成控制 Message，所有 MLS 状态改写仍只发生在
   /// 会话门闩内。群聊保持严格顺序，不越过尚未上传的媒体。
-  Future<bool> _flushPendingOutgoing(
-    ChatRuntimeAccountContext context, {
-    String? recipientUserId,
-    String? conversationId,
-  }) async {
+  Future<bool> _flushPendingOutgoing(ChatRuntimeAccountContext context) async {
     // FCM 后台 isolate 只补拉、验密、落库和通知；出站队列只属于前台主
     // isolate。禁止推送唤醒后重复 prepare/abort 同一附件。
-    if (_receiveOnly) return false;
+    if (_receiveOnly) {
+      return false;
+    }
     final pending = await _store.readPendingOutgoingMessages(
       bindingToken: context.bindingToken,
       ownerUserId: context.account.userId,
       currentAccountId: context.account.accountId,
-      recipientUserId: recipientUserId,
-      conversationId: conversationId,
     );
     final nowMillis = DateTime.now().millisecondsSinceEpoch;
+    final failedConversations = <String>{};
+    var retryNeeded = false;
     for (final item in pending) {
-      if (nowMillis - item.createdAtMillis >=
-          chatMessageRetention.inMilliseconds) {
-        await _expirePendingOutgoing(context, item);
+      if (failedConversations.contains(item.conversationId)) {
         continue;
       }
-      final content = ChatPayloadCodec.decode(item.payload);
-      if (content.isMedia && true) {
-        final allowed = await _prepareAttachmentAuthorization(
-          context.account,
-          allowRefresh: false,
-          expectedDeviceId: context.deviceId,
-          bindingToken: context.bindingToken,
-        );
-        if (!allowed) {
-          // 未知/到期只暂缓；不新增刷新、退避或丢弃待发密文。
-          if (item.conversationId.startsWith('grp:')) return true;
-          continue;
-        }
-        _requireAttachmentSize(content.kind, content.byteSize);
-      }
-      if (!item.conversationId.startsWith('grp:') && content.isMedia) {
-        final attachmentId = content.attachmentId ?? '';
-        if (attachmentId.isEmpty) return true;
-        final uploaded = await _pendingAttachmentUploadedMarker(
+      if (_messageExpired(item.createdAtMillis, nowMillis)) {
+        await _expirePendingOutgoing(
           context.bindingToken,
-          item.conversationId,
-          attachmentId,
+          context.account,
+          item,
         );
-        if (!await uploaded.exists()) {
-          _schedulePendingMediaUpload(context, item, content);
-          // 直聊 Application 也是 OpenMLS 密文；附件上传不持有 MLS 门闩，后续
-          // 消息可立即生成 Message，展示顺序仍由原始 createdAtMillis 恢复。
-          continue;
-        }
+        continue;
       }
       try {
+        final content = ChatPayloadCodec.decode(item.payload);
+        if (content.isMedia) {
+          final allowed = await _prepareAttachmentAuthorization(
+            context.account,
+            allowRefresh: false,
+            expectedDeviceId: context.deviceId,
+            bindingToken: context.bindingToken,
+          );
+          if (!allowed) {
+            retryNeeded = true;
+            // 未知/到期只暂缓；不新增刷新、退避或丢弃待发密文。
+            if (item.conversationId.startsWith('grp:')) {
+              failedConversations.add(item.conversationId);
+            }
+            continue;
+          }
+          _requireAttachmentSize(content.kind, content.byteSize);
+        }
+        if (!item.conversationId.startsWith('grp:') && content.isMedia) {
+          final attachmentId = content.attachmentId ?? '';
+          if (attachmentId.isEmpty) {
+            failedConversations.add(item.conversationId);
+            continue;
+          }
+          final uploaded = await _pendingAttachmentUploadedMarker(
+            context.bindingToken,
+            item.conversationId,
+            attachmentId,
+          );
+          if (!await uploaded.exists()) {
+            retryNeeded = true;
+            _schedulePendingMediaUpload(context, item, content);
+            // 直聊 Application 也是 OpenMLS 密文；附件上传不持有 MLS 门闩，后续
+            // 消息可立即生成 Message，展示顺序仍由原始 createdAtMillis 恢复。
+            continue;
+          }
+        }
         await _sendPendingOutgoing(context, item);
       } on Object catch (error) {
         if (error is _AttachmentAudienceChanged) {
@@ -3800,49 +4071,55 @@ class ChatRuntime {
           '[ChatTrace] direction=outbound stage=message '
           'code=${chatDiagnosticCode(error)}',
         );
-        return true;
+        failedConversations.add(item.conversationId);
       }
     }
-    return false;
+    return retryNeeded || failedConversations.isNotEmpty;
   }
 
   Future<void> _expirePendingOutgoing(
-    ChatRuntimeAccountContext context,
+    ChatBindingFenceToken token,
+    ChatRuntimeAccount account,
     ChatPendingOutgoingMessage pending,
   ) async {
-    await _store.markPendingOutgoingFailed(
-      bindingToken: context.bindingToken,
-      ownerUserId: context.account.userId,
-      localMessageId: pending.localMessageId,
+    await _store.markOutgoingDelivery(
+      bindingToken: token,
+      ownerUserId: account.userId,
+      messageId: pending.localMessageId,
+      state: ChatMessageDeliveryState.failed,
+      errorMessage: 'chat_message_expired',
     );
     final content = ChatPayloadCodec.decode(pending.payload);
     final attachmentId = content.attachmentId ?? '';
-    if (!content.isMedia || attachmentId.isEmpty) return;
-    final staged = await _pendingAttachmentUploadFile(
-      context.bindingToken,
-      pending.conversationId,
-      attachmentId,
-    );
-    final uploaded = await _pendingAttachmentUploadedMarker(
-      context.bindingToken,
-      pending.conversationId,
-      attachmentId,
-    );
-    if (await uploaded.exists()) {
-      await context.transport
-          .abortAttachment(attachmentId)
-          .catchError((Object _) {});
-      try {
-        await uploaded.delete();
-      } catch (_) {
-        // 过期状态已经落库；残留标记随会话本地清理收口。
+    if (!content.isMedia || attachmentId.isEmpty) {
+      return;
+    }
+    await _runBindingFileMutation(token, () async {
+      final staged = await _pendingAttachmentUploadFile(
+        token,
+        pending.conversationId,
+        attachmentId,
+      );
+      final uploaded = await _pendingAttachmentUploadedMarker(
+        token,
+        pending.conversationId,
+        attachmentId,
+      );
+      if (await uploaded.exists()) {
+        try {
+          await uploaded.delete();
+        } catch (_) {
+          // 过期状态已经落库；残留标记随会话本地清理收口。
+        }
       }
-    }
-    try {
-      if (await staged.exists()) await staged.delete();
-    } catch (_) {
-      // 过期状态已经落库；残留密文随会话本地清理收口。
-    }
+      try {
+        if (await staged.exists()) {
+          await staged.delete();
+        }
+      } catch (_) {
+        // 过期状态已经落库；残留密文随会话本地清理收口。
+      }
+    });
   }
 
   /// 在会话门闩之外上传一条直聊附件。相同 attachmentId 全进程只允许一个上传
@@ -3854,7 +4131,9 @@ class ChatRuntime {
   ) {
     final attachmentId = content.attachmentId ?? '';
     final retryAt = _mediaUploadRetryAt[attachmentId];
-    if (retryAt != null && DateTime.now().isBefore(retryAt)) return;
+    if (retryAt != null && DateTime.now().isBefore(retryAt)) {
+      return;
+    }
     if (attachmentId.isEmpty ||
         _mediaUploadBusy ||
         !_mediaBytesInFlight.add(attachmentId)) {
@@ -4088,8 +4367,9 @@ class ChatRuntime {
     if (!await uploaded.exists()) {
       throw StateError('Chat 附件密文仍在后台上传');
     }
-    if (!(await context.crypto.pendingMessageResults(pending.localMessageId))
-        .any((r) => (r['result'] as Map)['application_wire_hex'] is String)) {
+    if (!(await context.crypto.pendingMessageResults(
+      pending.localMessageId,
+    )).any((r) => (r['result'] as Map)['application_wire_hex'] is String)) {
       await _requireAttachmentAudience(
         context,
         pending.conversationId,
@@ -4106,7 +4386,9 @@ class ChatRuntime {
       createdAtMillis: pending.createdAtMillis,
     );
     await _runBindingFileMutation(context.bindingToken, () async {
-      if (await uploaded.exists()) await uploaded.delete();
+      if (await uploaded.exists()) {
+        await uploaded.delete();
+      }
     });
   }
 
@@ -4190,8 +4472,9 @@ class ChatRuntime {
         // 上传标记是远端成功真值，缓存清理留给会话删除统一收口。
       }
     }
-    if (!(await context.crypto.pendingMessageResults(pending.localMessageId))
-        .any((r) => (r['result'] as Map)['application_wire_hex'] is String)) {
+    if (!(await context.crypto.pendingMessageResults(
+      pending.localMessageId,
+    )).any((r) => (r['result'] as Map)['application_wire_hex'] is String)) {
       await _requireAttachmentAudience(
         context,
         pending.conversationId,
@@ -4207,23 +4490,22 @@ class ChatRuntime {
       createdAtMillis: pending.createdAtMillis,
     );
     await _runBindingFileMutation(context.bindingToken, () async {
-      if (await uploaded.exists()) await uploaded.delete();
+      if (await uploaded.exists()) {
+        await uploaded.delete();
+      }
     });
   }
 
   Future<({int sent, bool retryNeeded})> _retryQueuedMessages(
-    ChatRuntimeAccountContext context, {
-    String? recipientUserId,
-    String? conversationId,
-  }) async {
+    ChatRuntimeAccountContext context,
+  ) async {
     final queued = await _store.readQueuedMessages(
       bindingToken: context.bindingToken,
       ownerUserId: context.account.userId,
-      recipientUserId: recipientUserId,
-      conversationId: conversationId,
     );
     var sent = 0;
     var retryNeeded = false;
+    final failedConversations = <String>{};
     for (final item in queued) {
       EncryptedMessage message;
       try {
@@ -4238,23 +4520,48 @@ class ChatRuntime {
         );
         continue;
       }
-      final result = await context.transport.sendEncryptedMessage(
-        messageId: item.messageId,
-        messageBytes: item.messageBytes,
-        recipientUserId: item.recipientUserId,
-        recipientDeviceId: message.recipientDeviceId,
-      );
-      await _store.markOutgoingDelivery(
-        bindingToken: context.bindingToken,
-        ownerUserId: context.account.userId,
-        messageId: item.messageId,
-        state: result.state,
-        errorMessage: result.errorMessage,
-      );
-      if (result.state == ChatMessageDeliveryState.sent) {
-        sent += 1;
-      } else {
+      if (_messageExpired(
+        message.createdAtMillis.toInt(),
+        DateTime.now().millisecondsSinceEpoch,
+      )) {
+        await _store.markOutgoingDelivery(
+          bindingToken: context.bindingToken,
+          ownerUserId: context.account.userId,
+          messageId: item.messageId,
+          state: ChatMessageDeliveryState.failed,
+          errorMessage: 'chat_message_expired',
+        );
+        continue;
+      }
+      if (failedConversations.contains(message.conversationId)) {
+        continue;
+      }
+      try {
+        final result = await context.transport.sendEncryptedMessage(
+          messageId: item.messageId,
+          messageBytes: item.messageBytes,
+          recipientUserId: item.recipientUserId,
+          recipientDeviceId: message.recipientDeviceId,
+        );
+        await _store.markOutgoingDelivery(
+          bindingToken: context.bindingToken,
+          ownerUserId: context.account.userId,
+          messageId: item.messageId,
+          state: result.state,
+          errorMessage: result.errorMessage,
+        );
+        if (result.state == ChatMessageDeliveryState.sent) {
+          sent += 1;
+        } else {
+          retryNeeded = true;
+          failedConversations.add(message.conversationId);
+        }
+      } on Object catch (error) {
+        debugPrint(
+          '[ChatTrace] direction=outbound stage=delivery code=${chatDiagnosticCode(error)}',
+        );
         retryNeeded = true;
+        failedConversations.add(message.conversationId);
       }
     }
     return (sent: sent, retryNeeded: retryNeeded);
@@ -4307,10 +4614,29 @@ class ChatRuntime {
     );
   }
 
+  /// 收件订阅与补发共用同一账户/绑定Hub，不把旧代际连接交给新绑定。
+  Future<_ChatRealtimeHub> _realtimeHub(ChatRuntimeAccount account) async {
+    final previous = _realtimeHubs[account.accountId];
+    if (previous != null &&
+        (previous.account.userId != account.userId ||
+            previous.account.bindingRevision != account.bindingRevision ||
+            previous.account.bindingScope != account.bindingScope ||
+            previous.account.hostIndex != account.hostIndex)) {
+      await _closeRealtimeHub(previous);
+    }
+    _ensureActive();
+    if (_blockedAccountIds.contains(account.accountId)) {
+      throw StateError('Chat 账户上下文正在失效');
+    }
+    return _realtimeHubs.putIfAbsent(
+      account.accountId,
+      () => _ChatRealtimeHub(account),
+    );
+  }
+
   Future<Future<void> Function()?> startRealtimeSync({
     required Future<void> Function() onNotice,
-    Future<void> Function()? onDisconnected,
-    bool retryOutgoingOnConnect = true,
+    Future<void> Function(bool ready)? onConnectionChanged,
   }) async {
     _ensureActive();
     final account = await _readAccount();
@@ -4319,26 +4645,13 @@ class ChatRuntime {
     if (_blockedAccountIds.contains(account.accountId)) {
       throw StateError('Chat 账户上下文正在失效，禁止启动实时会话');
     }
-    final hub = _realtimeHubs.putIfAbsent(
-      account.accountId,
-      () => _ChatRealtimeHub(account),
-    );
-    if (hub.account.userId != account.userId ||
-        hub.account.bindingRevision != account.bindingRevision) {
-      await _closeRealtimeHub(hub);
-      return startRealtimeSync(
-        onNotice: onNotice,
-        onDisconnected: onDisconnected,
-        retryOutgoingOnConnect: retryOutgoingOnConnect,
-      );
-    }
+    final hub = await _realtimeHub(account);
     final listener = _ChatRealtimeListener(
       onNotice: onNotice,
-      onDisconnected: onDisconnected,
+      onConnectionChanged: onConnectionChanged,
     );
     hub.listeners.add(listener);
-    hub.retryOutgoingOnConnect =
-        hub.retryOutgoingOnConnect || retryOutgoingOnConnect;
+    await onConnectionChanged?.call(hub.stopPhysical != null);
     try {
       if (!await _ensureRealtimeHubConnected(hub)) {
         // 初次网络失败也保留前台订阅，由同一Hub退避重连；禁止依赖下一次页面进入。
@@ -4351,10 +4664,14 @@ class ChatRuntime {
     }
     var active = true;
     return () async {
-      if (!active) return;
+      if (!active) {
+        return;
+      }
       active = false;
       hub.listeners.remove(listener);
-      if (hub.listeners.isEmpty) await _closeRealtimeHub(hub);
+      if (hub.listeners.isEmpty) {
+        await _closeRealtimeHub(hub);
+      }
     };
   }
 
@@ -4367,13 +4684,25 @@ class ChatRuntime {
   }
 
   Future<bool> _ensureRealtimeHubConnected(_ChatRealtimeHub hub) {
-    if (hub.closed || hub.listeners.isEmpty) return Future<bool>.value(false);
-    if (hub.stopPhysical != null) return Future<bool>.value(true);
+    if (hub.closed || hub.listeners.isEmpty) {
+      return Future<bool>.value(false);
+    }
+    if (hub.stopPhysical != null) {
+      return Future<bool>.value(true);
+    }
+    // 页面进入与待发唤醒都在这里遵守账户退避，不能重开物理连接。
+    if (hub.reconnectTimer != null) {
+      return Future<bool>.value(false);
+    }
     final existing = hub.connecting;
-    if (existing != null) return existing;
+    if (existing != null) {
+      return existing;
+    }
     late final Future<bool> created;
     created = _connectRealtimeHub(hub).whenComplete(() {
-      if (identical(hub.connecting, created)) hub.connecting = null;
+      if (identical(hub.connecting, created)) {
+        hub.connecting = null;
+      }
     });
     hub.connecting = created;
     return created;
@@ -4388,16 +4717,16 @@ class ChatRuntime {
     final physical = await _startRealtimeSync(
       session: session,
       account: hub.account,
-      onNotice: () => _notifyRealtimeHub(hub, disconnected: false),
       onDisconnected: () async {
         // 当前回调仍登记在 session 中，不能在这里同步 dispose 自己；放到下一个
         // microtask 后，session callback 先正常退出，再关闭旧资源并开始退避重连。
         scheduleMicrotask(() => unawaited(_handleRealtimeHubDisconnected(hub)));
       },
-      retryOutgoingOnConnect: hub.retryOutgoingOnConnect,
       onTransportChanged: (transport) => hub.transport = transport,
     );
-    if (physical == null) return false;
+    if (physical == null) {
+      return false;
+    }
     if (hub.closed || hub.listeners.isEmpty) {
       hub.transport = null;
       await physical.stop();
@@ -4406,23 +4735,38 @@ class ChatRuntime {
     hub.transport = physical.transport;
     hub.stopPhysical = physical.stop;
     hub.reconnectAttempt = 0;
+    await _notifyConnection(hub, true);
+    if (hub.outgoing == null) {
+      unawaited(
+        retryOutgoing().catchError((Object error) async {
+          debugPrint(
+            '[ChatTrace] direction=outbound stage=delivery code=${chatDiagnosticCode(error)}',
+          );
+          await _scheduleRemainingOutgoing(hub.account);
+          return 0;
+        }),
+      );
+    }
     return true;
   }
 
-  Future<void> _notifyRealtimeHub(
-    _ChatRealtimeHub hub, {
-    required bool disconnected,
-  }) async {
-    final listeners = hub.listeners.toList(growable: false);
-    for (final listener in listeners) {
+  /// 数据通知只重读本地；不代表连接就绪，也不能再次发起网络补发。
+  Future<void> _notifyRealtimeHub(_ChatRealtimeHub hub) async {
+    for (final listener in hub.listeners.toList(growable: false)) {
       try {
-        if (disconnected) {
-          await listener.onDisconnected?.call();
-        } else {
-          await listener.onNotice();
-        }
+        await listener.onNotice();
       } catch (_) {
-        // 一个页面已销毁或刷新失败不得中断其它订阅者与物理连接。
+        /* 已离页的订阅者不阻断其它页面。 */
+      }
+    }
+  }
+
+  Future<void> _notifyConnection(_ChatRealtimeHub hub, bool ready) async {
+    for (final listener in hub.listeners.toList(growable: false)) {
+      try {
+        await listener.onConnectionChanged?.call(ready);
+      } catch (_) {
+        /* 生命周期隔离。 */
       }
     }
   }
@@ -4450,7 +4794,7 @@ class ChatRuntime {
         // 旧 socket 已经断开；清理失败由 Runtime 终态的 session 集合再次兜底。
       }
     }
-    await _notifyRealtimeHub(hub, disconnected: true);
+    await _notifyConnection(hub, false);
     _scheduleRealtimeHubReconnect(hub);
   }
 
@@ -4476,7 +4820,9 @@ class ChatRuntime {
   }
 
   Future<void> _closeRealtimeHub(_ChatRealtimeHub hub) async {
-    if (hub.closed) return;
+    if (hub.closed) {
+      return;
+    }
     hub.closed = true;
     final accountId = hub.account.accountId;
     _mailboxEpochs[accountId] = (_mailboxEpochs[accountId] ?? 0) + 1;
@@ -4497,15 +4843,15 @@ class ChatRuntime {
     final stop = hub.stopPhysical;
     hub.stopPhysical = null;
     hub.transport = null;
-    if (stop != null) await stop();
+    if (stop != null) {
+      await stop();
+    }
   }
 
   Future<_ChatRealtimePhysical?> _startRealtimeSync({
     required _ChatRealtimeSession session,
     required ChatRuntimeAccount account,
-    required Future<void> Function() onNotice,
     required Future<void> Function()? onDisconnected,
-    required bool retryOutgoingOnConnect,
     required void Function(ChatServiceTransport? transport) onTransportChanged,
   }) async {
     var handedOff = false;
@@ -4523,7 +4869,6 @@ class ChatRuntime {
             await _runRuntimeOperation(() async {
               if (event is ChatMessageAvailableEvent) {
                 await _drainMailbox(account, signalContext.transport);
-                await onNotice();
               }
             });
           } catch (_) {
@@ -4537,7 +4882,9 @@ class ChatRuntime {
       Future<void> handleDisconnected() {
         return session.runCallback(() async {
           final callback = onDisconnected;
-          if (callback == null) return;
+          if (callback == null) {
+            return;
+          }
           try {
             await _runRuntimeOperation(callback);
           } catch (_) {
@@ -4610,11 +4957,7 @@ class ChatRuntime {
         (_) => unawaited(refreshPushFromCallback()),
       );
       session.attachTokenSubscription(tokenSubscription.cancel);
-      // Chat Tab 与后台唤醒保留账户级补发；具体聊天窗口已经按 conversationId
-      // 独立重试，建连时不得再次串行扫描并发送整个账户的队列。
-      if (retryOutgoingOnConnect) {
-        await retryOutgoing();
-      }
+      // 真实物理连接交接完成后，由Hub唯一唤醒账户出站；不在初始化里重复补发。
       _ensureActive();
       session.ensureOpen();
       handedOff = true;
@@ -4642,11 +4985,12 @@ class ChatRuntime {
     );
   }
 
-  /// 启动/WSS/chat_wake 共用账户级单飞。短批可能来自字节裁剪，只有空批才收敛。
+  /// 启动/WSS/chat_wake 共用账户级单飞，按下一游标收敛，短批仍可续页。
   Future<void> _drainMailbox(
     ChatRuntimeAccount account,
-    ChatServiceTransport transport,
-  ) {
+    ChatServiceTransport transport, {
+    String? cursor,
+  }) {
     final key = account.accountId;
     final existing = _mailboxDrains[key];
     if (existing != null) {
@@ -4660,36 +5004,54 @@ class ChatRuntime {
     created =
         _runRuntimeOperation(() async {
           final started = DateTime.now();
-          for (var page = 0; page < 32; page++) {
+          final cursors = <String>{if (cursor != null) cursor!};
+          if (cursor == null) {
             _mailboxDrainRequested.remove(key);
+          }
+          for (var page = 0; page < 32; page++) {
             await _requireMailboxCurrent(account, generation, epoch);
-            final items = await transport.fetchMailbox();
+            final batch = await transport.fetchMailbox(cursor: cursor);
+            final items = batch.messages;
+            if (batch.nextCursor != null && !cursors.add(batch.nextCursor!)) {
+              throw const ChatConnectionException('mailbox_cursor_no_progress');
+            }
+            cursor = batch.nextCursor;
             await _requireMailboxCurrent(account, generation, epoch);
-            if (items.length > 100) throw StateError('聊天邮箱批量超过100条');
-            if (items.isEmpty) {
-              if (_mailboxDrainRequested.remove(key)) continue;
+            if (items.length > 100) {
+              throw StateError('聊天邮箱批量超过100条');
+            }
+            final acknowledged = items.isEmpty
+                ? 0
+                : await _consumeMailboxBatch(
+                    account,
+                    transport,
+                    items,
+                    generation,
+                    epoch,
+                  );
+            if (cursor == null) {
+              if (items.isNotEmpty && acknowledged == 0) {
+                _mailboxDrainRequested.remove(key);
+                transport.lastRealtimeDiagnosticCode =
+                    'chat_mailbox_no_progress';
+                _scheduleMailboxRetry(
+                  account,
+                  transport,
+                  generation,
+                  epoch,
+                  noProgress: true,
+                );
+              } else if (_mailboxDrainRequested.remove(key)) {
+                cursors.clear();
+                continue;
+              } else {
+                _mailboxRetryAttempts.remove(key);
+              }
+              return;
+            }
+            if (acknowledged > 0) {
               _mailboxRetryAttempts.remove(key);
-              return;
             }
-            final acknowledged = await _consumeMailboxBatch(
-              account,
-              transport,
-              items,
-              generation,
-              epoch,
-            );
-            if (acknowledged == 0) {
-              transport.lastRealtimeDiagnosticCode = 'chat_mailbox_no_progress';
-              _scheduleMailboxRetry(
-                account,
-                transport,
-                generation,
-                epoch,
-                noProgress: true,
-              );
-              return;
-            }
-            _mailboxRetryAttempts.remove(key);
             if (DateTime.now().difference(started) >=
                 const Duration(seconds: 15)) {
               break;
@@ -4701,6 +5063,7 @@ class ChatRuntime {
             generation,
             epoch,
             noProgress: false,
+            cursor: cursor,
           );
         }).whenComplete(() {
           if (identical(_mailboxDrains[key], created)) {
@@ -4717,6 +5080,7 @@ class ChatRuntime {
     int generation,
     int epoch, {
     required bool noProgress,
+    String? cursor,
   }) {
     final key = account.accountId;
     if (_closed ||
@@ -4728,8 +5092,12 @@ class ChatRuntime {
       return;
     }
     final attempt = _mailboxRetryAttempts[key] ?? 0;
-    if (noProgress && attempt >= 3) return;
-    if (noProgress) _mailboxRetryAttempts[key] = attempt + 1;
+    if (noProgress && attempt >= 3) {
+      return;
+    }
+    if (noProgress) {
+      _mailboxRetryAttempts[key] = attempt + 1;
+    }
     _mailboxRetryTimers[key] = Timer(
       noProgress
           ? Duration(seconds: 1 << attempt)
@@ -4739,7 +5107,7 @@ class ChatRuntime {
         unawaited(
           _runRuntimeOperation(() async {
             await _requireMailboxCurrent(account, generation, epoch);
-            await _drainMailbox(account, transport);
+            await _drainMailbox(account, transport, cursor: cursor);
           }).catchError((Object _) {
             /* 保留云端密文，下一次外部唤醒重试。 */
           }),
@@ -4761,6 +5129,10 @@ class ChatRuntime {
       if (await _consumeMailboxMessage(account, transport, item)) {
         acknowledgedMessageIds.add(item.messageId);
       }
+    }
+    final hub = _realtimeHubs[account.accountId];
+    if (acknowledgedMessageIds.isNotEmpty && hub != null) {
+      await _notifyRealtimeHub(hub);
     }
     // 一批只发一次 ACK；单条失败不阻断同批其它密文，且失败条目不进入删除集合。
     await _requireMailboxCurrent(account, generation, epoch);
@@ -4817,16 +5189,22 @@ class ChatRuntime {
         return false;
       }
     }
-    if (processedNow) _scheduleOutgoingRetry(account, item.senderUserId);
+    if (processedNow) {
+      _scheduleOutgoingRetry(account, item.senderUserId);
+    }
     return true;
   }
 
   /// 新密文落盘后仅按发送方合并重试本机待发队列。普通消息不发送实时信令，
   /// 该任务不阻塞邮箱 ACK，重复 Message 只确认删除云端副本。
   void _scheduleOutgoingRetry(ChatRuntimeAccount account, String senderUserId) {
-    if (senderUserId.isEmpty) return;
+    if (senderUserId.isEmpty) {
+      return;
+    }
     final key = '${account.accountId}|$senderUserId';
-    if (!_outgoingRetryInFlight.add(key)) return;
+    if (!_outgoingRetryInFlight.add(key)) {
+      return;
+    }
     unawaited(
       _runRuntimeOperation(() async {
             await _readAccount(expectedAccountId: account.accountId);
@@ -4899,7 +5277,9 @@ class ChatRuntime {
           final previousKey = _accountContextKeys[account.accountId];
           if (previousKey != null && previousKey != contextKey) {
             final previous = _readyContexts.remove(previousKey);
-            if (previous != null) await _disposeContext(previous);
+            if (previous != null) {
+              await _disposeContext(previous);
+            }
           }
           _accountContextKeys[account.accountId] = contextKey;
           _readyContexts[contextKey] = context;
@@ -4991,7 +5371,9 @@ class ChatRuntime {
     } finally {
       if (!keepStateStore) {
         try {
-          if (transport != null) await _disposeUnownedTransport(transport);
+          if (transport != null) {
+            await _disposeUnownedTransport(transport);
+          }
         } finally {
           stateStore?.dispose();
         }
@@ -5109,7 +5491,9 @@ class ChatRuntime {
         );
         return;
       } catch (_) {
-        if (attempt == 2) rethrow;
+        if (attempt == 2) {
+          rethrow;
+        }
         await Future<void>.delayed(Duration(milliseconds: 250 << attempt));
       }
     }
@@ -5204,7 +5588,9 @@ class ChatRuntime {
     String conversationId,
     ChatContent content,
   ) {
-    if (!content.isMedia || (content.attachmentId ?? '').isEmpty) return;
+    if (!content.isMedia || (content.attachmentId ?? '').isEmpty) {
+      return;
+    }
     unawaited(
       _downloadIncomingCloudAttachment(
         context,
@@ -5225,7 +5611,9 @@ class ChatRuntime {
     final attachmentId = content.attachmentId ?? '';
     final key = '${context.account.accountId}|$conversationId|$attachmentId';
     final existing = _incomingAttachmentDownloads[key];
-    if (existing != null) return existing;
+    if (existing != null) {
+      return existing;
+    }
 
     late final Future<void> task;
     task =
@@ -5242,7 +5630,9 @@ class ChatRuntime {
               expectedDeviceId: context.deviceId,
               bindingToken: context.bindingToken,
             )) {
-              if (allowRefresh) throw StateError('宿主附件授权不可用');
+              if (allowRefresh) {
+                throw StateError('宿主附件授权不可用');
+              }
               return;
             }
             if (true) {
@@ -5256,7 +5646,7 @@ class ChatRuntime {
               );
               final hub = _realtimeHubs[context.account.accountId];
               if (hub != null && !hub.closed) {
-                await _notifyRealtimeHub(hub, disconnected: false);
+                await _notifyRealtimeHub(hub);
               }
               return;
             } catch (error) {
@@ -5282,7 +5672,9 @@ class ChatRuntime {
     String conversationId,
     ChatContent content,
   ) async {
-    if (!content.isMedia) return;
+    if (!content.isMedia) {
+      return;
+    }
     final attachmentId = content.attachmentId!;
     final directory = await _attachmentDirectoryForToken(context.bindingToken);
     final cachePath = ChatFlow.attachmentCachePath(
@@ -5334,8 +5726,12 @@ class ChatRuntime {
 
     await engine.finish(content.attachmentGroupId!);
     await _runBindingFileMutation(context.bindingToken, () async {
-      if (await cipher.exists()) await cipher.delete();
-      if (await plain.exists()) await plain.delete();
+      if (await cipher.exists()) {
+        await cipher.delete();
+      }
+      if (await plain.exists()) {
+        await plain.delete();
+      }
     });
     await context.transport.acknowledgeAttachment(attachmentId);
   }
@@ -5364,18 +5760,15 @@ class ChatRuntime {
         await _groupFlow(context).processIncomingGroupMessage(messageBytes),
       );
     } else {
-      final result = await _messageFlow(context)
-          .processIncomingMessageBytes(messageBytes);
+      final result = await _messageFlow(
+        context,
+      ).processIncomingMessageBytes(messageBytes);
       accepted.addAll(result.acceptedMessages);
       // Welcome 成功持久确认也可 ACK 自身；缓冲的 out_of_order 不能 ACK。
       if (result.accepted &&
           !accepted.any((item) => item.messageId == message.messageId)) {
         accepted.add(message);
       }
-    }
-    final hub = _realtimeHubs[context.account.accountId];
-    if (hub != null && !hub.closed) {
-      await _notifyRealtimeHub(hub, disconnected: false);
     }
     return accepted.map((item) => item.messageId).toList(growable: false);
   }
@@ -5390,7 +5783,9 @@ class ChatRuntime {
     final publicationKey =
         '${context.account.userId}|${context.deviceId}|'
         '${context.localKeyPackage.keyPackageRef}';
-    if (!force && _keyPackagePublications.contains(publicationKey)) return;
+    if (!force && _keyPackagePublications.contains(publicationKey)) {
+      return;
+    }
     final lastResort = context.localKeyPackage;
     if (lastResort.userId != context.account.userId ||
         lastResort.deviceId != context.deviceId) {
@@ -5579,30 +5974,40 @@ class ChatRuntime {
 
   Future<void> start({
     Future<void> Function()? onNotice,
-    Future<void> Function()? onDisconnected,
+    Future<void> Function(bool ready)? onConnectionChanged,
   }) async {
-    if (_stopped) throw StateError('聊天实例已停止，请创建新实例');
-    if (_running) return;
+    if (_stopped) {
+      throw StateError('聊天实例已停止，请创建新实例');
+    }
+    if (_running) {
+      return;
+    }
     final active = _starting;
-    if (active != null) return active;
-    final pending = _start(onNotice, onDisconnected);
+    if (active != null) {
+      return active;
+    }
+    final pending = _start(onNotice, onConnectionChanged);
     _starting = pending;
     try {
       await pending;
     } finally {
-      if (identical(_starting, pending)) _starting = null;
+      if (identical(_starting, pending)) {
+        _starting = null;
+      }
     }
   }
 
   Future<void> _start(
     Future<void> Function()? onNotice,
-    Future<void> Function()? onDisconnected,
+    Future<void> Function(bool ready)? onConnectionChanged,
   ) async {
     await startRealtimeSync(
       onNotice: onNotice ?? () async {},
-      onDisconnected: onDisconnected,
+      onConnectionChanged: onConnectionChanged,
     );
-    if (_stopped) throw StateError('聊天实例已停止');
+    if (_stopped) {
+      throw StateError('聊天实例已停止');
+    }
     _running = true;
   }
 
@@ -5612,7 +6017,9 @@ class ChatRuntime {
     _stopped = true;
     _running = false;
     final active = _stopping;
-    if (active != null) return active;
+    if (active != null) {
+      return active;
+    }
     final starting = _starting;
     final pending = Future.wait<void>([
       if (starting != null)
@@ -5624,7 +6031,9 @@ class ChatRuntime {
     pending.then<void>(
       (_) {},
       onError: (Object _, StackTrace _) {
-        if (identical(_stopping, pending)) _stopping = null;
+        if (identical(_stopping, pending)) {
+          _stopping = null;
+        }
       },
     );
     return pending;

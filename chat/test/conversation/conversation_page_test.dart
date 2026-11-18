@@ -129,7 +129,9 @@ void main() {
       tester,
       runtime,
       prepare: (_) async {
-        if (++checks == 2) throw StateError('expired');
+        if (++checks == 2) {
+          throw StateError('expired');
+        }
       },
       pick: () async => draft,
     );
@@ -190,7 +192,9 @@ void main() {
       runtime,
       prepare: (_) => gate.future,
       recorder: (call) async {
-        if (call.method == 'hasPermission') permissions++;
+        if (call.method == 'hasPermission') {
+          permissions++;
+        }
         return null;
       },
     );
@@ -215,7 +219,9 @@ void main() {
       tester,
       runtime,
       prepare: (_) async {
-        if (++checks == 2) throw StateError('voice-expired');
+        if (++checks == 2) {
+          throw StateError('voice-expired');
+        }
       },
       recorder: (call) async {
         if (call.method == 'create') {
@@ -226,12 +232,16 @@ void main() {
                 (_) async => null,
               );
         }
-        if (call.method == 'hasPermission') return true;
+        if (call.method == 'hasPermission') {
+          return true;
+        }
         if (call.method == 'start') {
           recorded = (call.arguments as Map)['path'] as String;
           File(recorded!).writeAsBytesSync([1]);
         }
-        if (call.method == 'stop') return recorded;
+        if (call.method == 'stop') {
+          return recorded;
+        }
         return null;
       },
     );
@@ -340,8 +350,7 @@ class _PageRuntime extends TestChatRuntime {
   @override
   Future<Future<void> Function()?> startRealtimeSync({
     required Future<void> Function() onNotice,
-    Future<void> Function()? onDisconnected,
-    bool retryOutgoingOnConnect = true,
+    Future<void> Function(bool ready)? onConnectionChanged,
   }) async => null;
   @override
   Future<Map<String, String>> resolveCachedMediaPaths({

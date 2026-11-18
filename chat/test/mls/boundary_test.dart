@@ -1,3 +1,6 @@
+import 'package:chat/transport/attachment_transfer.dart';
+import 'package:citizen_user/square_api_client.dart';
+import 'package:chat/chat_error.dart';
 import 'package:citizen_network/mls_authentication.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/mls/mls_boundary.dart';
@@ -18,6 +21,29 @@ void main() {
     expect(storage.diagnosticCode, 'storage_read_failed');
     expect(invalid.code, MlsErrorCode.stateInvalid);
     expect(chatDiagnosticCode(StateError('hidden')), 'operation_failed');
+  });
+
+  test('已知握手原因保留，服务响应动态字段不进入诊断', () {
+    expect(
+      chatDiagnosticCode(const ChatConnectionException('realtime_http_503')),
+      'realtime_http_503',
+    );
+    expect(
+      chatDiagnosticCode(
+        const SquareApiException(
+          'synthetic-private-body',
+          statusCode: 503,
+          errorCode: 'synthetic-private-code',
+        ),
+      ),
+      'service_unavailable',
+    );
+    expect(
+      chatDiagnosticCode(
+        const SquareApiException('synthetic', statusCode: 429),
+      ),
+      'resource_limit',
+    );
   });
 
   test('结构化认证请求固定字段且复制正文，禁止签名域和身份注入', () {

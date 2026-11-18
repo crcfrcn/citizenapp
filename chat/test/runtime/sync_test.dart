@@ -91,7 +91,9 @@ final class _Host
     required ChatDevice identity,
   }) async {
     await authenticate?.call(identity);
-    if (!enteredAccess.isCompleted) enteredAccess.complete();
+    if (!enteredAccess.isCompleted) {
+      enteredAccess.complete();
+    }
     return access == null
         ? ChatAccess(
             realtimeUrl: Uri.parse('wss://chat.example.test/api/chat/realtime'),
@@ -188,6 +190,8 @@ final class _Transport implements ChatServiceTransport {
   final acknowledged = <List<String>>[];
   final published = <MlsKeyPackage>[];
   Future<void> Function()? onPublish;
+  Future<void> Function()? onRealtimeConnect;
+  int realtimeConnects = 0;
   Future<void> Function()? beforeResolve, beforeSend;
   Completer<List<ChatMailboxMessage>>? fetch;
   Completer<void>? emptyMailbox;
@@ -224,23 +228,35 @@ final class _Transport implements ChatServiceTransport {
     required int expiresAtMillis,
   }) async {}
   @override
-  Future<List<ChatMailboxMessage>> fetchMailbox() async {
+  Future<({List<ChatMailboxMessage> messages, String? nextCursor})>
+  fetchMailbox({String? cursor}) async {
     fetches++;
     activeFetches++;
-    if (activeFetches > maximumActive) maximumActive = activeFetches;
+    if (activeFetches > maximumActive) {
+      maximumActive = activeFetches;
+    }
     if (enteredFetch != null && !enteredFetch!.isCompleted) {
       enteredFetch!.complete();
     }
     try {
+      String key(ChatMailboxMessage m) =>
+          '${m.createdAtMillis.toString().padLeft(16, '0')}/${m.messageId}';
+      final available =
+          messages
+              .where((m) => cursor == null || key(m).compareTo(cursor) > 0)
+              .toList()
+            ..sort((a, b) => key(a).compareTo(key(b)));
       final result = fetch == null
-          ? messages.take(pageSize).toList()
+          ? available.take(pageSize).toList()
           : await fetch!.future;
-      if (result.isEmpty &&
-          emptyMailbox != null &&
-          !emptyMailbox!.isCompleted) {
+      final next =
+          fetch == null && result.isNotEmpty && available.length > result.length
+          ? key(result.last)
+          : null;
+      if (next == null && emptyMailbox != null && !emptyMailbox!.isCompleted) {
         emptyMailbox!.complete();
       }
-      return result;
+      return (messages: result, nextCursor: next);
     } finally {
       activeFetches--;
     }
@@ -268,6 +284,8 @@ final class _Transport implements ChatServiceTransport {
     required Future<void> Function(ChatServiceEvent event) onEvent,
     Future<void> Function()? onDisconnected,
   }) async {
+    realtimeConnects++;
+    await onRealtimeConnect?.call();
     this.onEvent = onEvent;
     return () async {
       this.onEvent = null;
@@ -388,7 +406,9 @@ class _SlowNative extends MlsCrypto {
     final result = await super.groupCreateMessage(groupId, plaintext);
     if (groupId.startsWith('attachment:') && release != null) {
       attachmentGroup = groupId;
-      if (!encrypted.isCompleted) encrypted.complete();
+      if (!encrypted.isCompleted) {
+        encrypted.complete();
+      }
       await release!.future;
     }
     return result;
@@ -689,9 +709,13 @@ void main() {
         }
         releasePublication.complete();
         await rejected;
-        if (stopping != null) await stopping;
+        if (stopping != null) {
+          await stopping;
+        }
         expect(fixture.transport.closes, 1);
-        if (stage == 'access') expect(fixture.transport.published, isEmpty);
+        if (stage == 'access') {
+          expect(fixture.transport.published, isEmpty);
+        }
       });
     }
   }
@@ -751,7 +775,7 @@ void main() {
       final f = await _Fixture.create(),
           token = await _seedMedia(f, group: group, text: !group);
       f.host.authorizeAttachment = () async => false;
-      await f.runtime.retryOutgoing();
+      await expectLater(f.runtime.retryOutgoing(), throwsA(isA<Exception>()));
       expect(f.transport.uploads, 0);
       expect(f.host.checks, isNotEmpty);
       expect(
@@ -823,7 +847,9 @@ void main() {
     await f.store.activateBindingFence(_binding);
     final checked = Completer<void>();
     f.host.authorizeAttachment = () async {
-      if (!checked.isCompleted) checked.complete();
+      if (!checked.isCompleted) {
+        checked.complete();
+      }
       return false;
     };
     await f.runtime.resolveCachedMediaPaths(
@@ -844,7 +870,9 @@ void main() {
     final entered = Completer<void>();
     f.transport.onDownload = () async {
       allowed = false;
-      if (!entered.isCompleted) entered.complete();
+      if (!entered.isCompleted) {
+        entered.complete();
+      }
     };
     await f.runtime.resolveCachedMediaPaths(
       conversationId: _conversation,
@@ -947,10 +975,7 @@ void main() {
   });
   test('停止最后实时订阅后，旧补拉不落库不ACK；重连重发同一KeyPackage', () async {
     final fixture = await _Fixture.create();
-    final stop = await fixture.runtime.startRealtimeSync(
-      onNotice: () async {},
-      retryOutgoingOnConnect: false,
-    );
+    final stop = await fixture.runtime.startRealtimeSync(onNotice: () async {});
     expect(stop, isNotNull);
     final original = fixture.transport.published.first.keyPackageRef;
     fixture.transport.fetch = Completer<List<ChatMailboxMessage>>();
@@ -973,7 +998,6 @@ void main() {
     fixture.transport.enteredFetch = null;
     final stopAgain = await fixture.runtime.startRealtimeSync(
       onNotice: () async {},
-      retryOutgoingOnConnect: false,
     );
     expect(
       fixture.transport.published.map((key) => key.keyPackageRef),
@@ -981,6 +1005,156 @@ void main() {
     );
     expect(fixture.transport.published.length, greaterThanOrEqualTo(2));
     await stopAgain!();
+  });
+
+  test('坏密文前缀不ACK但游标继续交付第101条且无多余空页', () async {
+    final f = await _Fixture.create();
+    await f.runtime.ensureReady(_account.accountId);
+    f.transport.messages.addAll(
+      List.generate(100, (i) => _Message(i, poison: true)),
+    );
+    f.transport.messages.add(_Message(100));
+    await f.runtime.handleWake();
+    expect(f.transport.acknowledged.expand((x) => x), ['message-100']);
+    expect(f.transport.messages, hasLength(100));
+    expect(f.transport.fetches, 2);
+    final rows = await f.store.readMessages(
+      ownerUserId: _account.userId,
+      currentAccountId: _account.accountId,
+      conversationId: _conversation,
+    );
+    expect(rows.single.messageId, 'message-100');
+  });
+
+  test('仅过期出站在有效本地围栏内终结且不请求授权', () async {
+    final f = await _Fixture.create();
+    await f.store.activateBindingFence(_binding);
+    final token = await f.store.captureBindingFenceToken(_binding);
+    final m = _Message(2).message
+      ..senderUserId = _account.userId
+      ..senderDeviceId = _device;
+    m.deliveries.single.recipient.userId = 'user-b';
+    await f.store.saveOutgoingMessage(
+      bindingToken: token,
+      ownerUserId: _account.userId,
+      currentAccountId: _account.accountId,
+      message: m,
+      messageBytes: m.writeToBuffer(),
+      recipientUserId: 'user-b',
+      messageKind: ChatMessageKind.text,
+      deliveryState: ChatMessageDeliveryState.queued,
+      plaintext: ChatPayloadCodec.encode(ChatContent.text('expired')),
+    );
+    expect(await f.runtime.retryOutgoing(), 0);
+    expect(f.transportCreates, 0);
+    expect(await f.store.outboundQueueCount(_account.userId), 0);
+    final rows = await f.store.readMessages(
+      ownerUserId: _account.userId,
+      currentAccountId: _account.accountId,
+      conversationId: _conversation,
+    );
+    expect(rows.single.deliveryState, ChatMessageDeliveryState.failed);
+  });
+
+  test('账户补发第一会话转换失败仍处理第二会话并报告未完成', () async {
+    final f = await _Fixture.create();
+    await f.runtime.ensureReady(_account.accountId);
+    final token = await f.store.captureBindingFenceToken(_binding);
+    for (var i = 0; i < 2; i++) {
+      await f.store.savePendingOutgoingMessage(
+        bindingToken: token,
+        ownerUserId: _account.userId,
+        currentAccountId: _account.accountId,
+        localMessageId: 'pending:conversation$i',
+        conversationId: ChatRuntime.directConversationId(
+          _account.userId,
+          i == 0 ? 'user-b' : 'user-c',
+        ),
+        recipientUserId: i == 0 ? 'user-b' : 'user-c',
+        messageKind: ChatMessageKind.text,
+        payload: ChatPayloadCodec.encode(ChatContent.text('text$i')),
+        createdAtMillis: DateTime.now().millisecondsSinceEpoch + i,
+      );
+    }
+    await expectLater(f.runtime.retryOutgoing(), throwsA(isA<Exception>()));
+    expect(f.transport.resolutions, 2);
+  });
+
+  test('换页和新增待发共同遵守账户连接退避', () async {
+    final f = await _Fixture.create();
+    final token = await _seedMedia(f);
+    f.transport.onRealtimeConnect = () async =>
+        throw StateError('synthetic offline');
+    final stops = <Future<void> Function()>[];
+    for (var i = 0; i < 3; i++) {
+      stops.add((await f.runtime.startRealtimeSync(onNotice: () async {}))!);
+    }
+    await f.store.savePendingOutgoingMessage(
+      bindingToken: token,
+      ownerUserId: _account.userId,
+      currentAccountId: _account.accountId,
+      localMessageId: 'pending:during-backoff',
+      conversationId: _conversation,
+      recipientUserId: 'user-b',
+      messageKind: ChatMessageKind.text,
+      payload: ChatPayloadCodec.encode(
+        ChatContent.text('queued while offline'),
+      ),
+      createdAtMillis: DateTime.now().millisecondsSinceEpoch,
+    );
+    await expectLater(f.runtime.retryOutgoing(), throwsA(isA<Exception>()));
+    expect(f.transport.realtimeConnects, 1);
+    for (final stop in stops) {
+      await stop();
+    }
+  });
+
+  test('密文投递异常只阻断同会话，另一个会话仍提交且批通知一次', () async {
+    final f = await _Fixture.create();
+    await f.runtime.ensureReady(_account.accountId);
+    var notices = 0;
+    final stop = await f.runtime.startRealtimeSync(
+      onNotice: () async {
+        notices++;
+      },
+    );
+    await f.runtime.retryOutgoing(); // 排空建连后的空队列唤醒，再写本轮测试消息。
+    final token = await f.store.captureBindingFenceToken(_binding);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    for (var i = 0; i < 3; i++) {
+      final peer = i < 2 ? 'user-b' : 'user-c';
+      final m = _Message(i).message
+        ..senderUserId = _account.userId
+        ..senderDeviceId = _device
+        ..conversationId = ChatRuntime.directConversationId(
+          _account.userId,
+          peer,
+        )
+        ..createdAtMillis = Int64(now + i);
+      m.deliveries.single.recipient.userId = peer;
+      await f.store.saveOutgoingMessage(
+        bindingToken: token,
+        ownerUserId: _account.userId,
+        currentAccountId: _account.accountId,
+        message: m,
+        messageBytes: m.writeToBuffer(),
+        recipientUserId: peer,
+        messageKind: ChatMessageKind.text,
+        deliveryState: ChatMessageDeliveryState.queued,
+        plaintext: ChatPayloadCodec.encode(ChatContent.text('queued$i')),
+      );
+    }
+    var sends = 0;
+    f.transport.beforeSend = () async {
+      if (sends++ == 0) {
+        throw StateError('synthetic transport failure');
+      }
+    };
+    await expectLater(f.runtime.retryOutgoing(), throwsA(isA<Exception>()));
+    expect(sends, 2);
+    expect(await f.store.outboundQueueCount(_account.userId), 2);
+    expect(notices, 1);
+    await stop!();
   });
 
   test('超过100条及字节裁剪短批持续补拉，ACK 前真实落库', () async {
@@ -996,7 +1170,7 @@ void main() {
     );
     expect(fixture.transport.messages, isEmpty);
     expect(fixture.transport.acknowledged.expand((ids) => ids), hasLength(205));
-    expect(fixture.transport.fetches, 7);
+    expect(fixture.transport.fetches, 6);
     expect(fixture.crypto.processed, 205);
   });
 
@@ -1034,7 +1208,8 @@ void main() {
       if (terminal == 'binding') {
         fixture.host.account = const ChatRuntimeAccount(
           hostIndex: 0,
-          bindingScope: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          bindingScope:
+              '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
           userId: 'user-a',
           bindingRevision: 2,
           accountId: 'account-a',
@@ -1050,7 +1225,9 @@ void main() {
       }
       fixture.transport.fetch!.complete([_Message(1)]);
       await rejected;
-      if (closing != null) await closing;
+      if (closing != null) {
+        await closing;
+      }
       expect(fixture.transport.acknowledged, isEmpty);
       expect(fixture.crypto.processed, 0);
     });

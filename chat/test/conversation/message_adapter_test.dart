@@ -31,45 +31,69 @@ ChatStoredMessage _stored({
 }
 
 void main() {
-  test('text messages map without user-visible delivery or read status', () {
-    final outgoing =
-        storedMessageToChatMessage(
-              mediaLimits: const TestChatMediaLimits(),
-              _stored(
-                messageId: 'env-out',
-                kind: ChatMessageKind.text,
-                plaintext: ChatPayloadCodec.encode(ChatContent.text('hello')),
-              ),
-              currentUserId: _aliceUserId,
-            )
-            as TextMessage;
-    expect(outgoing.text, 'hello');
-    expect(outgoing.status, isNull);
-    expect(outgoing.sentAt, isNull);
-    expect(outgoing.deliveredAt, isNull);
-    expect(outgoing.failedAt, isNull);
-    expect(outgoing.metadata?['is_mine'], isTrue);
-
-    final incoming =
-        storedMessageToChatMessage(
-              mediaLimits: const TestChatMediaLimits(),
-              _stored(
-                messageId: 'env-in',
-                kind: ChatMessageKind.text,
-                direction: 'incoming',
-                state: ChatMessageDeliveryState.receivedByDevice,
-                plaintext: ChatPayloadCodec.encode(ChatContent.text('hi')),
-              ),
-              currentUserId: _aliceUserId,
-            )
-            as TextMessage;
-    expect(incoming.text, 'hi');
-    expect(incoming.status, isNull);
-    expect(incoming.sentAt, isNull);
-    expect(incoming.deliveredAt, isNull);
-    expect(incoming.failedAt, isNull);
-    expect(incoming.metadata?['is_mine'], isFalse);
+  test('待发和失败只投影消息行真实状态，不生成确认时间', () {
+    for (final row in [
+      (ChatMessageDeliveryState.queued, MessageStatus.sending),
+      (ChatMessageDeliveryState.sending, MessageStatus.sending),
+      (ChatMessageDeliveryState.failed, MessageStatus.error),
+    ]) {
+      final ui = storedMessageToChatMessage(
+        _stored(
+          messageId: 'row',
+          kind: ChatMessageKind.text,
+          state: row.$1,
+          plaintext: ChatPayloadCodec.encode(ChatContent.text('text')),
+        ),
+        currentUserId: _aliceUserId,
+      );
+      expect(ui.status, row.$2);
+      expect(ui.sentAt, isNull);
+      expect(ui.deliveredAt, isNull);
+    }
   });
+
+  test(
+    'text messages project actual local delivery state without inventing read receipts',
+    () {
+      final outgoing =
+          storedMessageToChatMessage(
+                mediaLimits: const TestChatMediaLimits(),
+                _stored(
+                  messageId: 'env-out',
+                  kind: ChatMessageKind.text,
+                  plaintext: ChatPayloadCodec.encode(ChatContent.text('hello')),
+                ),
+                currentUserId: _aliceUserId,
+              )
+              as TextMessage;
+      expect(outgoing.text, 'hello');
+      expect(outgoing.status, MessageStatus.sent);
+      expect(outgoing.sentAt, isNull);
+      expect(outgoing.deliveredAt, isNull);
+      expect(outgoing.failedAt, isNull);
+      expect(outgoing.metadata?['is_mine'], isTrue);
+
+      final incoming =
+          storedMessageToChatMessage(
+                mediaLimits: const TestChatMediaLimits(),
+                _stored(
+                  messageId: 'env-in',
+                  kind: ChatMessageKind.text,
+                  direction: 'incoming',
+                  state: ChatMessageDeliveryState.receivedByDevice,
+                  plaintext: ChatPayloadCodec.encode(ChatContent.text('hi')),
+                ),
+                currentUserId: _aliceUserId,
+              )
+              as TextMessage;
+      expect(incoming.text, 'hi');
+      expect(incoming.status, isNull);
+      expect(incoming.sentAt, isNull);
+      expect(incoming.deliveredAt, isNull);
+      expect(incoming.failedAt, isNull);
+      expect(incoming.metadata?['is_mine'], isFalse);
+    },
+  );
 
   test(
     'image maps to ImageMessage with resolved local path and dimensions',
