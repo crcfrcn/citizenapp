@@ -39,6 +39,8 @@ const _account = ChatRuntimeAccount(
 );
 
 final class _Push extends ChatPushService {
+  _Push({this.pendingWake = false});
+  bool pendingWake;
   @override
   Stream<ChatPushWake> get wakes => const Stream.empty();
   @override
@@ -50,7 +52,12 @@ final class _Push extends ChatPushService {
     apnsEnvironment: null,
   );
   @override
-  Future<bool> takePendingWake() async => false;
+  Future<bool> takePendingWake() async {
+    final pending = pendingWake;
+    pendingWake = false;
+    return pending;
+  }
+
   @override
   Future<void> clearConversationNotifications(String conversationId) async {}
   @override
@@ -60,6 +67,7 @@ final class _Push extends ChatPushService {
 final class _Host
     implements ChatRuntimeFixture, ChatAttachmentAuthorizationFixture {
   ChatRuntimeAccount account = _account;
+  bool pendingWake = false;
   ChatMediaLimits limits = const TestChatMediaLimits();
   final checks = <({bool refresh, String? device})>[];
   Future<bool> Function()? authorizeAttachment;
@@ -77,7 +85,7 @@ final class _Host
   Future<void> Function(ChatDevice)? authenticate;
   final enteredAccess = Completer<void>();
   @override
-  ChatPushService get push => _Push();
+  ChatPushService get push => _Push(pendingWake: pendingWake);
   @override
   ChatMediaLimits get mediaLimits => limits;
   @override
@@ -1055,6 +1063,47 @@ void main() {
       conversationId: _conversation,
     );
     expect(rows.single.deliveryState, ChatMessageDeliveryState.failed);
+  });
+
+  test('待处理唤醒和出站共存时完成ready交接，不等待自身建连', () async {
+    final f = await _Fixture.create();
+    f.host.pendingWake = true;
+    await f.runtime.ensureReady(_account.accountId);
+    final token = await f.store.captureBindingFenceToken(_binding);
+    final m = _Message(3).message
+      ..senderUserId = _account.userId
+      ..senderDeviceId = _device
+      ..createdAtMillis = Int64(DateTime.now().millisecondsSinceEpoch);
+    m.deliveries.single.recipient.userId = 'user-b';
+    await f.store.saveOutgoingMessage(
+      bindingToken: token,
+      ownerUserId: _account.userId,
+      currentAccountId: _account.accountId,
+      message: m,
+      messageBytes: m.writeToBuffer(),
+      recipientUserId: 'user-b',
+      messageKind: ChatMessageKind.text,
+      deliveryState: ChatMessageDeliveryState.queued,
+      plaintext: ChatPayloadCodec.encode(ChatContent.text('pending wake')),
+    );
+    var ready = false, sends = 0;
+    f.transport.beforeSend = () async {
+      sends++;
+    };
+    final stop = await f.runtime
+        .startRealtimeSync(
+          onNotice: () async {},
+          onConnectionChanged: (value) async {
+            ready = value;
+          },
+        )
+        .timeout(const Duration(seconds: 2));
+    await f.runtime.retryOutgoing().timeout(const Duration(seconds: 2));
+    expect(ready, isTrue);
+    expect(sends, 1);
+    expect(f.transport.fetches, 2);
+    expect(await f.store.outboundQueueCount(_account.userId), 0);
+    await stop!();
   });
 
   test('账户补发第一会话转换失败仍处理第二会话并报告未完成', () async {

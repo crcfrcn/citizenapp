@@ -668,7 +668,7 @@ fn store_json(input: *const c_char) -> Result<String, String> {
 
 fn create_key_package_json(request_json: *const c_char) -> Result<String, String> {
     let request: CreateKeyPackageRequest = parse_request(request_json)?;
-    // 消息标识在触碰持久状态之前校验，重放仍按完整原请求复核。
+    // 消息标识在触碰持久状态之前校验；重放复核完整业务请求，目录只定位当前状态。
     require_non_empty("message_id", &request.message_id)?;
     require_non_empty("user_id", &request.user_id)?;
     require_non_empty("device_id", &request.device_id)?;
@@ -1346,16 +1346,23 @@ fn result_key(kind: &str, request: &serde_json::Value) -> Result<String, String>
     }
     Ok(format!("{kind}:{id}"))
 }
+/// 收据只拥有业务请求；沙盒位置变化不能改变同一持久身份的操作。
+fn logical_request(mut request: serde_json::Value) -> serde_json::Value {
+    if let Some(fields) = request.as_object_mut() {
+        fields.remove("state_store_dir");
+    }
+    request
+}
 fn committed_response(
     provider: &MlsProvider,
     kind: &str,
     input: *const c_char,
 ) -> Result<Option<String>, String> {
-    let request: serde_json::Value = parse_request(input)?;
+    let request = logical_request(parse_request(input)?);
     require_attachment_operation(provider, kind, &request)?;
     let key = result_key(kind, &request)?;
     if let Some(saved) = provider.results.borrow().get(&key) {
-        if saved.request != request {
+        if logical_request(saved.request.clone()) != request {
             return Err("CHAT_MLS_REQUEST_CONFLICT:同一message_id请求发生变化".to_string());
         }
         let mut response = saved.result.clone();
@@ -1386,7 +1393,7 @@ fn commit_response(
     input: *const c_char,
     mut response: serde_json::Value,
 ) -> Result<String, String> {
-    let request: serde_json::Value = parse_request(input)?;
+    let request = logical_request(parse_request(input)?);
     if kind == "process" && response["status"] != "applied" {
         return serde_json::to_string(&response)
             .map_err(|_| state_error(ERROR_STATE_INVALID, "结果序列化失败"));

@@ -523,7 +523,7 @@ fn authentication_never_replaces_missing_corrupt_or_wrong_owner_identity() {
 }
 #[test]
 fn key_packages_survive_reopening_without_relaxing_business_fields() {
-    let a = Fixture::new("alice");
+    let mut a = Fixture::new("alice");
     let mut request = a.request("key-package");
     request["last_resort"] = json!(true);
     let first = invoke(create_key_package_json, request.clone()).unwrap();
@@ -547,6 +547,32 @@ fn key_packages_survive_reopening_without_relaxing_business_fields() {
         first,
         invoke(create_key_package_json, request.clone()).unwrap()
     );
+
+    // 真实已提交收据包含历史物理位置时，沙盒搬迁仍复用同一身份和原结果。
+    let provider = load_provider(&a.dir).unwrap();
+    provider
+        .results
+        .borrow_mut()
+        .get_mut("key_package:key-package")
+        .unwrap()
+        .request["state_store_dir"] = json!(a.dir);
+    save_provider(&a.dir, &provider).unwrap();
+    let moved = a.dir.with_extension("moved");
+    fs::rename(&a.dir, &moved).unwrap();
+    a.dir = fs::canonicalize(moved).unwrap();
+    request["state_store_dir"] = json!(a.dir);
+    assert_eq!(
+        first,
+        invoke(create_key_package_json, request.clone()).unwrap()
+    );
+    let mut fresh = request.clone();
+    fresh["message_id"] = json!("new-package");
+    invoke(create_key_package_json, fresh).unwrap();
+    let provider = load_provider(&a.dir).unwrap();
+    assert!(provider.results.borrow()["key_package:new-package"]
+        .request
+        .get("state_store_dir")
+        .is_none());
 
     request["last_resort"] = json!(false);
     assert!(invoke(create_key_package_json, request)

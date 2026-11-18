@@ -4930,7 +4930,6 @@ class ChatRuntime {
             await _runRuntimeOperation(() async {
               final context = await _readyContext(account);
               await _drainMailbox(account, context.transport);
-              await retryOutgoing();
             });
           } catch (_) {
             // 未 ACK 密文仍在 聊天服务模块；下次推送、启动或恢复前台继续补拉。
@@ -4963,6 +4962,7 @@ class ChatRuntime {
       final pendingWake = await push.takePendingWake();
       _ensureActive();
       if (pendingWake) {
+        // 初始化只补拉收件；出站由Hub交接ready后启动，不能等待自身connecting。
         await refreshMailboxFromCallback();
       }
       final tokenSubscription = push.tokenChanges.listen(
