@@ -1,6 +1,7 @@
 import 'transport/attachment_transfer.dart';
 import 'package:citizen_network/mls_authentication.dart';
 import 'package:citizen_user/square_api_client.dart';
+import 'package:citizen_sdk/citizen_sdk.dart';
 
 /// 公民聊天 对App公开的稳定错误分类；产品文案由App应用映射。
 enum ChatErrorCode {
@@ -36,6 +37,9 @@ String chatDiagnosticCode(Object error) {
   if (error is ChatConnectionException) {
     return error.code;
   }
+  if (error is CitizenSdkException) {
+    return 'sdk_${error.stage.name}_${error.code.name}';
+  }
   if (error is SquarePreflightException) {
     return const {
           'resource_limit',
@@ -50,6 +54,8 @@ String chatDiagnosticCode(Object error) {
     final code = error.errorCode;
     if (const {
       'cid_not_bound',
+      'identity_projection_unavailable',
+      'identity_local_missing',
       'identity_unregistered',
       'device_not_registered',
       'chat_device_not_registered',

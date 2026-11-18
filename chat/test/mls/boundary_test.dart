@@ -1,4 +1,5 @@
 import 'package:chat/transport/attachment_transfer.dart';
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_user/square_api_client.dart';
 import 'package:chat/chat_error.dart';
 import 'package:citizen_network/mls_authentication.dart';
@@ -24,6 +25,15 @@ void main() {
   });
 
   test('已知握手原因保留，服务响应动态字段不进入诊断', () {
+    expect(
+      chatDiagnosticCode(
+        const CitizenSdkException(
+          code: CitizenSdkErrorCode.notReady,
+          message: 'synthetic-private-detail',
+        ),
+      ),
+      'sdk_admission_notReady',
+    );
     expect(
       chatDiagnosticCode(const ChatConnectionException('realtime_http_503')),
       'realtime_http_503',

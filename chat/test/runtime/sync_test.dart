@@ -8,6 +8,7 @@ import 'dart:io';
 
 import 'package:fixnum/fixnum.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:chat/message/chat_content.dart';
 import 'package:chat/message/chat_message.dart';
@@ -1083,8 +1084,20 @@ void main() {
   test('换页和新增待发共同遵守账户连接退避', () async {
     final f = await _Fixture.create();
     final token = await _seedMedia(f);
-    f.transport.onRealtimeConnect = () async =>
-        throw StateError('synthetic offline');
+    final diagnostics = <String>[];
+    final previousPrint = debugPrint;
+    debugPrint = (String? text, {int? wrapWidth}) {
+      if (text != null) {
+        diagnostics.add(text);
+      }
+    };
+    addTearDown(() {
+      debugPrint = previousPrint;
+    });
+    f.transport.onRealtimeConnect = () async => throw const MlsException(
+      MlsErrorCode.stateInvalid,
+      'synthetic-private-detail',
+    );
     final stops = <Future<void> Function()>[];
     for (var i = 0; i < 3; i++) {
       stops.add((await f.runtime.startRealtimeSync(onNotice: () async {}))!);
@@ -1104,6 +1117,10 @@ void main() {
     );
     await expectLater(f.runtime.retryOutgoing(), throwsA(isA<Exception>()));
     expect(f.transport.realtimeConnects, 1);
+    expect(diagnostics.where((row) => row.contains('direction=connection')), [
+      '[ChatTrace] direction=connection stage=socket code=state_invalid',
+    ]);
+    expect(diagnostics.join(), isNot(contains('synthetic-private-detail')));
     for (final stop in stops) {
       await stop();
     }

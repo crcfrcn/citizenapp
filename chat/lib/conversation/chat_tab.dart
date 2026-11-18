@@ -394,6 +394,9 @@ class _ChatTabState extends State<ChatTab> {
       }
     } catch (error) {
       if (mounted && generation == _reloadGeneration) {
+        debugPrint(
+          '[ChatTrace] direction=local stage=preview code=${chatDiagnosticCode(error)}',
+        );
         setState(() {
           // 本机缺绑定使用已知闭集身份提示，未知底层异常仍走原脱敏文案。
           _error =

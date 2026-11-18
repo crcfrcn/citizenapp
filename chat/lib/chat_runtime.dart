@@ -244,6 +244,7 @@ class _ChatRealtimeHub {
   ChatServiceTransport? transport;
   Timer? reconnectTimer;
   int reconnectAttempt = 0;
+  String? diagnosticCode;
   bool closed = false;
 }
 
@@ -4699,11 +4700,18 @@ class ChatRuntime {
       return existing;
     }
     late final Future<bool> created;
-    created = _connectRealtimeHub(hub).whenComplete(() {
-      if (identical(hub.connecting, created)) {
-        hub.connecting = null;
-      }
-    });
+    created = _connectRealtimeHub(hub)
+        .then((ready) {
+          if (ready) {
+            hub.diagnosticCode = null;
+          }
+          return ready;
+        })
+        .whenComplete(() {
+          if (identical(hub.connecting, created)) {
+            hub.connecting = null;
+          }
+        });
     hub.connecting = created;
     return created;
   }
@@ -4855,6 +4863,7 @@ class ChatRuntime {
     required void Function(ChatServiceTransport? transport) onTransportChanged,
   }) async {
     var handedOff = false;
+    var stage = 'context';
     try {
       // 接收消息依赖本机 Last Resort KeyPackage；新上下文登记一次，
       // 每次物理重连前再幂等确认一次，避免服务端目录清理后首次消息互锁。
@@ -4895,6 +4904,7 @@ class ChatRuntime {
 
       // 注册长寿命 socket callback 时不能处于 user ID Zone；每次 callback 由 session
       // registry 跟踪，并在其内部显式取得 binding lease。
+      stage = 'socket';
       final stopSocket = await signalContext.transport.connectRealtime(
         onEvent: handleEvent,
         onDisconnected: onDisconnected == null ? null : handleDisconnected,
@@ -4909,6 +4919,7 @@ class ChatRuntime {
       // 必须先完成 WSS ready，再补拉可靠密文邮箱。建连后的新消息由 WSS
       // 立即交付，建连前的消息由本次补拉收敛，两者重叠时由 message_id
       // 和本机落库幂等去重；禁止留下“补拉结束、WSS 尚未建立”的丢失窗口。
+      stage = 'mailbox';
       await _drainMailbox(account, signalContext.transport);
       _ensureActive();
       session.ensureOpen();
@@ -4944,6 +4955,7 @@ class ChatRuntime {
         });
       }
 
+      stage = 'push';
       final pushSubscription = push.wakes.listen(
         (_) => unawaited(refreshMailboxFromCallback()),
       );
@@ -4965,6 +4977,14 @@ class ChatRuntime {
         stop: () => _disposeRealtimeSession(session),
         transport: signalTransport,
       );
+    } on Object catch (error) {
+      final code = chatDiagnosticCode(error), diagnostic = '$stage/$code';
+      final hub = _realtimeHubs[account.accountId];
+      if (hub != null && hub.diagnosticCode != diagnostic) {
+        hub.diagnosticCode = diagnostic;
+        debugPrint('[ChatTrace] direction=connection stage=$stage code=$code');
+      }
+      rethrow;
     } finally {
       session.markInitializationDone();
       if (!handedOff) {
