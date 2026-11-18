@@ -10,6 +10,7 @@ class ChatConversationPreview {
     required this.lastUpdatedAt,
     required this.unreadCount,
     this.conversationKind = 'dm',
+    this.isPinned = false,
   });
 
   /// 公民聊天 conversation identifier.
@@ -26,6 +27,9 @@ class ChatConversationPreview {
 
   final DateTime lastUpdatedAt;
   final int unreadCount;
+
+  /// 当前永久身份的本机置顶状态。
+  final bool isPinned;
 
   /// dm for direct chat, group for a private group.
   final String conversationKind;

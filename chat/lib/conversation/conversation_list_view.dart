@@ -104,6 +104,10 @@ class ChatConversationListItem {
     required this.onTap,
     required this.onDelete,
     this.onLongPress,
+    this.isPinned = false,
+    this.onTogglePin,
+    this.onVoice,
+    this.onVideo,
   });
 
   final String id;
@@ -115,6 +119,10 @@ class ChatConversationListItem {
   final VoidCallback onTap;
   final Future<void> Function() onDelete;
   final VoidCallback? onLongPress;
+  final bool isPinned;
+  final Future<void> Function()? onTogglePin;
+  final VoidCallback? onVoice;
+  final VoidCallback? onVideo;
 }
 
 /// Reusable conversation list, search entry, status and unread UI.
@@ -174,6 +182,7 @@ class ChatConversationOverview extends StatelessWidget {
                     SliverList.builder(
                       itemCount: items.length,
                       itemBuilder: (context, index) => _ConversationTile(
+                        key: ValueKey(items[index].id),
                         item: items[index],
                         isFirst: index == 0,
                         isLast: index == items.length - 1,
@@ -230,121 +239,300 @@ class ChatConversationPlaceholder extends StatelessWidget {
   }
 }
 
-class _ConversationTile extends StatelessWidget {
+class _ConversationTile extends StatefulWidget {
   const _ConversationTile({
+    super.key,
     required this.item,
     required this.isFirst,
     required this.isLast,
   });
-
   final ChatConversationListItem item;
   final bool isFirst;
   final bool isLast;
+  @override
+  State<_ConversationTile> createState() => _ConversationTileState();
+}
+
+class _ConversationTileState extends State<_ConversationTile> {
+  double _offset = 0;
+  bool _dragging = false;
+  bool _busy = false;
+  static const _duration = Duration(milliseconds: 180);
+  ChatConversationListItem get item => widget.item;
+
+  /// 先收起卡片再执行动作，取消删除后恢复原位，并防止重复触发。
+  Future<void> _runAction(Future<void> Function() action) async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _dragging = false;
+      _offset = 0;
+    });
+    await Future<void>.delayed(_duration);
+    if (!mounted) return;
+    try {
+      await action();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Widget _action(
+    String label,
+    IconData icon,
+    Color color,
+    Future<void> Function() action,
+    double width,
+  ) => SizedBox(
+    width: width,
+    child: Material(
+      color: color,
+      child: InkWell(
+        onTap: _busy ? null : () => _runAction(action),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, color: Colors.white),
+              const SizedBox(height: 4),
+              Text(label, style: const TextStyle(color: Colors.white)),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
     final radius = BorderRadius.vertical(
-      top: isFirst
+      top: widget.isFirst
           ? Radius.circular(AppLayout.scaled(context, 12))
           : Radius.zero,
-      bottom: isLast
+      bottom: widget.isLast
           ? Radius.circular(AppLayout.scaled(context, 12))
           : Radius.zero,
     );
-    return Dismissible(
-      key: ValueKey('chat-conversation-${item.id}'),
-      direction: DismissDirection.endToStart,
-      background: _DeleteDismissBackground(),
-      confirmDismiss: (_) async {
-        await item.onDelete();
-        return false;
-      },
-      child: Padding(
-        padding: EdgeInsets.symmetric(
-          horizontal: AppLayout.scaled(context, 16),
-        ),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: AppTheme.surfaceCard,
-            borderRadius: radius,
-            border: Border.all(color: AppTheme.borderLight),
-          ),
-          child: Material(
-            color: Colors.transparent,
-            borderRadius: radius,
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              borderRadius: radius,
-              onTap: item.onTap,
-              onLongPress: item.onLongPress,
-              child: Padding(
-                padding: EdgeInsets.all(AppLayout.scaled(context, 14)),
-                child: Row(
-                  children: [
-                    item.leading,
-                    SizedBox(width: AppLayout.scaled(context, 12)),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            item.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: AppTheme.textPrimary,
-                            ),
-                          ),
-                          SizedBox(height: AppLayout.scaled(context, 4)),
-                          Text(
-                            item.subtitle.trim().isEmpty
-                                ? '暂无消息'
-                                : item.subtitle.trim(),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: AppLayout.scaled(context, 13),
-                              color: AppTheme.textSecondary,
-                            ),
-                          ),
-                        ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final actionWidth = math.min(AppLayout.scaled(context, 80), width * .3);
+        final panelWidth = actionWidth * 2;
+        return GestureDetector(
+          key: ValueKey('chat-conversation-${item.id}'),
+          onHorizontalDragStart: _busy
+              ? null
+              : (_) => setState(() => _dragging = true),
+          onHorizontalDragUpdate: _busy
+              ? null
+              : (details) => setState(() {
+                  _offset = (_offset + details.delta.dx).clamp(-width, width);
+                }),
+          onHorizontalDragCancel: () => setState(() {
+            _dragging = false;
+            _offset = 0;
+          }),
+          onHorizontalDragEnd: _busy
+              ? null
+              : (_) {
+                  if (_offset.abs() >= width * .78) {
+                    if (_offset < 0) {
+                      _runAction(item.onDelete);
+                    } else {
+                      _runAction(() async {
+                        item.onVoice?.call();
+                      });
+                    }
+                  } else {
+                    setState(() {
+                      _dragging = false;
+                      _offset = _offset.abs() < actionWidth / 2
+                          ? 0
+                          : (_offset < 0 ? -panelWidth : panelWidth);
+                    });
+                  }
+                },
+          child: ClipRect(
+            child: Stack(
+              children: [
+                if (_offset != 0)
+                  Positioned.fill(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: AppLayout.scaled(context, 16),
                       ),
-                    ),
-                    SizedBox(width: AppLayout.scaled(context, 10)),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(
-                          chatConversationTime(item.updatedAt),
-                          style: TextStyle(
-                            fontSize: AppLayout.scaled(context, 12),
-                            color: AppTheme.textSecondary,
+                      child: ClipRRect(
+                        borderRadius: radius,
+                        child: Align(
+                          alignment: _offset < 0
+                              ? Alignment.centerRight
+                              : Alignment.centerLeft,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: _offset < 0
+                                ? [
+                                    _action(
+                                      item.isPinned ? '取消置顶' : '置顶',
+                                      Icons.push_pin_outlined,
+                                      Colors.orange.shade700,
+                                      () async {
+                                        await item.onTogglePin?.call();
+                                      },
+                                      actionWidth,
+                                    ),
+                                    _action(
+                                      '删除',
+                                      Icons.delete_outline_rounded,
+                                      Colors.red.shade600,
+                                      item.onDelete,
+                                      actionWidth,
+                                    ),
+                                  ]
+                                : [
+                                    _action(
+                                      '语音',
+                                      Icons.call_outlined,
+                                      Colors.green.shade600,
+                                      () async {
+                                        item.onVoice?.call();
+                                      },
+                                      actionWidth,
+                                    ),
+                                    _action(
+                                      '视频',
+                                      Icons.videocam_outlined,
+                                      Colors.blue.shade600,
+                                      () async {
+                                        item.onVideo?.call();
+                                      },
+                                      actionWidth,
+                                    ),
+                                  ],
                           ),
                         ),
-                        if (item.unreadCount > 0) ...[
-                          SizedBox(height: AppLayout.scaled(context, 6)),
-                          CircleAvatar(
-                            radius: AppLayout.scaled(context, 10),
-                            backgroundColor: AppTheme.primary,
-                            child: Text(
-                              '${item.unreadCount}',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: AppLayout.scaled(context, 11),
-                              ),
+                      ),
+                    ),
+                  ),
+                AnimatedContainer(
+                  duration: _dragging ? Duration.zero : _duration,
+                  curve: Curves.easeOut,
+                  transform: Matrix4.translationValues(_offset, 0, 0),
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: AppLayout.scaled(context, 16),
+                    ),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: AppTheme.surfaceCard,
+                        borderRadius: radius,
+                        border: Border.all(color: AppTheme.borderLight),
+                      ),
+                      child: Material(
+                        color: Colors.transparent,
+                        borderRadius: radius,
+                        clipBehavior: Clip.antiAlias,
+                        child: InkWell(
+                          borderRadius: radius,
+                          onTap: _busy
+                              ? null
+                              : () {
+                                  if (_offset == 0) {
+                                    item.onTap();
+                                  } else {
+                                    setState(() => _offset = 0);
+                                  }
+                                },
+                          onLongPress: _busy || _offset != 0
+                              ? null
+                              : item.onLongPress,
+                          child: Padding(
+                            padding: EdgeInsets.all(
+                              AppLayout.scaled(context, 14),
+                            ),
+                            child: Row(
+                              children: [
+                                item.leading,
+                                SizedBox(width: AppLayout.scaled(context, 12)),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        item.title,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          color: AppTheme.textPrimary,
+                                        ),
+                                      ),
+                                      SizedBox(
+                                        height: AppLayout.scaled(context, 4),
+                                      ),
+                                      Text(
+                                        item.subtitle.trim().isEmpty
+                                            ? '暂无消息'
+                                            : item.subtitle.trim(),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: AppLayout.scaled(
+                                            context,
+                                            13,
+                                          ),
+                                          color: AppTheme.textSecondary,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                SizedBox(width: AppLayout.scaled(context, 10)),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Text(
+                                      chatConversationTime(item.updatedAt),
+                                      style: TextStyle(
+                                        fontSize: AppLayout.scaled(context, 12),
+                                        color: AppTheme.textSecondary,
+                                      ),
+                                    ),
+                                    if (item.unreadCount > 0) ...[
+                                      SizedBox(
+                                        height: AppLayout.scaled(context, 6),
+                                      ),
+                                      CircleAvatar(
+                                        radius: AppLayout.scaled(context, 10),
+                                        backgroundColor: AppTheme.primary,
+                                        child: Text(
+                                          '${item.unreadCount}',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: AppLayout.scaled(
+                                              context,
+                                              11,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ],
                             ),
                           ),
-                        ],
-                      ],
+                        ),
+                      ),
                     ),
-                  ],
+                  ),
                 ),
-              ),
+              ],
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -389,33 +577,6 @@ class _SearchEntry extends StatelessWidget {
                   ),
                 ),
               ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DeleteDismissBackground extends StatelessWidget {
-  const _DeleteDismissBackground();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.symmetric(horizontal: AppLayout.scaled(context, 16)),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: Colors.red.shade600,
-          borderRadius: BorderRadius.circular(AppLayout.scaled(context, 8)),
-        ),
-        child: Align(
-          alignment: Alignment.centerRight,
-          child: Padding(
-            padding: EdgeInsets.only(right: AppLayout.scaled(context, 20)),
-            child: const Icon(
-              Icons.delete_outline_rounded,
-              color: Colors.white,
             ),
           ),
         ),

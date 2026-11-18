@@ -31,22 +31,27 @@ const ChatConversationEntitySchema = CollectionSchema(
       name: r'conversation_id',
       type: IsarType.string,
     ),
-    r'kind': PropertySchema(id: 3, name: r'kind', type: IsarType.string),
+    r'is_pinned': PropertySchema(
+      id: 3,
+      name: r'is_pinned',
+      type: IsarType.bool,
+    ),
+    r'kind': PropertySchema(id: 4, name: r'kind', type: IsarType.string),
     r'owner_id': PropertySchema(
-      id: 4,
+      id: 5,
       name: r'owner_id',
       type: IsarType.string,
     ),
-    r'peer_id': PropertySchema(id: 5, name: r'peer_id', type: IsarType.string),
-    r'summary': PropertySchema(id: 6, name: r'summary', type: IsarType.string),
-    r'title': PropertySchema(id: 7, name: r'title', type: IsarType.string),
+    r'peer_id': PropertySchema(id: 6, name: r'peer_id', type: IsarType.string),
+    r'summary': PropertySchema(id: 7, name: r'summary', type: IsarType.string),
+    r'title': PropertySchema(id: 8, name: r'title', type: IsarType.string),
     r'unread_count': PropertySchema(
-      id: 8,
+      id: 9,
       name: r'unread_count',
       type: IsarType.long,
     ),
     r'updated_at': PropertySchema(
-      id: 9,
+      id: 10,
       name: r'updated_at',
       type: IsarType.long,
     ),
@@ -147,13 +152,14 @@ void _chatConversationEntitySerialize(
   writer.writeString(offsets[0], object.accountId);
   writer.writeLong(offsets[1], object.bindingRevision);
   writer.writeString(offsets[2], object.conversationId);
-  writer.writeString(offsets[3], object.conversationKind);
-  writer.writeString(offsets[4], object.ownerUserId);
-  writer.writeString(offsets[5], object.peerUserId);
-  writer.writeString(offsets[6], object.lastMessageSummary);
-  writer.writeString(offsets[7], object.title);
-  writer.writeLong(offsets[8], object.unreadCount);
-  writer.writeLong(offsets[9], object.updatedAtMillis);
+  writer.writeBool(offsets[3], object.isPinned);
+  writer.writeString(offsets[4], object.conversationKind);
+  writer.writeString(offsets[5], object.ownerUserId);
+  writer.writeString(offsets[6], object.peerUserId);
+  writer.writeString(offsets[7], object.lastMessageSummary);
+  writer.writeString(offsets[8], object.title);
+  writer.writeLong(offsets[9], object.unreadCount);
+  writer.writeLong(offsets[10], object.updatedAtMillis);
 }
 
 ChatConversationEntity _chatConversationEntityDeserialize(
@@ -167,13 +173,14 @@ ChatConversationEntity _chatConversationEntityDeserialize(
   object.bindingRevision = reader.readLong(offsets[1]);
   object.conversationId = reader.readString(offsets[2]);
   object.id = id;
-  object.conversationKind = reader.readStringOrNull(offsets[3]);
-  object.ownerUserId = reader.readString(offsets[4]);
-  object.peerUserId = reader.readString(offsets[5]);
-  object.lastMessageSummary = reader.readString(offsets[6]);
-  object.title = reader.readStringOrNull(offsets[7]);
-  object.unreadCount = reader.readLong(offsets[8]);
-  object.updatedAtMillis = reader.readLong(offsets[9]);
+  object.isPinned = reader.readBool(offsets[3]);
+  object.conversationKind = reader.readStringOrNull(offsets[4]);
+  object.ownerUserId = reader.readString(offsets[5]);
+  object.peerUserId = reader.readString(offsets[6]);
+  object.lastMessageSummary = reader.readString(offsets[7]);
+  object.title = reader.readStringOrNull(offsets[8]);
+  object.unreadCount = reader.readLong(offsets[9]);
+  object.updatedAtMillis = reader.readLong(offsets[10]);
   return object;
 }
 
@@ -191,18 +198,20 @@ P _chatConversationEntityDeserializeProp<P>(
     case 2:
       return (reader.readString(offset)) as P;
     case 3:
-      return (reader.readStringOrNull(offset)) as P;
+      return (reader.readBool(offset)) as P;
     case 4:
-      return (reader.readString(offset)) as P;
+      return (reader.readStringOrNull(offset)) as P;
     case 5:
       return (reader.readString(offset)) as P;
     case 6:
       return (reader.readString(offset)) as P;
     case 7:
-      return (reader.readStringOrNull(offset)) as P;
+      return (reader.readString(offset)) as P;
     case 8:
-      return (reader.readLong(offset)) as P;
+      return (reader.readStringOrNull(offset)) as P;
     case 9:
+      return (reader.readLong(offset)) as P;
+    case 10:
       return (reader.readLong(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -1303,6 +1312,19 @@ extension ChatConversationEntityQueryFilter
           upper: upper,
           includeUpper: includeUpper,
         ),
+      );
+    });
+  }
+
+  QueryBuilder<
+    ChatConversationEntity,
+    ChatConversationEntity,
+    QAfterFilterCondition
+  >
+  isPinnedEqualTo(bool value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'is_pinned', value: value),
       );
     });
   }
@@ -2468,6 +2490,20 @@ extension ChatConversationEntityQuerySortBy
   }
 
   QueryBuilder<ChatConversationEntity, ChatConversationEntity, QAfterSortBy>
+  sortByIsPinned() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'is_pinned', Sort.asc);
+    });
+  }
+
+  QueryBuilder<ChatConversationEntity, ChatConversationEntity, QAfterSortBy>
+  sortByIsPinnedDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'is_pinned', Sort.desc);
+    });
+  }
+
+  QueryBuilder<ChatConversationEntity, ChatConversationEntity, QAfterSortBy>
   sortByConversationKind() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'kind', Sort.asc);
@@ -2630,6 +2666,20 @@ extension ChatConversationEntityQuerySortThenBy
   }
 
   QueryBuilder<ChatConversationEntity, ChatConversationEntity, QAfterSortBy>
+  thenByIsPinned() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'is_pinned', Sort.asc);
+    });
+  }
+
+  QueryBuilder<ChatConversationEntity, ChatConversationEntity, QAfterSortBy>
+  thenByIsPinnedDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'is_pinned', Sort.desc);
+    });
+  }
+
+  QueryBuilder<ChatConversationEntity, ChatConversationEntity, QAfterSortBy>
   thenByConversationKind() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'kind', Sort.asc);
@@ -2755,6 +2805,13 @@ extension ChatConversationEntityQueryWhereDistinct
   }
 
   QueryBuilder<ChatConversationEntity, ChatConversationEntity, QDistinct>
+  distinctByIsPinned() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'is_pinned');
+    });
+  }
+
+  QueryBuilder<ChatConversationEntity, ChatConversationEntity, QDistinct>
   distinctByConversationKind({bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'kind', caseSensitive: caseSensitive);
@@ -2835,6 +2892,13 @@ extension ChatConversationEntityQueryProperty
   conversationIdProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'conversation_id');
+    });
+  }
+
+  QueryBuilder<ChatConversationEntity, bool, QQueryOperations>
+  isPinnedProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'is_pinned');
     });
   }
 

@@ -705,6 +705,52 @@ class _ChatTabState extends State<ChatTab> {
     unawaited(_deleteConversationInBackground(preview.conversationId));
   }
 
+  Future<void> _toggleConversationPin(
+    ChatConversationPreview preview,
+    int generation,
+    String cid,
+    String account,
+  ) async {
+    bool current() =>
+        mounted &&
+        !_checkingIdentity &&
+        _isActive &&
+        generation == _controllerGeneration &&
+        cid == _cidNumber &&
+        account == _accountId;
+    if (!current()) return;
+    try {
+      await widget.store.setConversationPinned(
+        ownerUserId: cid,
+        currentAccountId: account,
+        conversationId: preview.conversationId,
+        isPinned: !preview.isPinned,
+      );
+      if (!current()) return;
+      final conversations = await widget.store.readConversationPreviews(
+        ownerUserId: cid,
+        currentAccountId: account,
+      );
+      if (current()) {
+        setState(
+          () => _conversations = _withoutDeletingConversations(conversations),
+        );
+      }
+    } on Object catch (error) {
+      if (current()) setState(() => _error = chatUserErrorMessage(error));
+    }
+  }
+
+  void _showCallUnavailable(ChatConversationPreview preview, bool video) {
+    if (!_requireChatIdentity()) return;
+    final label = preview.isGroup
+        ? (video ? '群内视频' : '群内语音')
+        : (video ? '视频通话' : '语音通话');
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('$label暂不可用')));
+  }
+
   void _openConversation(ChatConversationPreview preview) {
     if (!_requireChatIdentity()) {
       return;
@@ -968,8 +1014,16 @@ class _ChatTabState extends State<ChatTab> {
             membergateActive: profile?.membergateActive ?? false,
             showBadge: resolved,
           );
+    final generation = _controllerGeneration,
+        cid = _cidNumber,
+        account = _accountId;
     return ChatConversationListItem(
       id: preview.conversationId,
+      isPinned: preview.isPinned,
+      onTogglePin: () =>
+          _toggleConversationPin(preview, generation, cid, account),
+      onVoice: () => _showCallUnavailable(preview, false),
+      onVideo: () => _showCallUnavailable(preview, true),
       title: title,
       subtitle: preview.lastMessage,
       updatedAt: preview.lastUpdatedAt,
@@ -994,6 +1048,7 @@ class _ChatTabState extends State<ChatTab> {
           )
         : null;
     return ChatConversationOverview(
+      key: ValueKey('$_cidNumber:$_accountId'),
       header: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

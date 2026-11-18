@@ -267,6 +267,135 @@ void main() {
     expect(find.text('2'), findsOneWidget);
   });
 
+  testWidgets('会话双向滑动、置顶切换、视频入口及滑到底动作', (tester) async {
+    var pins = 0, deletes = 0, voices = 0, videos = 0;
+    var pinned = false;
+    Future<void> show() => tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ChatConversationOverview(
+            header: const SizedBox(height: 20),
+            onRefresh: () async {},
+            onSearch: () {},
+            items: [
+              ChatConversationListItem(
+                id: 'swipe',
+                title: '滑动会话',
+                subtitle: '消息',
+                updatedAt: DateTime(2026),
+                unreadCount: 1,
+                leading: const CircleAvatar(),
+                onTap: () {},
+                onDelete: () async {
+                  deletes++;
+                },
+                isPinned: pinned,
+                onTogglePin: () async {
+                  pins++;
+                  pinned = !pinned;
+                },
+                onVoice: () {
+                  voices++;
+                },
+                onVideo: () {
+                  videos++;
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await show();
+    final tile = find.byKey(const ValueKey('chat-conversation-swipe'));
+    await tester.drag(tile, const Offset(-170, 0));
+    await tester.pumpAndSettle();
+    expect(find.text('置顶'), findsOneWidget);
+    expect(find.text('删除'), findsOneWidget);
+    expect(deletes, 0);
+    await tester.tap(find.text('置顶'));
+    await tester.pumpAndSettle();
+    expect(pins, 1);
+    await show();
+    await tester.drag(tile, const Offset(-170, 0));
+    await tester.pumpAndSettle();
+    expect(find.text('取消置顶'), findsOneWidget);
+    await tester.tap(find.text('取消置顶'));
+    await tester.pumpAndSettle();
+    expect(pins, 2);
+    await tester.drag(tile, const Offset(170, 0));
+    await tester.pumpAndSettle();
+    expect(find.text('语音'), findsOneWidget);
+    expect(find.text('视频'), findsOneWidget);
+    await tester.tap(find.text('视频'));
+    await tester.pumpAndSettle();
+    expect(videos, 1);
+    expect(voices, 0);
+    final width = tester.getSize(tile).width;
+    await tester.drag(tile, Offset(width, 0));
+    await tester.pumpAndSettle();
+    expect(voices, 1);
+    expect(deletes, 0);
+    await tester.drag(tile, Offset(-width, 0));
+    await tester.pumpAndSettle();
+    expect(deletes, 1);
+    // 删除回调不移除卡片（例如取消确认）时，应恢复到原位且仍可继续操作。
+    expect(tile, findsOneWidget);
+    expect(find.text('删除'), findsNothing);
+    await tester.drag(tile, const Offset(170, 0));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('语音'));
+    await tester.pumpAndSettle();
+    expect(voices, 2);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('删除确认未完成时不重复触发，取消后短滑可收回', (tester) async {
+    final confirmation = Completer<void>();
+    var deletes = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ChatConversationOverview(
+            header: const SizedBox(height: 20),
+            onRefresh: () async {},
+            onSearch: () {},
+            items: [
+              ChatConversationListItem(
+                id: 'confirm',
+                title: '会话',
+                subtitle: '消息',
+                updatedAt: DateTime(2026),
+                unreadCount: 0,
+                leading: const CircleAvatar(),
+                onTap: () {},
+                onDelete: () async {
+                  deletes++;
+                  await confirmation.future;
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    final tile = find.byKey(const ValueKey('chat-conversation-confirm'));
+    final width = tester.getSize(tile).width;
+    await tester.drag(tile, Offset(-width, 0));
+    await tester.pumpAndSettle();
+    expect(deletes, 1);
+    await tester.drag(tile, Offset(-width, 0));
+    await tester.pumpAndSettle();
+    expect(deletes, 1);
+    confirmation.complete();
+    await tester.pumpAndSettle();
+    await tester.drag(tile, const Offset(-25, 0));
+    await tester.pumpAndSettle();
+    expect(find.text('删除'), findsNothing);
+    expect(tile, findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('search view renders injected sections', (tester) async {
     final controller = TextEditingController(text: 'hello');
     addTearDown(controller.dispose);

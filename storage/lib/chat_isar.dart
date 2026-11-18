@@ -56,6 +56,10 @@ class ChatConversationEntity {
   @Name('unread_count')
   late int unreadCount;
 
+  /// 本机置顶状态；旧会话默认未置顶，不随消息更新重置。
+  @Name('is_pinned')
+  bool isPinned = false;
+
   /// 会话类型:null/"dm"=私聊,"group"=私密小群。免每次 join 群表判定。
   @Name('kind')
   String? conversationKind;

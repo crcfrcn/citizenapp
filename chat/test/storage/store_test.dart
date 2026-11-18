@@ -10,6 +10,7 @@ import 'package:citizen_network/protocol/message.dart' as pb;
 import 'package:citizen_network/protocol/message.dart' hide ChatRoute;
 import 'package:citizen_storage/chat_isar.dart';
 import 'package:chat/chat_store.dart';
+import 'package:chat/chat_models.dart';
 import 'package:citizen_testing/chat_isar_test_env.dart';
 
 /// user ID 是消息、MLS 名册和待投递路由的唯一身份键；当前账户和公开版本用于操作围栏。
@@ -50,6 +51,7 @@ const _physicalColumns = <String, Set<String>>{
     'updated_at',
     'unread_count',
     'kind',
+    'is_pinned',
   },
   'message': {
     'id',
@@ -298,6 +300,12 @@ void main() {
         deliveryState: ChatMessageDeliveryState.queued,
         plaintext: _payload('hi'),
       );
+      await store.setConversationPinned(
+        ownerUserId: _ownerUserId,
+        currentAccountId: _aliceAccountId,
+        conversationId: 'conv-store',
+        isPinned: true,
+      );
       await store.markOutgoingDelivery(
         bindingToken: bindingToken,
         ownerUserId: _ownerUserId,
@@ -361,6 +369,7 @@ void main() {
       );
       expect(conversations.single.unreadCount, 1);
       expect(conversations.single.lastMessage, 'hi back');
+      expect(conversations.single.isPinned, isTrue);
 
       // 当前窗口只清除已展示时间点以内的未读数，保证稍后到达的新消息不会被误标已读。
       await store.markConversationRead(
@@ -378,6 +387,89 @@ void main() {
       );
     },
   );
+
+  test('置顶持久化、分组内按消息时间排序、取消置顶及绑定隔离', () async {
+    final store = ChatStore();
+    await store.activateBindingFence(_testBinding);
+    await ChatIsar.instance.writeTxn((isar) async {
+      for (var i = 1; i <= 3; i++) {
+        await isar.chatConversationEntitys.put(
+          ChatConversationEntity()
+            ..ownerUserId = _ownerUserId
+            ..bindingRevision = 1
+            ..accountId = _aliceAccountId
+            ..conversationId = 'pin-$i'
+            ..peerUserId = _bobUserId
+            ..lastMessageSummary = '消息$i'
+            ..updatedAtMillis = i
+            ..unreadCount = i,
+        );
+      }
+      await isar.chatConversationEntitys.put(
+        ChatConversationEntity()
+          ..ownerUserId = _carolUserId
+          ..bindingRevision = 1
+          ..accountId = _aliceAccountId
+          ..conversationId = 'pin-1'
+          ..peerUserId = _bobUserId
+          ..lastMessageSummary = '其他身份'
+          ..updatedAtMillis = 1
+          ..unreadCount = 0,
+      );
+    });
+    Future<List<ChatConversationPreview>> previews() =>
+        store.readConversationPreviews(
+          ownerUserId: _ownerUserId,
+          currentAccountId: _aliceAccountId,
+        );
+    expect((await previews()).map((p) => p.conversationId), [
+      'pin-3',
+      'pin-2',
+      'pin-1',
+    ]);
+    for (final id in ['pin-1', 'pin-2']) {
+      await store.setConversationPinned(
+        ownerUserId: _ownerUserId,
+        currentAccountId: _aliceAccountId,
+        conversationId: id,
+        isPinned: true,
+      );
+    }
+    await (await ChatIsar.instance.db()).close();
+    final pinned = await previews();
+    expect(pinned.map((p) => p.conversationId), ['pin-2', 'pin-1', 'pin-3']);
+    expect(pinned.first.unreadCount, 2);
+    expect(pinned.first.lastUpdatedAt.millisecondsSinceEpoch, 2);
+    final other = await ChatIsar.instance.read(
+      (isar) => isar.chatConversationEntitys.getByOwnerUserIdConversationId(
+        _carolUserId,
+        'pin-1',
+      ),
+    );
+    expect(other!.isPinned, isFalse);
+    await expectLater(
+      store.setConversationPinned(
+        ownerUserId: _ownerUserId,
+        currentAccountId: _nextAccountId,
+        conversationId: 'pin-1',
+        isPinned: false,
+      ),
+      throwsStateError,
+    );
+    for (final id in ['pin-1', 'pin-2']) {
+      await store.setConversationPinned(
+        ownerUserId: _ownerUserId,
+        currentAccountId: _aliceAccountId,
+        conversationId: id,
+        isPinned: false,
+      );
+    }
+    expect((await previews()).map((p) => p.conversationId), [
+      'pin-3',
+      'pin-2',
+      'pin-1',
+    ]);
+  });
 
   test('群存储直接保留冻结设备路由、摘要和索引，坏路由整笔回滚', () async {
     final store = ChatStore();

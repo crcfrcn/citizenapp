@@ -493,7 +493,10 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
     if (rows.isEmpty) {
       return const <ChatConversationPreview>[];
     }
-    rows.sort((a, b) => b.updatedAtMillis.compareTo(a.updatedAtMillis));
+    rows.sort((a, b) {
+      if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
+      return b.updatedAtMillis.compareTo(a.updatedAtMillis);
+    });
 
     final out = <ChatConversationPreview>[];
     for (final row in rows) {
@@ -516,6 +519,33 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
     }
     await validateBindingFenceToken(readToken);
     return List<ChatConversationPreview>.unmodifiable(out);
+  }
+
+  /// 置顶仅修改当前绑定围栏内的本机会话，不改变消息时间和未读数。
+  Future<void> setConversationPinned({
+    required String ownerUserId,
+    required String currentAccountId,
+    required String conversationId,
+    required bool isPinned,
+  }) async {
+    final binding = await _resolveBinding(
+      ownerUserId: ownerUserId,
+      currentAccountId: currentAccountId,
+    );
+    final token = await captureBindingFenceToken(binding);
+    _requireWriterContext(bindingToken: token, ownerUserId: ownerUserId);
+    await _chatIsar.writeTxn((isar) async {
+      await _requireBindingTokenInTxn(isar, token);
+      final row = await isar.chatConversationEntitys
+          .getByOwnerUserIdConversationId(ownerUserId, conversationId);
+      if (row == null) return;
+      if (row.accountId != token.accountId ||
+          row.bindingRevision != token.bindingRevision) {
+        throw StateError('Chat 会话绑定已变化');
+      }
+      row.isPinned = isPinned;
+      await isar.chatConversationEntitys.putByOwnerUserIdConversationId(row);
+    });
   }
 
   Future<List<ChatRouteRecord>> readRouteRecords(String ownerUserId) {
@@ -2123,6 +2153,7 @@ ChatConversationPreview _conversationPreviewFromEntity(
     lastUpdatedAt: DateTime.fromMillisecondsSinceEpoch(row.updatedAtMillis),
     unreadCount: row.unreadCount,
     conversationKind: row.conversationKind ?? 'dm',
+    isPinned: row.isPinned,
   );
 }
 

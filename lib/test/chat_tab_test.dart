@@ -777,7 +777,7 @@ void main() {
       );
       await tester.pumpWidget(page(_ownerUserId));
       await settleLocal(tester);
-      await tester.drag(find.text('当前会话'), const Offset(-500, 0));
+      await tester.drag(find.text('当前会话'), const Offset(-900, 0));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(TextButton, '删除'));
       await settleLocal(tester);
@@ -1028,7 +1028,7 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 100));
 
-    await tester.drag(find.text('Bob'), const Offset(-500, 0));
+    await tester.drag(find.text('Bob'), const Offset(-900, 0));
     await tester.pumpAndSettle();
 
     expect(find.text('删除聊天记录'), findsOneWidget);
