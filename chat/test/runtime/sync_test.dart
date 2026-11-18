@@ -25,6 +25,7 @@ import 'package:chat/chat_store.dart';
 import 'package:citizen_testing/chat_isar_test_env.dart';
 import 'package:citizen_testing/mls_test_env.dart';
 import 'package:chat/transport/chat_connection.dart';
+import 'package:chat/transport/attachment_transfer.dart';
 
 const _device =
     'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
@@ -202,6 +203,7 @@ final class _Transport implements ChatServiceTransport {
   Future<void> Function()? onRealtimeConnect;
   int realtimeConnects = 0;
   Future<void> Function()? beforeResolve, beforeSend;
+  ChatDeliveryResult Function(String messageId)? deliveryResult;
   Completer<List<ChatMailboxMessage>>? fetch;
   Completer<void>? emptyMailbox;
   Completer<void>? enteredFetch;
@@ -345,10 +347,11 @@ final class _Transport implements ChatServiceTransport {
     required String recipientDeviceId,
   }) async {
     await beforeSend?.call();
-    return ChatDeliveryResult(
-      messageId: messageId,
-      state: ChatMessageDeliveryState.sent,
-    );
+    return deliveryResult?.call(messageId) ??
+        ChatDeliveryResult(
+          messageId: messageId,
+          state: ChatMessageDeliveryState.sent,
+        );
   }
 
   @override
@@ -1175,53 +1178,73 @@ void main() {
     }
   });
 
-  test('密文投递异常只阻断同会话，另一个会话仍提交且批通知一次', () async {
-    final f = await _Fixture.create();
-    await f.runtime.ensureReady(_account.accountId);
-    var notices = 0;
-    final stop = await f.runtime.startRealtimeSync(
-      onNotice: () async {
-        notices++;
-      },
-    );
-    await f.runtime.retryOutgoing(); // 排空建连后的空队列唤醒，再写本轮测试消息。
-    final token = await f.store.captureBindingFenceToken(_binding);
-    final now = DateTime.now().millisecondsSinceEpoch;
-    for (var i = 0; i < 3; i++) {
-      final peer = i < 2 ? 'user-b' : 'user-c';
-      final m = _Message(i).message
-        ..senderUserId = _account.userId
-        ..senderDeviceId = _device
-        ..conversationId = ChatRuntime.directConversationId(
-          _account.userId,
-          peer,
-        )
-        ..createdAtMillis = Int64(now + i);
-      m.deliveries.single.recipient.userId = peer;
-      await f.store.saveOutgoingMessage(
-        bindingToken: token,
-        ownerUserId: _account.userId,
-        currentAccountId: _account.accountId,
-        message: m,
-        messageBytes: m.writeToBuffer(),
-        recipientUserId: peer,
-        messageKind: ChatMessageKind.text,
-        deliveryState: ChatMessageDeliveryState.queued,
-        plaintext: ChatPayloadCodec.encode(ChatContent.text('queued$i')),
+  for (final mode in ['exception', 'failure']) {
+    test('密文投递$mode只阻断同会话，另一个会话仍提交且保留实际错误码', () async {
+      final f = await _Fixture.create();
+      await f.runtime.ensureReady(_account.accountId);
+      var notices = 0;
+      final stop = await f.runtime.startRealtimeSync(
+        onNotice: () async {
+          notices++;
+        },
       );
-    }
-    var sends = 0;
-    f.transport.beforeSend = () async {
-      if (sends++ == 0) {
-        throw StateError('synthetic transport failure');
+      await f.runtime.retryOutgoing(); // 排空建连后的空队列唤醒，再写本轮测试消息。
+      final token = await f.store.captureBindingFenceToken(_binding);
+      final now = DateTime.now().millisecondsSinceEpoch;
+      for (var i = 0; i < 3; i++) {
+        final peer = i < 2 ? 'user-b' : 'user-c';
+        final m = _Message(i).message
+          ..senderUserId = _account.userId
+          ..senderDeviceId = _device
+          ..conversationId = ChatRuntime.directConversationId(
+            _account.userId,
+            peer,
+          )
+          ..createdAtMillis = Int64(now + i);
+        m.deliveries.single.recipient.userId = peer;
+        await f.store.saveOutgoingMessage(
+          bindingToken: token,
+          ownerUserId: _account.userId,
+          currentAccountId: _account.accountId,
+          message: m,
+          messageBytes: m.writeToBuffer(),
+          recipientUserId: peer,
+          messageKind: ChatMessageKind.text,
+          deliveryState: ChatMessageDeliveryState.queued,
+          plaintext: ChatPayloadCodec.encode(ChatContent.text('queued$i')),
+        );
       }
-    };
-    await expectLater(f.runtime.retryOutgoing(), throwsA(isA<Exception>()));
-    expect(sends, 2);
-    expect(await f.store.outboundQueueCount(_account.userId), 2);
-    expect(notices, 1);
-    await stop!();
-  });
+      var sends = 0;
+      f.transport.beforeSend = () async {
+        if (sends++ == 0 && mode == 'exception') {
+          throw StateError('synthetic transport failure');
+        }
+      };
+      if (mode == 'failure') {
+        f.transport.deliveryResult = (id) => ChatDeliveryResult(
+          messageId: id,
+          state: sends == 1
+              ? ChatMessageDeliveryState.failed
+              : ChatMessageDeliveryState.sent,
+          errorMessage: sends == 1 ? 'storage_unavailable' : null,
+        );
+      }
+      await expectLater(
+        f.runtime.retryOutgoing(),
+        throwsA(
+          isA<ChatConnectionException>().having(
+            (error) => error.code,
+            '实际固定码',
+            mode == 'exception' ? 'operation_failed' : 'storage_unavailable',
+          ),
+        ),
+      );
+      expect(sends, 2);
+      expect(await f.store.outboundQueueCount(_account.userId), 2);
+      expect(notices, 1);
+      await stop!();
+    });
+  }
 
   test('超过100条及字节裁剪短批持续补拉，ACK 前真实落库', () async {
     final fixture = await _Fixture.create();

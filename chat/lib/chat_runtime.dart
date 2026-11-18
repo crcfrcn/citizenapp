@@ -3986,8 +3986,10 @@ class ChatRuntime {
         if (hub != null) {
           await _notifyRealtimeHub(hub);
         }
-        if (failed || delivery.retryNeeded) {
-          throw const ChatConnectionException('outbound_retry_required');
+        if (failed || delivery.errorCode != null) {
+          throw ChatConnectionException(
+            delivery.errorCode ?? 'outbound_retry_required',
+          );
         }
         return delivery.sent;
       });
@@ -4497,7 +4499,7 @@ class ChatRuntime {
     });
   }
 
-  Future<({int sent, bool retryNeeded})> _retryQueuedMessages(
+  Future<({int sent, String? errorCode})> _retryQueuedMessages(
     ChatRuntimeAccountContext context,
   ) async {
     final queued = await _store.readQueuedMessages(
@@ -4505,7 +4507,7 @@ class ChatRuntime {
       ownerUserId: context.account.userId,
     );
     var sent = 0;
-    var retryNeeded = false;
+    String? errorCode;
     final failedConversations = <String>{};
     for (final item in queued) {
       EncryptedMessage message;
@@ -4554,18 +4556,18 @@ class ChatRuntime {
         if (result.state == ChatMessageDeliveryState.sent) {
           sent += 1;
         } else {
-          retryNeeded = true;
+          errorCode ??= result.errorMessage ?? 'outbound_retry_required';
           failedConversations.add(message.conversationId);
         }
       } on Object catch (error) {
         debugPrint(
           '[ChatTrace] direction=outbound stage=delivery code=${chatDiagnosticCode(error)}',
         );
-        retryNeeded = true;
+        errorCode ??= chatDiagnosticCode(error);
         failedConversations.add(message.conversationId);
       }
     }
-    return (sent: sent, retryNeeded: retryNeeded);
+    return (sent: sent, errorCode: errorCode);
   }
 
   /// 接收端完成MLS及摘要核验后，把明文流式写入当前CID系统保护缓存。
