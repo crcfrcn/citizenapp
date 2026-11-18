@@ -27,19 +27,22 @@ Future<String> _readWhitepaper() async {
   }
 }
 
-// 保留原文中英标题；中文锚点与原文目录一致，目录无需脚本即可折叠和跳转。
+// 目录直达链接和正文标题使用相同锚点规则，保持离线跳转一致。
+String _headingId(String text) => text
+    .split(RegExp(r'<br\s*/?>', caseSensitive: false))
+    .first
+    .replaceAll(RegExp(r'<[^>]+>'), '')
+    .replaceAll(RegExp(r'[^a-zA-Z0-9\u3400-\u9fff_-]'), '')
+    .toLowerCase();
+
+// 保留原文中英标题；中文锚点与原文目录一致。
 class _WhitepaperHeading extends md.HeaderSyntax {
   const _WhitepaperHeading();
 
   @override
   md.Node parse(md.BlockParser parser) {
     final heading = super.parse(parser) as md.Element;
-    heading.generatedId = heading.textContent
-        .split(RegExp(r'<br\s*/?>', caseSensitive: false))
-        .first
-        .replaceAll(RegExp(r'<[^>]+>'), '')
-        .replaceAll(RegExp(r'[^a-zA-Z0-9\u3400-\u9fff_-]'), '')
-        .toLowerCase();
+    heading.generatedId = _headingId(heading.textContent);
     return heading;
   }
 }
@@ -65,8 +68,17 @@ class _WhitepaperCodeBlock extends md.FencedCodeBlockSyntax {
 @visibleForTesting
 String citizenWhitepaperHtml(String markdown) {
   if (markdown.trim().isEmpty) throw const FormatException('白皮书正文为空');
+  // 原文没有下级链接的折叠项改为正文锚点，不改动同源白皮书。
+  final document = markdown.replaceAllMapped(
+    RegExp(r'<details>\s*<summary>([^<]+)</summary>\s*</details>'),
+    (match) {
+      final title = match[1]!;
+      final anchor = Uri.encodeComponent(_headingId(title));
+      return '<a class="whitepaper-toc-leaf" href="#$anchor">$title</a>';
+    },
+  );
   final body = md.markdownToHtml(
-    markdown,
+    document,
     extensionSet: md.ExtensionSet.gitHubFlavored,
     blockSyntaxes: const [_WhitepaperHeading(), _WhitepaperCodeBlock()],
   );
@@ -74,14 +86,18 @@ String citizenWhitepaperHtml(String markdown) {
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'">
 <style>
+html{scroll-behavior:smooth}
 body{margin:0;background:#f6f8f7;color:#183e36;font-family:system-ui,sans-serif;font-size:16px;line-height:1.8;overflow-wrap:anywhere}
 article{max-width:1100px;margin:auto;padding:16px 20px 48px}h1{font-size:26px}h2{font-size:22px}h3,h4{font-size:18px}
 h1,h2,h3,h4,h5,h6{line-height:1.5;scroll-margin-top:16px}a{color:#18704a}img{max-width:100%;height:auto}
 table,pre{display:block;max-width:100%;overflow-x:auto}table{border-collapse:collapse;font-size:14px}th,td{border:1px solid #ccd8d2;padding:8px;min-width:72px}
 pre{padding:12px;background:#eaf0ec;font-size:13px;white-space:pre;overflow-wrap:normal}code{font-family:monospace}
+li:has(details),li:has(.whitepaper-toc-leaf){list-style:none}
+.whitepaper-toc-leaf{font-weight:600;text-decoration:none}
+.whitepaper-to-top{display:grid;place-items:center;padding:0;line-height:1;position:fixed;right:30px;bottom:30px;border:0;border-radius:999px;width:42px;height:42px;font-size:18px;background:#0f766e;color:#fff;box-shadow:0 8px 18px rgba(15,118,110,.25);z-index:50;text-decoration:none}
 details{margin:8px 0}summary{cursor:pointer;font-weight:600}details a{display:block}
 .whitepaper-title-en,.whitepaper-heading-en,.whitepaper-en{color:#60756b;font-size:.85em;font-weight:400}
-</style></head><body><article>$body</article></body></html>''';
+</style></head><body><article id="whitepaper-top">$body</article><a class="whitepaper-to-top" href="#whitepaper-top" aria-label="回到顶部" title="回到顶部">↑</a></body></html>''';
 }
 
 /// 只允许离线文档及其页内锚点导航，正文链接不打开在线页面。

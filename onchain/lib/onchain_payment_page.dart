@@ -269,6 +269,9 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
   bool _loadingWallet = true;
   bool _submitting = false;
   String? _recipientCid;
+  int _recipientGeneration = 0;
+  bool _resolvingRecipient = false;
+  String? _recipientError;
   bool _checkingBalance = false;
   CitizenChainSyncStatus? _chainProgress;
   String? _chainProgressError;
@@ -538,10 +541,42 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
       ),
     );
     if (!mounted || cid == null) return;
+    await _resolveContact(cid);
+  }
+
+  // 联系人只传CID，地址必须来自当前已确认链绑定；迟到结果不能覆盖新输入。
+  Future<void> _resolveContact(String cid) async {
+    final generation = ++_recipientGeneration;
     setState(() {
       _toController.clear();
       _recipientCid = cid;
+      _resolvingRecipient = true;
+      _recipientError = null;
     });
+    try {
+      final service = _paymentService;
+      if (service == null) throw StateError('收款人链验证不可用');
+      final recipient = await service.resolveRecipient(
+        address: '',
+        cidNumber: cid,
+      );
+      if (!mounted || generation != _recipientGeneration) return;
+      setState(() => _toController.text = recipient.address);
+    } catch (_) {
+      if (!mounted || generation != _recipientGeneration) return;
+      setState(() => _recipientError = '无法读取收款人有效钱包账户，请重新选择或填写地址');
+    } finally {
+      if (mounted && generation == _recipientGeneration) {
+        setState(() => _resolvingRecipient = false);
+      }
+    }
+  }
+
+  void _clearRecipient() {
+    _recipientGeneration++;
+    _recipientCid = null;
+    _resolvingRecipient = false;
+    _recipientError = null;
   }
 
   Future<void> _submit() async {
@@ -660,6 +695,16 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
       return;
     } finally {
       if (mounted) setState(() => _checkingBalance = false);
+    }
+    // 预填后发生换绑时先更新展示，必须由用户再次确认新的收款账户。
+    if (requestedCid != null &&
+        requestedAddress.isNotEmpty &&
+        recipient.address != requestedAddress) {
+      setState(() => _toController.text = recipient.address);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('收款人钱包绑定已变更，请核对新地址后重新确认')));
+      return;
     }
     final toAddress = recipient.address;
     final feeFen = fees.feeFen;
@@ -861,7 +906,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
 
   void _clearTransferForm() {
     _toController.clear();
-    _recipientCid = null;
+    _clearRecipient();
     _amountController.clear();
     _remarkController.clear();
   }
@@ -953,20 +998,24 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
               controller: _toController,
               focusNode: _toFocus,
               onTapOutside: (_) => _dismissKeyboard(),
-              onChanged: (_) => setState(() => _recipientCid = null),
+              onChanged: (_) => setState(_clearRecipient),
               style: TextStyle(
                 color: AppTheme.textPrimary,
                 fontSize: AppLayout.scaledValue(14),
               ),
-              decoration: transactionFieldDecoration(
-                hintText: '请输入 公民链SS58地址 或 以太坊0x地址',
-                suffixIcon: AddressScanButton(
-                  onAddressScanned: (accountAddress) => setState(() {
-                    _toController.text = accountAddress;
-                    _recipientCid = null;
-                  }),
-                ),
-              ),
+              decoration:
+                  transactionFieldDecoration(
+                    hintText: '请输入 公民链SS58地址 或 以太坊0x地址',
+                    suffixIcon: AddressScanButton(
+                      onAddressScanned: (accountAddress) => setState(() {
+                        _toController.text = accountAddress;
+                        _clearRecipient();
+                      }),
+                    ),
+                  ).copyWith(
+                    helperText: _resolvingRecipient ? '正在读取收款账户…' : null,
+                    errorText: _recipientError,
+                  ),
             ),
             SizedBox(height: AppLayout.scaledValue(16)),
             Row(
@@ -1317,6 +1366,8 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
       _submitBlockedReason == null;
 
   String? get _submitBlockedReason {
+    if (_resolvingRecipient) return '正在读取收款账户，请稍后再试';
+    if (_recipientError != null) return _recipientError;
     if (_submitting ||
         _checkingBalance ||
         _loadingWallet ||

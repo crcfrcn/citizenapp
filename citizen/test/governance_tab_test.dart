@@ -389,6 +389,41 @@ void main() {
     expect(() => citizenWhitepaperHtml(' \n'), throwsFormatException);
   });
 
+  test('无下级目录直接跳转，有下级才折叠，返回顶部保留离线锚点', () {
+    final html = citizenWhitepaperHtml('''- <details>
+  <summary>1. 总则</summary>
+
+  [1.1. 目的](#11目的)
+  </details>
+
+- <details>
+  <summary>8. 公民</summary>
+  </details>
+
+# 1.总则
+## 1.1.目的
+# 8.公民
+''');
+    expect('<details>'.allMatches(html), hasLength(1));
+    expect(html, contains('<summary>1. 总则</summary>'));
+    expect(html, isNot(contains('<summary>8. 公民</summary>')));
+    expect(html, contains('class="whitepaper-toc-leaf"'));
+    final ids = RegExp(
+      r' id="([^"]+)"',
+    ).allMatches(html).map((match) => match[1]).toSet();
+    for (final link in RegExp(r'href="#([^"]+)"').allMatches(html)) {
+      expect(ids, contains(Uri.decodeComponent(link[1]!)));
+    }
+    expect(
+      html,
+      contains('li:has(details),li:has(.whitepaper-toc-leaf){list-style:none}'),
+    );
+    expect(html, contains('href="#whitepaper-top" aria-label="回到顶部"'));
+    expect(html, contains('width:42px;height:42px'));
+    expect(html, contains('html{scroll-behavior:smooth}'));
+    expect(html, isNot(contains('<script')));
+  });
+
   test('包内真实白皮书离线可读，原始目录锚点全部命中正文', () async {
     final markdown = await rootBundle.loadString(citizenWhitepaperAsset);
     final html = citizenWhitepaperHtml(markdown);

@@ -18,6 +18,7 @@ import 'package:citizen_onchain/onchain_payment_page.dart';
 import 'package:citizen_personal/personal_account_entry.dart';
 import 'package:citizen_wallet/history/local_tx_store.dart';
 import 'package:citizen_widgets/chain_progress_banner.dart';
+import 'package:citizen_scanner/address_scan_button.dart';
 
 const _walletAAccountId =
     '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
@@ -25,8 +26,9 @@ const _walletBAccountId =
     '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 
 class _RecipientService extends OnchainPaymentService {
-  _RecipientService(this.recipient);
+  _RecipientService(this.recipient, {this.onResolve});
   final String recipient;
+  final Future<OnchainRecipient> Function(String?)? onResolve;
   String? input;
   String? inputCid;
   BigInt? quotedAmountFen;
@@ -46,6 +48,7 @@ class _RecipientService extends OnchainPaymentService {
   }) async {
     input = address;
     inputCid = cidNumber;
+    if (onResolve != null) return onResolve!(cidNumber);
     return OnchainRecipient(address: recipient, cidNumber: cidNumber);
   }
 
@@ -737,6 +740,153 @@ void main() {
     await _pumpUntilFound(tester, find.text('收款公民号：$cid'));
     expect(find.text('收款公民号：$cid'), findsOneWidget);
   });
+
+  testWidgets('换绑后先更新预填地址，不直接进入签名确认', (tester) async {
+    const cid = 'CN220-CTZN2-100000002-2026';
+    const address = 'w5Bc7ma8qUcECfQDJmRyQM2wGmga5XSYtz7DvEengQ86xBWrT';
+    final service = _RecipientService(address);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme,
+        home: OnchainPaymentPanel(
+          title: '交易',
+          paymentService: service,
+          initialRecipientCid: cid,
+          initialToAddress: 'previous-address',
+          currentWalletLoader: () async => _wallet(
+            index: 0,
+            name: '测试钱包',
+            address: 'wallet_a',
+            accountId: _walletAAccountId,
+          ),
+          balanceLoader: (_) async => BigInt.from(10000),
+          localRecordsLoader: (_, {limit = 100}) async => const [],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final block = CitizenBlockRef(
+      hash: _walletAAccountId,
+      number: BigInt.one,
+      finality: CitizenBlockFinality.finalized,
+    );
+    tester
+        .widget<ChainProgressBanner>(find.byType(ChainProgressBanner))
+        .onProgressChanged
+        ?.call(
+          CitizenChainSyncStatus(
+            peerCount: BigInt.one,
+            isSyncing: false,
+            isUsable: true,
+            best: block,
+            finalized: block,
+          ),
+        );
+    await tester.pump();
+    await tester.enterText(find.widgetWithText(TextField, '请输入金额'), '2.03');
+    final submit = find.widgetWithText(FilledButton, '签名交易');
+    await tester.ensureVisible(submit);
+    await tester.tap(submit);
+    await tester.pumpAndSettle();
+    expect(find.text('收款人钱包绑定已变更，请核对新地址后重新确认'), findsOneWidget);
+    expect(find.text('确认交易'), findsNothing);
+    expect(service.preparations, 0);
+    final field = find.byWidgetPredicate(
+      (w) =>
+          w is TextField && w.decoration?.hintText == '请输入 公民链SS58地址 或 以太坊0x地址',
+    );
+    expect(tester.widget<TextField>(field).controller!.text, address);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  for (final outcome in ['success', 'failure', 'edit', 'scan', 'reselect']) {
+    testWidgets('选择联系人立即解析地址：$outcome', (tester) async {
+      const cid = 'CN220-CTZN2-100000002-2026';
+      const address = 'w5Bc7ma8qUcECfQDJmRyQM2wGmga5XSYtz7DvEengQ86xBWrT';
+      final pending = Completer<OnchainRecipient>();
+      var reads = 0;
+      final service = _RecipientService(
+        address,
+        onResolve: (_) {
+          reads++;
+          if (reads == 1) return pending.future;
+          return Future.value(const OnchainRecipient(address: 'new-contact'));
+        },
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.lightTheme,
+          home: OnchainPaymentPanel(
+            title: '交易',
+            chainStatusInHeader: true,
+            paymentService: service,
+            currentWalletLoader: () async => _wallet(
+              index: 0,
+              name: '测试钱包',
+              address: 'wallet_a',
+              accountId: _walletAAccountId,
+            ),
+            balanceLoader: (_) async => BigInt.from(10000),
+            localRecordsLoader: (_, {limit = 100}) async => const [],
+            contactPageBuilder: (_) => const Scaffold(body: Text('选择联系人测试页')),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      Future<void> select(String selectedCid) async {
+        await tester.tap(find.byTooltip('我的通讯录'));
+        await tester.pumpAndSettle();
+        Navigator.of(tester.element(find.text('选择联系人测试页'))).pop(selectedCid);
+        await tester.pumpAndSettle();
+      }
+
+      final field = find.byWidgetPredicate(
+        (w) =>
+            w is TextField &&
+            w.decoration?.hintText == '请输入 公民链SS58地址 或 以太坊0x地址',
+      );
+      await select(cid);
+      expect(reads, 1);
+      expect(tester.widget<TextField>(field).controller!.text, isEmpty);
+      expect(find.text('正在读取收款账户…'), findsOneWidget);
+      expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, '签名交易'))
+            .onPressed,
+        isNull,
+      );
+      if (outcome == 'failure') {
+        pending.completeError(StateError('无有效绑定'));
+      } else {
+        if (outcome == 'edit') await tester.enterText(field, 'manual-address');
+        if (outcome == 'scan') {
+          tester
+              .widget<AddressScanButton>(find.byType(AddressScanButton))
+              .onAddressScanned('scan-address');
+        }
+        if (outcome == 'reselect') await select('another-cid');
+        pending.complete(
+          const OnchainRecipient(address: address, cidNumber: cid),
+        );
+      }
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<TextField>(field).controller!.text,
+        switch (outcome) {
+          'success' => address,
+          'failure' => '',
+          'edit' => 'manual-address',
+          'scan' => 'scan-address',
+          _ => 'new-contact',
+        },
+      );
+      if (outcome == 'failure') {
+        expect(find.text('无法读取收款人有效钱包账户，请重新选择或填写地址'), findsOneWidget);
+      }
+      expect(find.textContaining('钱包可用余额：100'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
 
   testWidgets('钱包选择、取消与切回均核对真实付款源无障碍值', (tester) async {
     final semantics = tester.ensureSemantics();
