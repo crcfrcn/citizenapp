@@ -133,11 +133,6 @@ class MyIdService {
     required CurrentUserContext currentUserContext,
     required FinalizedIdentityResolver identityResolver,
     required SquareSessionProvider sessionProvider,
-    required Future<void> Function(
-      IdentityBinding binding, {
-      required bool existingOnly,
-    })
-    onChatBindingChanged,
     CitizenSdk? chain,
     CitizenSdk? transactions,
     AdminDivisionStore? divisionStore,
@@ -189,7 +184,6 @@ class MyIdService {
        _accountSecurity = accountSecurity,
        _currentUserContext = currentUserContext,
        _sessionProvider = sessionProvider,
-       _onChatBindingChanged = onChatBindingChanged,
        _divisionStore = divisionStore ?? IsarAdminDivisionStore(),
        _badgeSnapshotStore = badgeSnapshotStore ?? IdentityBadgeSnapshotStore(),
        _identityResolver = identityResolver,
@@ -250,11 +244,6 @@ class MyIdService {
   final AccountSecurityService _accountSecurity;
   final CurrentUserContext _currentUserContext;
   final SquareSessionProvider _sessionProvider;
-  final Future<void> Function(
-    IdentityBinding binding, {
-    required bool existingOnly,
-  })
-  _onChatBindingChanged;
   final AdminDivisionStore _divisionStore;
   final IdentityBadgeSnapshotStore _badgeSnapshotStore;
   final FinalizedIdentityResolver _identityResolver;
@@ -760,7 +749,6 @@ class MyIdService {
     await _finishFinalizedBinding(
       binding,
       identity: resolved.snapshot,
-      existingRuntimeOnly: true,
       requireCurrent: requireWallet,
     );
   }
@@ -769,7 +757,6 @@ class MyIdService {
   Future<void> _finishFinalizedBinding(
     IdentityBinding current, {
     CitizenIdentityChainSnapshot? identity,
-    bool existingRuntimeOnly = false,
     Future<void> Function()? requireCurrent,
   }) async {
     var bindingChanged = false;
@@ -842,8 +829,6 @@ class MyIdService {
         bindRev: current.bindRev,
         accountId: current.accountId,
       );
-      // 公开同步只通知已经存在的聊天实例，不能为刷新身份创建MLS运行态。
-      await _onChatBindingChanged(current, existingOnly: existingRuntimeOnly);
       await requireCurrent?.call();
     } finally {
       if (bindingChanged) {

@@ -321,7 +321,7 @@ void main() {
   _proposalReadDiagnosticsTests();
   _failureDiagnosticsTests();
   _serviceUnavailableTests();
-  _chatAccessTests();
+  _redirectTests();
   _readCoalescingTests();
   for (final status in [401, 403, 429, 503]) {
     for (final data in <Map<String, Object?>>[
@@ -675,7 +675,7 @@ void _proposalFailureDiagnosticsTests() {
   });
 }
 
-void _chatAccessTests() {
+void _redirectTests() {
   const session = SquareSession(
     sessionToken: 'ordinary',
     cidNumber: testMlsCidNumber,
@@ -685,147 +685,7 @@ void _chatAccessTests() {
     expiresAt: 4102444800000,
     authenticateRequest: fakeMlsRequestHeaders,
   );
-  Map<String, Object> receipt() {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    return {
-      'is_ok': true,
-      'realtime_url': 'wss://square.test/api/chat/realtime',
-      'access_token': 'opaque-token',
-      'expires_at': now + 300000,
-      'recheck_at': now + 120000,
-    };
-  }
 
-  test('聊天许可精确签POST空正文，完整WSS同origin且实际请求禁止重定向', () async {
-    final api = SquareApiClient(
-      baseUrl: 'https://square.test/api',
-      httpClient: MockClient((request) async {
-        expect(request.method, 'POST');
-        expect(request.url.path, '/api/chat/access');
-        expect(request.body, '{}');
-        expect(request.followRedirects, isFalse);
-        expect(request.headers['authorization'], 'Bearer ordinary');
-        expect(
-          request.headers.keys.any((name) => name.startsWith('x-mls-')),
-          isTrue,
-        );
-        return http.Response(jsonEncode(receipt()), 200);
-      }),
-    );
-    addTearDown(api.close);
-    final access = await api.fetchChatAccess(
-      session: session,
-      deviceId: testMlsDeviceId,
-    );
-    expect(
-      access.realtimeUrl.toString(),
-      'wss://square.test/api/chat/realtime',
-    );
-    expect(access.accessToken, 'opaque-token');
-  });
-  // 保留原正向与拒绝断言；补齐默认、显式及自定义安全端口的边界。
-  for (final endpoints in const [
-    ('https://square.test/api', 'wss://square.test:443/api/chat/realtime'),
-    ('https://square.test:443/api', 'wss://square.test/api/chat/realtime'),
-    (
-      'https://square.test:8443/api',
-      'wss://square.test:8443/api/chat/realtime',
-    ),
-    (
-      'https://square.test:8443/api',
-      'WSS://square.test:8443/api/chat/realtime',
-    ),
-  ]) {
-    test('聊天许可有效安全端口一致 ${endpoints.$1} ${endpoints.$2}', () async {
-      final api = SquareApiClient(
-        baseUrl: endpoints.$1,
-        httpClient: MockClient(
-          (_) async => http.Response(
-            jsonEncode({...receipt(), 'realtime_url': endpoints.$2}),
-            200,
-          ),
-        ),
-      );
-      addTearDown(api.close);
-      final access = await api.fetchChatAccess(
-        session: session,
-        deviceId: testMlsDeviceId,
-      );
-      expect(access.realtimeUrl, Uri.parse(endpoints.$2));
-      expect(access.accessToken, 'opaque-token');
-    });
-  }
-  for (final realtime in [
-    'wss://square.test/api/chat/realtime',
-    'wss://square.test:443/api/chat/realtime',
-  ]) {
-    test('自定义HTTPS端口拒绝默认WSS端口 $realtime', () async {
-      final api = SquareApiClient(
-        baseUrl: 'https://square.test:8443/api',
-        httpClient: MockClient(
-          (_) async => http.Response(
-            jsonEncode({...receipt(), 'realtime_url': realtime}),
-            200,
-          ),
-        ),
-      );
-      addTearDown(api.close);
-      await expectLater(
-        api.fetchChatAccess(session: session, deviceId: testMlsDeviceId),
-        throwsA(isA<SquareApiException>()),
-      );
-    });
-  }
-  for (final mutation in <String, Object>{
-    'realtime_url': 'wss://other.test/api/chat/realtime',
-    'access_token': 'invalid token',
-    'expires_at': 1,
-    'recheck_at': 1,
-    'unexpected': 'extra',
-  }.entries) {
-    test('聊天许可拒绝损坏字段${mutation.key}', () async {
-      final api = SquareApiClient(
-        baseUrl: 'https://square.test/api',
-        httpClient: MockClient(
-          (_) async => http.Response(
-            jsonEncode({...receipt(), mutation.key: mutation.value}),
-            200,
-          ),
-        ),
-      );
-      addTearDown(api.close);
-      await expectLater(
-        api.fetchChatAccess(session: session, deviceId: testMlsDeviceId),
-        throwsA(isA<SquareApiException>()),
-      );
-    });
-  }
-  for (final url in [
-    'https://square.test/api/chat/realtime',
-    'wss://square.test:8443/api/chat/realtime',
-    'wss://square.test:0/api/chat/realtime',
-    'wss://user@square.test/api/chat/realtime',
-    'wss://square.test/api/chat/realtime?token=secret',
-    'wss://square.test/api/chat/realtime#fragment',
-    'wss://square.test/realtime',
-  ]) {
-    test('聊天许可拒绝不规范地址$url', () async {
-      final api = SquareApiClient(
-        baseUrl: 'https://square.test/api',
-        httpClient: MockClient(
-          (_) async => http.Response(
-            jsonEncode({...receipt(), 'realtime_url': url}),
-            200,
-          ),
-        ),
-      );
-      addTearDown(api.close);
-      await expectLater(
-        api.fetchChatAccess(session: session, deviceId: testMlsDeviceId),
-        throwsA(isA<SquareApiException>()),
-      );
-    });
-  }
   test('重定向响应拒绝，不能把Location变为第二服务入口', () async {
     final api = SquareApiClient(
       baseUrl: 'https://square.test/api',
@@ -840,7 +700,7 @@ void _chatAccessTests() {
     );
     addTearDown(api.close);
     await expectLater(
-      api.fetchChatAccess(session: session, deviceId: testMlsDeviceId),
+      api.fetchResourceAuthorization(session),
       throwsA(isA<SquareApiException>()),
     );
   });

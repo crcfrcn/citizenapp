@@ -28,7 +28,6 @@ import 'package:citizen_user/creator/creator_service.dart';
 import 'package:citizen_user/membership/membership_page.dart';
 import 'package:citizen_user/membership/subscription_service.dart';
 import 'package:citizen_user/identity/myid_page.dart';
-import 'package:citizen_storage/user_isar.dart';
 import 'package:citizenapp/security/app_lock_service.dart';
 import 'package:citizenapp/security/pin_input_page.dart';
 import 'package:citizen_system/security/system_protected_storage.dart';
@@ -1052,18 +1051,7 @@ class _HeaderBackground extends StatelessWidget {
 }
 
 class SettingsPage extends StatefulWidget {
-  const SettingsPage({
-    super.key,
-    this.homeTabPreferenceReader,
-    this.homeTabPreferenceWriter,
-  });
-
-  /// 测试只替换 UserIsar 读写；产品运行始终使用 UserIsar 唯一真源。
-  @visibleForTesting
-  final Future<bool> Function()? homeTabPreferenceReader;
-
-  @visibleForTesting
-  final Future<void> Function(bool value)? homeTabPreferenceWriter;
+  const SettingsPage({super.key});
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -1076,8 +1064,6 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _deviceLockEnabled = false;
   bool _pinLockEnabled = false;
   bool _duressModeEnabled = false;
-  bool _openChatOnLaunch = false;
-  bool _savingHomeTab = false;
   bool _loading = true;
 
   @override
@@ -1100,40 +1086,18 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _loadSettings() async {
-    // 四项读取先同时启动，新增首页偏好不能延长原有三项安全设置的串行等待。
     final values = await Future.wait<Object?>([
       SystemProtectedRecordStore.lock.read(_deviceLockKey),
       AppLockService.isPinSet(),
       AppLockService.isDuressModeEnabled(),
-      (widget.homeTabPreferenceReader ??
-          UserIsar.instance.readOpenChatOnLaunch)(),
     ]);
     if (!mounted) return;
     setState(() {
       _deviceLockEnabled = values[0] == 'true';
       _pinLockEnabled = values[1]! as bool;
       _duressModeEnabled = values[2]! as bool;
-      _openChatOnLaunch = values[3]! as bool;
       _loading = false;
     });
-  }
-
-  Future<void> _toggleHomeTab(bool value) async {
-    if (_savingHomeTab) return;
-    setState(() => _savingHomeTab = true);
-    try {
-      await (widget.homeTabPreferenceWriter ??
-          UserIsar.instance.writeOpenChatOnLaunch)(value);
-      if (!mounted) return;
-      setState(() => _openChatOnLaunch = value);
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('首页设置保存失败，请重试')));
-    } finally {
-      if (mounted) setState(() => _savingHomeTab = false);
-    }
   }
 
   Future<void> _toggleDeviceLock(bool value) async {
@@ -1315,7 +1279,6 @@ class _SettingsPageState extends State<SettingsPage> {
                   ),
                 ),
                 SizedBox(height: AppLayout.scaled(context, 28)),
-                _buildHomeTabTile(),
                 SizedBox(height: AppLayout.scaled(context, 28)),
                 // 关于区标题
                 Padding(
@@ -1482,66 +1445,6 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           Switch(value: value, onChanged: onChanged),
         ],
-      ),
-    );
-  }
-
-  /// 首页偏好是一行展示设置：标题、当前首页和与安全设置同款的 Switch 同行显示。
-  Widget _buildHomeTabTile() {
-    return Container(
-      key: const ValueKey('home-tab-setting-tile'),
-      // 与“我的”主页的“设置”入口复用同一高度令牌，禁止两处随屏幕缩放后分叉。
-      height: AppLayout.serviceEntryHeight(context),
-      decoration: AppTheme.cardDecoration(radius: AppTheme.radiusLg),
-      child: Padding(
-        padding: EdgeInsets.symmetric(
-          horizontal: AppLayout.scaledValue(16),
-          // Switch 保持与安全设置同款视觉和触控区；少量上下留白只负责内部居中，
-          // 卡片最终行高统一由 serviceEntryHeight 控制。
-          vertical: AppLayout.scaledValue(4),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: AppLayout.scaledValue(36),
-              height: AppLayout.scaledValue(36),
-              decoration: BoxDecoration(
-                color: AppTheme.primary.withAlpha(20),
-                borderRadius: BorderRadius.circular(AppLayout.scaledValue(8)),
-              ),
-              child: Icon(
-                Icons.home_outlined,
-                size: AppLayout.scaledValue(20),
-                color: AppTheme.primary,
-              ),
-            ),
-            SizedBox(width: AppLayout.scaledValue(14)),
-            Expanded(
-              child: Text(
-                '首页设置',
-                style: TextStyle(
-                  fontSize: AppLayout.scaledValue(15),
-                  fontWeight: FontWeight.w500,
-                  color: AppTheme.textPrimary,
-                ),
-              ),
-            ),
-            Text(
-              _openChatOnLaunch ? '聊天' : '广场',
-              key: const ValueKey('home-tab-setting-value'),
-              style: TextStyle(
-                fontSize: AppLayout.scaledValue(13),
-                color: AppTheme.textSecondary,
-              ),
-            ),
-            SizedBox(width: AppLayout.scaledValue(8)),
-            Switch(
-              key: const ValueKey('home-tab-setting-switch'),
-              value: _openChatOnLaunch,
-              onChanged: _savingHomeTab ? null : _toggleHomeTab,
-            ),
-          ],
-        ),
       ),
     );
   }

@@ -6,28 +6,89 @@ import 'package:flutter/services.dart';
 
 /// 仅处理App自有私有路径；平台校验失败不得继续开库或记录写入。
 abstract final class SystemProtectedStorage {
-  static const chatChannel = MethodChannel('citizenapp/chat/storage');
-  static Future<Directory> prepareChatDataDirectory() async {
-    final path = await chatChannel.invokeMethod<String>('prepareDataStorage');
+  static const channel = MethodChannel('citizenapp/system_protected_data');
+  static const wipePending = 'pending';
+  static const wipeComplete = 'complete';
+  static final _wipeMigrations = <String, Future<void>>{};
+
+  static Future<void> syncWipeLayout({bool migration = false}) =>
+      channel.invokeMethod<void>('syncWipeLayout', {'migration': migration});
+
+  static Future<Directory> wipeDirectory() async {
+    final path = await channel.invokeMethod<String>('prepareWipeDirectory');
     if (path == null ||
         !path.startsWith(Platform.pathSeparator) ||
         await FileSystemEntity.type(path, followLinks: false) !=
             FileSystemEntityType.directory) {
-      throw StateError('聊天系统保护目录不可用');
+      throw StateError('全量擦除记录目录不可用');
     }
-    return Directory(await Directory(path).resolveSymbolicLinks());
+    final root = Directory(await Directory(path).resolveSymbolicLinks());
+    final migration = _wipeMigrations.putIfAbsent(
+      root.path,
+      () => _migrateWipeMarkers(root),
+    );
+    try {
+      await migration;
+    } finally {
+      if (identical(_wipeMigrations[root.path], migration)) {
+        _wipeMigrations.remove(root.path);
+      }
+    }
+    return root;
   }
 
-  static Future<void> verifyChatDirectory(Directory directory) async {
-    final root = await prepareChatDataDirectory();
-    if ((directory.path != root.path &&
-            !directory.path.startsWith(root.path + Platform.pathSeparator)) ||
-        await directory.resolveSymbolicLinks() != directory.path) {
-      throw StateError('拒绝聊天保护域以外或链接目录');
+  /// 标记按 pending、complete 依次同卷改名。中断时下一次先补齐标记，
+  /// 再让擦除流程读取新目录，绝不把未完成擦除当作普通启动。
+  static Future<void> _migrateWipeMarkers(Directory root) async {
+    final previous = Directory('${root.parent.path}/chat_data');
+    final type = await FileSystemEntity.type(previous.path, followLinks: false);
+    if (type == FileSystemEntityType.notFound) return;
+    if (type != FileSystemEntityType.directory ||
+        await previous.resolveSymbolicLinks() != previous.path) {
+      throw StateError('旧擦除标记目录无效');
+    }
+    final oldPending = File('${previous.path}/.chat_data_wipe.pending');
+    final oldComplete = File('${previous.path}/.chat_data_wipe.complete');
+    final pending = File('${root.path}/$wipePending');
+    final complete = File('${root.path}/$wipeComplete');
+
+    Future<bool> exists(File file) async {
+      final type = await FileSystemEntity.type(file.path, followLinks: false);
+      if (type == FileSystemEntityType.notFound) return false;
+      if (type != FileSystemEntityType.file) {
+        throw StateError('擦除标记必须是普通文件');
+      }
+      return true;
+    }
+
+    final hadPending = await exists(oldPending);
+    final hadComplete = await exists(oldComplete);
+    final hasPending = await exists(pending);
+    final hasComplete = await exists(complete);
+    if ((hadPending && (hasPending || hasComplete)) ||
+        (hadComplete && (hasComplete || !(hadPending || hasPending)))) {
+      throw StateError('新旧擦除标记冲突');
+    }
+    if (hadPending) {
+      await oldPending.rename(pending.path);
+      await syncWipeLayout(migration: true);
+    }
+    if (hadComplete) {
+      await oldComplete.rename(complete.path);
+      await syncWipeLayout(migration: true);
+    }
+    // 待擦除标记已持久化才沿原全量擦除意图清理旧目录；正常升级只移除空目录。
+    await syncWipeLayout(migration: true);
+    final wipeRequested = hadPending || hasPending;
+    if (wipeRequested || await previous.list(followLinks: false).isEmpty) {
+      await previous.delete(recursive: wipeRequested);
+      await syncWipeLayout(migration: true);
     }
   }
 
-  static const channel = MethodChannel('citizenapp/system_protected_data');
+  static Future<void> eraseDeviceStorage({String? cidNumber}) =>
+      channel.invokeMethod<void>('eraseDeviceStorage', {'user_id': ?cidNumber});
+
   static Future<String> recordsDirectory() async {
     final path = await channel.invokeMethod<String>('prepareRecords');
     if (path == null || path.isEmpty || !path.startsWith('/')) {

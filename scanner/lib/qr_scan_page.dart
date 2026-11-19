@@ -404,7 +404,7 @@ class _QrScanPageState extends State<QrScanPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('这是签名请求'),
-        content: const Text('此处只扫收款地址。请到「聊天 → 扫一扫」。'),
+        content: const Text('此处只扫收款地址。请到「钱包账户详情 → 扫一扫」。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),

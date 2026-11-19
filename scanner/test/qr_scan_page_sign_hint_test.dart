@@ -11,7 +11,7 @@ import 'package:citizen_scanner/qr_scan_page.dart';
 
 /// 扫码填地址时扫到签名请求:必须给明确去向,不得用「无法识别」含糊过去。
 ///
-/// 签名请求(广场动作 / 公民身份 / 注册局占号换绑)统一在「聊天 → 扫一扫」处理;
+/// 签名请求(广场动作 / 公民身份 / 注册局占号换绑)统一在「钱包账户详情 → 扫一扫」处理;
 /// 交易页与多签各页的地址框扫码都走 [QrScanMode.transfer],共用这一条提示。
 late TestCitizenSdkHarness _core;
 
@@ -34,7 +34,7 @@ void main() {
     )).canonicalText;
   });
 
-  testWidgets('transfer 模式扫到签名请求:指路聊天扫一扫,不回传结果', (tester) async {
+  testWidgets('transfer 模式扫到签名请求:指向账户详情的扫一扫,不回传结果', (tester) async {
     QrScanTransferResult? popped;
     final navigatorKey = GlobalKey<NavigatorState>();
     await tester.pumpWidget(
@@ -47,7 +47,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('这是签名请求'), findsOneWidget);
-    expect(find.text('此处只扫收款地址。请到「聊天 → 扫一扫」。'), findsOneWidget);
+    expect(find.text('此处只扫收款地址。请到「钱包账户详情 → 扫一扫」。'), findsOneWidget);
     // 未识别文案不得同时出现:两条提示并存等于没给去向。
     expect(find.text('无法识别二维码'), findsNothing);
 

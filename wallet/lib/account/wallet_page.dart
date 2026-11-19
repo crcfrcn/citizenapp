@@ -22,7 +22,6 @@ import 'package:citizen_user/identity/myid_service.dart';
 import 'package:citizen_user/identity/current_user_context.dart';
 import 'package:citizen_user/identity/finalized_identity_resolver.dart';
 import 'package:citizen_user/identity/square_session_provider.dart';
-import 'package:chat/chat.dart' show ChatRuntime, ChatBinding;
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_wallet/account/account_detail_page.dart';
 import 'package:citizen_wallet/onboarding/create_wallet_flow.dart';
@@ -395,7 +394,6 @@ class _WalletTabState extends State<WalletTab> {
     try {
       final sdk = context.read<CitizenSdk>();
       // 只复用身份业务的原公开结果，不把本地绑定存在等同于公民资格。
-      // Chat回调保持惰性；读取钱包徽标不创建聊天运行态。
       final identity = await MyIdService(
         wallet: sdk,
         getWalletState: widget.actions?.state,
@@ -406,14 +404,6 @@ class _WalletTabState extends State<WalletTab> {
         currentUserContext: context.read<CurrentUserContext>(),
         identityResolver: context.read<FinalizedIdentityResolver>(),
         sessionProvider: context.read<SquareSessionProvider>(),
-        onChatBindingChanged: (binding, {required existingOnly}) async {
-          final ChatRuntime? runtime = existingOnly
-              ? null
-              : (() => context.read<ChatRuntime>())();
-          await runtime?.convergeFinalizedBinding(
-            ChatBinding.fromIdentity(binding),
-          );
-        },
       ).getState();
       if (!mounted || generation != _loadGeneration) {
         return;
@@ -2325,7 +2315,7 @@ class _WalletDetailPageState extends State<WalletDetailPage>
   /// - 编辑态和回滚逻辑已搬到 [WalletIdentityCard]，这里只负责本机落盘。
   /// - 调用方保留原编辑交互；SDK校验名称并对当前目录修订执行唯一CAS。
   /// - 本次成功后只更新修订，禁止修改账户名称、默认顺序或触发签名。
-  /// - 公开昵称、聊天联系人名均有独立真源，本方法不得触发资料或聊天同步。
+  /// - 公开昵称有独立真源，本方法不得触发资料同步。
   /// - 出错时重新抛出,让 WalletIdentityCard 走回滚分支。
   Future<void> _saveWalletName(String newName) async {
     try {

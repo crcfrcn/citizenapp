@@ -25,6 +25,7 @@ dependencies:
   citizen_topup: any
   citizen_wallet: any
   crypto: 3.0.7
+  ffi: 2.2.0
   lpinyin: 2.0.3
   flutter:
     sdk: flutter
@@ -39,7 +40,6 @@ dependencies:
   shared_preferences: ^2.5.5
   webview_flutter: ^4.13.0
 
-  chat: any
 dev_dependencies:
   citizen_testing: any
   flutter_test:

@@ -32,8 +32,9 @@ void main() {
               if (mode == 'missing') throw MissingPluginException();
               if (call.method == 'prepare_playback_file') {
                 if (mode == 'invalid') return 'relative.mp4';
-                final file = await File('${root.path}/protected.mp4')
-                    .create(exclusive: true);
+                final file = await File(
+                  '${root.path}/protected.mp4',
+                ).create(exclusive: true);
                 return file.resolveSymbolicLinks();
               }
               final args = call.arguments as Map;
@@ -383,8 +384,6 @@ SquareMembershipPlan _plan(String level) {
   return SquareMembershipPlan(
     memberLevel: level,
     displayName: p.displayName,
-    fileLimit: p.fileLimit,
-    chat: p.chat,
     document: p.document,
     video: p.video,
     article: p.article,
@@ -392,7 +391,6 @@ SquareMembershipPlan _plan(String level) {
     imageBytes: p.imageBytes,
     imageDimension: p.imageDimension,
     media: p.media,
-    resources: p.resources,
     dailyLimits: p.dailyLimits,
   );
 }

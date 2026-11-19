@@ -1,12 +1,12 @@
-/// 本机 Chat 设备身份。
-class ChatDevice {
-  const ChatDevice({
+/// 本机设备签名身份。
+class DeviceIdentity {
+  const DeviceIdentity({
     required this.userId,
     required this.deviceId,
     this.publicKey,
   });
 
-  /// Chat 永久用户身份主键，由宿主产品注入。
+  /// 公民身份主键，由宿主产品注入。
   final String userId;
 
   /// 同一用户下唯一设备标识。
@@ -17,10 +17,10 @@ class ChatDevice {
 
   String? validate() {
     if (userId.trim().isEmpty || userId.contains(':')) {
-      return 'Chat 用户身份不能为空且不能包含冒号';
+      return '用户身份不能为空且不能包含冒号';
     }
     if (deviceId.trim().isEmpty || deviceId.contains(':')) {
-      return 'Chat 设备 ID 不能为空且不能包含冒号';
+      return '设备 ID 不能为空且不能包含冒号';
     }
     return null;
   }
@@ -182,27 +182,11 @@ enum MlsErrorCode {
   libraryUnavailable,
   invalidRequest,
   invalidResponse,
-  requestConflict,
-  pendingFull,
-  keyPackageFailed,
   operationFailed,
-  welcomeConflict,
-  groupMissing,
 }
 
 /// 公开诊断只携带固定FFI操作，不暴露路径、身份或请求内容。
-enum MlsOperation {
-  unknown,
-  identity,
-  store,
-  keyPackage,
-  groupCreate,
-  groupAdd,
-  groupRemove,
-  groupMessage,
-  groupProcess,
-  groupState,
-}
+enum MlsOperation { unknown, identity }
 
 class MlsException implements Exception {
   const MlsException(
@@ -223,35 +207,20 @@ class MlsException implements Exception {
     if (message == '解析request_json失败，字段或结构非法') {
       return MlsErrorCode.invalidRequest;
     }
-    if (message.startsWith('CHAT_MLS_STATE_MISSING:')) {
+    if (message.startsWith('DEVICE_MLS_STATE_MISSING:')) {
       return MlsErrorCode.stateMissing;
     }
-    if (message.contains('CHAT_MLS_STATE_OWNER_MISMATCH')) {
+    if (message.contains('DEVICE_MLS_STATE_OWNER_MISMATCH')) {
       return MlsErrorCode.stateOwnerMismatch;
     }
-    if (message.contains('CHAT_MLS_STORAGE_READ_FAILED')) {
+    if (message.contains('DEVICE_MLS_STORAGE_READ_FAILED')) {
       return MlsErrorCode.storageReadFailed;
     }
-    if (message.contains('CHAT_MLS_STATE_INVALID')) {
+    if (message.contains('DEVICE_MLS_STATE_INVALID')) {
       return MlsErrorCode.stateInvalid;
     }
-    if (message.contains('CHAT_MLS_SIGNER_MISSING')) {
+    if (message.contains('DEVICE_MLS_SIGNER_MISSING')) {
       return MlsErrorCode.signerMissing;
-    }
-    if (message == 'CHAT_MLS_GROUP_MISSING') {
-      return MlsErrorCode.groupMissing;
-    }
-    if (message == 'CHAT_MLS_WELCOME_CONFLICT') {
-      return MlsErrorCode.welcomeConflict;
-    }
-    if (message.startsWith('CHAT_MLS_REQUEST_CONFLICT:')) {
-      return MlsErrorCode.requestConflict;
-    }
-    if (message.startsWith('CHAT_MLS_PENDING_FULL:')) {
-      return MlsErrorCode.pendingFull;
-    }
-    if (message.startsWith('生成 OpenMLS KeyPackage 失败:')) {
-      return MlsErrorCode.keyPackageFailed;
     }
     return MlsErrorCode.operationFailed;
   }
@@ -263,14 +232,6 @@ class MlsException implements Exception {
   String get diagnosticOperation => switch (operation) {
     MlsOperation.unknown => 'unknown',
     MlsOperation.identity => 'identity',
-    MlsOperation.store => 'store',
-    MlsOperation.keyPackage => 'key_package',
-    MlsOperation.groupCreate => 'group_create',
-    MlsOperation.groupAdd => 'group_add',
-    MlsOperation.groupRemove => 'group_remove',
-    MlsOperation.groupMessage => 'group_message',
-    MlsOperation.groupProcess => 'group_process',
-    MlsOperation.groupState => 'group_state',
   };
 
   /// 脱敏诊断只记录该稳定码，不记录用户、账户、路径、密钥或底层文本。
@@ -285,77 +246,23 @@ class MlsException implements Exception {
     MlsErrorCode.libraryUnavailable => 'library_unavailable',
     MlsErrorCode.invalidRequest => 'invalid_request',
     MlsErrorCode.invalidResponse => 'invalid_response',
-    MlsErrorCode.requestConflict => 'request_conflict',
-    MlsErrorCode.pendingFull => 'pending_full',
-    MlsErrorCode.keyPackageFailed => 'key_package_failed',
     MlsErrorCode.operationFailed => 'operation_failed',
-    MlsErrorCode.welcomeConflict => 'welcome_conflict',
-    MlsErrorCode.groupMissing => 'group_missing',
   };
 
   String get userMessage => switch (code) {
-    MlsErrorCode.directoryInvalid => '本机聊天存储路径校验失败',
-    MlsErrorCode.directoryUnavailable => '本机聊天存储暂时不可读取，请稍后重试',
-    MlsErrorCode.stateMissing => '本机聊天身份文件缺失，聊天暂时无法使用',
-    MlsErrorCode.stateOwnerMismatch => '当前用户身份的聊天设备状态属于其他用户，请重新切换账户后再试',
+    MlsErrorCode.directoryInvalid => '本机设备存储路径校验失败',
+    MlsErrorCode.directoryUnavailable => '本机设备存储暂时不可读取，请稍后重试',
+    MlsErrorCode.stateMissing => '本机设备身份文件缺失',
+    MlsErrorCode.stateOwnerMismatch => '当前设备签名状态属于其他用户，请重新切换账户后再试',
     MlsErrorCode.storageReadFailed ||
     MlsErrorCode.stateInvalid ||
-    MlsErrorCode.signerMissing => '当前用户身份的聊天加密状态无法恢复，请重新进入宿主',
-    MlsErrorCode.libraryUnavailable => '聊天安全组件加载失败，请重新安装当前版本',
+    MlsErrorCode.signerMissing => '当前用户的设备签名状态无法恢复，请重新进入宿主',
+    MlsErrorCode.libraryUnavailable => '设备签名组件加载失败，请重新安装当前版本',
     MlsErrorCode.invalidRequest ||
     MlsErrorCode.invalidResponse ||
-    MlsErrorCode.requestConflict ||
-    MlsErrorCode.welcomeConflict ||
-    MlsErrorCode.groupMissing ||
-    MlsErrorCode.pendingFull ||
-    MlsErrorCode.keyPackageFailed ||
-    MlsErrorCode.operationFailed => '聊天安全组件暂时无法使用，请稍后重试',
+    MlsErrorCode.operationFailed => '设备签名组件暂时无法使用，请稍后重试',
   };
 
   @override
   String toString() => technicalMessage;
-}
-
-/// 将聊天MLS异常收敛为可公开展示的固定中文文案。
-///
-/// 未列入白名单的底层异常统一返回 [fallback]；禁止把 `Bad state`、动态库路径、native
-/// 调试文本或损坏字节直接渲染到 Android/iOS 页面。
-String chatErrorMessage(Object error, {String fallback = '聊天暂时无法使用，请稍后重试'}) {
-  if (error is MlsException) {
-    return error.userMessage;
-  }
-  final technical = error.toString();
-  if (technical.contains('当前默认账户尚未注册用户身份')) {
-    return '当前默认账户尚未注册用户身份，无法使用聊天';
-  }
-  if (technical.contains('身份账户已切换') ||
-      technical.contains('用户身份当前绑定已切换') ||
-      technical.contains('当前用户投影不一致')) {
-    return '当前登录用户已切换，请重新进入聊天';
-  }
-  if (technical.contains('key_package_not_available') ||
-      technical.contains('对方没有可用 Chat KeyPackage') ||
-      technical.contains('没有可用 Chat KeyPackage')) {
-    return '对方暂时无法接收加密消息，请稍后重试';
-  }
-  if (technical.contains('invalid_key_package_lifetime') ||
-      technical.contains('key_package_write_rejected')) {
-    return '聊天安全材料更新失败，请稍后重试';
-  }
-  if (technical.contains('对方尚未绑定身份（用户身份）')) {
-    return '对方尚未绑定身份（用户身份）';
-  }
-  if (technical.contains('对方 用户身份 当前没有有效钱包绑定')) {
-    return '对方 用户身份 当前没有有效钱包绑定';
-  }
-  if (technical.contains('允许麦克风权限')) {
-    return '请在系统设置中允许麦克风权限';
-  }
-  if (technical.contains('已退出该群')) {
-    return '已退出该群，无法继续操作';
-  }
-  if (technical.contains('群不存在')) {
-    return '该群聊已不存在';
-  }
-  return fallback;
 }

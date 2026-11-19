@@ -1,4 +1,4 @@
-import 'package:chat/chat.dart' as chat_sdk;
+import 'package:citizen_network/mls_authentication.dart' as device;
 import 'package:citizen_user/membership/subscription_service.dart';
 
 import 'package:citizen_testing/mls_authentication_fixture.dart';
@@ -498,8 +498,8 @@ class _GateMlsSessions implements SquareSessionProvider {
             session: fakeSquareSession(testMlsAccountId),
           )
         : SquareSessionResolution.fromError(
-            const chat_sdk.MlsException(
-              chat_sdk.MlsErrorCode.directoryInvalid,
+            const device.MlsException(
+              device.MlsErrorCode.directoryInvalid,
               'synthetic raw directory detail',
             ),
           );
@@ -562,7 +562,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('本机聊天存储路径校验失败'), findsOneWidget);
+    expect(find.text('本机设备存储路径校验失败'), findsOneWidget);
     expect(find.textContaining('synthetic raw'), findsNothing);
     expect(find.byType(TextButton), findsNothing);
     expect(find.text('合成广场内容'), findsNothing);
@@ -2116,7 +2116,6 @@ void _squareTabGateTests() {
         await _drainHomeIdentityReads(tester);
         await tester.pumpAndSettle();
         expect(find.text('发文章'), findsOneWidget);
-        expect(find.text('初始化本机聊天设备'), findsNothing);
         expect(find.text('尚未注册'), findsNothing);
         expect(sessions.registrationCalls, 0);
       });

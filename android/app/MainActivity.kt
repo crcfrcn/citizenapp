@@ -4,7 +4,6 @@ import org.citizen.sdk.CitizenSdkPlugin
 import com.google.android.play.core.appupdate.AppUpdateManagerFactory
 import com.google.android.play.core.install.model.UpdateAvailability
 import android.Manifest
-import android.app.PendingIntent
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -24,8 +23,6 @@ import android.os.Looper
 import android.util.Log
 import android.view.WindowManager
 import androidx.core.app.ActivityCompat
-import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -39,8 +36,6 @@ class MainActivity : FlutterFragmentActivity() {
     private val permissionsChannelName = "citizenapp/permissions"
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var networkGeneration = 0
-    private var chatMediaChannel: ChatMediaChannel? = null
-    private var chatStorageChannel: ChatStorageChannel? = null
     private var squareMediaChannel: SquareMediaChannel? = null
     private val notificationPermissionRequestCode = 170517
     private var pendingNotificationPermissionResult: MethodChannel.Result? = null
@@ -48,8 +43,6 @@ class MainActivity : FlutterFragmentActivity() {
     companion object {
         // 与 Cloudflare Worker FCM payload 的 android.notification.channel_id 一致。
         private const val SQUARE_POST_CHANNEL_ID = "square_posts"
-        private const val CHAT_NOTIFICATION_CHANNEL_ID = "chat_messages"
-        private const val CHAT_NOTIFICATION_METHOD_CHANNEL = "citizenapp/chat_notifications"
     }
 
     /**
@@ -108,8 +101,6 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        chatMediaChannel = ChatMediaChannel(this, flutterEngine.dartExecutor.binaryMessenger)
-        chatStorageChannel = ChatStorageChannel(this, flutterEngine.dartExecutor.binaryMessenger)
         // 钱包SDK仅保存授权会话；密文在应用私有区，AES密钥只留Android Keystore。
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "citizenapp/metamask")
             .setMethodCallHandler { call, result ->
@@ -167,38 +158,6 @@ class MainActivity : FlutterFragmentActivity() {
             }
         })
         ensureSquarePostNotificationChannel()
-        ensureChatNotificationChannel()
-
-        MethodChannel(
-            flutterEngine.dartExecutor.binaryMessenger,
-            CHAT_NOTIFICATION_METHOD_CHANNEL,
-        ).setMethodCallHandler { call, result ->
-            when (call.method) {
-                "showChatNotification" -> {
-                    val conversationId = call.argument<String>("conversationId")
-                        ?.takeIf { it.isNotBlank() }
-                    val envelopeId = call.argument<String>("envelopeId")
-                        ?.takeIf { it.isNotBlank() }
-                    if (conversationId == null || envelopeId == null) {
-                        result.error("INVALID_NOTIFICATION_TAG", "聊天通知缺少会话标识", null)
-                        return@setMethodCallHandler
-                    }
-                    showChatNotification(conversationId, envelopeId)
-                    result.success(null)
-                }
-                "clearConversationNotifications" -> {
-                    val conversationId = call.argument<String>("conversationId")
-                        ?.takeIf { it.isNotBlank() }
-                    if (conversationId == null) {
-                        result.error("INVALID_CONVERSATION_ID", "聊天通知缺少会话标识", null)
-                        return@setMethodCallHandler
-                    }
-                    clearChatNotifications(conversationId)
-                    result.success(null)
-                }
-                else -> result.notImplemented()
-            }
-        }
 
         squareMediaChannel = SquareMediaChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -256,6 +215,10 @@ class MainActivity : FlutterFragmentActivity() {
             .setMethodCallHandler { call, result ->
                 var stage = when (call.method) {
                     "prepareRecords" -> "prepare_records"
+                    "prepareDeviceStorage" -> "prepare_device_storage"
+                    "prepareWipeDirectory" -> "prepare_wipe_directory"
+                    "syncWipeLayout" -> "sync_wipe_layout"
+                    "eraseDeviceStorage" -> "erase_device_storage"
                     "protectUserDatabase" -> "user_directory_argument"
                     "compareRecords" -> "compare_records"
                     "eraseObsoleteDataMaterial" -> "obsolete_material_cleanup"
@@ -264,6 +227,13 @@ class MainActivity : FlutterFragmentActivity() {
                 try {
                     when (call.method) {
                         "prepareRecords" -> result.success(prepareProtectedRecords())
+                        "prepareDeviceStorage" -> result.success(prepareDeviceStorage(call))
+                        "prepareWipeDirectory" -> result.success(preparePrivateDirectory(File(protectedBase(), "wipe")).canonicalPath)
+                        "syncWipeLayout" -> {
+                            syncWipeLayout(call.argument<Boolean>("migration") == true)
+                            result.success(null)
+                        }
+                        "eraseDeviceStorage" -> { eraseDeviceStorage(call); result.success(null) }
                         "protectUserDatabase" -> {
                             val directory = call.argument<String>("directory") ?: throw IllegalArgumentException()
                             stage = "user_directory_path"
@@ -346,15 +316,7 @@ class MainActivity : FlutterFragmentActivity() {
             }
     }
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        if (chatMediaChannel?.onActivityResult(requestCode, resultCode, data) == true) return
-        super.onActivityResult(requestCode, resultCode, data)
-    }
     override fun onDestroy() {
-        chatMediaChannel?.dispose()
-        chatStorageChannel?.dispose()
-        chatMediaChannel = null
-        chatStorageChannel = null
         networkGeneration++
         networkCallback?.let { (getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager).unregisterNetworkCallback(it) }
         networkCallback = null
@@ -379,61 +341,6 @@ class MainActivity : FlutterFragmentActivity() {
             // IMPORTANCE_HIGH 渠道默认带系统提示音，不覆盖 sound 即用默认铃声。
         }
         manager.createNotificationChannel(channel)
-    }
-
-    /// 聊天消息独立使用高优先级渠道；用户可以在系统设置中单独关闭，App 不绕过该选择。
-    private fun ensureChatNotificationChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val manager = getSystemService(NotificationManager::class.java) ?: return
-        if (manager.getNotificationChannel(CHAT_NOTIFICATION_CHANNEL_ID) != null) return
-        val channel = NotificationChannel(
-            CHAT_NOTIFICATION_CHANNEL_ID,
-            "聊天消息",
-            NotificationManager.IMPORTANCE_HIGH,
-        ).apply {
-            description = "收到新的端到端加密消息时通知"
-            enableVibration(true)
-        }
-        manager.createNotificationChannel(channel)
-    }
-
-    /// FCM 前台消息不会自动弹出通知；这里只展示固定无正文文案，不接收聊天内容。
-    private fun showChatNotification(conversationId: String, envelopeId: String) {
-        if (!isNotificationPermissionGranted()) return
-        val tag = "$conversationId|$envelopeId"
-        val openApp = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-        }
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            tag.hashCode(),
-            openApp,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val notification = NotificationCompat.Builder(this, CHAT_NOTIFICATION_CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("公民")
-            .setContentText("你有一条新消息")
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setAutoCancel(true)
-            .setContentIntent(pendingIntent)
-            .build()
-        NotificationManagerCompat.from(this).notify(tag, 1, notification)
-    }
-
-    /// 只清除目标会话的聊天通知；tag 前缀使用既有 conversation_id，禁止 cancelAll
-    /// 误删其它聊天、广场或系统通知。
-    private fun clearChatNotifications(conversationId: String) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
-        val manager = getSystemService(NotificationManager::class.java) ?: return
-        val prefix = "$conversationId|"
-        manager.activeNotifications
-            .filter { notification ->
-                notification.tag?.startsWith(prefix) == true &&
-                    (Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
-                        notification.notification.channelId == CHAT_NOTIFICATION_CHANNEL_ID)
-            }
-            .forEach { notification -> manager.cancel(notification.tag, notification.id) }
     }
 
     private fun isNotificationPermissionGranted(): Boolean {
@@ -520,6 +427,97 @@ class MainActivity : FlutterFragmentActivity() {
             directory.setExecutable(true, true))
         require((android.system.Os.stat(directory.path).st_mode and 511) == 448)
         return directory
+    }
+
+    /** 继续使用已经登记的设备保护目录；平台只返回通过校验的所属路径。 */
+    private fun prepareDeviceStorage(call: io.flutter.plugin.common.MethodCall): String {
+        val root = deviceStorageRoot()
+        val target = File(root, deviceDirectoryName(requireNotNull(call.argument<String>("user_id"))))
+        for (directory in listOf(root, target)) {
+            preparePrivateDirectory(directory)
+        }
+        return target.canonicalPath
+    }
+
+    private fun preparePrivateDirectory(directory: File): File {
+        require(directory.absolutePath == directory.canonicalPath)
+        require(directory.exists() || directory.mkdir())
+        require(directory.isDirectory)
+        android.system.Os.chmod(directory.path, 448)
+        require((android.system.Os.stat(directory.path).st_mode and 511) == 448)
+        return directory
+    }
+
+    private fun protectedBase(): File {
+        require(!isDeviceProtectedStorage)
+        val users = getSystemService(android.os.UserManager::class.java)
+        require(users != null && users.isUserUnlocked)
+        return noBackupFilesDir.canonicalFile
+    }
+
+    private fun protectedDirectoryExists(file: File): Boolean {
+        val info = try {
+            android.system.Os.lstat(file.path)
+        } catch (error: android.system.ErrnoException) {
+            if (error.errno == android.system.OsConstants.ENOENT) return false
+            throw error
+        }
+        require(android.system.OsConstants.S_ISDIR(info.st_mode) &&
+            info.st_uid == android.os.Process.myUid() && file.absolutePath == file.canonicalPath)
+        return true
+    }
+
+    private fun syncProtectedDirectory(file: File) {
+        val flags = android.system.OsConstants.O_RDONLY or
+            android.system.OsConstants.O_DIRECTORY or android.system.OsConstants.O_NOFOLLOW
+        val descriptor = android.system.Os.open(file.path, flags, 0)
+        try { android.system.Os.fsync(descriptor) } finally { android.system.Os.close(descriptor) }
+    }
+
+    private fun syncWipeLayout(migration: Boolean) {
+        val base = protectedBase()
+        syncProtectedDirectory(File(base, "wipe"))
+        if (migration) {
+            val previous = File(base, "chat_data")
+            if (protectedDirectoryExists(previous)) syncProtectedDirectory(previous)
+        }
+        syncProtectedDirectory(base)
+    }
+
+    // 整目录同卷改名，保留每台已登记设备的原状态和权限。
+    private fun deviceStorageRoot(): File {
+        val base = protectedBase()
+        val previous = File(base, "chat_mls")
+        val current = File(base, "device")
+        val previousExists = protectedDirectoryExists(previous)
+        val currentExists = protectedDirectoryExists(current)
+        if (previousExists) {
+            require(!currentExists) { "设备保护目录存在冲突" }
+            android.system.Os.rename(previous.path, current.path)
+        }
+        // 重试也同步父目录，覆盖上次改名后同步失败的情况。
+        if (previousExists || currentExists) syncProtectedDirectory(base)
+        return current
+    }
+
+    private fun deviceDirectoryName(user: String): String {
+        val bytes = user.toByteArray(Charsets.UTF_8)
+        require(user.isNotBlank() && !user.contains(':') && bytes.size <= 120)
+        return bytes.joinToString("") { "%02x".format(java.util.Locale.ROOT, it.toInt() and 255) }
+    }
+
+    private fun eraseDeviceStorage(call: io.flutter.plugin.common.MethodCall) {
+        val root = deviceStorageRoot()
+        val user = call.argument<String>("user_id")
+        fun erase(file: File) {
+            require(file.absolutePath == file.canonicalPath)
+            if (!file.exists()) return
+            if (file.isDirectory) {
+                for (entry in requireNotNull(file.listFiles())) erase(entry)
+            }
+            require(file.delete() && !file.exists())
+        }
+        erase(if (user == null) root else File(root, deviceDirectoryName(user)))
     }
 
     private fun prepareProtectedRecords(): String {

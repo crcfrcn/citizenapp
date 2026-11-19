@@ -5,9 +5,9 @@ import 'package:citizen_system/theme/app_layout.dart';
 
 /// 头像行右上角对主页主人的操作；本人仅显示通用关注/取关入口。
 ///
-/// 通知 = 关注后收其发帖通知（红点+声音）、聊天 = 给该用户发消息、关注 = 关注/取关该用户。
+/// 通知 = 关注后收其发帖通知（红点+声音）、关注 = 关注/取关该用户。
 /// 通知归属挂在关注关系上：关注即默认开通知，铃铛按用户静音/取消静音；未关注时点铃铛提示先关注。
-/// 本人不显示通知、私信和订阅入口；编辑资料仍在右上 ⋮ 菜单。
+/// 本人不显示通知和订阅入口；编辑资料仍在右上 ⋮ 菜单。
 class ProfileActionIcons extends StatelessWidget {
   const ProfileActionIcons({
     super.key,
@@ -17,7 +17,6 @@ class ProfileActionIcons extends StatelessWidget {
     this.enabled = true,
     this.leading,
     this.onNotify,
-    this.onChat,
     this.onToggleFollow,
   });
 
@@ -37,9 +36,6 @@ class ProfileActionIcons extends StatelessWidget {
   /// 通知：开/关该用户发帖通知（须已关注）。
   final VoidCallback? onNotify;
 
-  /// 聊天：给该用户发消息。
-  final VoidCallback? onChat;
-
   /// 关注：关注/取关该用户。
   final VoidCallback? onToggleFollow;
 
@@ -54,12 +50,6 @@ class ProfileActionIcons extends StatelessWidget {
           tooltip: isNotifying ? '已开启通知' : '通知',
           active: enabled && isNotifying,
           onTap: enabled ? onNotify : null,
-        ),
-      if (!isSelf)
-        _CircleIcon(
-          icon: Icons.chat_bubble_outline,
-          tooltip: '发消息',
-          onTap: enabled ? onChat : null,
         ),
       _CircleIcon(
         icon: isFollowing ? Icons.how_to_reg : Icons.person_add_alt,

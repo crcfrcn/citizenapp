@@ -9,7 +9,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:isar_community/isar.dart';
 
 import 'package:citizen_storage/social_isar.dart';
-import 'package:chat/chat.dart';
 import 'package:citizen_storage/user_isar.dart' hide Group;
 
 import 'package:citizen_testing/isar_test_env.dart';
@@ -18,11 +17,10 @@ void main() {
   useIsolatedIsar();
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('SocialIsar 队列挂起时 UserIsar 与 ChatIsar 读写仍独立完成', () async {
+  test('SocialIsar 队列挂起时 UserIsar 读写仍独立完成', () async {
     await Future.wait<void>(<Future<void>>[
       SocialIsar.instance.db().then<void>((_) {}),
       UserIsar.instance.db().then<void>((_) {}),
-      ChatIsar.instance.db().then<void>((_) {}),
     ]);
 
     final entered = Completer<void>();
@@ -44,20 +42,6 @@ void main() {
           })
           .timeout(const Duration(seconds: 1));
 
-      await ChatIsar.instance
-          .writeTxn<void>((isar) async {
-            final route = ChatRouteCacheEntity()
-              ..ownerUserId = 'R5-K3P1C1-N9-D4'
-              ..peerUserId = 'R5-K3P1C1-N8-D5'
-              ..routeDisplayName = '隔离测试联系人'
-              ..deviceId = 'device-a'
-              ..safetyNumber = '1234'
-              ..createdAtMillis = 1
-              ..updatedAtMillis = 1;
-            await isar.chatRouteCacheEntitys.put(route);
-          })
-          .timeout(const Duration(seconds: 1));
-
       final walletValue = await UserIsar.instance
           .read<String?>((isar) async {
             return (await isar.collection<wallet_store.Scan>().get(
@@ -65,20 +49,10 @@ void main() {
             ))?.walletHash;
           })
           .timeout(const Duration(seconds: 1));
-      final chatValue = await ChatIsar.instance
-          .read<String?>((isar) async {
-            return (await isar.chatRouteCacheEntitys.getByOwnerUserIdPeerUserId(
-              'R5-K3P1C1-N9-D4',
-              'R5-K3P1C1-N8-D5',
-            ))?.routeDisplayName;
-          })
-          .timeout(const Duration(seconds: 1));
 
       expect(walletValue, 'wallet-ok');
-      expect(chatValue, '隔离测试联系人');
       expect(SocialIsar.instance.hasActiveOperation, isTrue);
       expect(UserIsar.instance.hasActiveOperation, isFalse);
-      expect(ChatIsar.instance.hasActiveOperation, isFalse);
     } finally {
       if (!release.isCompleted) release.complete();
       await blockedSocial.timeout(const Duration(seconds: 1));
@@ -119,7 +93,7 @@ void main() {
     await SocialIsar.instance.resetForTest();
   });
 
-  test('关闭 SocialIsar 只删除广场数据库，钱包与聊天事实保持可用', () async {
+  test('关闭 SocialIsar 只删除广场数据库，钱包数据保持可用', () async {
     await SocialIsar.instance.writeTxn<void>((isar) async {
       final checkpoint = social_store.PostCursor()
         ..cidNumber = 'R5-K3P1C1-N9-D4'
@@ -136,17 +110,6 @@ void main() {
           ..walletHash = 'wallet',
       );
     });
-    await ChatIsar.instance.writeTxn<void>((isar) async {
-      final route = ChatRouteCacheEntity()
-        ..ownerUserId = 'R5-K3P1C1-N9-D4'
-        ..peerUserId = 'R5-K3P1C1-N8-D5'
-        ..routeDisplayName = 'chat'
-        ..deviceId = 'device-b'
-        ..safetyNumber = '5678'
-        ..createdAtMillis = 1
-        ..updatedAtMillis = 1;
-      await isar.chatRouteCacheEntitys.put(route);
-    });
 
     await SocialIsar.instance.closeAndDeleteFromDisk();
     await expectLater(SocialIsar.instance.db(), throwsA(isA<StateError>()));
@@ -154,14 +117,7 @@ void main() {
     final wallet = await UserIsar.instance.read<String?>((isar) async {
       return (await isar.collection<wallet_store.Scan>().get(0))?.walletHash;
     });
-    final chat = await ChatIsar.instance.read<String?>((isar) async {
-      return (await isar.chatRouteCacheEntitys.getByOwnerUserIdPeerUserId(
-        'R5-K3P1C1-N9-D4',
-        'R5-K3P1C1-N8-D5',
-      ))?.routeDisplayName;
-    });
     expect(wallet, 'wallet');
-    expect(chat, 'chat');
 
     await SocialIsar.instance.resetForTest();
     final checkpointCount = await SocialIsar.instance.read(

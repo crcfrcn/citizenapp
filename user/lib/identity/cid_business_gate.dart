@@ -106,7 +106,7 @@ interface class CidBusinessGate {
         return const CidBusinessDecision(CidBusinessStatus.unregistered);
       }
 
-      // 只同步已验证的公开绑定；原有单源负责通知会话和聊天身份变更。
+      // 只同步已验证的公开绑定；原有单源负责通知会话身份变更。
       await _synchronize(verified);
       _currentUser.invalidate();
       final restored = await _currentUser.resolve();

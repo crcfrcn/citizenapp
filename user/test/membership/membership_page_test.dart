@@ -211,10 +211,6 @@ void main() {
       http.Response(jsonEncode(resourceAuthorizationFixture()), 200),
     );
     await rejected;
-    expect(
-      SubscriptionService.chatAuthorizedFor(sessions.session.cidNumber),
-      isFalse,
-    );
   });
   testWidgets('会员页使用轻节点会员，服务端仅交付规则和用量', (tester) async {
     final resources = _Resources(), sessions = _Sessions();

@@ -7,24 +7,29 @@ import XCTest
 @testable import Runner
 
 class RunnerTests: XCTestCase {
-
-
-  func testChatStorageRequiresVerifiedFileProtection() throws {
+  func testDeviceDirectoryRenamesWithoutChangingStoredBytes() throws {
     let manager = FileManager.default
-    let root = manager.temporaryDirectory.appendingPathComponent("chat-protection-" + UUID().uuidString, isDirectory: true)
-    try manager.createDirectory(at: root, withIntermediateDirectories: true)
-    defer { try? manager.removeItem(at: root) }
-    #if targetEnvironment(simulator)
-    // 模拟器不提供设备文件保护；生产校验必须拒绝放行。
-    XCTAssertThrowsError(try ChatStorageChannel.protectOwnedData(root))
-    XCTAssertNil(try manager.attributesOfItem(atPath: root.path)[.protectionKey])
-    #else
-    try ChatStorageChannel.protectOwnedData(root)
-    XCTAssertEqual(try manager.attributesOfItem(atPath: root.path)[.protectionKey] as? FileProtectionType, .completeUntilFirstUserAuthentication)
-    #endif
-    XCTAssertEqual((try manager.attributesOfItem(atPath: root.path)[.posixPermissions] as? NSNumber)?.intValue, 0o700)
-    XCTAssertEqual(try root.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup, true)
+    let base = manager.temporaryDirectory.resolvingSymlinksInPath()
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try manager.createDirectory(at: base, withIntermediateDirectories: false)
+    defer { try? manager.removeItem(at: base) }
+    let previous = base.appendingPathComponent("chat_mls", isDirectory: true)
+    try manager.createDirectory(at: previous, withIntermediateDirectories: false)
+    let fixture = Data("synthetic device state".utf8)
+    try fixture.write(to: previous.appendingPathComponent("state.bin"))
+    let current = try SystemProtectedDataChannel.deviceStorageRoot(in: base)
+    XCTAssertEqual(current.lastPathComponent, "device")
+    XCTAssertFalse(manager.fileExists(atPath: previous.path))
+    XCTAssertEqual(try Data(contentsOf: current.appendingPathComponent("state.bin")), fixture)
+    XCTAssertEqual(try SystemProtectedDataChannel.deviceStorageRoot(in: base), current)
+    try manager.createDirectory(at: previous, withIntermediateDirectories: false)
+    XCTAssertThrowsError(try SystemProtectedDataChannel.deviceStorageRoot(in: base))
+    XCTAssertEqual(try Data(contentsOf: current.appendingPathComponent("state.bin")), fixture)
   }
+
+
+
+
 
 
 

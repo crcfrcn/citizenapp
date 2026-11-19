@@ -1,5 +1,3 @@
-import 'package:chat/chat.dart' as chat;
-
 import 'dart:io';
 import 'dart:async';
 
@@ -47,14 +45,6 @@ class _Resolver extends Fake implements FinalizedIdentityResolver {}
 
 class _Sessions extends Fake implements SquareSessionProvider {
   @override
-  void installMlsAuthentication({
-    required Future<chat.ChatDevice> Function() readLocalIdentity,
-    required Future<chat.MlsAuthenticationProof> Function(
-      chat.MlsAuthenticationRequest,
-    )
-    createProof,
-  }) {}
-  @override
   void closeAuthentication() {}
 }
 
@@ -81,13 +71,22 @@ void main() {
     }
   }
 
-  Future<void> drain(WidgetTester tester, Future<void> task, String name) async {
+  Future<void> drain(
+    WidgetTester tester,
+    Future<void> task,
+    String name,
+  ) async {
     var done = false;
     Object? failure;
-    unawaited(task.then<void>((_) => done = true, onError: (Object error) {
-      failure = error;
-      done = true;
-    }));
+    unawaited(
+      task.then<void>(
+        (_) => done = true,
+        onError: (Object error) {
+          failure = error;
+          done = true;
+        },
+      ),
+    );
     await pumpUntil(tester, () => done);
     expect(done, isTrue, reason: '$name 未完成');
     expect(failure, isNull, reason: name);
@@ -117,7 +116,10 @@ void main() {
       );
       final sdk = core!.sdk;
       var wallet = (await tester.runAsync(
-        () => sdk.importColdAccount(testCitizenAccountId).result.timeout(nativeTimeout),
+        () => sdk
+            .importColdAccount(testCitizenAccountId)
+            .result
+            .timeout(nativeTimeout),
       ))!;
       final current = _Current();
       final calls = <String>[];
@@ -162,8 +164,6 @@ void main() {
       })();
       await tester.runAsync(history.start);
       final publicSync = _PublicSync();
-      var runtimeCreations = 0;
-      var runtimeCloses = 0;
       await tester.pumpWidget(
         CitizenApp(
           sdk: sdk,
@@ -185,13 +185,6 @@ void main() {
           squareApiClient: SquareApiClient(),
           appPushService: AppPushService(),
           transactionHistory: history,
-          chatRuntimeFactory: () {
-            runtimeCreations++;
-            throw StateError("擦除/锁门期间禁止创建MLS");
-          },
-          closeChatRuntime: () async {
-            runtimeCloses++;
-          },
         ),
       );
       await pumpUntil(tester, () => publicSync.calls > 0);
@@ -199,23 +192,23 @@ void main() {
       // 用操作回执推进目录修订，避免夹具与 Widget 在两个时钟中等待同一次目录读。
       for (final name in ['first', 'second']) {
         wallet = (await tester.runAsync(
-          () => sdk.renameWallet(
-            expectedRevision: wallet.revision,
-            walletIndex: wallet.accounts.first.walletIndex,
-            name: name,
-          ).result.timeout(nativeTimeout),
+          () => sdk
+              .renameWallet(
+                expectedRevision: wallet.revision,
+                walletIndex: wallet.accounts.first.walletIndex,
+                name: name,
+              )
+              .result
+              .timeout(nativeTimeout),
         ))!;
         await tester.pump();
       }
       await tester.pump();
       await tester.pump();
       expect(publicSync.calls, 1, reason: '同一默认账户事件不得重复查询身份');
-      expect(runtimeCreations, 0);
       await tester.pumpWidget(const SizedBox.shrink());
       // 新身份监听与交易监听均真实撤销后才停SDK，虚拟帧不能代替原生I/O。
       await pumpUntil(tester, () => calls.contains('stop'));
-      expect(runtimeCreations, 0);
-      expect(runtimeCloses, 1);
       expect(cancelled, isTrue);
       expect(calls.where((m) => m == 'stop'), hasLength(1));
       if (stopFails) {
@@ -224,7 +217,10 @@ void main() {
 
         await tester.runAsync(() => sdk.close().timeout(nativeTimeout));
       } else {
-        await pumpUntil(tester, () => sdk.lifecycle == CitizenSdkLifecycle.disposed);
+        await pumpUntil(
+          tester,
+          () => sdk.lifecycle == CitizenSdkLifecycle.disposed,
+        );
         expect(calls.indexOf('stop'), lessThan(calls.indexOf('close')));
         expect(sdk.lifecycle, CitizenSdkLifecycle.disposed);
       }
@@ -243,7 +239,9 @@ void main() {
       // 历史租约与监听在测试时钟中排空，文件 I/O 在真实异步区完成。
       await drain(tester, history.stop(), '历史服务');
       await drain(tester, events.close(), '历史事件流');
-      await tester.runAsync(() => records!.delete(recursive: true).timeout(nativeTimeout));
+      await tester.runAsync(
+        () => records!.delete(recursive: true).timeout(nativeTimeout),
+      );
     });
   }
 

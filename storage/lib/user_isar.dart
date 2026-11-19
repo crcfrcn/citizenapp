@@ -12,7 +12,7 @@ part 'user_isar.g.dart';
 
 /// 行政区字典实体。
 ///
-/// 行政区属于全 App 通用目录，不是用户、广场、聊天或区块链事实。
+/// 行政区属于全 App 通用目录，不是用户、广场或区块链事实。
 @Name('region')
 @collection
 class Region {
@@ -270,8 +270,6 @@ class Setting {
 
   @Name('guide_seen')
   bool guideSeen = false;
-  @Name('chat_home')
-  bool chatHome = false;
   @Name('council_order')
   List<String> councilOrder = const [];
   @Name('bank_order')
@@ -355,12 +353,13 @@ class Summary {
   String? proposalIdText;
 
   @ignore
-  BigInt get proposalId => BigInt.parse(proposalIdText ?? legacyProposalId!.toString());
+  BigInt get proposalId =>
+      BigInt.parse(proposalIdText ?? legacyProposalId!.toString());
   set proposalId(BigInt value) {
-    if (value.isNegative || value.bitLength > 128) throw ArgumentError('提案 ID 超出 u128');
+    if (value.isNegative || value.bitLength > 128)
+      throw ArgumentError('提案 ID 超出 u128');
     proposalIdText = value.toString();
   }
-
 
   @Name('data')
   late String bodyData;
@@ -385,9 +384,11 @@ class ProposalList {
   @ignore
   List<BigInt> get proposalIds => proposalIdTexts.map(BigInt.parse).toList();
   set proposalIds(List<BigInt> values) {
-    if (values.any((id) => id.isNegative || id.bitLength > 128)) throw ArgumentError('提案 ID 超出 u128');
+    if (values.any((id) => id.isNegative || id.bitLength > 128))
+      throw ArgumentError('提案 ID 超出 u128');
     proposalIdTexts = values.map((id) => id.toString()).toList();
   }
+
   @Name('synced_at')
   late int syncedAt;
 }
@@ -411,12 +412,13 @@ class Proposal {
   String? proposalIdText;
 
   @ignore
-  BigInt get proposalId => BigInt.parse(proposalIdText ?? legacyProposalId!.toString());
+  BigInt get proposalId =>
+      BigInt.parse(proposalIdText ?? legacyProposalId!.toString());
   set proposalId(BigInt value) {
-    if (value.isNegative || value.bitLength > 128) throw ArgumentError('提案 ID 超出 u128');
+    if (value.isNegative || value.bitLength > 128)
+      throw ArgumentError('提案 ID 超出 u128');
     proposalIdText = value.toString();
   }
-
 
   @Name('data')
   late String bodyData;
@@ -633,12 +635,13 @@ class Action {
   String? proposalIdText;
 
   @ignore
-  BigInt get proposalId => BigInt.parse(proposalIdText ?? legacyProposalId!.toString());
+  BigInt get proposalId =>
+      BigInt.parse(proposalIdText ?? legacyProposalId!.toString());
   set proposalId(BigInt value) {
-    if (value.isNegative || value.bitLength > 128) throw ArgumentError('提案 ID 超出 u128');
+    if (value.isNegative || value.bitLength > 128)
+      throw ArgumentError('提案 ID 超出 u128');
     proposalIdText = value.toString();
   }
-
 
   /// 提案动作:'create' / 'transfer' / 'close'。
   @Name('kind')
@@ -916,7 +919,7 @@ class _IsarConsumerRegistration {
 ///
 /// 公共目录、资料、设置、关注、交易、多签和提案共用唯一文件、schema 与生命周期。
 /// 事务内只做本库操作；网络、SDK、密码学和文件处理必须先在事务外完成。
-/// Social 与 Chat 保持各自独立的数据库与生命周期。
+/// 广场数据有独立的数据库与生命周期。
 class UserIsar {
   UserIsar._();
 
@@ -1098,25 +1101,6 @@ class UserIsar {
       throw StateError('UserIsar 消费者 lease 归属不一致，拒绝释放。');
     }
     _consumerRegistrations.remove(lease._id);
-  }
-
-  /// 读取用户选择的 App 首页；缺省值固定为广场，不从其它存储推断。
-  Future<bool> readOpenChatOnLaunch() {
-    return read((isar) async {
-      final settings = await isar.settings.get(0);
-      return settings?.chatHome ?? false;
-    });
-  }
-
-  /// 原子保存首页选择；本偏好只属于 UserIsar，不进入平台安全存储。
-  Future<void> writeOpenChatOnLaunch(bool value) {
-    return writeTxn((isar) async {
-      final settings = await isar.settings.get(0) ?? Setting();
-      settings
-        ..rowId = 0
-        ..chatHome = value;
-      await isar.settings.put(settings);
-    });
   }
 
   Future<Isar> db() async {
@@ -1313,7 +1297,6 @@ class UserIsar {
   ///
   /// Android 低端机上交易流水同步、余额刷新、多签扫描和钱包导入可能同时读写库，
   /// MDBX 会返回 `MdbxError(11): Try again`。本数据库所属业务统一排队到这里；
-  /// Chat 使用独立 ChatIsar，禁止接入本队列。
   Future<T> writeTxn<T>(Future<T> Function(Isar isar) action) {
     return _enqueue(() async {
       final isar = await db();
@@ -1367,18 +1350,46 @@ class UserIsar {
 
   Future<Isar> _prepareOpened(Isar isar) async {
     await isar.writeTxn(() async {
-      for (final row in await isar.collection<Summary>().filter().proposalIdTextIsNull().findAll()) {
-        if (row.legacyProposalId != null) { row.proposalIdText = row.legacyProposalId.toString(); await isar.collection<Summary>().put(row); }
+      for (final row
+          in await isar
+              .collection<Summary>()
+              .filter()
+              .proposalIdTextIsNull()
+              .findAll()) {
+        if (row.legacyProposalId != null) {
+          row.proposalIdText = row.legacyProposalId.toString();
+          await isar.collection<Summary>().put(row);
+        }
       }
-      for (final row in await isar.collection<Proposal>().filter().proposalIdTextIsNull().findAll()) {
-        if (row.legacyProposalId != null) { row.proposalIdText = row.legacyProposalId.toString(); await isar.collection<Proposal>().put(row); }
+      for (final row
+          in await isar
+              .collection<Proposal>()
+              .filter()
+              .proposalIdTextIsNull()
+              .findAll()) {
+        if (row.legacyProposalId != null) {
+          row.proposalIdText = row.legacyProposalId.toString();
+          await isar.collection<Proposal>().put(row);
+        }
       }
-      for (final row in await isar.collection<Action>().filter().proposalIdTextIsNull().findAll()) {
-        if (row.legacyProposalId != null) { row.proposalIdText = row.legacyProposalId.toString(); await isar.collection<Action>().put(row); }
+      for (final row
+          in await isar
+              .collection<Action>()
+              .filter()
+              .proposalIdTextIsNull()
+              .findAll()) {
+        if (row.legacyProposalId != null) {
+          row.proposalIdText = row.legacyProposalId.toString();
+          await isar.collection<Action>().put(row);
+        }
       }
-      for (final row in await isar.collection<ProposalList>().where().findAll()) {
+      for (final row
+          in await isar.collection<ProposalList>().where().findAll()) {
         if (row.legacyProposalIds.isNotEmpty) {
-          if (row.proposalIdTexts.isEmpty) row.proposalIdTexts = row.legacyProposalIds.map((id) => id.toString()).toList();
+          if (row.proposalIdTexts.isEmpty)
+            row.proposalIdTexts = row.legacyProposalIds
+                .map((id) => id.toString())
+                .toList();
           row.legacyProposalIds = [];
           await isar.collection<ProposalList>().put(row);
         }

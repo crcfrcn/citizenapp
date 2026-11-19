@@ -1,4 +1,3 @@
-import 'package:citizen_testing/chat_runtime_fixture.dart';
 import 'package:flutter/widgets.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
 
@@ -10,7 +9,6 @@ import 'package:citizen_user/square_api_client.dart';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_sdk/test/platform/fixture.dart';
-import 'package:chat/chat.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_user/identity/cid_generator.dart';
 import 'package:citizen_citizen/public/admin_division_store.dart';
@@ -114,14 +112,6 @@ void main() {
         divisionStore: _FakeDivisionStore(),
         badgeSnapshotStore: _FakeBadgeStore(),
         nowProvider: () => now ?? DateTime.utc(2026, 6, 1),
-        onChatBindingChanged: (binding, {required existingOnly}) async {
-          final ChatRuntime? runtime = existingOnly
-              ? null
-              : (() => _BindingRuntime())();
-          await runtime?.convergeFinalizedBinding(
-            ChatBinding.fromIdentity(binding),
-          );
-        },
       );
     })();
   }
@@ -134,13 +124,10 @@ void main() {
     CurrentUserContext? currentUserContext,
     int Function()? cidYearProvider,
     IdentityBadgeSnapshotStore? badgeSnapshotStore,
-    ChatRuntime? runtime,
     SquareSessionProvider? sessionProvider,
   }) {
     final actualWallet = wallet ?? _FakeWalletManager(_aliceWallet);
     final actualChain = chain ?? _FakeChain();
-    final actualRuntime = runtime ?? _BindingRuntime();
-    addTearDown(actualRuntime.close);
     return (() {
       final reads0 = TestTransactionCalls();
       return MyIdService(
@@ -169,14 +156,6 @@ void main() {
         badgeSnapshotStore: badgeSnapshotStore ?? _FakeBadgeStore(),
         identityTransaction: identityTransaction,
         cidYearProvider: cidYearProvider,
-        onChatBindingChanged: (binding, {required existingOnly}) async {
-          final ChatRuntime? runtime = existingOnly
-              ? null
-              : (() => actualRuntime)();
-          await runtime?.convergeFinalizedBinding(
-            ChatBinding.fromIdentity(binding),
-          );
-        },
       );
     })();
   }
@@ -625,17 +604,6 @@ void main() {
     expect(state.errorMessage, '请先创建钱包');
   });
 
-  test('MyId 身份只读不构造 ChatRuntime', () async {
-    final liveChatRuntimeCount = ChatRuntime.debugLiveInstanceCount;
-    final service = buildService(noWallet: true);
-    await service.refreshState();
-    expect(
-      ChatRuntime.debugLiveInstanceCount,
-      lessThanOrEqualTo(liveChatRuntimeCount),
-      reason: 'Wallet/MyId 普通读取不得惰性之外构造 ChatRuntime',
-    );
-  });
-
   test('默认账户链上无投票身份时为访客轻节点', () async {
     final state = await buildService(voting: null).refreshState();
     expect(state.tier, MyIdTier.visitor);
@@ -829,9 +797,7 @@ void main() {
       _registeredIdentity(_validAccountId),
       _registeredIdentity(newAccount.accountId, bindRev: 2),
     ]);
-    final metadataRuntime = _BindingRuntime();
     final service = testService(
-      runtime: metadataRuntime,
       wallet: fakeWallet,
       chain: _FakeChain(),
       identityTransaction: fakeRpc,
@@ -854,9 +820,6 @@ void main() {
     expect(fakeWallet.bindings.single.accountId, newAccount.accountId);
     expect(fakeWallet.bindings.single.bindingRevision, 2);
     expect(fakeWallet.mlsDeviceRegistrationCalls, 0);
-    expect(metadataRuntime.observed!.userId, 'GD-CTZN1-8F3A2B');
-    expect(metadataRuntime.observed!.accountId, newAccount.accountId);
-    expect(metadataRuntime.observed!.bindingRevision, 2);
     expect(fakeRpc.occupiedCid, isNull, reason: '已有公民号换绑收敛不得再次占号');
   });
 
@@ -1222,11 +1185,6 @@ class _NotifyingWalletManager extends _FakeWalletManager {
   }
 }
 
-class _UnusedChatHost implements ChatRuntimeFixture {
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
-
 class _UnusedSessionProvider implements SquareSessionProvider {
   @override
   void invalidateAccount(String accountId) {}
@@ -1551,15 +1509,6 @@ class _LocalCurrentUser implements CurrentUserContext {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
-
-class _BindingRuntime extends TestChatRuntime {
-  _BindingRuntime() : super(host: _UnusedChatHost());
-  ChatBinding? observed;
-  @override
-  Future<void> convergeFinalizedBinding(ChatBinding current) async {
-    observed = current;
-  }
 }
 
 /// 公开同步用例仍核对每次本机代际；错误不会触发第二次链读取。

@@ -287,7 +287,6 @@ Widget _page({
   Map<String, CitizenProfile>? initialProfiles,
   CitizenProfileCache? profileCache,
   CitizenProfileMediaCache? profileMediaCache,
-  DirectChatOpener? directChatOpener,
   Future<void> Function(BuildContext context, {required String cidNumber})?
   transferOpener,
   CurrentUserContext? currentUserContext,
@@ -305,7 +304,6 @@ Widget _page({
       profileMediaCache: profileMediaCache,
       sessionProvider: sessionProvider ?? _FakeSessionProvider(),
       initialProfiles: initialProfiles ?? {_contactCidNumber: profile},
-      directChatOpener: directChatOpener,
       transferOpener: transferOpener,
       currentUserContext: currentUserContext ?? _RegisteredIdentityCache(),
       identityRevision: identityRevision,
@@ -610,7 +608,7 @@ void main() {
     }
     expect(sdk.fixture.nativeResources, isEmpty);
   });
-  testWidgets('首帧读本地，后台复用资料刷新入口，下拉不改用聊天资料卡', (tester) async {
+  testWidgets('首帧读本地，后台复用资料刷新入口，下拉不改用其它资料接口', (tester) async {
     final service = _FakeContacts();
     final profiles = _FakeProfileApi(_profile);
     await tester.pumpWidget(_page(service: service, profileApi: profiles));
@@ -882,7 +880,7 @@ void main() {
     await tester.tap(find.byTooltip('联系人操作'));
     await tester.pumpAndSettle();
 
-    final labels = <String>['转账', '私信', '修改备注', '删除联系人'];
+    final labels = <String>['转账', '修改备注', '删除联系人'];
     for (final label in labels) {
       expect(find.text(label), findsOneWidget);
     }
@@ -933,56 +931,6 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
 
     expect(openedCid, _contact.cidNumber);
-  });
-
-  testWidgets('私信复用统一聊天入口并使用公开昵称', (tester) async {
-    String? openedPeerCidNumber;
-    String? openedTitle;
-    Future<void> opener(
-      BuildContext context, {
-      required String peerUserId,
-      required String title,
-    }) async {
-      // 注入只用于断言路由参数，不替代正式 openDirectChat 实现。
-      openedPeerCidNumber = peerUserId;
-      openedTitle = title;
-    }
-
-    await tester.pumpWidget(_page(directChatOpener: opener));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('联系人操作'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('私信'));
-    await tester.pump();
-
-    expect(openedPeerCidNumber, _contactCidNumber);
-    expect(openedTitle, 'Rhett');
-  });
-
-  testWidgets('发私信模式点联系人直接开私聊、无操作菜单', (tester) async {
-    String? openedPeerCidNumber;
-    String? openedTitle;
-    Future<void> opener(
-      BuildContext context, {
-      required String peerUserId,
-      required String title,
-    }) async {
-      openedPeerCidNumber = peerUserId;
-      openedTitle = title;
-    }
-
-    await tester.pumpWidget(
-      _page(mode: ContactPickMode.pickForMessage, directChatOpener: opener),
-    );
-    await tester.pumpAndSettle();
-
-    // 选私信模式:不显示逐项操作菜单,点联系人卡即开私聊。
-    expect(find.byTooltip('联系人操作'), findsNothing);
-    await tester.tap(find.text('Rhett'));
-    await tester.pump();
-
-    expect(openedPeerCidNumber, _contactCidNumber);
-    expect(openedTitle, 'Rhett');
   });
 
   testWidgets('未注册身份显示统一注册引导,且不读通讯录', (tester) async {

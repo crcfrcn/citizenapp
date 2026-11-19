@@ -7,7 +7,6 @@
 import 'dart:io';
 
 import 'package:citizen_storage/social_isar.dart';
-import 'package:chat/chat.dart';
 import 'package:citizen_storage/user_isar.dart';
 import 'package:citizen_storage/isar_core_bootstrap.dart';
 
@@ -50,6 +49,5 @@ final class _TestDirectory extends IOOverrides {
 
 Future<void> _resetAllIsar() async {
   await UserIsar.instance.resetForTest();
-  await ChatIsar.instance.resetForTest();
   await SocialIsar.instance.resetForTest();
 }

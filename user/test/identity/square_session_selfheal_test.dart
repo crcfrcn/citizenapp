@@ -5,7 +5,7 @@ import 'package:citizen_sdk/citizen_sdk.dart'
         CitizenSdkErrorCode,
         CitizenWalletStateAccount,
         CitizenWalletSignMode;
-import 'package:chat/chat.dart' as chat;
+import 'package:citizen_network/mls_authentication.dart' as native;
 
 import 'dart:convert';
 import 'dart:async';
@@ -19,11 +19,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_user/identity/square_session_provider.dart';
-import 'package:citizen_user/identity/cid_business_gate.dart';
 import 'package:citizen_user/identity/current_user_context.dart';
 import 'package:citizen_user/identity/account_security_service.dart';
-import 'package:citizen_user/identity/finalized_identity_resolver.dart';
-import 'package:citizen_user/identity/mls_authentication.dart';
 
 import 'package:citizen_testing/mls_authentication_fixture.dart';
 
@@ -43,56 +40,7 @@ void main() {
     expect(result.message, '公共链查询次数已达服务端限额，请稍后重试');
   });
   _preparationDiagnosticsTests();
-  _chatAccessSessionTests();
-  test('本机绑定缺失时聊天不触发身份恢复，普通会话仍由原门禁恢复', () async {
-    final current = _DiagnosticCurrent()..hasBinding = false;
-    final security = _DiagnosticSecurity();
-    addTearDown(security.revision.dispose);
-    var recoveryReads = 0;
-    final gate = CidBusinessGate(
-      currentUserContext: current,
-      identityResolver: FinalizedIdentityResolver(
-        getWalletState: () {
-          recoveryReads++;
-          throw StateError('合成身份恢复失败');
-        },
-      ),
-      synchronizeIdentity: (_) async => fail('身份恢复无可提交的绑定'),
-      revision: security.revision,
-    );
-    final client = SquareApiClient(
-      baseUrl: 'https://worker.test/api',
-      httpClient: MockClient((_) async => fail('本机无绑定时不请求服务')),
-    );
-    final provider = SquareSessionProvider(
-      accountSecurity: security,
-      currentUserContext: current,
-      cidBusinessGate: gate,
-      client: client,
-    );
-    final missing = isA<SquareApiException>().having(
-      (error) => error.errorCode,
-      'errorCode',
-      'identity_local_missing',
-    );
-    await expectLater(provider.ensureChatSession(), throwsA(missing));
-    await expectLater(
-      provider.requestChatAccess(
-        deviceId: testMlsDeviceId,
-        expectedCidNumber: testMlsCidNumber,
-        expectedBindingRevision: 1,
-        expectedAccountId: testMlsAccountId,
-      ),
-      throwsA(missing),
-    );
-    expect(recoveryReads, 0);
-    await expectLater(
-      provider.ensureSession(),
-      throwsA(isA<SquareApiException>()),
-    );
-    expect(recoveryReads, 1);
-    expect(security.deviceRegistrations, 0);
-  });
+
   test('明确取消保留取消分类，不变成服务故障或再次注册', () {
     for (final error in <Object>[
       const CitizenSdkException(
@@ -111,12 +59,12 @@ void main() {
   });
   test('MLS本地错误保留固定阶段及中文，不冒充网络或泄露技术文本', () {
     for (final code in [
-      chat.MlsErrorCode.directoryInvalid,
-      chat.MlsErrorCode.directoryUnavailable,
-      chat.MlsErrorCode.stateMissing,
-      chat.MlsErrorCode.storageReadFailed,
+      native.MlsErrorCode.directoryInvalid,
+      native.MlsErrorCode.directoryUnavailable,
+      native.MlsErrorCode.stateMissing,
+      native.MlsErrorCode.storageReadFailed,
     ]) {
-      final error = chat.MlsException(code, 'synthetic-private-path');
+      final error = native.MlsException(code, 'synthetic-private-path');
       final result = SquareSessionResolution.fromError(error);
       expect(result.status, SquareSessionStatus.deviceUnavailable);
       expect(result.stage, SquareApiStage.identity);
@@ -366,103 +314,10 @@ void main() {
   }
 }
 
-class _UnusedChatSecurity implements AccountSecurityService {
+class _UnusedSecurity implements AccountSecurityService {
   @override
   dynamic noSuchMethod(Invocation invocation) =>
       throw StateError('unexpected security operation');
-}
-
-class _UnusedChatCurrent implements CurrentUserContext {
-  @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      throw StateError('late result must be rejected first');
-}
-
-class _ChatSessionFixture extends SquareSessionProvider {
-  _ChatSessionFixture(
-    SquareApiClient client,
-    FakeMlsAuthentication source,
-    this.session,
-  ) : super(
-        accountSecurity: _UnusedChatSecurity(),
-        currentUserContext: _UnusedChatCurrent(),
-        // 与本用例冻结的已注册会话一致，仍由原断言验证迟到许可被拒绝。
-        client: client,
-        authentication: source,
-      );
-  final SquareSession session;
-  @override
-  Future<SquareSession?> ensureChatSession() async => session;
-}
-
-void _chatAccessSessionTests() {
-  for (final change in ['binding', 'revocation']) {
-    test('聊天许可返回前$change发生，冻结会话拒绝迟到结果', () async {
-      final source = FakeMlsAuthentication();
-      var revoked = false;
-      final session = SquareSession(
-        sessionToken: 'ordinary',
-        cidNumber: testMlsCidNumber,
-        bindRev: 1,
-        accountId: testMlsAccountId,
-        deviceId: testMlsDeviceId,
-        expiresAt: 4102444800000,
-        authenticateRequest: fakeMlsRequestHeaders,
-        requireCurrent: () async {
-          if (revoked) {
-            throw const MlsAuthenticationException(
-              'synthetic revoked session',
-              code: 'identityChanged',
-            );
-          }
-        },
-      );
-      final api = SquareApiClient(
-        baseUrl: 'https://worker.test/api',
-        httpClient: MockClient((_) async {
-          if (change == 'binding') {
-            source.identity = const MlsAuthenticationIdentity(
-              cidNumber: testMlsCidNumber,
-              accountId: testMlsAccountId,
-              bindRev: 2,
-              deviceId: testMlsDeviceId,
-              publicKey: '0x$testMlsDeviceId',
-            );
-          } else {
-            revoked = true;
-          }
-          final now = DateTime.now().millisecondsSinceEpoch;
-          return http.Response(
-            jsonEncode({
-              'is_ok': true,
-              'realtime_url': 'wss://worker.test/api/chat/realtime',
-              'access_token': 'opaque',
-              'expires_at': now + 300000,
-              'recheck_at': now + 120000,
-            }),
-            200,
-          );
-        }),
-      );
-      addTearDown(api.close);
-      final provider = _ChatSessionFixture(api, source, session);
-      await expectLater(
-        provider.requestChatAccess(
-          deviceId: testMlsDeviceId,
-          expectedCidNumber: testMlsCidNumber,
-          expectedBindingRevision: 1,
-          expectedAccountId: testMlsAccountId,
-        ),
-        throwsA(
-          isA<MlsAuthenticationException>().having(
-            (e) => e.code,
-            'code',
-            'identityChanged',
-          ),
-        ),
-      );
-    });
-  }
 }
 
 // 只模拟本机公民号绑定；任何额外身份操作都立即失败。
@@ -579,8 +434,8 @@ void _preparationDiagnosticsTests() {
     const FormatException('synthetic-private-preparation'),
     StateError('synthetic-private-preparation'),
     const SocketException('synthetic-private-preparation'),
-    const chat.MlsException(
-      chat.MlsErrorCode.stateMissing,
+    const native.MlsException(
+      native.MlsErrorCode.stateMissing,
       'synthetic-private-preparation',
     ),
   ]) {
@@ -596,7 +451,7 @@ void _preparationDiagnosticsTests() {
       );
       addTearDown(client.close);
       final provider = SquareSessionProvider(
-        accountSecurity: _UnusedChatSecurity(),
+        accountSecurity: _UnusedSecurity(),
         currentUserContext: current,
         client: client,
         authentication: FakeMlsAuthentication(),

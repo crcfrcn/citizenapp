@@ -28,10 +28,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:provider/provider.dart';
-import 'package:chat/chat.dart' as chat;
 import 'package:citizen_square/feed/square_tab_page.dart';
 import 'package:citizen_citizen/citizen_tab_page.dart';
-import 'package:chat/chat.dart';
 import 'package:citizenapp/security/app_lock_service.dart';
 import 'package:citizen_system/security/emergency_wipe_platform.dart';
 import 'package:citizenapp/security/pin_input_page.dart';
@@ -52,6 +50,7 @@ import 'package:citizen_user/identity/mls_authentication.dart';
 import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_user/identity/square_session_provider.dart';
 import 'package:citizen_system/notifications/app_push_service.dart';
+import 'package:citizen_system/notifications/app_push_token.dart';
 import 'package:citizen_user/identity/registration_coordinator.dart';
 import 'package:citizen_scanner/qr_sign_session_page.dart';
 import 'package:citizen_user/identity/identity_binding.dart';
@@ -81,12 +80,8 @@ Future<void> main() async {
     ),
   );
   late final CurrentUserContext currentUserContext;
-  late final chat.ChatRuntime Function() readChatRuntime;
   final registrationCoordinator = RegistrationCoordinator();
-  final authentication = MlsAuthentication(
-    readLocalIdentity: () => (() => readChatRuntime())().readLocalMlsIdentity(),
-    createProof: (request) =>
-        (() => readChatRuntime())().createMlsAuthenticationProof(request),
+  final authentication = MlsAuthentication.native(
     currentBinding: () async {
       // 注册进行中不让自动服务准备抢先建立设备权限。
       if (registrationCoordinator.isRegistering) {
@@ -150,7 +145,6 @@ Future<void> main() async {
   final appPushService = AppPushService();
   late final SquareSessionProvider squareSessionProvider;
   late final MyIdService identityService;
-  chat.ChatRuntime? sharedChatRuntime;
   final cidBusinessGate = CidBusinessGate(
     currentUserContext: currentUserContext,
     identityResolver: finalizedIdentityResolver,
@@ -176,17 +170,9 @@ Future<void> main() async {
     currentUserContext: currentUserContext,
     identityResolver: finalizedIdentityResolver,
     sessionProvider: squareSessionProvider,
-    onChatBindingChanged: (binding, {required existingOnly}) async {
-      final chat.ChatRuntime? runtime = existingOnly
-          ? (() => sharedChatRuntime).call()
-          : (() => readChatRuntime())();
-      await runtime?.convergeFinalizedBinding(
-        chat.ChatBinding.fromIdentity(binding),
-      );
-    },
   );
 
-  // 任何 ChatRuntime、钱包页或 PIN 门禁构造前先处理跨重启擦除门闩。
+  // 钱包页或 PIN 门禁构造前先处理跨重启擦除门闩。
   // pending 不依赖已被平台阶段删除的 PIN，直接继续全量擦除；
   // 当前进程无论成败都只允许重试或退出，禁止恢复业务运行态。
   var wipeStartupResult = await AppLockService.recoverPersistentWipeAtStartup(
@@ -222,15 +208,6 @@ Future<void> main() async {
     return;
   }
 
-  // 普通认证和聊天惰性共用一个运行实例；擦除门闩通过前不创建MLS状态。
-  readChatRuntime = () => sharedChatRuntime ??= chat.ChatRuntime(
-    accountSecurity: accountSecurity,
-    currentUserContext: currentUserContext,
-    squareSessionProvider: squareSessionProvider,
-    appPushService: appPushService,
-    onClosing: authentication.close,
-  );
-
   // 钱包仍由唯一SDK拥有；轻节点启动不再成为本地页面显示的前置等待。
   final transactionHistory = WalletTransactionHistoryService(
     history: citizenSdk,
@@ -238,9 +215,6 @@ Future<void> main() async {
     wallet: citizenSdk,
     events: citizenSdk.events,
   );
-  // 擦除恢复及原安全前置已完成，聊天仍惰性创建；后台入口不负责启动钱包或节点。
-  registerAppPushBackgroundHandler(chatRuntimeBackgroundHandler);
-
   // 诊断 — 把所有 framework / widget 静默吞掉的异常都打到 logcat。
   // 默认 ErrorWidget 在某些场景下表现为空白方块（白屏），这里换成显眼的红框 + 文字。
   FlutterError.onError = (details) {
@@ -295,10 +269,6 @@ Future<void> main() async {
       squareApiClient: squareApiClient,
       appPushService: appPushService,
       transactionHistory: transactionHistory,
-      chatRuntimeFactory: readChatRuntime,
-      closeChatRuntime: () async {
-        await sharedChatRuntime?.close();
-      },
     ),
   );
 }

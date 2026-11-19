@@ -5,7 +5,6 @@ import 'dart:io';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:chat/chat.dart';
 
 import 'package:citizen_square/post/square_models.dart';
 import 'package:citizen_square/article/square_article_detail_page.dart';
@@ -29,7 +28,6 @@ import 'package:citizen_user/profile/square_account_deletion_service.dart';
 import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_user/identity/identity_register_guide.dart';
 import 'package:citizen_square/post/square_post_sync_service.dart';
-import 'package:citizen_user/navigation.dart';
 import 'package:citizen_user/identity/current_user_context.dart';
 import 'package:citizen_user/identity/identity_binding.dart';
 import 'package:citizen_user/identity/account_security_service.dart';
@@ -44,10 +42,10 @@ import 'package:citizen_network/hex_codec.dart' show bytesToHex;
 /// 推特式用户主页。
 ///
 /// 折叠虚化头部 + 圆角方形头像/背景 + 认证勾 + 展示名/地址/签名/计数 +
-/// 三图标（本人 通知/聊天/关注 · 他人 关注/消息）+ ⋮（用户码/编辑资料）+
+/// 主页操作+ ⋮（用户码/编辑资料）+
 /// 公文/竞选/视频/文章四个互斥 Tab（“公文”底层仍为 posts）。身份主键 = CID 号
 /// （cid_number）；本人和他人资料先读本地，进入后台校准遵守十分钟限速。
-/// 关注复用登录 session 静默签名；资料远端存储不上链。链上订阅/私信/
+/// 关注复用登录 session 静默签名；资料远端存储不上链。链上订阅/
 /// 用户码与注销只消费本机已验证的当前公民号绑定。
 class UserProfilePage extends StatefulWidget {
   const UserProfilePage({
@@ -64,7 +62,6 @@ class UserProfilePage extends StatefulWidget {
     this.initialMembershipDecision =
         MembershipDisplayDecision.inactiveConfirmed,
     this.initialMembershipState,
-    this.onOpenDirectChat,
     this.currentUserContext,
   });
 
@@ -92,8 +89,6 @@ class UserProfilePage extends StatefulWidget {
   final MembershipDisplayDecision initialMembershipDecision;
   final SquareMembershipState? initialMembershipState;
 
-  /// 私聊入口，测试可注入 spy；默认交给本地 chat。
-  final DirectChatOpener? onOpenDirectChat;
   final CurrentUserContext? currentUserContext;
 
   @override
@@ -109,7 +104,6 @@ class _UserProfilePageState extends State<UserProfilePage> {
   late final CitizenProfileMediaCache _mediaCache;
   late final SquareSessionProvider _sessionProvider;
   SubscriptionService? _subscriptionService;
-  late final DirectChatOpener _directChat;
   CitizenProfile? _profile;
   CitizenProfileMediaSnapshot _profileMedia =
       const CitizenProfileMediaSnapshot();
@@ -145,11 +139,6 @@ class _UserProfilePageState extends State<UserProfilePage> {
     _mediaCache = widget.mediaCache ?? CitizenProfileMediaCache();
     _membershipDecision = widget.initialMembershipDecision;
     _membershipState = widget.initialMembershipState;
-    _directChat =
-        widget.onOpenDirectChat ??
-        (context, {required peerUserId, required title}) => context
-            .read<UserNavigation>()
-            .openDirectChat(context, peerUserId: peerUserId, title: title);
     _profile = widget.initialProfile?.cidNumber == widget.cidNumber
         ? widget.initialProfile
         : null;
@@ -734,7 +723,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('注销用户'),
-        content: const Text('注销将立即硬删除你在公民广场/私信的全部数据，无冷静期、不可恢复，链上数据不受注销影响。'),
+        content: const Text('注销将立即硬删除你在公民广场的全部数据，无冷静期、不可恢复，链上数据不受注销影响。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -775,13 +764,10 @@ class _UserProfilePageState extends State<UserProfilePage> {
         }
       }
 
-      await SquareAccountDeletionService(
-        clearChatHistory: (context.read<ChatRuntime>()).clearAllForUserId,
-      ).deleteAccount(
+      await SquareAccountDeletionService().deleteAccount(
         binding: binding,
         requireCurrent: requireDeletionBinding,
         // 账户注销签名统一交给 CitizenSDK，冷热模式不在页面分支。
-        // 聊天MLS状态按cid_number精确清理，不进入钱包签名模式。
         signAction: (message) async =>
             '0x${bytesToHex(await signCitizenPayload(signing: sdk, context: context, accountId: selfAccountId, payload: message, action: CitizenQrActions.squareAccountAction))}',
       );
@@ -864,15 +850,6 @@ class _UserProfilePageState extends State<UserProfilePage> {
         ),
       ),
     );
-  }
-
-  void _openChatWithUser() {
-    final peerCidNumber = widget.cidNumber.trim();
-    if (peerCidNumber.isEmpty) {
-      _snack('轻节点绑定尚未核验，请刷新重试');
-      return;
-    }
-    _directChat(context, peerUserId: peerCidNumber, title: _displayName);
   }
 
   Future<void> _openFollows(FollowsType type) async {
@@ -1138,7 +1115,6 @@ class _UserProfilePageState extends State<UserProfilePage> {
                             // 有有效创作者计划时在通知左侧就地出现；不存在时完全不占位。
                             leading: _creatorSubscribeButton(),
                             onNotify: _toggleNotify,
-                            onChat: _openChatWithUser,
                             onToggleFollow:
                                 _followBusy || _refreshing || _profile == null
                                 ? null

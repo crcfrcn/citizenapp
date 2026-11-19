@@ -38,13 +38,12 @@ class ContactBookPage extends StatefulWidget {
     this.profileMediaCache,
     this.sessionProvider,
     this.initialProfiles = const <String, CitizenProfile>{},
-    this.directChatOpener,
     this.transferOpener,
     this.currentUserContext,
     this.identityRevision,
   });
 
-  /// 页面模式:浏览 / 选收款人 / 选私信对象;不改变通讯录所属身份账户。
+  /// 页面模式:浏览 / 选收款人;不改变通讯录所属身份账户。
   final ContactPickMode mode;
   final UserContactService? service;
   final CitizenProfileApi? profileApi;
@@ -52,7 +51,6 @@ class ContactBookPage extends StatefulWidget {
   final CitizenProfileMediaCache? profileMediaCache;
   final SquareSessionProvider? sessionProvider;
   final Map<String, CitizenProfile> initialProfiles;
-  final DirectChatOpener? directChatOpener;
   final CurrentUserContext? currentUserContext;
   final Listenable? identityRevision;
 
@@ -452,19 +450,6 @@ class _ContactBookPageState extends State<ContactBookPage> {
     await openTransfer(context, cidNumber: contact.cidNumber);
   }
 
-  Future<void> _message(UserContact contact) async {
-    final profile = _profileOf(contact);
-    final title = ProfilePresentation.forIdentityKey(
-      contact.cidNumber,
-    ).resolveDisplayName(publicName: profile?.displayName);
-    final opener =
-        widget.directChatOpener ??
-        (context, {required peerUserId, required title}) => context
-            .read<UserNavigation>()
-            .openDirectChat(context, peerUserId: peerUserId, title: title);
-    await opener(context, peerUserId: contact.cidNumber, title: title);
-  }
-
   Future<void> _delete(UserContact contact) async {
     final generation = _loadGeneration;
     final confirmed = await showDialog<bool>(
@@ -507,9 +492,6 @@ class _ContactBookPageState extends State<ContactBookPage> {
       case ContactPickMode.pickForTransfer:
         // 交易发起:把选中的联系人返回给收款栏。
         await _transfer(contact);
-      case ContactPickMode.pickForMessage:
-        // 发私信:点联系人直接打开与其的一对一聊天(复用统一私信收口)。
-        await _message(contact);
       case ContactPickMode.browse:
         // 资料页按通讯录关系主键 cid_number 直接寻址。
         await _openProfile(contact);
@@ -568,13 +550,10 @@ class _ContactBookPageState extends State<ContactBookPage> {
     return Scaffold(
       backgroundColor: AppTheme.scaffoldBg,
       appBar: AppBar(
-        title: Text(
-          widget.mode == ContactPickMode.pickForMessage ? '选择联系人' : '我的通讯录',
-        ),
+        title: const Text('我的通讯录'),
         centerTitle: true,
         actions: [
-          // 纯选人(发私信)模式只保留选择,不提供扫码加联系人入口。
-          if (!_unregistered && widget.mode != ContactPickMode.pickForMessage)
+          if (!_unregistered)
             IconButton(
               tooltip: '扫码添加联系人',
               onPressed: _scanContactQr,
@@ -586,7 +565,7 @@ class _ContactBookPageState extends State<ContactBookPage> {
             ),
         ],
       ),
-      // 未注册 = 合法状态,整页给统一注册引导(与广场/聊天/创作者同规),
+      // 未注册 = 合法状态,整页给统一注册引导(与广场和创作者同规),
       // 不显示搜索框和假的「空通讯录」。
       body: _unregistered
           ? IdentityRegisterGuide(
@@ -660,11 +639,8 @@ class _ContactBookPageState extends State<ContactBookPage> {
                 avatarPath: _profileMedia[contact.cidNumber]?.avatarPath,
                 avatarUrl: _avatarUrl(_profileOf(contact)),
 
-                // 纯选私信模式只允许点选,不显示逐项操作菜单。
-                showActions: widget.mode != ContactPickMode.pickForMessage,
                 onTap: () => _open(contact),
                 onTransfer: () => _transfer(contact),
-                onMessage: () => _message(contact),
                 onRename: () => _rename(contact),
                 onDelete: () => _delete(contact),
               ),
@@ -698,10 +674,8 @@ class _ContactCard extends StatelessWidget {
     required this.avatarPath,
     required this.avatarUrl,
 
-    required this.showActions,
     required this.onTap,
     required this.onTransfer,
-    required this.onMessage,
     required this.onRename,
     required this.onDelete,
   });
@@ -712,11 +686,8 @@ class _ContactCard extends StatelessWidget {
   final String? avatarPath;
   final String? avatarUrl;
 
-  /// 是否显示逐项操作菜单(转账/私信/改名/删除);纯选人模式为 false。
-  final bool showActions;
   final VoidCallback onTap;
   final VoidCallback onTransfer;
-  final VoidCallback onMessage;
   final VoidCallback onRename;
   final VoidCallback onDelete;
 
@@ -794,42 +765,36 @@ class _ContactCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (showActions)
-                  PopupMenuButton<_ContactMenuAction>(
-                    tooltip: '联系人操作',
-                    // 显式指定竖向三点，避免框架在 iOS 使用横向自适应图标。
-                    icon: const Icon(
-                      Icons.more_vert,
-                      size: AppLayout.iconStandard,
-                    ),
-                    onSelected: (action) => switch (action) {
-                      _ContactMenuAction.transfer => onTransfer(),
-                      _ContactMenuAction.message => onMessage(),
-                      _ContactMenuAction.rename => onRename(),
-                      _ContactMenuAction.delete => onDelete(),
-                    },
-                    itemBuilder: (_) => const [
-                      PopupMenuItem(
-                        value: _ContactMenuAction.transfer,
-                        child: Text('转账'),
-                      ),
-                      PopupMenuItem(
-                        value: _ContactMenuAction.message,
-                        child: Text('私信'),
-                      ),
-                      PopupMenuItem(
-                        value: _ContactMenuAction.rename,
-                        child: Text('修改备注'),
-                      ),
-                      PopupMenuItem(
-                        value: _ContactMenuAction.delete,
-                        child: Text(
-                          '删除联系人',
-                          style: TextStyle(color: AppTheme.danger),
-                        ),
-                      ),
-                    ],
+                PopupMenuButton<_ContactMenuAction>(
+                  tooltip: '联系人操作',
+                  // 显式指定竖向三点，避免框架在 iOS 使用横向自适应图标。
+                  icon: const Icon(
+                    Icons.more_vert,
+                    size: AppLayout.iconStandard,
                   ),
+                  onSelected: (action) => switch (action) {
+                    _ContactMenuAction.transfer => onTransfer(),
+                    _ContactMenuAction.rename => onRename(),
+                    _ContactMenuAction.delete => onDelete(),
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(
+                      value: _ContactMenuAction.transfer,
+                      child: Text('转账'),
+                    ),
+                    PopupMenuItem(
+                      value: _ContactMenuAction.rename,
+                      child: Text('修改备注'),
+                    ),
+                    PopupMenuItem(
+                      value: _ContactMenuAction.delete,
+                      child: Text(
+                        '删除联系人',
+                        style: TextStyle(color: AppTheme.danger),
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -839,7 +804,7 @@ class _ContactCard extends StatelessWidget {
   }
 }
 
-enum _ContactMenuAction { transfer, message, rename, delete }
+enum _ContactMenuAction { transfer, rename, delete }
 
 class _SyncBanner extends StatelessWidget {
   const _SyncBanner({required this.state, required this.onRetry});
@@ -963,7 +928,7 @@ class _EmptyContacts extends StatelessWidget {
   }
 }
 
-/// 通讯录 / 聊天页共用的「扫码加好友」收口。
+/// 通讯录的「扫码加好友」收口。
 ///
 /// 打开 contact 模式扫码页,扫到用户名片码即写入本机并同步本人云端通讯录
 /// (写库与「已加入/已在通讯录」提示均在扫码页内完成)。调用方返回后自行刷新列表。

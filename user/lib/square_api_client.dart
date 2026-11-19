@@ -1,4 +1,3 @@
-import 'package:citizen_network/protocol/chat_frame.pb.dart' as wire;
 import 'package:citizen_network/citizen_serve_api_config.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
@@ -86,7 +85,6 @@ abstract interface class SquareResourceLease {
   void sent();
   void finish({
     Map<String, String>? headers,
-    wire.ResourceUsage? receipt,
     bool accepted = true,
     bool uncertain = false,
   });
@@ -107,7 +105,7 @@ class SquareSession {
 
   final String sessionToken;
 
-  /// 本会话的身份主键 CID 号（Worker 登录响应下发；广场/聊天一切归属与寻址的主键）。
+  /// 本会话的身份主键 CID 号（Worker 登录响应下发）。
   final String cidNumber;
 
   /// 本会话签发时的 finalized 绑定版本；与 CID、账户共同锁定当前授权。
@@ -126,19 +124,6 @@ class SquareSession {
   }
 
   bool get isUsable => expiresAt > DateTime.now().millisecondsSinceEpoch;
-}
-
-/// CitizenServe 签发的短期聊天服务访问结果；登录态和 HTTP 合同只属于服务客户端。
-class CitizenServeChatAccess {
-  const CitizenServeChatAccess({
-    required this.realtimeUrl,
-    required this.accessToken,
-    required this.expiresAt,
-  });
-
-  final Uri realtimeUrl;
-  final String accessToken;
-  final int expiresAt;
 }
 
 class _FinalizedSessionBinding {
@@ -225,8 +210,6 @@ class SquareMembershipPlan {
   const SquareMembershipPlan({
     required this.memberLevel,
     required this.displayName,
-    required this.fileLimit,
-    required this.chat,
     required this.document,
     required this.video,
     required this.article,
@@ -234,7 +217,6 @@ class SquareMembershipPlan {
     this.imageBytes = 0,
     this.imageDimension = 0,
     this.media = const {},
-    this.resources = const {},
     this.dailyLimits = const {},
     this.priceFen,
   });
@@ -242,9 +224,6 @@ class SquareMembershipPlan {
   final String memberLevel;
   final String displayName;
 
-  /// 聊天文件大小上限（字节，会员权益之一，ADR-037）：自由 10MiB / 民主 100MiB / 薪火 5GiB。
-  final int fileLimit;
-  final SquareChatQuota chat;
   final SquareDocumentQuota document;
   final SquareVideoQuota video;
   final SquareArticleQuota article;
@@ -254,7 +233,6 @@ class SquareMembershipPlan {
 
   /// 服务端下发的成品规格及资源额度；空值表示尚未取得，不能授予默认权益。
   final Map<String, int> media;
-  final Map<String, int> resources;
   final Map<String, int> dailyLimits;
 
   Map<String, dynamic> toJson() => {
@@ -262,7 +240,6 @@ class SquareMembershipPlan {
     'price_fen': priceFen,
     'plan': {
       'member_level': memberLevel,
-      'file_limit': fileLimit,
       'video_max_seconds': video.videoMaxSeconds,
       'video_max_bytes': video.videoMaxBytes,
       'article_max_images': article.maxImages,
@@ -274,7 +251,6 @@ class SquareMembershipPlan {
       'image_dimension': imageDimension,
       'storage_bytes': usage.storageBytes,
     },
-    'resources': resources,
     'daily_limits': dailyLimits,
   };
 
@@ -282,9 +258,6 @@ class SquareMembershipPlan {
   final int? priceFen;
 
   /// 提炼展示用短串（卡片与详情页共用，杜绝口径漂移）。
-  String get fileSizeLabel => formatBytes(fileLimit);
-  String get chatVoiceLabel => _duration(chat.voiceSecs);
-  String get chatVideoLabel => _duration(chat.videoSecs);
   String get documentImageLabel => document.imageQuality;
   String get imageBytesLabel => formatBytes(imageBytes);
   String get videoQualityLabel => video.videoQuality;
@@ -294,8 +267,6 @@ class SquareMembershipPlan {
   String get articleCoverLabel => article.coverQuality;
 
   String get storageSizeLabel => formatBytes(usage.storageBytes);
-
-  String get chatFileLabel => '聊天附件：单个 ≤ ${formatBytes(fileLimit)}';
 
   String get documentLabel =>
       '公文：${document.textMaxChars} 字、${document.maxImages} 张${document.imageQuality}图片';
@@ -332,30 +303,6 @@ class SquareMembershipPlan {
     }
     return '$bytes B';
   }
-}
-
-/// CitizenServe 下发的聊天权益。只有 [SquareMembershipState.activePlan] 存在时才可使用；
-/// 无会员不会构造虚假的自由会员权益。
-class SquareChatQuota {
-  const SquareChatQuota({
-    required this.textEnabled,
-    required this.emojiEnabled,
-    required this.stickerEnabled,
-    required this.imageEnabled,
-    required this.voiceSecs,
-    required this.videoSecs,
-    required this.voiceCallEnabled,
-    required this.videoCallEnabled,
-  });
-
-  final bool textEnabled;
-  final bool emojiEnabled;
-  final bool stickerEnabled;
-  final bool imageEnabled;
-  final int voiceSecs;
-  final int videoSecs;
-  final bool voiceCallEnabled;
-  final bool videoCallEnabled;
 }
 
 /// 公文额度结构与 Worker `document` 对象逐字段对应。
@@ -425,7 +372,6 @@ class SquareMembershipUsageState {
     this.dayStart = 0,
     this.daily = const {},
     this.observedAt = 0,
-    this.attachment,
   });
 
   final int usedBytes;
@@ -433,7 +379,6 @@ class SquareMembershipUsageState {
   final int dayStart;
   final Map<String, int> daily;
   final int observedAt;
-  final Map<String, dynamic>? attachment;
 
   Map<String, dynamic> toJson() => {
     'used_bytes': usedBytes,
@@ -441,7 +386,6 @@ class SquareMembershipUsageState {
     'day_start': dayStart,
     'daily': daily,
     'observed_at': observedAt,
-    if (attachment != null) 'attachment': attachment,
   };
 }
 
@@ -588,7 +532,7 @@ class SquareApiClient
   final Map<String, Future<SquareSession>> _inflightSessions = {};
   final Map<String, int> _sessionGenerations = {};
 
-  /// CitizenServe API 根地址；聊天模块只复用该会话请求短期服务授权。
+  /// CitizenServe API 的 HTTPS 根地址。
   Uri get baseUri => Uri.parse(baseUrl);
 
   /// 会话缓存和在途任务固定CID、账户、代次及同一MLS设备。
@@ -1102,66 +1046,6 @@ class SquareApiClient
   ) async {
     return decodeResourceAuthorization(
       await _getJson('/membergate', session: session),
-    );
-  }
-
-  /// 许可由宿主当前会话签发；传输可用性仍由聊天适配交付验收。
-  Future<CitizenServeChatAccess> fetchChatAccess({
-    required SquareSession session,
-    required String deviceId,
-  }) async {
-    if (deviceId != session.deviceId) {
-      throw const SquareApiException('聊天许可设备不一致');
-    }
-    final data = await _postJson('/chat/access', {}, session: session);
-    final realtimeValue = _requireString(data, 'realtime_url');
-    final realtime = Uri.tryParse(realtimeValue);
-    // Dart未定义WSS默认端口，还会把显式:0规范化掉；从原文按安全443计算，
-    // 保留显式端口（包括0）的同源拒绝，不改变实际WSS许可地址。
-    final realtimePort = realtime?.scheme == 'wss'
-        ? Uri.tryParse(
-            'https${realtimeValue.substring(realtimeValue.indexOf(':'))}',
-          )?.port
-        : null;
-    final token = _requireString(data, 'access_token');
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final expiry = data['expires_at'];
-    final recheck = data['recheck_at'];
-    if (data['is_ok'] != true ||
-        data.keys.any(
-          (key) => !const {
-            'is_ok',
-            'realtime_url',
-            'access_token',
-            'expires_at',
-            'recheck_at',
-            'gate',
-            'usage',
-          }.contains(key),
-        ) ||
-        realtime == null ||
-        realtime.scheme != 'wss' ||
-        realtime.host != baseUri.host ||
-        realtimePort != baseUri.port ||
-        realtime.userInfo.isNotEmpty ||
-        realtime.path != '/api/chat/realtime' ||
-        realtime.pathSegments.join('/') != 'api/chat/realtime' ||
-        realtime.hasQuery ||
-        realtime.hasFragment ||
-        expiry is! int ||
-        recheck is! int ||
-        token.length > 16 * 1024 ||
-        token.codeUnits.any((unit) => unit <= 32 || unit >= 127) ||
-        expiry <= now + 60000 ||
-        expiry > session.expiresAt ||
-        recheck <= now ||
-        recheck > expiry) {
-      throw const SquareApiException('聊天许可回执无效');
-    }
-    return CitizenServeChatAccess(
-      realtimeUrl: realtime,
-      accessToken: token,
-      expiresAt: expiry,
     );
   }
 
@@ -1690,7 +1574,7 @@ class SquareApiClient
         card['cid_number'] != cidNumber ||
         card['display_name'] is! String ||
         card['profile_at'] is! int) {
-      throw const SquareApiException('聊天资料卡响应无效');
+      throw const SquareApiException('公民名片响应无效');
     }
     return CitizenProfileCard(card);
   }
@@ -2186,7 +2070,6 @@ class SquareApiClient
     int? expectedBytes,
   }) async {
     SquareResourceLease? lease;
-    var connectionPreview = false;
     try {
       if (session != null) {
         final uri = request.url;
@@ -2208,11 +2091,7 @@ class SquareApiClient
         String? target;
         final actions = <String, Map<String, int>>{};
         final costs = <String, int>{};
-        if (path == '/chat/access') {
-          operation = 'chat';
-          actions['chat_connect'] = const {};
-          connectionPreview = true; // 仅预留后续连接，实际扣量由WS握手回执确认。
-        } else if (path.startsWith('/membergate')) {
+        if (path.startsWith('/membergate')) {
           operation = path == '/membergate/overview'
               ? 'creator_overview'
               : 'membergate';
@@ -2294,7 +2173,7 @@ class SquareApiClient
         'content-type',
         () => 'application/json; charset=utf-8',
       );
-      if (!connectionPreview) lease?.sent();
+      lease?.sent();
       final abort = Completer<void>();
       final actual =
           http.AbortableRequest(
@@ -2553,7 +2432,6 @@ class SquareApiClient
       'keyframe_secs',
       'audio_sample_rate',
     ]);
-    final resources = _quotaMap(data['resources'], const ['attachment_bytes']);
     final dailyLimits = _quotaMap(
       data['daily_limits'],
       data['daily_limits'] is Map
@@ -2568,23 +2446,10 @@ class SquareApiClient
     return SquareMembershipPlan(
       memberLevel: level,
       displayName: name,
-      fileLimit: quota(plan, 'file_limit'),
       imageBytes: quota(limits, 'image_bytes'),
       imageDimension: quota(limits, 'image_dimension'),
       media: media,
-      resources: resources,
       dailyLimits: dailyLimits,
-      // 保留既有三档聊天展示能力；授权仍由实际会话和宿主聊天许可决定。
-      chat: const SquareChatQuota(
-        textEnabled: true,
-        emojiEnabled: true,
-        stickerEnabled: true,
-        imageEnabled: true,
-        voiceSecs: 180,
-        videoSecs: 180,
-        voiceCallEnabled: true,
-        videoCallEnabled: true,
-      ),
       // 文本/标题上限来自既有发布协议，动态媒体/周期/存储额度只读服务器plan/limits。
       document: SquareDocumentQuota(
         textMaxChars: 300,
@@ -2627,21 +2492,6 @@ class SquareApiClient
         throw const SquareApiException('会员用量响应无效');
       }
     }
-    final attachment = value['attachment'];
-    if (attachment != null) {
-      if (attachment is! Map<String, dynamic> ||
-          !const {'available', 'unavailable'}.contains(attachment['status'])) {
-        throw const SquareApiException('聊天存量状态无效');
-      }
-      if (attachment['status'] == 'available') {
-        for (final key in ['observed_at', 'bytes']) {
-          final n = attachment[key];
-          if (n is! int || n < 0 || n > 9007199254740991) {
-            throw const SquareApiException('聊天存量无效');
-          }
-        }
-      }
-    }
     return SquareMembershipUsageState(
       usedBytes: _asInt(value['used_bytes']),
       reservedBytes: _asInt(value['reserved_bytes']),
@@ -2653,11 +2503,6 @@ class SquareApiClient
             : const [],
       ),
       observedAt: value['observed_at'] as int,
-      attachment: attachment == null
-          ? null
-          : Map<String, dynamic>.unmodifiable(
-              attachment as Map<String, dynamic>,
-            ),
     );
   }
 

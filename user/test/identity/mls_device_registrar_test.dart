@@ -1,6 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
-import 'package:chat/chat.dart' as chat_sdk;
+import 'package:citizen_network/mls_authentication.dart' as device;
 import 'package:citizen_user/identity/public_identity_store.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_user/identity/current_user_context.dart';
@@ -64,8 +64,8 @@ class _SessionApi extends SquareApiClient {
 class _StorageAuthentication extends FakeMlsAuthentication {
   @override
   Future<MlsAuthenticationIdentity> readIdentity() async =>
-      throw const chat_sdk.MlsException(
-        chat_sdk.MlsErrorCode.stateMissing,
+      throw const device.MlsException(
+        device.MlsErrorCode.stateMissing,
         'synthetic private detail',
       );
 }

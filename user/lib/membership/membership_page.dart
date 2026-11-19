@@ -730,7 +730,7 @@ class _MembershipViewData {
 }
 
 /// 单张会员档卡（ADR-037）：一张卡 = 一个订阅档（自由/民主/薪火）。档色顶带 + 大字档名
-/// + 会员权益（完整聊天矩阵 / 公文 / 文章 / 视频）+ 公民币月价 + 订阅按钮。无任何身份字段。
+/// + 会员权益（公文 / 文章 / 视频）+ 公民币月价 + 订阅按钮。无任何身份字段。
 class _MembershipTierCard extends StatelessWidget {
   const _MembershipTierCard({
     required this.memberLevel,
@@ -823,25 +823,6 @@ class _MembershipTierCard extends StatelessWidget {
                             color: tierColor,
                           ),
                           SizedBox(height: AppLayout.scaled(context, 10)),
-                          // 原七行顺序、图标和排版保持；只更新文案，完整权益见详情。
-                          _ParamLine(
-                            icon: Icons.chat_bubble_outline,
-                            color: tierColor,
-                            text: '聊天 文字/表情/贴纸/图片',
-                          ),
-                          SizedBox(height: AppLayout.scaled(context, 8)),
-                          _ParamLine(
-                            icon: Icons.mic_none_outlined,
-                            color: tierColor,
-                            text: '语音/视频消息 ${benefits.voice} · 语音/视频通话',
-                          ),
-                          SizedBox(height: AppLayout.scaled(context, 8)),
-                          _ParamLine(
-                            icon: Icons.attach_file_outlined,
-                            color: tierColor,
-                            text: '聊天附件 每个 ${benefits.file}',
-                          ),
-                          SizedBox(height: AppLayout.scaled(context, 8)),
                           _ParamLine(
                             icon: Icons.videocam_outlined,
                             color: tierColor,

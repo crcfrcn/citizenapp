@@ -603,9 +603,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
 }
 
 
-// 聊天是本仓本地业务包；OpenMLS 仅由 App 唯一构建入口编译和链接。
+// 设备签名由 App 唯一构建入口编译和链接。
 export async function buildMls({project,work,platform,environment=process.env,execute=run}) {
- const manifest=join(project,'chat/mls/Cargo.toml');
+ const manifest=join(project,'user/native/Cargo.toml');
  const target=environment.CARGO_TARGET_DIR||join(root,'target/cache/rust');
  const base={...environment,RUSTUP_TOOLCHAIN:'1.97.1',CARGO_TARGET_DIR:target};
  const args=['build','--manifest-path',manifest,'--locked','--release'];
@@ -613,19 +613,19 @@ export async function buildMls({project,work,platform,environment=process.env,ex
  if(platform==='host'){
   const triple='aarch64-apple-darwin', output=join(own,'host/libmls.dylib');
   await execute('cargo',[...args,'--target',triple],project,false,{...base,
-   CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:'-C strip=none -C link-arg=-Wl,-install_name,@rpath/libmls.dylib'},'OpenMLS宿主编译');
+   CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:'-C strip=none -C link-arg=-Wl,-install_name,@rpath/libmls.dylib'},'设备签名宿主编译');
   mkdirSync(dirname(output),{recursive:true});
   copyFileSync(join(target,triple,'release/libmls.dylib'),output);
   return output;
  }
  if(platform==='android'){
-  if(!environment.ANDROID_HOME)throw Error('OpenMLS Android编译缺少ANDROID_HOME');
+  if(!environment.ANDROID_HOME)throw Error('Android设备签名编译缺少ANDROID_HOME');
   const ndk=join(environment.ANDROID_HOME,'ndk','28.2.13676358','toolchains/llvm/prebuilt',globalThis.process.platform==='darwin'?'darwin-x86_64':'linux-x86_64','bin');
   const clang=join(ndk,'aarch64-linux-android24-clang');
   await execute('cargo',[...args,'--target','aarch64-linux-android'],project,false,{...base,
    CC_aarch64_linux_android:clang,AR_aarch64_linux_android:join(ndk,'llvm-ar'),
    CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER:clang,
-   CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS:'-C link-arg=-Wl,-z,max-page-size=16384'},'OpenMLS Android编译');
+   CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS:'-C link-arg=-Wl,-z,max-page-size=16384'},'Android设备签名编译');
   const destination=join(project,'android/app/src/main/jniLibs/arm64-v8a');mkdirSync(destination,{recursive:true});
   copyFileSync(join(target,'aarch64-linux-android/release/libmls.so'),join(destination,'libmls.so'));
   const component=join(own,'android/arm64-v8a');mkdirSync(component,{recursive:true});copyFileSync(join(destination,'libmls.so'),join(component,'libmls.so'));
@@ -636,35 +636,35 @@ export async function buildMls({project,work,platform,environment=process.env,ex
    const sdkPath=execFileSync('/usr/bin/xcrun',['--sdk',sdk,'--show-sdk-path'],{encoding:'utf8'}).trim();
    const key='CARGO_TARGET_'+triple.toUpperCase().replaceAll('-','_')+'_RUSTFLAGS';
    await execute('cargo',[...args,'--target',triple],project,false,{...base,IPHONEOS_DEPLOYMENT_TARGET:'16.0',
-    [key]:'-C strip=none -C link-arg=-isysroot -C link-arg='+sdkPath+' -C link-arg=-Wl,-install_name,@rpath/MLS.framework/MLS'},'OpenMLS iOS编译');
+    [key]:'-C strip=none -C link-arg=-isysroot -C link-arg='+sdkPath+' -C link-arg=-Wl,-install_name,@rpath/MLS.framework/MLS'},'iOS设备签名编译');
    await verifyMls(join(target,triple,'release/libmls.dylib'),sdk==='iphoneos'?'ios':'ios-simulator');
    const framework=join(own,triple,'MLS.framework');mkdirSync(join(framework,'Headers'),{recursive:true});mkdirSync(join(framework,'Modules'),{recursive:true});
    copyFileSync(join(target,triple,'release/libmls.dylib'),join(framework,'MLS'));
-   copyFileSync(join(project,'chat/mls/mls.h'),join(framework,'Headers/mls.h'));
+   copyFileSync(join(project,'user/native/mls.h'),join(framework,'Headers/mls.h'));
    writeFileSync(join(framework,'Modules/module.modulemap'),'framework module MLS {\n umbrella header "mls.h"\n export *\n}\n');
-   writeFileSync(join(framework,'Info.plist'),'<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleExecutable</key><string>MLS</string><key>CFBundleIdentifier</key><string>com.crcfrcn.citizenapp.chat.mls</string><key>CFBundleName</key><string>MLS</string><key>CFBundlePackageType</key><string>FMWK</string><key>CFBundleShortVersionString</key><string>1.0.0</string><key>CFBundleVersion</key><string>1</string><key>MinimumOSVersion</key><string>16.0</string></dict></plist>');
+   writeFileSync(join(framework,'Info.plist'),'<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleExecutable</key><string>MLS</string><key>CFBundleIdentifier</key><string>com.crcfrcn.citizenapp.device.mls</string><key>CFBundleName</key><string>MLS</string><key>CFBundlePackageType</key><string>FMWK</string><key>CFBundleShortVersionString</key><string>1.0.0</string><key>CFBundleVersion</key><string>1</string><key>MinimumOSVersion</key><string>16.0</string></dict></plist>');
    slices.push('-framework',framework);
   }
   const framework=join(project,'ios/Frameworks/MLS.xcframework');mkdirSync(dirname(framework),{recursive:true});
   rmSync(framework,{recursive:true,force:true});
-  await execute('/usr/bin/xcodebuild',['-create-xcframework',...slices,'-output',framework],project,false,base,'OpenMLS iOS装配');
+  await execute('/usr/bin/xcodebuild',['-create-xcframework',...slices,'-output',framework],project,false,base,'iOS设备签名装配');
  }
 }
 
 export async function verifyMls(file,platform){
- if(!lstatSync(file).isFile())throw Error('OpenMLS产物缺失');
+ if(!lstatSync(file).isFile())throw Error('设备签名产物缺失');
  const nm=platform==='android'?join(process.env.ANDROID_HOME||join(process.env.HOME,'Library/Android/sdk'),'ndk/28.2.13676358/toolchains/llvm/prebuilt',process.platform==='darwin'?'darwin-x86_64':'linux-x86_64','bin/llvm-nm'):'/usr/bin/nm';
  const symbols=execFileSync(nm,platform==='android'?['-D','--defined-only',file]:['-g',file],{encoding:'utf8'});
- const header=readFileSync(join(root,'chat/mls/mls.h'),'utf8');
+ const header=readFileSync(join(root,'user/native/mls.h'),'utf8');
  const expected=[...header.matchAll(/\b(mls_[a-z_]+)\s*\(/gu)].map(m=>m[1]);
- if(expected.length!==10)throw Error('OpenMLS公开头的符号集合不完整');
+ if(expected.length!==2)throw Error('设备签名公开头的符号集合不完整');
  for(const name of expected){
-  if(!new RegExp('(?:^|\\s)_?'+name+'(?:\\s|$)','u').test(symbols))throw Error('OpenMLS缺少FFI符号：'+name);
+  if(!new RegExp('(?:^|\\s)_?'+name+'(?:\\s|$)','u').test(symbols))throw Error('设备签名库缺少FFI符号：'+name);
  }
  if(platform!=='android'){
   const commands=execFileSync('/usr/bin/xcrun',['otool','-l',file],{encoding:'utf8'});
   const offset=/cmd LC_SYMTAB[\s\S]*?\bstroff\s+(\d+)/u.exec(commands)?.[1];
-  if(!offset||BigInt(offset)%8n!==0n)throw Error('OpenMLS Mach-O字符串表未按8字节对齐');
+  if(!offset||BigInt(offset)%8n!==0n)throw Error('设备签名 Mach-O字符串表未按8字节对齐');
  }
 
 }

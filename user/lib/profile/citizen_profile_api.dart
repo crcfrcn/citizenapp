@@ -256,7 +256,7 @@ class CitizenProfileApi {
   String cardMediaUrl(String objectKey, {int? updatedAt}) {
     final asset = CitizenProfile.parseAssetKey(objectKey);
     if (asset == null || asset.kind != 'avatar') {
-      throw const SquareApiException('聊天资料卡只能读取头像');
+      throw const SquareApiException('公民名片只能读取头像');
     }
     return _client.cardAvatarUrl(asset.cid);
   }

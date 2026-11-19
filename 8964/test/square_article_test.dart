@@ -700,17 +700,6 @@ SquareLocalMediaDraft _video(int index) => SquareLocalMediaDraft(
 const _democracyPlan = SquareMembershipPlan(
   memberLevel: 'democracy',
   displayName: '民主会员',
-  fileLimit: 1,
-  chat: SquareChatQuota(
-    textEnabled: true,
-    emojiEnabled: true,
-    stickerEnabled: true,
-    imageEnabled: true,
-    voiceSecs: 180,
-    videoSecs: 180,
-    voiceCallEnabled: true,
-    videoCallEnabled: true,
-  ),
   document: SquareDocumentQuota(
     textMaxChars: 300,
     imageQuality: 'hd',

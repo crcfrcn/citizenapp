@@ -727,7 +727,7 @@ void main() {
     expect(find.text('个人多签'), findsNothing);
     expect(find.text('机构多签'), findsNothing);
 
-    // 扫一扫入口已撤销，扫码收进收款地址框内；签名请求改由「聊天 → 扫一扫」承接。
+    // 扫一扫入口已撤销，扫码收进收款地址框内；签名请求改由「钱包账户详情 → 扫一扫」承接。
     expect(find.text('扫一扫'), findsNothing);
     expect(find.byTooltip('扫码填入收款地址'), findsOneWidget);
 

@@ -83,20 +83,7 @@ final class RunnerUITests: XCTestCase {
     XCTAssertTrue(app.textFields["请输入金额"].exists)
   }
 
-  /// 验证聊天前后台恢复界面；不把本地页面出现当作服务端连接或消息送达证明。
-  func testChatResumesWithoutSending() throws {
-    let app = try openExistingAccountServices()
-    chatTab(in: app).tap()
-    func ready() {
-      XCTAssertTrue(app.buttons["新建"].waitForExistence(timeout: 30), "聊天列表实际结构未就绪")
-      let loading = app.staticTexts["正在读取本地会话"]
-      XCTAssertTrue(loading.waitForNonExistence(timeout: 30))
-      XCTAssertFalse(app.staticTexts["聊天暂时无法使用，请稍后重试"].exists)
-      XCTAssertFalse(app.staticTexts["验证并准备聊天与通讯录密钥"].exists)
-    }
-    ready(); XCUIDevice.shared.press(.home); app.activate()
-    XCTAssertTrue(chatTab(in: app).waitForExistence(timeout: 10)); ready()
-  }
+
 
   /// XCTest负责记录原始指标；本轮没有固定设备基线，不设任意回归阈值。
   func testPerformanceLaunch() {
@@ -260,7 +247,6 @@ final class RunnerUITests: XCTestCase {
       entry.tap()
       XCTAssertTrue(exact("身份").waitForExistence(timeout: 10))
       XCTAssertFalse(exact("恢复服务").exists)
-      XCTAssertFalse(exact("初始化本机聊天设备").exists)
       XCTAssertFalse(app.webViews.firstMatch.exists, "已有公民号的身份查看不能打开真人验证")
     }
     func cidLabel() -> String? {
@@ -484,7 +470,7 @@ final class RunnerUITests: XCTestCase {
     XCTAssertTrue(confirm.waitForExistence(timeout: 10))
     confirm.tap()
     XCTAssertTrue(confirm.waitForExistence(timeout: 5), "空地址必须保留导入页")
-    XCTAssertFalse(chatTab(in: app).exists, "空地址不得进入主导航")
+    XCTAssertFalse(squareTab(in: app).exists, "空地址不得进入主导航")
     let back = app.buttons.allElementsBoundByIndex.filter {
       $0.isHittable && $0.frame.minX < app.frame.width * 0.15
         && $0.frame.maxY < app.frame.height * 0.20
@@ -509,7 +495,7 @@ final class RunnerUITests: XCTestCase {
         XCTAssertTrue(deny.exists, "通知提示缺少拒绝按钮")
         deny.tap()
       }
-      if !chatTab(in: app).exists {
+      if !squareTab(in: app).exists {
         let visitor = app.descendants(matching: .any).matching(NSPredicate(format:
           "label CONTAINS %@", "身份·访客")).firstMatch
         XCTAssertTrue(visitor.waitForExistence(timeout: 10), "初次冷账户引导未进入身份页")
@@ -539,23 +525,23 @@ final class RunnerUITests: XCTestCase {
     }
     try finishFirstWalletIntroduction()
     for _ in 0..<2 {
-      XCTAssertTrue(chatTab(in: app).waitForExistence(timeout: 30), "公开冷账户没有进入主导航")
+      XCTAssertTrue(squareTab(in: app).waitForExistence(timeout: 30), "公开冷账户没有进入主导航")
       XCTAssertFalse(walletGateCreate(in: app).exists)
-      for label in ["广场", "公民", "聊天", "交易", "我的"] {
+      for label in ["广场", "公民", "交易", "我的"] {
         // 主导航含系统Tab语义，避免把“我的通讯录”等页面按钮当作“我的”标签。
         let tab = app.buttons.matching(NSPredicate(format:
           "label BEGINSWITH %@ AND label CONTAINS %@", label, "Tab ")).firstMatch
         XCTAssertTrue(tab.waitForExistence(timeout: 10) && tab.isHittable, "缺少主导航：\(label)")
         tab.tap()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
-        XCTAssertTrue(chatTab(in: app).exists, "切页后主导航消失")
+        XCTAssertTrue(squareTab(in: app).exists, "切页后主导航消失")
       }
       app.terminate()
       app.launch()
       dismissPermissionGuideIfNeeded(in: app)
       try finishFirstWalletIntroduction()
     }
-    XCTAssertTrue(chatTab(in: app).waitForExistence(timeout: 20))
+    XCTAssertTrue(squareTab(in: app).waitForExistence(timeout: 20))
     #else
     throw XCTSkip("公开冷账户自动导入仅允许在模拟器执行")
     #endif
@@ -631,7 +617,7 @@ final class RunnerUITests: XCTestCase {
     // 已注册地址可能触发持钥证明；这里只验证边界并取消，不能伪造已完成身份认证。
     let cancel = app.buttons["取消"]
     if cancel.waitForExistence(timeout: 10) { cancel.tap() }
-    if !chatTab(in: app).exists {
+    if !squareTab(in: app).exists {
       let identity = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "身份·访客")).firstMatch
       XCTAssertTrue(identity.waitForExistence(timeout: 10), "取消持钥验证后应保留身份页")
       let back = app.buttons.allElementsBoundByIndex.filter {
@@ -640,7 +626,7 @@ final class RunnerUITests: XCTestCase {
       }.sorted { $0.frame.minY < $1.frame.minY }
       try XCTUnwrap(back.first).tap()
     }
-    XCTAssertTrue(chatTab(in: app).waitForExistence(timeout: 30), "冷账户导入后应返回主导航")
+    XCTAssertTrue(squareTab(in: app).waitForExistence(timeout: 30), "冷账户导入后应返回主导航")
     // 成功提示不能代替持久化验收：重启后打开唯一冷账户并核对完整公开地址。
     app.terminate()
     app.launch()
@@ -675,7 +661,7 @@ final class RunnerUITests: XCTestCase {
       "设备中已安装的 Release CitizenApp 未进入前台"
     )
     XCTAssertTrue(
-      chatTab(in: app).waitForExistence(timeout: 20),
+      squareTab(in: app).waitForExistence(timeout: 20),
       "CitizenApp 未进入包含五个主导航入口的已登录界面"
     )
     attachScreenshot(app, name: "CitizenApp-主界面")
@@ -872,135 +858,26 @@ final class RunnerUITests: XCTestCase {
     }
   }
 
-  /// 长期回归门禁：聊天页必须在 30 秒内离开首帧加载状态。
   ///
   /// 本用例只验证首帧加载上界，禁止用无限转圈掩盖原生回调不返回。
-  func testChatLeavesInitialLoadingWithinThirtySeconds() throws {
-    let app = XCUIApplication(bundleIdentifier: targetBundleIdentifier)
-    app.launch()
-    XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20))
-    dismissPermissionGuideIfNeeded(in: app)
-    try requireMainNavigation(in: app)
 
-    let chatTab = chatTab(in: app)
-    XCTAssertTrue(chatTab.waitForExistence(timeout: 20), "找不到聊天主导航入口")
-    chatTab.tap()
-
-    let chatTitle = app.staticTexts["聊天"].firstMatch
-    XCTAssertTrue(chatTitle.waitForExistence(timeout: 10), "聊天页没有完成导航")
-
-    let loading = app.staticTexts["正在读取本地会话"]
-    if loading.exists {
-      let finished = expectation(
-        for: NSPredicate(format: "exists == false"),
-        evaluatedWith: loading
-      )
-      let result = XCTWaiter.wait(for: [finished], timeout: 30)
-      XCTAssertEqual(result, .completed, "聊天页超过 30 秒仍停在本地会话加载状态")
-    }
-    XCTAssertFalse(app.staticTexts["聊天暂时无法使用，请稍后重试"].exists,
-        "已有身份的正式包必须实际打开聊天，不能以加载消失当作成功")
-    XCTAssertFalse(app.buttons["验证并准备聊天与通讯录密钥"].exists,
-        "聊天页面不得增加用途钥准备按钮")
-
-  }
 
   /// 双真机验收的身份读取只取页面公开公民号，不访问钱包、数据库或密钥。
-  func testChatE2EReadIdentity() throws {
-    let app = try chatE2ELaunch()
-    let myTab = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "我的")).firstMatch
-    XCTAssertTrue(myTab.waitForExistence(timeout: 20), "找不到我的主导航入口")
-    myTab.tap()
-    let identity = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "注册与查看")).firstMatch
-    XCTAssertTrue(identity.waitForExistence(timeout: 15), "我的页面没有身份入口")
-    identity.tap()
-    let cidPattern = "CN[0-9]{3}-CTZN[0-9]-[0-9]{9}-[0-9]{4}"
-    let candidates = Set(app.descendants(matching: .any).allElementsBoundByIndex.compactMap { element in
-      element.label.range(of: cidPattern, options: .regularExpression).map { String(element.label[$0]) }
-    })
-    XCTAssertEqual(candidates.count, 1, "无法唯一读取本机公民号")
-    if let cid = candidates.first { NSLog("CHAT_E2E_IPHONE_CID=%@", cid) }
-  }
+
 
   /// 只向预先匹配公民号的联系人发送本轮唯一文字和 emoji。
-  func testChatE2ESend() throws {
-    let app = try chatE2ELaunch()
-    let peer = try chatE2EParameter("CHAT_E2E_PEER_CID", pattern: "^CN[0-9]{3}-CTZN[0-9]-[0-9]{9}-[0-9]{4}$")
-    let marker = try chatE2EParameter("CHAT_E2E_MARKER", pattern: "^CITIZEN_E2E_[0-9]{10}_[0-9]{6}$")
-    try chatE2EOpenPeer(in: app, cid: peer)
-    try chatE2ESendText(in: app, text: marker)
-    try chatE2ESendText(in: app, text: "\u{1F600}" + marker)
-    XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", marker)).firstMatch.waitForExistence(timeout: 20), "发送后没有本地消息")
-    NSLog("CHAT_E2E_IPHONE_SENT=1")
-  }
+
 
   /// Pixel 回复后完全终止并重启 App；每条本轮消息只能显示一次且可继续发送。
-  func testChatE2EVerifyRestart() throws {
-    let app = try chatE2ELaunch()
-    let peer = try chatE2EParameter("CHAT_E2E_PEER_CID", pattern: "^CN[0-9]{3}-CTZN[0-9]-[0-9]{9}-[0-9]{4}$")
-    let marker = try chatE2EParameter("CHAT_E2E_MARKER", pattern: "^CITIZEN_E2E_[0-9]{10}_[0-9]{6}$")
-    try chatE2EOpenPeer(in: app, cid: peer)
-    let reply = "PIXEL_" + marker
-    XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", reply)).firstMatch.waitForExistence(timeout: 60), "没有收到 Pixel 文字回复")
-    app.terminate()
-    app.launch()
-    XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20), "重启失败")
-    dismissPermissionGuideIfNeeded(in: app)
-    try requireMainNavigation(in: app)
-    try chatE2EOpenPeer(in: app, cid: peer)
-    XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label == %@", marker)).count, 1, "重启后原文字重复或消失")
-    XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label == %@", "\u{1F600}" + marker)).count, 1, "重启后 emoji 重复或消失")
-    XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label == %@", reply)).count, 1, "重启后 Pixel 回复重复或消失")
-    try chatE2ESendText(in: app, text: "AFTER_RESTART_" + marker)
-    NSLog("CHAT_E2E_IPHONE_RESTART_VERIFIED=1")
-  }
 
-  private func chatE2ELaunch() throws -> XCUIApplication {
-    let app = XCUIApplication(bundleIdentifier: targetBundleIdentifier)
-    app.launch()
-    XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20), "公民 App 未启动")
-    dismissPermissionGuideIfNeeded(in: app)
-    try requireMainNavigation(in: app)
-    return app
-  }
 
-  private func chatE2EParameter(_ name: String, pattern: String) throws -> String {
-    guard let value = ProcessInfo.processInfo.environment[name],
-          value.range(of: pattern, options: .regularExpression) != nil else {
-      throw NSError(domain: "CitizenChatE2E", code: 1,
-          userInfo: [NSLocalizedDescriptionKey: "双机测试参数缺失或无效：\(name)"])
-    }
-    return value
-  }
 
-  private func chatE2EOpenPeer(in app: XCUIApplication, cid: String) throws {
-    let chat = chatTab(in: app)
-    XCTAssertTrue(chat.waitForExistence(timeout: 20), "没有聊天入口")
-    chat.tap()
-    let add = app.buttons.matching(NSPredicate(format: "label == %@", "新建")).firstMatch
-    XCTAssertTrue(add.waitForExistence(timeout: 15), "没有聊天新建入口")
-    add.tap()
-    let direct = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "发私信")).firstMatch
-    XCTAssertTrue(direct.waitForExistence(timeout: 10), "没有发私信入口")
-    direct.tap()
-    XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label == %@", "选择联系人")).firstMatch.waitForExistence(timeout: 20), "没有进入联系人单选页")
-    let target = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "公民号：" + cid)).firstMatch
-    XCTAssertTrue(target.waitForExistence(timeout: 20), "预期对端不在本机通讯录，拒绝向其它联系人发送")
-    XCTAssertEqual(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "公民号：" + cid)).count, 1, "目标联系人不唯一")
-    target.tap()
-    XCTAssertTrue(app.textFields.matching(NSPredicate(format: "label == %@ OR identifier == %@", "输入消息", "chat-text-input")).firstMatch.waitForExistence(timeout: 20), "没有进入私聊输入页")
-  }
 
-  private func chatE2ESendText(in app: XCUIApplication, text: String) throws {
-    let field = app.textFields.matching(NSPredicate(format: "label == %@ OR identifier == %@", "输入消息", "chat-text-input")).firstMatch
-    XCTAssertTrue(field.waitForExistence(timeout: 10), "聊天输入框不存在")
-    field.tap()
-    field.typeText(text)
-    let send = app.keyboards.buttons.matching(NSPredicate(format: "label IN %@", ["send", "Send", "发送"])).firstMatch
-    XCTAssertTrue(send.waitForExistence(timeout: 10), "聊天键盘没有发送键")
-    send.tap()
-    XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label == %@", text)).firstMatch.waitForExistence(timeout: 20), "文字发送后没有出现在会话")
-  }
+
+
+
+
+
 
   /// 广场发布文章黑盒验收：菜单必须进入新版文章编辑器，并只暴露统一媒体入口。
   func testArticleComposerExposesUnifiedMediaEntry() throws {
@@ -1014,7 +891,6 @@ final class RunnerUITests: XCTestCase {
     let square = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "广场")).firstMatch
     XCTAssertTrue(square.waitForExistence(timeout: 10), "找不到广场主导航入口")
     square.tap()
-    XCTAssertFalse(app.staticTexts["初始化本机聊天设备"].exists)
 
     let publish = app.buttons.matching(
       NSPredicate(format: "label == %@", "发布")
@@ -1217,7 +1093,7 @@ final class RunnerUITests: XCTestCase {
     let keyboardDone = app.keyboards.buttons["完成"].firstMatch
     if keyboardDone.exists { keyboardDone.tap() }
     let sign = app.buttons["签名交易"]
-    let knownLabels = ["确认交易", "确认", "取消", "稍后再说", "创建钱包", "交易", "签名交易", "我的", "聊天", "扫码失败"]
+    let knownLabels = ["确认交易", "确认", "取消", "稍后再说", "创建钱包", "交易", "签名交易", "我的", "扫码失败"]
     for label in knownLabels {
       let count = app.descendants(matching: .any).matching(
         NSPredicate(format: "label CONTAINS %@", label)
@@ -1759,7 +1635,6 @@ final class RunnerUITests: XCTestCase {
     }, object: nil)
     if XCTWaiter.wait(for: [ready], timeout: 60) != .completed { gate = "timeout" }
     NSLog("CONTACT_SCAN_GATE result=%@ elapsed_s=%.1f", gate, Date().timeIntervalSince(started))
-    XCTAssertFalse(app.alerts["初始化本机聊天设备"].exists, "内部准备不得弹出初始化确认")
     XCTAssertEqual(gate, "opened", "通讯录扫码前置条件未通过，不能进行相机验收")
     try assertLiveScannerPreview(in: app, title: "扫码添加好友")
   }
@@ -1932,7 +1807,7 @@ final class RunnerUITests: XCTestCase {
     let back = app.buttons.matching(NSPredicate(format: "label IN %@", ["返回", "Back"])).firstMatch
     XCTAssertTrue(back.waitForExistence(timeout: 5))
     back.tap()
-    XCTAssertTrue(chatTab(in: app).waitForExistence(timeout: 10))
+    XCTAssertTrue(squareTab(in: app).waitForExistence(timeout: 10))
     NSLog("WALLET_UI stage=return_main passed=1")
   }
 
@@ -1963,7 +1838,6 @@ final class RunnerUITests: XCTestCase {
     )
     XCTAssertTrue(creatorTitle.exists, "内容不属于实际创作者页")
     XCTAssertTrue(creatorSurface.isHittable, "创作者原结构不可交互")
-    XCTAssertFalse(app.staticTexts["正在连接聊天服务"].exists)
     XCTAssertFalse(app.staticTexts["同步中"].exists)
     XCTAssertFalse(app.staticTexts["状态同步中"].exists)
     XCTAssertFalse(app.staticTexts["正在同步会员档"].exists)
@@ -2159,7 +2033,7 @@ final class RunnerUITests: XCTestCase {
       throw XCTSkip("正常App尚无账户；模拟器须先导入公开冷账户，真机账户由用户准备")
     }
     XCTAssertTrue(
-      chatTab(in: app).waitForExistence(timeout: 20),
+      squareTab(in: app).waitForExistence(timeout: 20),
       "CitizenApp既未显示钱包门禁，也未进入五主导航"
     )
   }
@@ -2178,16 +2052,15 @@ final class RunnerUITests: XCTestCase {
     }
     // Flutter 在部分 iOS 版本的首个 semantics frame 不会立即暴露按钮；
     // 只有主导航仍不存在时，才点击权限说明页固定的「稍后再说」位置。
-    if !chatTab(in: app).exists {
+    if !squareTab(in: app).exists {
       app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.91)).tap()
     }
   }
 
   /// Flutter 的 NavigationDestination 在 iOS 会把“第几个 Tab”等系统语义合并进 label，
-  /// 因此必须按按钮标签包含“聊天”定位，不能假定辅助功能标签精确等于可见文案。
-  private func chatTab(in app: XCUIApplication) -> XCUIElement {
+  private func squareTab(in app: XCUIApplication) -> XCUIElement {
     app.buttons.matching(
-      NSPredicate(format: "label CONTAINS %@", "聊天")
+      NSPredicate(format: "label CONTAINS %@", "广场")
     ).firstMatch
   }
 }

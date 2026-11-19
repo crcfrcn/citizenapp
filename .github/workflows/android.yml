@@ -152,7 +152,7 @@ jobs:
           import {mkdirSync} from 'node:fs';
           import {pathToFileURL} from 'node:url';
           const work = process.env.WORK, title = '公民·Android·v' + process.env.CITIZENAPP_VERSION;
-          const chat = await import(pathToFileURL(process.env.GITHUB_WORKSPACE + '/scripts/build.mjs'));
+          const device = await import(pathToFileURL(process.env.GITHUB_WORKSPACE + '/scripts/build.mjs'));
           for (const suffix of ['apk', 'aab']) {
               const file = work + '/artifact/' + title + '.' + suffix;
               const names = execFileSync('unzip', ['-Z1', file], {encoding: 'utf8'}).trim().split('\n');
@@ -164,7 +164,7 @@ jobs:
               const output = work + '/verify-' + suffix;
               mkdirSync(output);
               execFileSync('unzip', ['-q', file, prefix + 'arm64-v8a/libmls.so', '-d', output]);
-              await chat.verifyMls(output + '/' + prefix + 'arm64-v8a/libmls.so', 'android');
+              await device.verifyMls(output + '/' + prefix + 'arm64-v8a/libmls.so', 'android');
           }
           JS
       - name: 生成本轮正式附件说明

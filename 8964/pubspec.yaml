@@ -44,4 +44,3 @@ dev_dependencies:
   http: 1.6.0
   image: 4.9.1
   shared_preferences: ^2.5.5
-  chat: any

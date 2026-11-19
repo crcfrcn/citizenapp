@@ -289,7 +289,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('订阅入口固定在通知左侧且与三图标保持同一行', (tester) async {
+  testWidgets('订阅入口固定在通知左侧且与两图标保持同一行', (tester) async {
     await tester.pumpWidget(
       Provider<CitizenSdk>.value(
         value: _sdkHarness.sdk,
@@ -623,9 +623,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // 本人可关注自己，通知和私信仍隐藏。
+      // 本人可关注自己，通知仍隐藏。
       expect(find.byIcon(Icons.notifications_outlined), findsNothing);
-      expect(find.byIcon(Icons.chat_bubble_outline), findsNothing);
       expect(find.byIcon(Icons.person_add_alt), findsOneWidget);
       expect(find.byIcon(Icons.how_to_reg), findsNothing);
       // 认证以头像角的公民徽章呈现；无会员显示身份档，会员显示对应会员档位。
@@ -638,7 +637,7 @@ void main() {
     },
   );
 
-  testWidgets('other profile shows subscribe, chat and follow', (tester) async {
+  testWidgets('other profile shows subscribe and follow', (tester) async {
     await tester.pumpWidget(
       _wrap(
         isSelf: false,
@@ -647,9 +646,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // 看别人主页：通知(订阅)/聊天/关注 三个图标都在。
+    // 看别人主页：通知和关注入口都在。
     expect(find.byIcon(Icons.notifications_outlined), findsOneWidget);
-    expect(find.byIcon(Icons.chat_bubble_outline), findsOneWidget);
     expect(find.byIcon(Icons.person_add_alt), findsOneWidget);
 
     await tester.tap(find.byIcon(Icons.more_vert));
@@ -896,40 +894,6 @@ void main() {
     expect(api.lastFollowsType, 'mutual_following');
   });
 
-  testWidgets('message on another profile opens a direct chat with that user', (
-    tester,
-  ) async {
-    String? peer;
-    String? chatTitle;
-    await tester.pumpWidget(
-      Provider<CitizenSdk>.value(
-        value: _sdkHarness.sdk,
-        child: MaterialApp(
-          home: UserProfilePage(
-            cidNumber: _profileCidNumber,
-            isSelf: false,
-            api: FakeProfileApi(sampleProfile(displayName: '轻节点')),
-            cache: FakeProfileCache(),
-            sessionProvider: FakeSessionProvider(fakeSession()),
-            subscriptionService: _NullMembershipSnapshotService(),
-            onOpenDirectChat: (context, {required peerUserId, required title}) {
-              peer = peerUserId;
-              chatTitle = title;
-              return Future<void>.value();
-            },
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byIcon(Icons.chat_bubble_outline));
-    await tester.pumpAndSettle();
-
-    expect(peer, _profileCidNumber);
-    expect(chatTitle, '轻节点');
-  });
-
   testWidgets('他人视角识别本人后只保留通用关注入口', (tester) async {
     String? peer;
     await tester.pumpWidget(
@@ -946,18 +910,13 @@ void main() {
               citizenId: _profileCidNumber,
             ),
             subscriptionService: _NullMembershipSnapshotService(),
-            // 本机已确认公民号相同，隐藏私信等本人操作。
-            onOpenDirectChat: (context, {required peerUserId, required title}) {
-              peer = peerUserId;
-              return Future<void>.value();
-            },
+            // 本机已确认公民号相同，按本人身份收敛操作。
           ),
         ),
       ),
     );
     await tester.pumpAndSettle();
 
-    expect(find.byIcon(Icons.chat_bubble_outline), findsNothing);
     expect(find.byIcon(Icons.person_add_alt), findsOneWidget);
     expect(peer, isNull);
   });

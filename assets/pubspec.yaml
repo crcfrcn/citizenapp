@@ -18,8 +18,6 @@ dev_dependencies:
 flutter:
   assets:
     - documents/whitepaper.md
-    - stickers/
-    - stickers/
     - profiles/
     - icons/institution_private.svg
     - icons/institution_public.svg

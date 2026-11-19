@@ -19,8 +19,6 @@ class CitizenApp extends StatefulWidget {
     required this.squareApiClient,
     required this.appPushService,
     required this.transactionHistory,
-    required this.chatRuntimeFactory,
-    required this.closeChatRuntime,
   });
 
   final MyIdService? identityService;
@@ -40,8 +38,6 @@ class CitizenApp extends StatefulWidget {
   final SquareApiClient squareApiClient;
   final AppPushService appPushService;
   final WalletTransactionHistoryService transactionHistory;
-  final chat.ChatRuntime Function() chatRuntimeFactory;
-  final Future<void> Function() closeChatRuntime;
 
   @override
   State<CitizenApp> createState() => _CitizenAppState();
@@ -139,7 +135,7 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
     });
   }
 
-  /// 身份生命周期独立于聊天；只在账户变化或首次缺绑定时做公开同步。
+  /// 身份生命周期只在账户变化或首次缺绑定时做公开同步。
   void _requestIdentitySync() {
     if (_closing || widget.identityService == null) return;
     _identityRequested = true;
@@ -243,12 +239,6 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
     _chainData.addListener(_onChainData);
     _startTopupUpdates();
     WidgetsBinding.instance.addObserver(this);
-    widget.squareSessionProvider.installMlsAuthentication(
-      readLocalIdentity: () =>
-          (widget.chatRuntimeFactory)().readLocalMlsIdentity(),
-      createProof: (request) =>
-          (widget.chatRuntimeFactory)().createMlsAuthenticationProof(request),
-    );
     _identityEvents = widget.sdk.events.listen((event) {
       if (event is CitizenSdkWalletChanged ||
           ((event is CitizenSdkFinalizedBlockChanged ||
@@ -280,7 +270,6 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     widget.squareSessionProvider.closeAuthentication();
     _registrationCoordinator.api.close();
-    unawaited(widget.closeChatRuntime());
     widget.accountSecurity.dispose();
     unawaited(_stopSdk());
     super.dispose();
@@ -295,7 +284,6 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
         Provider<TransactionNavigation>.value(value: transactionNavigation),
         Provider<UserNavigation>.value(
           value: UserNavigation(
-            openDirectChat: openDirectChat,
             openTransfer: (context, {required cidNumber}) async {
               await Navigator.of(context).push<void>(
                 MaterialPageRoute<void>(
@@ -339,7 +327,6 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
         Provider<WalletTransactionHistoryService>.value(
           value: widget.transactionHistory,
         ),
-        Provider<chat.ChatRuntime>(create: (_) => widget.chatRuntimeFactory()),
       ],
       child: MaterialApp(
         navigatorKey: appNavigatorKey,
@@ -434,29 +421,7 @@ class _AppLockGateState extends State<_AppLockGate>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // 短命 Chat 明文附件 purge 点之一：启动即清上次会话残留。
-    // 崩溃/强杀会跳过退后台那次清理，没有这道兜底明文就会跨会话留在盘上。
-    unawaited(_recoverChatArtifactsAndPurge());
     _checkLock();
-  }
-
-  /// 普通 Chat artifact 在首帧后整理，不能参与全局数据擦除启动门禁。
-  Future<void> _recoverChatArtifactsAndPurge() async {
-    try {
-      await chat.ChatRuntime.recoverStartupArtifacts();
-    } catch (error) {
-      debugPrint('chat_startup_artifacts:recovery_failed:${error.runtimeType}');
-    }
-    await _purgePlainAttachments();
-  }
-
-  /// 清空解密出来的短命 Chat 附件。失败静默，不阻断 App 启动/切换。
-  Future<void> _purgePlainAttachments() async {
-    try {
-      await chat.ChatRuntime.purgePlainAttachmentsWithoutAccount();
-    } catch (_) {
-      // 忽略：下次启动/切后台会再清一次。
-    }
   }
 
   @override
@@ -469,8 +434,6 @@ class _AppLockGateState extends State<_AppLockGate>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
       _pausedAt = DateTime.now();
-      // purge 点之二:退到后台即清明文，把明文窗口压到一次前台会话内。
-      unawaited(_purgePlainAttachments());
     } else if (state == AppLifecycleState.resumed && _authenticated) {
       final paused = _pausedAt;
       if (paused != null &&
@@ -579,7 +542,7 @@ class _AppLockGateState extends State<_AppLockGate>
 
     if (_authenticated) {
       // 账户门禁排在最后一环：任一热／冷账户均放行，目录为空才进入SDK唯一初始化页。
-      return const AppPermissionGate(child: WalletGate(child: HomeTabGate()));
+      return const AppPermissionGate(child: WalletGate(child: AppShell()));
     }
 
     if (_showDeviceLock) {
@@ -667,111 +630,17 @@ class _AppLockGateState extends State<_AppLockGate>
   }
 }
 
-/// AppShell 构造前读取用户首页偏好，避免先创建广场再异步跳到聊天。
-class HomeTabGate extends StatefulWidget {
-  const HomeTabGate({super.key, this.preferenceReader, this.shellBuilder});
-
-  /// 测试只替换 UserIsar 读取。
-  @visibleForTesting
-  final Future<bool> Function()? preferenceReader;
-
-  /// 测试只观察解析后的唯一初始索引，不构造真实五个业务 Tab。
-  @visibleForTesting
-  final Widget Function(int initialTabIndex)? shellBuilder;
-
-  @override
-  State<HomeTabGate> createState() => _HomeTabGateState();
-}
-
-class _HomeTabGateState extends State<HomeTabGate> {
-  static const Duration _readTimeout = Duration(seconds: 5);
-  int? _initialTabIndex;
-  String? _error;
-  int _generation = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final generation = ++_generation;
-    setState(() {
-      _initialTabIndex = null;
-      _error = null;
-    });
-    try {
-      final openChat =
-          await (widget.preferenceReader ??
-                  UserIsar.instance.readOpenChatOnLaunch)()
-              .timeout(_readTimeout);
-      if (!mounted || generation != _generation) return;
-      setState(() => _initialTabIndex = openChat ? 2 : 0);
-    } catch (_) {
-      if (!mounted || generation != _generation) return;
-      setState(() => _error = '首页设置读取失败，请重试');
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final error = _error;
-    if (error != null) {
-      return Scaffold(
-        body: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(error, key: const ValueKey('home-tab-gate-error')),
-              const SizedBox(height: 16),
-              FilledButton(
-                key: const ValueKey('home-tab-gate-retry'),
-                onPressed: _load,
-                child: const Text('重试'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-    final initialTabIndex = _initialTabIndex;
-    if (initialTabIndex == null) {
-      return const Scaffold(
-        body: Center(
-          child: CircularProgressIndicator(
-            strokeWidth: 2.5,
-            color: AppTheme.primary,
-          ),
-        ),
-      );
-    }
-    return widget.shellBuilder?.call(initialTabIndex) ??
-        AppShell(initialTabIndex: initialTabIndex);
-  }
-}
-
 class AppShell extends StatefulWidget {
   const AppShell({
     super.key,
-    this.initialTabIndex = 0,
-    this.chatRuntimeFactory,
     this.tabBuilder,
     this.openedPushData,
     this.initialPushDataLoader,
-  }) : assert(initialTabIndex == 0 || initialTabIndex == 2);
+  });
 
-  /// 只允许广场(0)或聊天(2)作为普通启动首页。
-  final int initialTabIndex;
-
-  /// 测试只注入聊天入口计数；生产读取普通认证与聊天共用的惰性实例。
+  /// 测试只替换主页面，避免为了验证壳层懒加载而启动真实链、网络或数据库。
   @visibleForTesting
-  final chat.ChatRuntime Function()? chatRuntimeFactory;
-
-  /// 测试只替换五个主页面，避免为了验证壳层懒加载而启动真实链、网络或数据库。
-  @visibleForTesting
-  final Widget Function(int tabIndex, chat.ChatRuntime? chatRuntime)?
-  tabBuilder;
+  final Widget Function(int tabIndex)? tabBuilder;
 
   /// 测试只注入 App 级“点击推送打开”数据；生产直接监听 Firebase。
   @visibleForTesting
@@ -783,10 +652,10 @@ class AppShell extends StatefulWidget {
 
   /// 主 Tab 的系统栏样式由壳层单源控制，避免保活页面留下上一页的明暗状态。
   ///
-  /// 「我的」顶部是照片，使用浅色图标；其余四个主 Tab 都是浅色背景，必须使用深色
+  /// 「我的」顶部是照片，使用浅色图标；其余主 Tab 都是浅色背景，必须使用深色
   /// 图标。子路由的 AppBar 仍可用更靠前的 AnnotatedRegion 覆盖本样式。
   static SystemUiOverlayStyle systemUiOverlayStyleForTab(int tabIndex) {
-    final statusStyle = tabIndex == 4
+    final statusStyle = tabIndex == 3
         ? SystemUiOverlayStyle.light
         : SystemUiOverlayStyle.dark;
     return statusStyle.copyWith(
@@ -805,8 +674,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   bool _preparationAttached = false;
   final AppUpdateController _updateController = AppUpdateController.instance;
   late final ValueNotifier<int> _selectedTab;
-  chat.ChatRuntime? _chatRuntime;
-  late int _currentIndex;
+  int _currentIndex = 0;
   int _pendingVoteCount = 0;
   int _squareNotifyCount = 0;
   bool _isRooted = false;
@@ -814,15 +682,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   StreamSubscription<AppPushToken>? _pushTokenSub;
   StreamSubscription<bool>? _contactNetworkSub;
 
-  /// 首次打开聊天Tab才接入聊天生命周期；普通认证可先离线使用同一MLS身份。
-  /// 读取实例不启动聊天权益请求、邮箱、WebSocket或附件生命周期。
-  chat.ChatRuntime get _chatRuntimeForTab => _chatRuntime ??=
-      (widget.chatRuntimeFactory ?? () => context.read<chat.ChatRuntime>())();
-
   @override
   void initState() {
     super.initState();
-    _currentIndex = widget.initialTabIndex;
     _selectedTab = ValueNotifier<int>(_currentIndex);
     Notifications.instance.addListener(_onSquareNotificationState);
     _squareNotifyCount = Notifications.instance.unread;
@@ -830,8 +692,6 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     _checkRootStatus();
     // 启动后异步检查 Release 更新，只更新设置页状态，不阻塞主界面进入。
     _updateController.check();
-    // 点击推送属于 App 导航，不得为此提前构造 ChatRuntime。聊天推送只表示邮箱变化；
-    // 广场推送仍直接切广场 Tab。
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(_startPushOpenRouting());
     });
@@ -954,14 +814,6 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       _openSquareTab();
       return;
     }
-    if (ChatPushService.isWakeData(data)) {
-      try {
-        await _chatRuntimeForTab.handleWake();
-      } catch (_) {
-        // 点击通知时若会话或网络尚未恢复，持久保存一次邮箱变化提示。
-        await ChatPushService.storeWake();
-      }
-    }
   }
 
   Future<void> _registerCitizenServePush(AppPushToken endpoint) async {
@@ -980,7 +832,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       if (session == null) return;
       await client.registerPushEndpoint(session: session, endpoint: endpoint);
     } catch (error, stackTrace) {
-      // 普通通知是软功能；登记失败不得阻断主界面、聊天或广场读取，Token刷新会再次尝试。
+      // 普通通知是软功能；登记失败不得阻断主界面或广场读取，Token刷新会再次尝试。
       AppLog.d('[AppPush] CitizenServe端点登记失败: $error\n$stackTrace');
     }
   }
@@ -1047,15 +899,15 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   );
 
   /// 顶层 tab 懒建缓存：仅访问过的 index 建真页并由 IndexedStack 保活，未访问
-  /// 的用占位，避免「打开即全建」把 42k 行政区同步 / Chat runtime / 广场拉流等
-  /// 全拖到启动。UserIsar 选定的广场(0)或聊天(2)首页只建其一，其余点到才建。
-  static const int _tabCount = 5;
+  /// 的用占位，避免「打开即全建」把 42k 行政区同步 / 广场拉流等
+  /// 全拖到启动。先开广场，其余点到才建立。
+  static const int _tabCount = 4;
   final List<Widget?> _tabCache = List<Widget?>.filled(_tabCount, null);
 
   Widget _buildTab(int index) {
     final injected = widget.tabBuilder;
     if (injected != null) {
-      return injected(index, index == 2 ? _chatRuntimeForTab : null);
+      return injected(index);
     }
     switch (index) {
       case 0:
@@ -1063,14 +915,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       case 1:
         return _citizenPage;
       case 2:
-        return ChatTab(
-          runtime: _chatRuntimeForTab,
-          selectedTab: _selectedTab,
-          tabIndex: 2,
-        );
-      case 3:
         return const TransactionTabPage();
-      case 4:
+      case 3:
         return MyTab(showSettingsUpdateDot: _updateController.state.hasUpdate);
       default:
         return const SizedBox.shrink();
@@ -1143,7 +989,6 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           selectedIndex: _currentIndex,
           onDestinationSelected: (index) {
             // IndexedStack 会保活旧页面，因此必须额外广播唯一活动 Tab；
-            // ChatTab 不能把“仍在 widget tree”误判为“当前可同步”。
             _selectedTab.value = index;
             setState(() {
               _currentIndex = index;
@@ -1203,17 +1048,6 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                 child: const Icon(Icons.how_to_vote),
               ),
               label: '公民',
-            ),
-            NavigationDestination(
-              icon: Icon(
-                Icons.textsms_outlined,
-                size: AppLayout.scaled(context, 22),
-              ),
-              selectedIcon: Icon(
-                Icons.textsms_rounded,
-                size: AppLayout.scaled(context, 22),
-              ),
-              label: '聊天',
             ),
             NavigationDestination(
               icon: SvgPicture.asset(

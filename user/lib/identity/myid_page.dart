@@ -2,7 +2,6 @@ import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:chat/chat.dart';
 
 import 'package:citizen_user/identity/current_user_context.dart';
 import 'package:citizen_user/identity/identity_badge_snapshot_store.dart';
@@ -95,16 +94,8 @@ class _MyIdPageState extends State<MyIdPage> {
           currentUserContext: context.read<CurrentUserContext>(),
           identityResolver: context.read<FinalizedIdentityResolver>(),
           sessionProvider: context.read<SquareSessionProvider>(),
-          onChatBindingChanged: (binding, {required existingOnly}) async {
-            final ChatRuntime? runtime = existingOnly
-                ? null
-                : (() => context.read<ChatRuntime>())();
-            await runtime?.convergeFinalizedBinding(
-              ChatBinding.fromIdentity(binding),
-            );
-          },
         );
-    // 身份账户切换必须让身份页立即重排，和广场、聊天共用同一身份版本号。
+    // 身份账户切换必须让身份页立即重排，和广场共用同一身份版本号。
     accountSecurity.revision.addListener(_onIdentityChanged);
     _myIdService!.sync.addListener(_onSyncChanged);
     _openIdentity();
