@@ -479,13 +479,19 @@ class AppLog {
     Object? detail,
   }) {
     if (!const {'create_order', 'submitted'}.contains(step) ||
-        !const {'other', 'user_rejected', 'payment_failed'}.contains(error)) {
+        !const {
+          'other',
+          'user_rejected',
+          'payment_failed',
+          'wallet_unauthorized',
+        }.contains(error)) {
       return false;
     }
     if (rpcCode != null &&
         (rpcCode is! int ||
             !const {
               4001,
+              4100,
               4200,
               4900,
               4901,

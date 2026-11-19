@@ -634,6 +634,8 @@ class _TopupWebviewPageState extends State<TopupWebviewPage>
           payment,
           data['code'] == 'user_rejected'
               ? 'payment_cancelled'
+              : data['code'] == 'wallet_unauthorized'
+              ? 'wallet_unauthorized'
               : data['code'] == 'payment_failed'
               ? 'payment_failed'
               : 'payment_unverified',

@@ -113,6 +113,7 @@ class TopupDetails extends StatelessWidget {
                 : switch (record.failReason) {
                     'payment_cancelled' => '本次付款已取消，未上传服务端',
                     'payment_failed' => '付款验证失败，未上传服务端',
+                    'wallet_unauthorized' => '钱包授权已失效，请重新发起充值并完成 MetaMask 授权',
                     _ => '付款结果尚未核实，请保留原交易',
                   },
           ),

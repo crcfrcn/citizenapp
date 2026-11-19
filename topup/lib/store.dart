@@ -438,6 +438,7 @@ class TopupStore {
                   const {
                     'payment_cancelled',
                     'payment_failed',
+                    'wallet_unauthorized',
                   }.contains(record.failureCode));
       if (!sameFacts ||
           record.progress.index < before.progress.index ||

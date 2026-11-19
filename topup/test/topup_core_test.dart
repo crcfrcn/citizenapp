@@ -93,6 +93,14 @@ void main() {
         expect(AppLog.topupFailure('submitted', 'user_rejected'), true);
         expect(AppLog.topupFailure('submitted', 'payment_failed'), true);
         expect(
+          AppLog.topupFailure(
+            'submitted',
+            'wallet_unauthorized',
+            rpcCode: 4100,
+          ),
+          true,
+        );
+        expect(
           AppLog.topupFailure('submitted', 'other', rpcCode: -32602),
           true,
         );
@@ -121,13 +129,15 @@ void main() {
         print: (_, _, _, line) => lines.add(line),
       ),
     );
-    expect(lines.length, 5);
+    expect(lines.length, 6);
     expect(lines.join(), isNot(contains('synthetic-private')));
   });
   test('配置指纹逐字匹配服务端公开21行规范，JSON/显示顺序不影响结果', () {
-    final fixture = jsonDecode(
-      fixtureFile('citizen_topup', 'contract.json').readAsStringSync(),
-    ) as Map<String, dynamic>;
+    final fixture =
+        jsonDecode(
+              fixtureFile('citizen_topup', 'contract.json').readAsStringSync(),
+            )
+            as Map<String, dynamic>;
     final value = TopupConfig.fromJson(
       fixture['config'] as Map<String, dynamic>,
     );

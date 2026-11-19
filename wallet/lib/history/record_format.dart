@@ -116,6 +116,7 @@ String recordStatusLabel(Entry row) {
     TopupProgress.pending => switch (record.failureCode) {
       'payment_cancelled' => '取消支付',
       'payment_failed' => '支付失败',
+      'wallet_unauthorized' => '授权失效',
       _ => '待支付',
     },
     TopupProgress.paid => '已支付',
@@ -125,6 +126,11 @@ String recordStatusLabel(Entry row) {
 
 /// 复用原失败原因显示本地终态；未知结果仍保留待核实，已支付事实不被降级。
 Color recordStatusColor(Entry row) {
+  if (row.entryKind == 'topup' &&
+      row.entryState == TopupProgress.pending.name &&
+      row.failReason == 'wallet_unauthorized') {
+    return AppTheme.warning;
+  }
   if (row.entryKind == 'topup' &&
       row.entryState == TopupProgress.pending.name &&
       const {'payment_cancelled', 'payment_failed'}.contains(row.failReason)) {

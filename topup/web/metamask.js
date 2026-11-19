@@ -1,8 +1,34 @@
 // SDK连接由App复用；每个已签订单独立等待自己的RPC结果。
 export function createWalletSession({openLink}){
- let sdkPromise,closed=false;
- const requests=new Set();
- let connecting;
+ let sdkPromise,closed=false,connecting,store,writeError,reauthorize=false,reset;
+ const requests=new Set(),inFlight=new Set();
+ let writes=Promise.resolve();
+ // SDK公开存储适配器串行完成写入；disconnect内部未等待的缓存写入也须完成后才能恢复。
+ const write=action=>{
+  const task=writes.then(action);
+  writes=task.then(()=>{},()=>{writeError=true;});
+  return task;
+ };
+ const requireAuthorization=()=>{
+  reauthorize=true;
+  if(!reset||reset.finished){
+   let resolve,reject;
+   const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});
+   promise.catch(()=>{});
+   reset={promise,resolve,reject,started:false,finished:false};
+  }
+  return reset;
+ };
+ const resetWhenIdle=sdk=>{
+  if(!reset||reset.started||inFlight.size||closed)return;
+  const current=reset;current.started=true;
+  void (async()=>{
+   await sdk.disconnect();
+   await writes;
+   if(writeError)throw Error('钱包会话保存不可用');
+  })().then(()=>{current.finished=true;current.resolve();},
+   error=>{current.finished=true;current.failed=true;current.reject(error);});
+ };
  const deliverLink=url=>{
   const request=[...requests].reverse().find(item=>item.active()&&item.openable);
   if(!request)return;
@@ -13,12 +39,18 @@ export function createWalletSession({openLink}){
  };
  const getSdk=({createSdk,storage,networks})=>{
   if(sdkPromise)return sdkPromise;
+  const adapter=storage.adapter;
+  store={...adapter,
+   get:async key=>{await writes;if(writeError)throw Error('钱包会话保存不可用');return adapter.get(key);},
+   set:(key,value)=>write(()=>adapter.set(key,value)),
+   delete:key=>write(()=>adapter.delete(key))
+  };
   const create=createSdk??(options=>import('@metamask/connect-multichain')
    .then(({createMultichainClient})=>createMultichainClient(options)));
   return sdkPromise=Promise.resolve(create({
    dapp:{name:'CitizenApp',url:'https://www.crcfrcn.com'},
    api:{supportedNetworks:networks},
-   ui:{headless:true},analytics:{enabled:false},storage,
+   ui:{headless:true},analytics:{enabled:false},storage:{...storage,adapter:store},
    mobile:{useDeeplink:true,preferredOpenLink:deliverLink}
   })).then(sdk=>{
    // 在无SDK弹窗的环境也只交付官方生成的配对链接。
@@ -39,18 +71,30 @@ export function createWalletSession({openLink}){
     const payment=(async()=>{
      const sdk=await getSdk({createSdk,storage,networks});
      if(!request.active())throw Error('本次付款已结束');
-     let payer=await authorizedAccount(sdk,scope);
-     if(!request.active())throw Error('本次付款已结束');
-     if(!payer){
-      if(sdk.status==='pending')throw Error('付款钱包结果待核实');
-      if(!connecting){
-       request.openable=true;
-       phase('connect_requested');
-       connecting=Promise.resolve(sdk.connect(Object.values(chains),[])).finally(()=>{connecting=undefined;});
-      }
-      try{
-       await connecting;
-      }catch(error){
+     const marked=await store.get('reauthorize');
+     if(marked!=null&&marked!=='1')throw Error('钱包会话保存不可用');
+     if((marked==='1'||reauthorize)&&(!reset||reset.failed))requireAuthorization();
+     const recovery=reauthorize?reset:undefined;
+     if(recovery){
+      resetWhenIdle(sdk);
+      await recovery.promise;
+      if(!request.active())throw Error('本次付款已结束');
+     }
+     // 仅真实SDK操作占用清理边界；界面超时不能释放仍在等待回执的请求。
+     inFlight.add(request);
+     try{
+      let payer=recovery?undefined:await authorizedAccount(sdk,scope);
+      if(!request.active())throw Error('本次付款已结束');
+      if(!payer){
+       if(sdk.status==='pending')throw Error('付款钱包结果待核实');
+       if(!connecting){
+        request.openable=true;
+        phase('connect_requested');
+        connecting=Promise.resolve(sdk.connect(Object.values(chains),[])).finally(()=>{connecting=undefined;});
+       }
+       try{
+        await connecting;
+       }catch(error){
        if(error?.code==='REQUEST_EXPIRED')phase('connect_expired');
        throw error;
       }
@@ -58,11 +102,16 @@ export function createWalletSession({openLink}){
       if(!request.active())throw Error('本次付款已结束');
       payer=await authorizedAccount(sdk,scope);
       if(!payer)throw Error('付款钱包未授权所选网络');
+      if(recovery&&reset===recovery){
+       await store.delete('reauthorize');
+       if(reset===recovery){reauthorize=false;reset=undefined;}
+      }
       phase('connect_ready');
      }else{
       phase('session_reused');
      }
      if(!request.active())throw Error('本次付款已结束');
+     if(reauthorize)throw Error('钱包授权已失效');
      request.openable=!request.opened;
      phase('transaction_requested');
      try{
@@ -75,6 +124,20 @@ export function createWalletSession({openLink}){
       return {txid:result.toLowerCase(),payer};
      }
      finally{phase('result_received');}
+     }catch(error){
+      if((error?.rpcCode??error?.code)===4100){
+       requireAuthorization();
+       // 原始拒绝仍交付原单；写入失败由存储边界阻止后续付款，不能伪装已完成清理。
+       try{await store.set('reauthorize','1');}catch{}
+      }else if(recovery&&reset===recovery){
+       // 取消或无效授权仍保留标记；下一次用户操作必须重新清理后再申请。
+       reset=undefined;
+      }
+      throw error;
+     }finally{
+      inFlight.delete(request);
+      resetWhenIdle(sdk);
+     }
     })().then(async receipt=>{
      // 超时只结束界面等待；原付款已发出的结果仍交给原签订单，绝不补发交易。
      if(request.expired&&!closed&&active())await onLateReceipt(receipt);
@@ -133,11 +196,11 @@ export async function paymentFlow({ask,orderId,networks,selection:value,transact
 }
 export function connectFailure(error){
  const code=error?.rpcCode??error?.code;
- const known=[4001,4200,4900,4901,4902,-32601,-32602,-32603,-32000,-32001,-32002,-32003,-32004,-32005,-32006];
+ const known=[4001,4100,4200,4900,4901,4902,-32601,-32602,-32603,-32000,-32001,-32002,-32003,-32004,-32005,-32006];
  // 只交付固定RPC码及精确匹配的SDK原因，绝不发送异常正文或会话信息。
  const detail=error?.message==='付款钱包结果待核实'?'wallet_timeout':
   error?.message==='付款回执缺少有效定位'?'receipt_invalid':null;
- const outcome=error==='rejected'||code===4001?'user_rejected':[-32601,-32602,4200,4902].includes(code)?'payment_failed':'other';
+ const outcome=code===4100||error?.message==='钱包授权已失效'?'wallet_unauthorized':error==='rejected'||code===4001?'user_rejected':[-32601,-32602,4200,4902].includes(code)?'payment_failed':'other';
  return {error:outcome,rpc_code:known.includes(code)?code:null,detail};
 }
 

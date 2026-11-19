@@ -366,16 +366,26 @@ void main() {
     expect(find.text('到账公民币'), findsNothing);
   });
   testWidgets('明确取消和失败不会在详情中误显示付款待核实', (tester) async {
-    for (final code in ['payment_cancelled', 'payment_failed']) {
+    for (final code in [
+      'payment_cancelled',
+      'payment_failed',
+      'wallet_unauthorized',
+    ]) {
       final row = TopupStore.toEntry(order().update(failureCode: code));
       await tester.pumpWidget(
         MaterialApp(home: LocalTxRecordDetailPage(record: row)),
       );
-      final reason = code == 'payment_cancelled'
-          ? '本次付款已取消，未上传服务端'
-          : '付款验证失败，未上传服务端';
+      final reason = switch (code) {
+        'payment_cancelled' => '本次付款已取消，未上传服务端',
+        'wallet_unauthorized' => '钱包授权已失效，请重新发起充值并完成 MetaMask 授权',
+        _ => '付款验证失败，未上传服务端',
+      };
       expect(
-        find.text(code == 'payment_cancelled' ? '取消支付' : '支付失败'),
+        find.text(switch (code) {
+          'payment_cancelled' => '取消支付',
+          'wallet_unauthorized' => '授权失效',
+          _ => '支付失败',
+        }),
         findsOneWidget,
       );
       expect(find.text('待支付'), findsNothing);
