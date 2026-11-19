@@ -810,7 +810,7 @@ final class MembershipResourceGate implements SquareResourceGate {
   }
 
   /// 规则未知时不伪造会员或零用量；普通操作仍到原服务端校验。
-  /// 会员规则来自同一轻节点快照和静态规则；未知用量仍交真实接口核验。
+  /// 聊天使用会员门禁许可；其它业务按现有轻节点快照和静态规则预检。
   @override
   Future<SquareResourceLease> reserve({
     required String origin,
@@ -831,7 +831,7 @@ final class MembershipResourceGate implements SquareResourceGate {
       return _LocalResourceLease(null, const {}, null);
     }
     final current = scope;
-    final plan = operation.startsWith('chat_')
+    final plan = operation == 'chat'
         ? SubscriptionService._authorizedPlan(session)
         : SubscriptionService._lightPlan(session);
     final limits = <String, int>{};

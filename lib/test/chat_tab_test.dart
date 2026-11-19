@@ -1665,6 +1665,9 @@ class _FakeProfileSessionProvider implements SquareSessionProvider {
   }
 
   @override
+  Future<SquareSession?> ensureChatSession() => ensureSession();
+
+  @override
   Future<SquareSessionResolution> resolveSession({bool refresh = false}) async {
     final session = await ensureSession();
     return SquareSessionResolution(SquareSessionStatus.ready, session: session);

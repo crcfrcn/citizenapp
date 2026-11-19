@@ -298,45 +298,66 @@ class SquareSessionProvider {
 
   Future<SquareSession?> ensureSession() => _ensureSession();
 
+  /// 聊天消费本机已经核验的绑定，缺失时由身份页负责恢复。
+  Future<SquareSession?> ensureChatSession() =>
+      _ensureSession(recoverBinding: false);
+
   /// 主动重试只恢复内部准备，不进入公民号注册或真人验证。
   Future<SquareSession?> registerCurrentDevice() =>
       _ensureSession(userInitiated: true);
 
-  /// 所有消费者共用当前账户的唯一准备任务；先确认CID事实，再离线准备MLS和服务会话。
+  /// 所有消费者共用当前账户的 MLS 与服务会话准备任务。
   Future<SquareSession?> _ensureSession({
     bool userInitiated = false,
+    bool recoverBinding = true,
     String? expectedAccountId,
   }) async {
     try {
-      final decision = await _cidBusinessGate?.resolve();
-      if (decision != null && decision.status != CidBusinessStatus.ready) {
-        if (decision.status == CidBusinessStatus.noWallet) return null;
-        throw SquareApiException(
-          decision.status == CidBusinessStatus.unregistered
-              ? '当前账户尚未注册公民号'
-              : '身份读取失败，请重试',
-          errorCode: decision.status == CidBusinessStatus.unregistered
-              ? 'identity_unregistered'
-              : 'identity_projection_unavailable',
-          stage: SquareApiStage.identity,
-        );
+      if (recoverBinding) {
+        final decision = await _cidBusinessGate?.resolve();
+        if (decision != null && decision.status != CidBusinessStatus.ready) {
+          if (decision.status == CidBusinessStatus.noWallet) return null;
+          throw SquareApiException(
+            decision.status == CidBusinessStatus.unregistered
+                ? '当前账户尚未注册公民号'
+                : '身份读取失败，请重试',
+            errorCode: decision.status == CidBusinessStatus.unregistered
+                ? 'identity_unregistered'
+                : 'identity_projection_unavailable',
+            stage: SquareApiStage.identity,
+          );
+        }
       }
       final current = await _currentUser.resolve();
       if (current == null) return null;
-      if (expectedAccountId != null && current.accountId != expectedAccountId) {
+      if (current.accountId.isEmpty ||
+          (expectedAccountId != null &&
+              current.accountId != expectedAccountId)) {
         throw const AccountSecurityException(
           '当前用户已变化',
           code: 'identityChanged',
         );
       }
-      final key = (current.accountId, _accountSecurity.revision.value);
+      final binding = current.binding;
+      if (binding == null || binding.accountId != current.accountId) {
+        throw SquareApiException(
+          current.isUnregistered ? '当前账户尚未注册公民号' : '身份信息暂不可用，请在身份页刷新后重试',
+          errorCode: current.isUnregistered
+              ? 'identity_unregistered'
+              : 'identity_local_missing',
+          stage: SquareApiStage.identity,
+        );
+      }
+      final revision = _accountSecurity.revision.value;
+      final key = (binding.accountId, revision);
       final existing = _flights[key];
       if (existing != null) return await existing;
       late final Future<SquareSession?> task;
       task =
           _prepareSession(
             userInitiated: userInitiated,
-            expectedAccountId: current.accountId,
+            binding: binding,
+            revision: revision,
           ).whenComplete(() {
             if (identical(_flights[key], task)) _flights.remove(key);
           });
@@ -366,29 +387,11 @@ class SquareSessionProvider {
     }
   }
 
-  Future<SquareSession?> _prepareSession({
+  Future<SquareSession> _prepareSession({
     required bool userInitiated,
-    required String expectedAccountId,
+    required IdentityBinding binding,
+    required int revision,
   }) async {
-    final revision = _accountSecurity.revision.value;
-    final current = await _currentUser.resolve();
-    if (current == null) return null;
-    if (current.accountId.isEmpty || current.accountId != expectedAccountId) {
-      throw const AccountSecurityException(
-        '当前用户已变化，请重试',
-        code: 'identityChanged',
-      );
-    }
-    final binding = current.binding;
-    if (binding == null || binding.accountId != current.accountId) {
-      throw SquareApiException(
-        current.isUnregistered ? '当前账户尚未注册公民号' : '身份信息暂不可用，请在身份页刷新后重试',
-        errorCode: current.isUnregistered
-            ? 'identity_unregistered'
-            : 'identity_local_missing',
-        stage: SquareApiStage.identity,
-      );
-    }
     Future<void> requireCurrent() async {
       final latest = await _currentUser.resolve();
       if (_accountSecurity.revision.value != revision ||
@@ -405,7 +408,7 @@ class SquareSessionProvider {
 
     await requireCurrent();
     final session = await _client.ensureSession(
-      accountId: current.accountId,
+      accountId: binding.accountId,
       authentication: _authentication,
       onDeviceNotRegistered: (context) async {
         await requireCurrent();
@@ -460,7 +463,7 @@ class SquareSessionProvider {
     required int expectedBindingRevision,
     required String expectedAccountId,
   }) async {
-    final session = await ensureSession();
+    final session = await ensureChatSession();
     final identity = await _authentication.readIdentity();
     if (identity.cidNumber != expectedCidNumber ||
         identity.bindRev != expectedBindingRevision ||

@@ -19,8 +19,10 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_user/identity/square_session_provider.dart';
+import 'package:citizen_user/identity/cid_business_gate.dart';
 import 'package:citizen_user/identity/current_user_context.dart';
 import 'package:citizen_user/identity/account_security_service.dart';
+import 'package:citizen_user/identity/finalized_identity_resolver.dart';
 import 'package:citizen_user/identity/mls_authentication.dart';
 
 import 'package:citizen_testing/mls_authentication_fixture.dart';
@@ -42,6 +44,55 @@ void main() {
   });
   _preparationDiagnosticsTests();
   _chatAccessSessionTests();
+  test('本机绑定缺失时聊天不触发身份恢复，普通会话仍由原门禁恢复', () async {
+    final current = _DiagnosticCurrent()..hasBinding = false;
+    final security = _DiagnosticSecurity();
+    addTearDown(security.revision.dispose);
+    var recoveryReads = 0;
+    final gate = CidBusinessGate(
+      currentUserContext: current,
+      identityResolver: FinalizedIdentityResolver(
+        getWalletState: () {
+          recoveryReads++;
+          throw StateError('合成身份恢复失败');
+        },
+      ),
+      synchronizeIdentity: (_) async => fail('身份恢复无可提交的绑定'),
+      revision: security.revision,
+    );
+    final client = SquareApiClient(
+      baseUrl: 'https://worker.test/api',
+      httpClient: MockClient((_) async => fail('本机无绑定时不请求服务')),
+    );
+    final provider = SquareSessionProvider(
+      accountSecurity: security,
+      currentUserContext: current,
+      cidBusinessGate: gate,
+      client: client,
+    );
+    final missing = isA<SquareApiException>().having(
+      (error) => error.errorCode,
+      'errorCode',
+      'identity_local_missing',
+    );
+    await expectLater(provider.ensureChatSession(), throwsA(missing));
+    await expectLater(
+      provider.requestChatAccess(
+        deviceId: testMlsDeviceId,
+        expectedCidNumber: testMlsCidNumber,
+        expectedBindingRevision: 1,
+        expectedAccountId: testMlsAccountId,
+      ),
+      throwsA(missing),
+    );
+    expect(recoveryReads, 0);
+    await expectLater(
+      provider.ensureSession(),
+      throwsA(isA<SquareApiException>()),
+    );
+    expect(recoveryReads, 1);
+    expect(security.deviceRegistrations, 0);
+  });
   test('明确取消保留取消分类，不变成服务故障或再次注册', () {
     for (final error in <Object>[
       const CitizenSdkException(
@@ -341,7 +392,7 @@ class _ChatSessionFixture extends SquareSessionProvider {
       );
   final SquareSession session;
   @override
-  Future<SquareSession?> ensureSession() async => session;
+  Future<SquareSession?> ensureChatSession() async => session;
 }
 
 void _chatAccessSessionTests() {
@@ -414,9 +465,10 @@ void _chatAccessSessionTests() {
   }
 }
 
-// 已有CID的合成上下文：所有未列明操作（含CID注册/Turnstile）均立即失败。
+// 只模拟本机公民号绑定；任何额外身份操作都立即失败。
 class _DiagnosticCurrent implements CurrentUserContext {
   Object? failure;
+  bool hasBinding = true;
   final _binding = const IdentityBinding(
     genesisHash:
         '0xabababababababababababababababababababababababababababababababab',
@@ -438,7 +490,7 @@ class _DiagnosticCurrent implements CurrentUserContext {
         createdAtMillis: BigInt.one,
         isDefault: true,
       ),
-      binding: _binding,
+      binding: hasBinding ? _binding : null,
     );
   }
 

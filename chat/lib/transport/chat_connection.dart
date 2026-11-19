@@ -55,7 +55,7 @@ class ChatAccess {
     }
     final device = account.deviceId;
     final url = realtimeUrl;
-    final session = await provider.ensureSession();
+    final session = await provider.ensureChatSession();
     if (session == null ||
         session.accountId != account.accountId ||
         session.cidNumber != account.userId ||
@@ -70,16 +70,12 @@ class ChatAccess {
       'begin_attachment': 0,
     };
     final costs = <String, int>{};
-    var operation = 'chat';
     final control = frame.isEmpty ? null : ChatFrame.fromBuffer(frame);
     if (control != null) {
       final value = control;
       // 明文单文件限制已由聊天模块注入的mediaLimits在加密前检查，不能用明文上限再拒绝合法MLS密文。
       input['begin_attachment'] = value.hasBeginAttachment() ? 1 : 0;
       costs.addAll({'device_frames': 1, 'device_frame_bytes': frame.length});
-      if (value.hasBeginAttachment() || value.hasCompleteAttachment()) {
-        operation = 'attachment';
-      }
       if (value.hasBeginAttachment() &&
           _knownAttachments[value.beginAttachment.attachment.attachmentId] ==
               false) {
@@ -87,13 +83,10 @@ class ChatAccess {
         costs.addAll({'attachment_bytes': meta.cipherByteSize.toInt()});
       }
     }
-    if (action.startsWith('attachment_')) {
-      operation = 'attachment';
-    }
     final lease = await SubscriptionService.resourceGate.reserve(
       origin: url.replace(scheme: 'https').origin,
       session: session,
-      operation: operation,
+      operation: 'chat',
       operationId: control?.hasBeginAttachment() == true
           ? crypto.sha256
                 .convert(control!.beginAttachment.attachment.writeToBuffer())

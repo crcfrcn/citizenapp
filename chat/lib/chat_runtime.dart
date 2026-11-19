@@ -1596,7 +1596,7 @@ class ChatRuntime {
   }
 
   Future<bool> canSend(String userId) async {
-    final session = await squareSessionProvider!.ensureSession();
+    final session = await squareSessionProvider!.ensureChatSession();
     if (session == null || session.cidNumber != userId) {
       return false;
     }
@@ -1617,7 +1617,7 @@ class ChatRuntime {
         expectedDeviceId: expectedDeviceId,
       );
     }
-    final session = await squareSessionProvider!.ensureSession();
+    final session = await squareSessionProvider!.ensureChatSession();
     if (session == null ||
         session.cidNumber != account.userId ||
         session.accountId != account.accountId ||
