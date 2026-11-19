@@ -2112,9 +2112,11 @@ class AttachmentReady extends $pb.GeneratedMessage {
 class AcknowledgeAttachment extends $pb.GeneratedMessage {
   factory AcknowledgeAttachment({
     $core.String? attachmentId,
+    $core.String? ownerCid,
   }) {
     final result = create();
     if (attachmentId != null) result.attachmentId = attachmentId;
+    if (ownerCid != null) result.ownerCid = ownerCid;
     return result;
   }
 
@@ -2132,6 +2134,7 @@ class AcknowledgeAttachment extends $pb.GeneratedMessage {
       package: const $pb.PackageName(_omitMessageNames ? '' : 'chat.protocol'),
       createEmptyInstance: create)
     ..aOS(1, _omitFieldNames ? '' : 'attachmentId')
+    ..aOS(2, _omitFieldNames ? '' : 'ownerCid')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -2162,6 +2165,16 @@ class AcknowledgeAttachment extends $pb.GeneratedMessage {
   $core.bool hasAttachmentId() => $_has(0);
   @$pb.TagNumber(1)
   void clearAttachmentId() => $_clearField(1);
+
+  /// 只定位上传者的 CID，收件权限仍由服务端从附件验证。
+  @$pb.TagNumber(2)
+  $core.String get ownerCid => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set ownerCid($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasOwnerCid() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearOwnerCid() => $_clearField(2);
 }
 
 class AbortAttachment extends $pb.GeneratedMessage {

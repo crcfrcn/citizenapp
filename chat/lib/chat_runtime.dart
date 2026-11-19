@@ -5163,20 +5163,24 @@ class ChatRuntime {
       }
 
       stage = 'push';
-      final pushSubscription = push.wakes.listen(
-        (_) => unawaited(refreshMailboxFromCallback()),
-      );
+      var startingMailbox = true;
+      final pushSubscription = push.wakes.listen((_) {
+        if (!startingMailbox) unawaited(refreshMailboxFromCallback());
+      });
       session.attachWakeSubscription(pushSubscription.cancel);
-      // WSS ready 后只启动一次初始补拉，它同时涵盖此前持久化的唤醒。
-      await push.takePendingWake();
-      stage = 'mailbox';
-      await _drainMailbox(
-        account,
-        signalTransport,
-        session: session,
-        acknowledgeLater: acknowledgeLater,
+      // 已就绪连接先交接出站，初次补拉仍消费原唤醒并复用账户单飞。
+      unawaited(
+        session.runCallback(() async {
+          try {
+            await push.takePendingWake();
+          } catch (_) {
+            // 即使唤醒标记当前不可读，也仍可补收持久邮箱。
+          } finally {
+            startingMailbox = false;
+          }
+          await refreshMailboxFromCallback();
+        }, ordered: false),
       );
-      _ensureActive();
       final tokenSubscription = push.tokenChanges.listen(
         (_) => unawaited(refreshPushFromCallback()),
       );
@@ -5954,6 +5958,12 @@ class ChatRuntime {
       attachmentId: attachmentId,
       fileName: content.fileName!,
     );
+    // 媒体控制消息落库前已经核验 MLS 发送者；CID 只用于定位附件原件。
+    final sender = content.senderIdentity!.split(':');
+    if (sender.length != 2 || sender.any((part) => part.isEmpty)) {
+      throw const ChatConnectionException('attachment_identity_invalid');
+    }
+    final ownerCid = sender.first;
     final engine = await _attachmentEngine(context);
     if (await AttachmentVault.hasCache(cachePath)) {
       final file = File(cachePath);
@@ -5963,7 +5973,7 @@ class ChatRuntime {
       }
       // 缓存提交后被中断时补终态；此动作幂等，不重新处理Welcome。
       await engine.finish(content.attachmentGroupId!);
-      await context.transport.acknowledgeAttachment(attachmentId);
+      await context.transport.acknowledgeAttachment(ownerCid, attachmentId);
       return;
     }
     final temp = Directory('${directory.path}/.tmp');
@@ -5975,6 +5985,7 @@ class ChatRuntime {
     final plain = File('${temp.path}/${_safePath(attachmentId)}.plain');
     if (!await cipher.exists()) {
       await context.transport.downloadEncryptedAttachment(
+        ownerCid: ownerCid,
         attachmentId: attachmentId,
         target: cipher,
         expectedByteSize: content.cipherByteSize!,
@@ -6004,7 +6015,7 @@ class ChatRuntime {
         await plain.delete();
       }
     });
-    await context.transport.acknowledgeAttachment(attachmentId);
+    await context.transport.acknowledgeAttachment(ownerCid, attachmentId);
   }
 
   /// 聊天服务模块邮箱的唯一入站 Message 边界；服务端路由身份与密文内身份必须一致。

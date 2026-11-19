@@ -692,13 +692,14 @@ const AcknowledgeAttachment$json = {
   '1': 'AcknowledgeAttachment',
   '2': [
     {'1': 'attachment_id', '3': 1, '4': 1, '5': 9, '10': 'attachmentId'},
+    {'1': 'owner_cid', '3': 2, '4': 1, '5': 9, '10': 'ownerCid'},
   ],
 };
 
 /// Descriptor for `AcknowledgeAttachment`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List acknowledgeAttachmentDescriptor = $convert.base64Decode(
     'ChVBY2tub3dsZWRnZUF0dGFjaG1lbnQSIwoNYXR0YWNobWVudF9pZBgBIAEoCVIMYXR0YWNobW'
-    'VudElk');
+    'VudElkEhsKCW93bmVyX2NpZBgCIAEoCVIIb3duZXJDaWQ=');
 
 @$core.Deprecated('Use abortAttachmentDescriptor instead')
 const AbortAttachment$json = {

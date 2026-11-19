@@ -300,6 +300,7 @@ void main() {
     addTearDown(() => directory.delete(recursive: true));
     final pending = expectLater(
       transport.downloadEncryptedAttachment(
+        ownerCid: 'owner-a',
         attachmentId: 'attachment-a',
         target: File('${directory.path}/cipher'),
         expectedByteSize: 1,

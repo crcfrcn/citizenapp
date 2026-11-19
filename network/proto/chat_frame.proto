@@ -165,6 +165,8 @@ message AttachmentReady {
 
 message AcknowledgeAttachment {
   string attachment_id = 1;
+  // 只定位上传者的 CID，收件权限仍由服务端从附件验证。
+  string owner_cid = 2;
 }
 
 message AbortAttachment {

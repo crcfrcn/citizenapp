@@ -83,7 +83,7 @@ void main() {
         realtimeUrl: Uri.parse('wss://example.com/api/chat/realtime'),
         accessToken: 'token',
         expiresAtMillis: now + 120000,
-      )..validate(now)).attachmentChunkUrl('attachment-a', 0).scheme,
+      )..validate(now)).attachmentChunkUrl('owner-a', 'attachment-a', 0).scheme,
       'https',
     );
   });
@@ -97,8 +97,8 @@ void main() {
     );
     access.validate(now);
     expect(
-      access.attachmentChunkUrl('attachment-a', 3).toString(),
-      'https://chat.example.test/api/chat/attachments/attachment-a/chunks/3',
+      access.attachmentChunkUrl('owner-a', 'attachment-a', 3).toString(),
+      'https://chat.example.test/api/chat/attachments/owner-a/attachment-a/chunks/3',
     );
     expect(
       () => ChatAccess(
@@ -140,12 +140,10 @@ void main() {
     final now = DateTime.now().millisecondsSinceEpoch;
     expect(
       (ChatAccess(
-        realtimeUrl: Uri.parse(
-          'wss://objects.example.com/api/chat/realtime',
-        ),
+        realtimeUrl: Uri.parse('wss://objects.example.com/api/chat/realtime'),
         accessToken: 'token',
         expiresAtMillis: now + 120000,
-      )..validate(now)).attachmentChunkUrl('attachment-a', 0).scheme,
+      )..validate(now)).attachmentChunkUrl('owner-a', 'attachment-a', 0).scheme,
       'https',
     );
     expect(

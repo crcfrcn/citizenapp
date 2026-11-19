@@ -247,12 +247,13 @@ final class ChatAttachmentTransport {
     _access.validate(DateTime.now().millisecondsSinceEpoch);
   }
 
-  Uri _chunkUri(String attachmentId, int chunkIndex) {
+  Uri _chunkUri(String ownerCid, String attachmentId, int chunkIndex) {
     _ensureCurrent();
-    return _access.attachmentChunkUrl(attachmentId, chunkIndex);
+    return _access.attachmentChunkUrl(ownerCid, attachmentId, chunkIndex);
   }
 
   Future<void> putChunk({
+    required String ownerCid,
     required String attachmentId,
     required int chunkIndex,
     required Uint8List bytes,
@@ -276,7 +277,7 @@ final class ChatAttachmentTransport {
       resource?.sent();
       response = await _bounded(
         _adapter.putChunk(
-          uri: _chunkUri(attachmentId, chunkIndex),
+          uri: _chunkUri(ownerCid, attachmentId, chunkIndex),
           bearerToken: _access.accessToken,
           body: bytes,
           cipherSha256: actual,
@@ -300,6 +301,7 @@ final class ChatAttachmentTransport {
   }
 
   Future<Uint8List> getChunk({
+    required String ownerCid,
     required String attachmentId,
     required int chunkIndex,
     required int expectedBytes,
@@ -319,7 +321,7 @@ final class ChatAttachmentTransport {
       resource?.sent();
       response = await _bounded(
         _adapter.getChunk(
-          uri: _chunkUri(attachmentId, chunkIndex),
+          uri: _chunkUri(ownerCid, attachmentId, chunkIndex),
           bearerToken: _access.accessToken,
           maximumBytes: expectedBytes,
         ),

@@ -63,6 +63,7 @@ void main() {
     final transport = ChatAttachmentTransport(access: access, adapter: adapter);
     final bytes = Uint8List.fromList([1, 2, 3]);
     final work = transport.putChunk(
+      ownerCid: 'owner-a',
       attachmentId: 'attachment-a',
       chunkIndex: 0,
       bytes: bytes,
@@ -95,6 +96,7 @@ void main() {
       final bytes = Uint8List.fromList([1, 2, 3]);
       await expectLater(
         transport.putChunk(
+          ownerCid: 'owner-a',
           attachmentId: 'attachment-a',
           chunkIndex: 0,
           bytes: bytes,
@@ -111,25 +113,26 @@ void main() {
 
   test('附件编号拒绝点、路径穿越和越界块号，同端口派生HTTPS', () async {
     final access = ChatAccessFixture(
-      realtimeUrl: Uri.parse(
-        'wss://chat.example.test:8443/api/chat/realtime',
-      ),
+      realtimeUrl: Uri.parse('wss://chat.example.test:8443/api/chat/realtime'),
       accessToken: 'signed-token',
       expiresAtMillis: DateTime.now().millisecondsSinceEpoch + 300000,
     );
     expect(
-      access.attachmentChunkUrl('attachment-a', 0).toString(),
-      'https://chat.example.test:8443/api/chat/attachments/attachment-a/chunks/0',
+      access.attachmentChunkUrl('owner-a', 'attachment-a', 0).toString(),
+      'https://chat.example.test:8443/api/chat/attachments/owner-a/attachment-a/chunks/0',
     );
     for (final id in ['..', 'attachment.a', 'a/b', 'a?token']) {
-      expect(() => access.attachmentChunkUrl(id, 0), throwsArgumentError);
+      expect(
+        () => access.attachmentChunkUrl('owner-a', id, 0),
+        throwsArgumentError,
+      );
     }
     expect(
-      () => access.attachmentChunkUrl('attachment-a', -1),
+      () => access.attachmentChunkUrl('owner-a', 'attachment-a', -1),
       throwsArgumentError,
     );
     expect(
-      () => access.attachmentChunkUrl('attachment-a', 0x100000000),
+      () => access.attachmentChunkUrl('owner-a', 'attachment-a', 0x100000000),
       throwsArgumentError,
     );
   });
@@ -143,6 +146,7 @@ void main() {
     final digest = crypto.sha256.convert(bytes).toString();
 
     await transport.putChunk(
+      ownerCid: 'owner-a',
       attachmentId: 'attachment-a',
       chunkIndex: 2,
       bytes: bytes,
@@ -150,7 +154,7 @@ void main() {
     );
     expect(
       adapter.putUri.toString(),
-      'https://chat.example.test/api/chat/attachments/attachment-a/chunks/2',
+      'https://chat.example.test/api/chat/attachments/owner-a/attachment-a/chunks/2',
     );
     expect(adapter.putToken, 'signed-token');
     expect(adapter.putBody, bytes);
@@ -177,6 +181,7 @@ void main() {
     );
     expect(
       await transport.getChunk(
+        ownerCid: 'owner-a',
         attachmentId: 'attachment-a',
         chunkIndex: 0,
         expectedBytes: bytes.length,
@@ -194,6 +199,7 @@ void main() {
     );
     await expectLater(
       transport.putChunk(
+        ownerCid: 'owner-a',
         attachmentId: 'attachment-a',
         chunkIndex: 0,
         bytes: Uint8List.fromList(<int>[1]),

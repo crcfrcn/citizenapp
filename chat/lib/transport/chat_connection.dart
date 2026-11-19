@@ -166,15 +166,16 @@ class ChatAccess {
   }
 
   /// 附件仅派生同主机/端口HTTPS地址；不接受第二地址或路径穿越标识。
-  Uri attachmentChunkUrl(String attachmentId, int chunkIndex) {
-    if (!RegExp(r'^[A-Za-z0-9_-]{1,128}$').hasMatch(attachmentId) ||
+  Uri attachmentChunkUrl(String ownerCid, String attachmentId, int chunkIndex) {
+    if (!RegExp(r'^[A-Za-z0-9][A-Za-z0-9-]{0,31}$').hasMatch(ownerCid) ||
+        !RegExp(r'^[A-Za-z0-9_-]{1,128}$').hasMatch(attachmentId) ||
         chunkIndex < 0 ||
         chunkIndex > 0xffffffff) {
       throw ArgumentError('附件块路径无效');
     }
     return realtimeUrl.replace(
       scheme: 'https',
-      path: '/api/chat/attachments/$attachmentId/chunks/$chunkIndex',
+      path: '/api/chat/attachments/$ownerCid/$attachmentId/chunks/$chunkIndex',
     );
   }
 }
@@ -225,13 +226,14 @@ abstract interface class AttachmentTransfer {
   });
 
   Future<void> downloadEncryptedAttachment({
+    required String ownerCid,
     required String attachmentId,
     required File target,
     required int expectedByteSize,
     required String expectedSha256,
   });
 
-  Future<void> acknowledgeAttachment(String attachmentId);
+  Future<void> acknowledgeAttachment(String ownerCid, String attachmentId);
   Future<void> abortAttachment(String attachmentId);
 }
 
@@ -467,11 +469,13 @@ final class _PendingCommand<T> {
     required this.bytes,
     required this.accept,
     required this.decode,
+    required this.background,
   });
 
   final Uint8List bytes;
   final bool Function(frame_protocol.ChatFrame frame) accept;
   final T Function(frame_protocol.ChatFrame frame) decode;
+  final bool background;
   final Completer<T> completer = Completer<T>();
   Timer? deadline;
   bool sent = false;
@@ -817,12 +821,24 @@ final class ChatConnection implements ChatServiceTransport {
         bytes.length > _maximumFrameBytes) {
       throw const ChatConnectionException('realtime_frame_size_invalid');
     }
+    final background =
+        frame.hasSyncMessages() || frame.hasAcknowledgeMessages();
     final pending = _PendingCommand<T>(
       bytes: bytes,
       accept: accept,
       decode: decode,
+      background: background,
     );
-    _commands.add(pending as _PendingCommand<Object?>);
+    final command = pending as _PendingCommand<Object?>;
+    // 当前命令仍独占响应；用户命令只越过尚未取得队头的补收与 ACK。
+    final waitingBackground = background
+        ? -1
+        : _commands.indexWhere((item) => item.background && !item.sent);
+    if (waitingBackground == -1) {
+      _commands.add(command);
+    } else {
+      _commands.insert(waitingBackground, command);
+    }
     if (_commands.length == 1) {
       _dispatchNext();
     }
@@ -1210,6 +1226,7 @@ final class ChatConnection implements ChatServiceTransport {
         for (final chunk in chunks) {
           final bytes = await input.read(chunk.cipherByteSize.toInt());
           await attachments.putChunk(
+            ownerCid: identity.userId,
             attachmentId: attachmentId,
             chunkIndex: chunk.chunkIndex,
             bytes: Uint8List.fromList(bytes),
@@ -1251,6 +1268,7 @@ final class ChatConnection implements ChatServiceTransport {
 
   @override
   Future<void> downloadEncryptedAttachment({
+    required String ownerCid,
     required String attachmentId,
     required File target,
     required int expectedByteSize,
@@ -1280,6 +1298,7 @@ final class ChatConnection implements ChatServiceTransport {
           expectedByteSize - offset,
         );
         final bytes = await attachments.getChunk(
+          ownerCid: ownerCid,
           attachmentId: attachmentId,
           chunkIndex: index,
           expectedBytes: size,
@@ -1309,14 +1328,16 @@ final class ChatConnection implements ChatServiceTransport {
   }
 
   @override
-  Future<void> acknowledgeAttachment(String attachmentId) => _command<void>(
-    frame: frame_protocol.ChatFrame()
-      ..acknowledgeAttachment = (frame_protocol.AcknowledgeAttachment()
-        ..attachmentId = attachmentId),
-    accept: (frame) =>
-        _success(frame, 'attachment.acknowledged', id: attachmentId),
-    decode: (_) {},
-  );
+  Future<void> acknowledgeAttachment(String ownerCid, String attachmentId) =>
+      _command<void>(
+        frame: frame_protocol.ChatFrame()
+          ..acknowledgeAttachment = (frame_protocol.AcknowledgeAttachment()
+            ..attachmentId = attachmentId
+            ..ownerCid = ownerCid),
+        accept: (frame) =>
+            _success(frame, 'attachment.acknowledged', id: attachmentId),
+        decode: (_) {},
+      );
 
   @override
   Future<void> abortAttachment(String attachmentId) => _command<void>(

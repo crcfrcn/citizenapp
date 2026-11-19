@@ -346,6 +346,7 @@ final class _Transport implements ChatServiceTransport {
 
   @override
   Future<void> downloadEncryptedAttachment({
+    required String ownerCid,
     required String attachmentId,
     required File target,
     required int expectedByteSize,
@@ -1019,7 +1020,12 @@ void main() {
   });
   test('在线原密文直接验密落库，旧 ACK 等待不阻塞新消息', () async {
     final fixture = await _Fixture.create();
+    await fixture.runtime.ensureReady(_account.accountId);
+    fixture.transport.enteredFetch = Completer<void>();
     final stop = await fixture.runtime.startRealtimeSync(onNotice: () async {});
+    await fixture.transport.enteredFetch!.future.timeout(
+      const Duration(seconds: 2),
+    );
     final enteredAck = Completer<void>();
     final releaseAck = Completer<void>();
     final bothAcked = Completer<void>();
@@ -1058,19 +1064,15 @@ void main() {
 
   test('停止最后实时订阅后，旧补拉不落库不ACK；重连重发同一KeyPackage', () async {
     final fixture = await _Fixture.create();
+    await fixture.runtime.ensureReady(_account.accountId);
+    fixture.transport.fetch = Completer<List<ChatMailboxMessage>>();
+    fixture.transport.enteredFetch = Completer<void>();
     final stop = await fixture.runtime.startRealtimeSync(onNotice: () async {});
     expect(stop, isNotNull);
     final original = fixture.transport.published.first.keyPackageRef;
-    fixture.transport.fetch = Completer<List<ChatMailboxMessage>>();
-    fixture.transport.enteredFetch = Completer<void>();
-    final event = fixture.runtime.handleWake().then<void>(
-      (_) => fail('已关闭的同步不能接受迟到补拉结果'),
-      onError: (Object error) => expect(error, isA<StateError>()),
-    );
     await fixture.transport.enteredFetch!.future;
     final stopping = stop!();
     fixture.transport.fetch!.complete([_Message(1)]);
-    await event;
     await stopping;
     expect(fixture.crypto.processed, 0);
     expect(fixture.transport.acknowledged, isEmpty);

@@ -213,7 +213,9 @@ class MembershipDetailPage extends StatelessWidget {
                   ),
                   SizedBox(width: AppLayout.scaledValue(6)),
                   Text(
-                    priceFen == null ? '—' : '${formatFen(BigInt.from(priceFen!))} 元',
+                    priceFen == null
+                        ? '—'
+                        : '${formatFen(BigInt.from(priceFen!))} 元',
                     style: TextStyle(
                       color: onTier,
                       fontSize: AppLayout.scaledValue(18),
@@ -387,7 +389,6 @@ MembershipBenefits membershipBenefits(
       articleImages: 20,
       articleVideos: 1,
       storage: '256 GiB',
-      attachments: '1 GiB',
       mediaRequests: 5000,
       downloads: '1 GiB',
       uploads: '512 MiB',
@@ -403,7 +404,6 @@ MembershipBenefits membershipBenefits(
       articleImages: 50,
       articleVideos: 3,
       storage: '1 TiB',
-      attachments: '5 GiB',
       mediaRequests: 15000,
       downloads: '5 GiB',
       uploads: '2 GiB',
@@ -419,7 +419,6 @@ MembershipBenefits membershipBenefits(
       articleImages: 100,
       articleVideos: 10,
       storage: '10 TiB',
-      attachments: '12 GiB',
       mediaRequests: 50000,
       downloads: '50 GiB',
       uploads: '10 GiB',
@@ -454,9 +453,7 @@ MembershipBenefits membershipBenefits(
     articleImages: '${plan?.article.maxImages ?? copy.articleImages} 张',
     articleVideos: '${plan?.article.maxVideos ?? copy.articleVideos} 个',
     storage: plan?.storageSizeLabel ?? copy.storage,
-    attachments: plan == null
-        ? copy.attachments
-        : attachmentBytes == null
+    attachments: attachmentBytes == null
         ? '待获取'
         : SquareMembershipPlan.formatBytes(attachmentBytes),
     mediaRequests: daily(
