@@ -1639,14 +1639,12 @@ class AcknowledgeMessages extends $pb.GeneratedMessage {
 
 class MessageAvailable extends $pb.GeneratedMessage {
   factory MessageAvailable({
-    $core.String? messageId,
-    $core.String? conversationId,
-    $fixnum.Int64? serverTimeMillis,
+    $0.EncryptedMessage? message,
+    $fixnum.Int64? expiresAtMillis,
   }) {
     final result = create();
-    if (messageId != null) result.messageId = messageId;
-    if (conversationId != null) result.conversationId = conversationId;
-    if (serverTimeMillis != null) result.serverTimeMillis = serverTimeMillis;
+    if (message != null) result.message = message;
+    if (expiresAtMillis != null) result.expiresAtMillis = expiresAtMillis;
     return result;
   }
 
@@ -1663,10 +1661,10 @@ class MessageAvailable extends $pb.GeneratedMessage {
       _omitMessageNames ? '' : 'MessageAvailable',
       package: const $pb.PackageName(_omitMessageNames ? '' : 'chat.protocol'),
       createEmptyInstance: create)
-    ..aOS(1, _omitFieldNames ? '' : 'messageId')
-    ..aOS(2, _omitFieldNames ? '' : 'conversationId')
+    ..aOM<$0.EncryptedMessage>(4, _omitFieldNames ? '' : 'message',
+        subBuilder: $0.EncryptedMessage.create)
     ..a<$fixnum.Int64>(
-        3, _omitFieldNames ? '' : 'serverTimeMillis', $pb.PbFieldType.OU6,
+        5, _omitFieldNames ? '' : 'expiresAtMillis', $pb.PbFieldType.OU6,
         defaultOrMaker: $fixnum.Int64.ZERO)
     ..hasRequiredFields = false;
 
@@ -1689,32 +1687,25 @@ class MessageAvailable extends $pb.GeneratedMessage {
       $pb.GeneratedMessage.$_defaultFor<MessageAvailable>(create);
   static MessageAvailable? _defaultInstance;
 
-  @$pb.TagNumber(1)
-  $core.String get messageId => $_getSZ(0);
-  @$pb.TagNumber(1)
-  set messageId($core.String value) => $_setString(0, value);
-  @$pb.TagNumber(1)
-  $core.bool hasMessageId() => $_has(0);
-  @$pb.TagNumber(1)
-  void clearMessageId() => $_clearField(1);
+  @$pb.TagNumber(4)
+  $0.EncryptedMessage get message => $_getN(0);
+  @$pb.TagNumber(4)
+  set message($0.EncryptedMessage value) => $_setField(4, value);
+  @$pb.TagNumber(4)
+  $core.bool hasMessage() => $_has(0);
+  @$pb.TagNumber(4)
+  void clearMessage() => $_clearField(4);
+  @$pb.TagNumber(4)
+  $0.EncryptedMessage ensureMessage() => $_ensure(0);
 
-  @$pb.TagNumber(2)
-  $core.String get conversationId => $_getSZ(1);
-  @$pb.TagNumber(2)
-  set conversationId($core.String value) => $_setString(1, value);
-  @$pb.TagNumber(2)
-  $core.bool hasConversationId() => $_has(1);
-  @$pb.TagNumber(2)
-  void clearConversationId() => $_clearField(2);
-
-  @$pb.TagNumber(3)
-  $fixnum.Int64 get serverTimeMillis => $_getI64(2);
-  @$pb.TagNumber(3)
-  set serverTimeMillis($fixnum.Int64 value) => $_setInt64(2, value);
-  @$pb.TagNumber(3)
-  $core.bool hasServerTimeMillis() => $_has(2);
-  @$pb.TagNumber(3)
-  void clearServerTimeMillis() => $_clearField(3);
+  @$pb.TagNumber(5)
+  $fixnum.Int64 get expiresAtMillis => $_getI64(1);
+  @$pb.TagNumber(5)
+  set expiresAtMillis($fixnum.Int64 value) => $_setInt64(1, value);
+  @$pb.TagNumber(5)
+  $core.bool hasExpiresAtMillis() => $_has(1);
+  @$pb.TagNumber(5)
+  void clearExpiresAtMillis() => $_clearField(5);
 }
 
 /// 查询业务会话唯一已接受的 MLS 组。空 group_id 表示尚未建组。

@@ -40,21 +40,6 @@ import 'message/direct_flow.dart';
 import 'group/group_flow.dart';
 import 'chat_media_limits.dart';
 
-// 原版基线采样。输出固定阶段名和耗时，正式发布删除。
-void _baselineLatency(String stage, Stopwatch timer) {
-  _baselineOutput(
-    '[ChatBaseline] stage=$stage us=${timer.elapsedMicroseconds}',
-  );
-}
-
-void _baselineOutput(String line) {
-  if (Platform.isAndroid) {
-    debugPrintSynchronously(line);
-  } else {
-    stderr.writeln(line);
-  }
-}
-
 typedef MlsStateStoreFactory = Future<MlsStateStore> Function(String userId);
 
 enum ChatPersistentWipeState { none, pending, complete }
@@ -1429,6 +1414,7 @@ class ChatRuntimeAccountContext {
   final MlsGroupCrypto crypto;
   final ChatServiceTransport transport;
   final Map<String, List<int>> _groupBindings = {};
+  final Set<String> _checkedDirectDevices = {};
   late final _RetryableAsyncDisposer _disposer = _RetryableAsyncDisposer(
     _dispose,
   );
@@ -1732,6 +1718,7 @@ class ChatRuntime {
   final bool _receiveOnly;
   final _ChatUserMutationGate _userMutationGate;
   final _ChatUserMutationGate _outboundDeliveryGate = _ChatUserMutationGate();
+  final _ChatUserMutationGate _inboundMessageGate = _ChatUserMutationGate();
   final Future<Directory> Function() _documentsDirectoryProvider;
 
   /// 正在经 HTTPS 上传 encrypted object storage 密文的媒体 attachmentId（初始发送或补发中），用于去重：
@@ -2918,7 +2905,6 @@ class ChatRuntime {
     required String conversationId,
     required String text,
   }) async {
-    final baselineLocal = Stopwatch()..start();
     final payload = ChatPayloadCodec.encode(ChatContent.text(text));
     await _savePendingDirectPayload(
       peerUserId: peerUserId,
@@ -2926,7 +2912,6 @@ class ChatRuntime {
       messageKind: ChatMessageKind.text,
       payload: payload,
     );
-    _baselineLatency('local_outbox', baselineLocal);
     return const <ChatDeliveryResult>[];
   }
 
@@ -3614,9 +3599,7 @@ class ChatRuntime {
     ChatRuntimeAccountContext context,
     String targetUserId,
   ) async {
-    final baselineKeyPackages = Stopwatch()..start();
     final resolved = await context.transport.resolveKeyPackages(targetUserId);
-    _baselineLatency('key_packages_total', baselineKeyPackages);
     final now = DateTime.now().millisecondsSinceEpoch;
     if (resolved.isEmpty ||
         resolved.any(
@@ -4337,9 +4320,7 @@ class ChatRuntime {
   ) async {
     final cached = context._groupBindings[conversationId];
     if (cached != null) return cached;
-    final baselineGroup = Stopwatch()..start();
     final id = await context.transport.resolveGroup(conversationId);
-    _baselineLatency('group_binding_total', baselineGroup);
     if (id.isNotEmpty) context._groupBindings[conversationId] = id;
     return id;
   }
@@ -4387,7 +4368,10 @@ class ChatRuntime {
                 !existing.contains('${package.userId}:${package.deviceId}'),
           )
           .toList(growable: false);
-      if (packages.isEmpty && state != null) return state;
+      if (packages.isEmpty && state != null) {
+        context._checkedDirectDevices.add(conversationId);
+        return state;
+      }
       if (packages.isEmpty ||
           packages.any((package) => package.userId != peer)) {
         throw const ChatConnectionException('key_package_identity_invalid');
@@ -4444,6 +4428,7 @@ class ChatRuntime {
     }
     context._groupBindings[conversationId] = List<int>.unmodifiable(groupBytes);
     await crypto.acknowledgeMessage(operation);
+    context._checkedDirectDevices.add(conversationId);
     return crypto.groupState(id);
   }
 
@@ -4472,7 +4457,9 @@ class ChatRuntime {
       pending.conversationId,
       pending.recipientUserId,
       pending.localMessageId,
-      refreshDevices: !content.isMedia,
+      refreshDevices:
+          !content.isMedia &&
+          !context._checkedDirectDevices.contains(pending.conversationId),
     );
     final flow = _messageFlow(
       context,
@@ -4516,9 +4503,7 @@ class ChatRuntime {
       }
     }
 
-    final baselineSeal = Stopwatch()..start();
     await send();
-    _baselineLatency('encode_and_store', baselineSeal);
   }
 
   Future<void> _sendPendingMedia({
@@ -4713,14 +4698,12 @@ class ChatRuntime {
         continue;
       }
       try {
-        final baselineSend = Stopwatch()..start();
         final result = await context.transport.sendEncryptedMessage(
           messageId: item.messageId,
           messageBytes: item.messageBytes,
           recipientUserId: item.recipientUserId,
           recipientDeviceId: message.recipientDeviceId,
         );
-        _baselineLatency('send_command_total', baselineSend);
         await _store.markOutgoingDelivery(
           bindingToken: context.bindingToken,
           ownerUserId: context.account.userId,
@@ -5044,7 +5027,7 @@ class ChatRuntime {
     try {
       // 接收消息依赖本机 Last Resort KeyPackage；新上下文登记一次，
       // 每次物理重连前再幂等确认一次，避免服务端目录清理后首次消息互锁。
-      await _readyContext(account, republishKeyPackage: true);
+      final ready = await _readyContext(account, republishKeyPackage: true);
       final signalContext = await _buildSignalContext(account);
       _ensureActive();
       session.ensureOpen();
@@ -5054,8 +5037,26 @@ class ChatRuntime {
           try {
             await _runRuntimeOperation(() async {
               if (event is ChatMessageAvailableEvent) {
-                _baselineOutput('[ChatBaseline] stage=online_notice');
-                await _drainMailbox(account, signalContext.transport);
+                final generation = _accountGenerations[account.accountId] ?? 0;
+                final epoch = _mailboxEpochs[account.accountId] ?? 0;
+                var waiting = false;
+                await _consumeMailboxBatch(
+                  account,
+                  signalContext.transport,
+                  [event.message],
+                  generation,
+                  epoch,
+                  waitingForGroup: () => waiting = true,
+                );
+                if (waiting) {
+                  _scheduleMailboxRetry(
+                    account,
+                    signalContext.transport,
+                    generation,
+                    epoch,
+                    noProgress: true,
+                  );
+                }
               }
             });
           } catch (_) {
@@ -5089,6 +5090,7 @@ class ChatRuntime {
       );
       // disposer 必须在任何可能抛错的后验检查前同步接管新 socket。
       final signalTransport = signalContext.transport;
+      ready._checkedDirectDevices.clear();
       session.attachSocket(stopSocket);
       onTransportChanged(signalTransport);
       _ensureActive();
@@ -5208,9 +5210,7 @@ class ChatRuntime {
           }
           for (var page = 0; page < 32; page++) {
             await _requireMailboxCurrent(account, generation, epoch);
-            final baselineSync = Stopwatch()..start();
             final batch = await transport.fetchMailbox(cursor: cursor);
-            _baselineLatency('mailbox_fetch_total', baselineSync);
             final items = batch.messages;
             if (batch.nextCursor != null && !cursors.add(batch.nextCursor!)) {
               throw const ChatConnectionException('mailbox_cursor_no_progress');
@@ -5321,13 +5321,21 @@ class ChatRuntime {
     ChatServiceTransport transport,
     List<ChatMailboxMessage> items,
     int generation,
-    int epoch,
-  ) async {
+    int epoch, {
+    void Function()? waitingForGroup,
+  }) async {
     final acknowledgedMessageIds = <String>{};
     for (final item in items) {
       await _requireMailboxCurrent(account, generation, epoch);
       acknowledgedMessageIds.addAll(
-        await _consumeMailboxMessage(account, transport, item),
+        await _consumeMailboxMessage(
+          account,
+          transport,
+          item,
+          generation,
+          epoch,
+          waitingForGroup,
+        ),
       );
     }
     final hub = _realtimeHubs[account.accountId];
@@ -5337,9 +5345,7 @@ class ChatRuntime {
     // 一批只发一次 ACK；单条失败不阻断同批其它密文，且失败条目不进入删除集合。
     await _requireMailboxCurrent(account, generation, epoch);
     if (acknowledgedMessageIds.isNotEmpty) {
-      final baselineAck = Stopwatch()..start();
       await transport.acknowledgeMailbox(acknowledgedMessageIds.toList());
-      _baselineLatency('mailbox_ack_total', baselineAck);
       await _requireMailboxCurrent(account, generation, epoch);
     }
     return acknowledgedMessageIds.length;
@@ -5360,47 +5366,53 @@ class ChatRuntime {
     ChatRuntimeAccount account,
     ChatServiceTransport transport,
     ChatMailboxMessage item,
-  ) async {
+    int generation,
+    int epoch,
+    void Function()? waitingForGroup,
+  ) {
     final receiptKey = '${account.accountId}|${item.messageId}';
-    if (_mailboxMessageReceipts.contains(receiptKey)) {
-      return [item.messageId];
-    }
-    try {
-      final context = await _readyContext(account);
-      // 原生操作和 Isar 写入各自复核当前绑定，网络不能占用文件租约。
-      final baselineIncoming = Stopwatch()..start();
-      final accepted = await _processMailboxMessage(
-        context,
-        item.senderUserId,
-        item.messageBytes,
-      );
-      _baselineLatency('verify_and_store', baselineIncoming);
-      if (!accepted.contains(item.messageId)) {
-        throw StateError('聊天密文尚无本机精确持久收据');
+    return _inboundMessageGate.run(receiptKey, () async {
+      await _requireMailboxCurrent(account, generation, epoch);
+      if (_mailboxMessageReceipts.contains(receiptKey)) {
+        return [item.messageId];
       }
-      for (final id in accepted) {
-        _mailboxMessageReceipts.add('${account.accountId}|$id');
+      try {
+        final context = await _readyContext(account);
+        // 原生操作和 Isar 写入各自复核当前绑定，网络不能占用文件租约。
+        final processed = await _processMailboxMessage(
+          context,
+          item.senderUserId,
+          item.messageBytes,
+        );
+        if (processed.waitingForGroup) waitingForGroup?.call();
+        final accepted = processed.ids;
+        if (!accepted.contains(item.messageId)) {
+          throw StateError('聊天密文尚无本机精确持久收据');
+        }
+        for (final id in accepted) {
+          _mailboxMessageReceipts.add('${account.accountId}|$id');
+        }
+        // 每批最多100条；4000条有界窗口覆盖 ACK 瞬时失败，不作为持久收据替代。
+        while (_mailboxMessageReceipts.length > 4000) {
+          _mailboxMessageReceipts.remove(_mailboxMessageReceipts.first);
+        }
+        _scheduleOutgoingRetry(account, item.senderUserId);
+        return accepted;
+      } catch (error) {
+        _mailboxMessageReceipts.remove(receiptKey);
+        // ACK 的唯一条件是密文已经成功验密并写入本机。格式、身份、OpenMLS、附件或
+        // ChatIsar 任一失败都保留服务端副本到后续重试/七天 TTL；禁止永久丢消息。
+        final code = chatDiagnosticCode(error);
+        if (transport.lastRealtimeDiagnosticCode != code) {
+          final stage = error is MlsException
+              ? error.diagnosticOperation
+              : 'message';
+          debugPrint('[ChatTrace] direction=inbound stage=$stage code=$code');
+        }
+        transport.lastRealtimeDiagnosticCode = code;
+        return const [];
       }
-      // 每批最多100条；4000条有界窗口覆盖 ACK 瞬时失败，不作为持久收据替代。
-      while (_mailboxMessageReceipts.length > 4000) {
-        _mailboxMessageReceipts.remove(_mailboxMessageReceipts.first);
-      }
-      _scheduleOutgoingRetry(account, item.senderUserId);
-      return accepted;
-    } catch (error) {
-      _mailboxMessageReceipts.remove(receiptKey);
-      // ACK 的唯一条件是密文已经成功验密并写入本机。格式、身份、OpenMLS、附件或
-      // ChatIsar 任一失败都保留服务端副本到后续重试/七天 TTL；禁止永久丢消息。
-      final code = chatDiagnosticCode(error);
-      if (transport.lastRealtimeDiagnosticCode != code) {
-        final stage = error is MlsException
-            ? error.diagnosticOperation
-            : 'message';
-        debugPrint('[ChatTrace] direction=inbound stage=$stage code=$code');
-      }
-      transport.lastRealtimeDiagnosticCode = code;
-      return const [];
-    }
+    });
   }
 
   /// 新密文落盘后仅按发送方合并重试本机待发队列。普通消息不发送实时信令，
@@ -5947,7 +5959,7 @@ class ChatRuntime {
   }
 
   /// 聊天服务模块邮箱的唯一入站 Message 边界；服务端路由身份与密文内身份必须一致。
-  Future<List<String>> _processMailboxMessage(
+  Future<({List<String> ids, bool waitingForGroup})> _processMailboxMessage(
     ChatRuntimeAccountContext context,
     String senderUserId,
     List<int> messageBytes,
@@ -5973,23 +5985,29 @@ class ChatRuntime {
       }
     }
     final accepted = <EncryptedMessage>[];
+    var waiting = false;
     // 每次都复核原生精确请求收据；仅存在同message_id的业务行不能授权ACK。
     if (message.conversationId.startsWith('grp:')) {
       accepted.addAll(
         await _groupFlow(context).processIncomingGroupMessage(messageBytes),
       );
+      waiting = accepted.isEmpty;
     } else {
       final result = await _messageFlow(
         context,
       ).processIncomingMessageBytes(messageBytes);
       accepted.addAll(result.acceptedMessages);
+      waiting = result.queuedPending;
       // Welcome 成功持久确认也可 ACK 自身；缓冲的 out_of_order 不能 ACK。
       if (result.accepted &&
           !accepted.any((item) => item.messageId == message.messageId)) {
         accepted.add(message);
       }
     }
-    return accepted.map((item) => item.messageId).toList(growable: false);
+    return (
+      ids: accepted.map((item) => item.messageId).toList(growable: false),
+      waitingForGroup: waiting,
+    );
   }
 
   /// 当前设备只发布由本机 OpenMLS 状态持有私有材料的同一枚 Last Resort KeyPackage。

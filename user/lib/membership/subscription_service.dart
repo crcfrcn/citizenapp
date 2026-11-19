@@ -216,7 +216,16 @@ class SubscriptionService {
 
   static int chatFileMaxBytesFor(String cidNumber) {
     final session = _citizenSessions[cidNumber];
-    return session == null ? 0 : _lightPlan(session)?.fileLimit ?? 0;
+    return session == null ? 0 : _authorizedPlan(session)?.fileLimit ?? 0;
+  }
+
+  static SquareMembershipPlan? _authorizedPlan(SquareSession session) {
+    final authorization = cachedResourcesFor(
+      cidNumber: session.cidNumber,
+      accountId: session.accountId,
+      bindRev: session.bindRev,
+    );
+    return authorization?.allowed == true ? authorization?.plan : null;
   }
 
   static int get currentChatFileMaxBytes => _currentAuthorizedCidNumber == null
@@ -239,10 +248,11 @@ class SubscriptionService {
   }) async {
     await _validateSession(session);
     rememberCitizenSession(session);
-    // 明确附件动作复用同一轻节点读模型；不建立云端会员预检请求。
-    await _chainSource?.refresh();
+    final authorization = service == null
+        ? await _authorizeSession(session, client: SquareApiClient())
+        : await service.authorizeResources(session);
     await _validateSession(session);
-    if (currentChatFileMaxBytes <= 0) {
+    if (!authorization.allowed || (authorization.plan?.fileLimit ?? 0) <= 0) {
       throw const SquareApiException(
         '附件规则尚未取得',
         errorCode: 'resource_rules_unknown',
@@ -821,7 +831,9 @@ final class MembershipResourceGate implements SquareResourceGate {
       return _LocalResourceLease(null, const {}, null);
     }
     final current = scope;
-    final plan = SubscriptionService._lightPlan(session);
+    final plan = operation.startsWith('chat_')
+        ? SubscriptionService._authorizedPlan(session)
+        : SubscriptionService._lightPlan(session);
     final limits = <String, int>{};
     _copyNumbers(current.gate['daily_limits'], limits);
     if (plan != null) {

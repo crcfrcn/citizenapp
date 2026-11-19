@@ -3,7 +3,6 @@ import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_user/identity/square_session_provider.dart';
 import 'package:citizen_user/membership/subscription_service.dart';
 import 'dart:io';
-import 'package:flutter/foundation.dart' show debugPrintSynchronously;
 import 'package:chat/mls/mls_boundary.dart';
 import 'package:citizen_network/protocol/chat_frame.pb.dart'
     show ResourceUsage, ChatFrame;
@@ -17,15 +16,6 @@ import 'package:citizen_network/protocol/attachment.pb.dart'
 import 'package:citizen_network/protocol/chat_frame.pb.dart' as frame_protocol;
 import 'package:citizen_network/protocol/message.dart' as message_protocol;
 import 'attachment_transfer.dart';
-
-// 原版基线输出到各端有线可见的日志；正式发布删除。
-void _baselineOutput(String line) {
-  if (Platform.isAndroid) {
-    debugPrintSynchronously(line);
-  } else {
-    stderr.writeln(line);
-  }
-}
 
 /// App签发的短期聊天许可。只接受完整WSS入口，Token只保存在内存中。
 class ChatAccess {
@@ -219,17 +209,11 @@ sealed class ChatServiceEvent {
   const ChatServiceEvent();
 }
 
-/// WSS 只通知可靠邮箱已经变化，消息正文仍由同步命令读取。
+/// 已经提交至可靠邮箱的设备密文。
 final class ChatMessageAvailableEvent extends ChatServiceEvent {
-  const ChatMessageAvailableEvent({
-    required this.messageId,
-    required this.conversationId,
-    required this.serverTimeMillis,
-  });
+  const ChatMessageAvailableEvent({required this.message});
 
-  final String messageId;
-  final String conversationId;
-  final int serverTimeMillis;
+  final ChatMailboxMessage message;
 }
 
 /// 推送只表示可靠邮箱可能变化，不携带发送者、会话或消息内容。
@@ -487,15 +471,11 @@ final class _MailboxMessage implements ChatMailboxMessage {
 
 final class _PendingCommand<T> {
   _PendingCommand({
-    required this.baselineKind,
     required this.bytes,
     required this.accept,
     required this.decode,
   });
 
-  final String baselineKind;
-  final Stopwatch baselineQueue = Stopwatch()..start();
-  final Stopwatch baselineWire = Stopwatch();
   final Uint8List bytes;
   final bool Function(frame_protocol.ChatFrame frame) accept;
   final T Function(frame_protocol.ChatFrame frame) decode;
@@ -756,15 +736,21 @@ final class ChatConnection implements ChatServiceTransport {
         final callback = _onEvent;
         if (callback != null) {
           final value = frame.messageAvailable;
-          unawaited(
-            callback(
-              ChatMessageAvailableEvent(
-                messageId: value.messageId,
-                conversationId: value.conversationId,
-                serverTimeMillis: value.serverTimeMillis.toInt(),
-              ),
-            ).catchError((Object _) {}),
-          );
+          if (!value.hasMessage() ||
+              value.expiresAtMillis <= fixnum.Int64.ZERO) {
+            _disconnectSafely('realtime_frame_direction_invalid');
+            return;
+          }
+          try {
+            final message = _mailboxMessage(value.message);
+            unawaited(
+              callback(
+                ChatMessageAvailableEvent(message: message),
+              ).catchError((Object _) {}),
+            );
+          } on ChatConnectionException catch (error) {
+            _disconnectSafely(error.code);
+          }
         }
         return;
       default:
@@ -776,10 +762,6 @@ final class ChatConnection implements ChatServiceTransport {
       return;
     }
     final current = _commands.first;
-    _baselineOutput(
-      '[ChatBaseline] stage=wss_result kind=${current.baselineKind} '
-      'us=${current.baselineWire.elapsedMicroseconds}',
-    );
     if (frame.whichBody() == frame_protocol.ChatFrame_Body.failure) {
       _access?.finishResources(
         current.resource,
@@ -843,7 +825,6 @@ final class ChatConnection implements ChatServiceTransport {
       throw const ChatConnectionException('realtime_frame_size_invalid');
     }
     final pending = _PendingCommand<T>(
-      baselineKind: frame.whichBody().name,
       bytes: bytes,
       accept: accept,
       decode: decode,
@@ -886,11 +867,6 @@ final class ChatConnection implements ChatServiceTransport {
       }
       command.resource?.sent();
       sending = true;
-      _baselineOutput(
-        '[ChatBaseline] stage=wss_queue kind=${command.baselineKind} '
-        'us=${command.baselineQueue.elapsedMicroseconds}',
-      );
-      command.baselineWire.start();
       _socket!.add(bytes);
       if (_commands.isNotEmpty && identical(_commands.first, command)) {
         command.deadline = Timer(_responseDeadline, () {
@@ -1080,12 +1056,8 @@ final class ChatConnection implements ChatServiceTransport {
         }
         final messages = frame.messageBatch.messages
             .map((message) {
-              final value = _MailboxMessage(message);
-              if (value.recipientUserId != identity.userId ||
-                  value.recipientDeviceId != identity.deviceId ||
-                  value.messageId.isEmpty ||
-                  !ids.add(value.messageId) ||
-                  value.messageBytes.isEmpty) {
+              final value = _mailboxMessage(message);
+              if (!ids.add(value.messageId)) {
                 throw const ChatConnectionException('mailbox_identity_invalid');
               }
               return value;
@@ -1099,6 +1071,18 @@ final class ChatConnection implements ChatServiceTransport {
         );
       },
     );
+  }
+
+  _MailboxMessage _mailboxMessage(message_protocol.EncryptedMessage message) {
+    if (message.deliveries.length != 1 ||
+        !message.deliveries.single.hasRecipient() ||
+        message.deliveries.single.openmlsCiphertext.isEmpty ||
+        message.messageId.isEmpty ||
+        message.recipientUserId != identity.userId ||
+        message.recipientDeviceId != identity.deviceId) {
+      throw const ChatConnectionException('mailbox_identity_invalid');
+    }
+    return _MailboxMessage(message);
   }
 
   @override

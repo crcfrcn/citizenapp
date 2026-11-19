@@ -220,7 +220,7 @@ void main() {
     });
   });
 
-  testWidgets('打开与附件动作均不预查云端会员，未知本机规则明确失败', (tester) async {
+  testWidgets('打开聊天只用登录会话，附件动作交会员门禁授权', (tester) async {
     final service = _AttachmentOnlySubscription();
     final provider = _FakeProfileSessionProvider();
     final store = _FakeChatStore(
@@ -249,7 +249,6 @@ void main() {
               subscriptionService: service,
             ),
             sessionProvider: provider,
-            subscriptionService: service,
           ),
         ),
       ),
@@ -271,7 +270,7 @@ void main() {
       ),
       throwsA(isA<SquareApiException>()),
     );
-    expect(service.requests, 0);
+    expect(service.requests, 1);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
@@ -292,7 +291,7 @@ void main() {
       accountId: provider.value.accountId,
       displayName: 'A',
     );
-    setChatLightData(_ownerUserId, null);
+    SubscriptionService.invalidateCitizenAccount(account.accountId);
     expect(
       await capability.prepareAttachment(
         account,
@@ -304,7 +303,11 @@ void main() {
     expect(provider.calls, 0);
     expect(await host.canSend(_ownerUserId), isTrue);
     expect(provider.calls, 1);
-    setChatLightData(_ownerUserId, 10 * 1024 * 1024);
+    final membership = SubscriptionService(
+      api: _ChatMembergateApi(),
+      identityResolver: _NoChatChainRecovery(),
+    );
+    await membership.authorizeResources(provider.value, forceRefresh: true);
     expect(
       await capability.prepareAttachment(
         account,
@@ -432,9 +435,11 @@ void main() {
         child: MaterialApp(
           home: Scaffold(
             body: ChatTab(
-              runtime: _FakeRuntime(address: _peerAccountId),
+              runtime: _FakeRuntime(
+                address: _peerAccountId,
+                subscriptionService: memberships,
+              ),
               store: store,
-              subscriptionService: memberships,
               contactService: _FakeContactService([]),
             ),
           ),
@@ -1752,6 +1757,17 @@ class _FakeRuntime extends ChatRuntime {
       realtimeStopCount += 1;
     };
   }
+}
+
+class _ChatMembergateApi extends SquareApiClient {
+  @override
+  Future<SquareResourceAuthorization> fetchResourceAuthorization(
+    SquareSession session,
+  ) async => SquareApiClient.decodeResourceAuthorization(
+    resourceAuthorizationFixture(
+      validUntil: DateTime.now().millisecondsSinceEpoch + 60000,
+    ),
+  );
 }
 
 class _AttachmentOnlySubscription implements SubscriptionService {

@@ -8,7 +8,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/mls/mls_boundary.dart';
 import 'package:citizen_network/protocol/chat_frame.pb.dart';
 import 'package:citizen_network/protocol/message.dart';
-import 'package:citizen_network/protocol/message.pb.dart';
 import 'package:chat/transport/attachment_transfer.dart';
 import 'package:chat/transport/chat_connection.dart';
 
@@ -409,14 +408,33 @@ void main() {
       );
       socket.receive(
         ChatFrame()
-          ..messageAvailable = (MessageAvailable()
-            ..messageId = 'message-a'
-            ..conversationId = 'conversation-a'
-            ..serverTimeMillis = Int64(2)),
+          ..messageAvailable = MessageAvailable(
+            expiresAtMillis: Int64(2),
+            message: EncryptedMessage(
+              messageId: 'message-a',
+              conversationId: 'conversation-a',
+              senderUserId: 'peer',
+              senderDeviceId: 'peer-device',
+              createdAtMillis: Int64.ONE,
+              deliveries: [
+                EncryptedDelivery(
+                  recipient: Recipient(userId: 'user-a', deviceId: 'device-a'),
+                  openmlsCiphertext: [1, 2, 3],
+                ),
+              ],
+            ),
+          ),
       );
       await Future<void>.delayed(Duration.zero);
       expect(events, hasLength(1));
       expect(events.single, isA<ChatMessageAvailableEvent>());
+      final message = (events.single as ChatMessageAvailableEvent).message;
+      expect(message.messageId, 'message-a');
+      expect(
+        EncryptedMessage.fromBuffer(message.messageBytes).openmlsCiphertext,
+        [1, 2, 3],
+      );
+      expect(socket.sent.where((sent) => sent.hasSyncMessages()), isEmpty);
       await stop();
       await transport.dispose();
     },

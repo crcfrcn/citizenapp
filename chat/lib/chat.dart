@@ -1,8 +1,6 @@
 /// 公民 App 唯一本地聊天包。
 library;
 
-import 'package:citizen_chain/citizen_chain.dart';
-
 import 'package:citizen_user/navigation.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:provider/provider.dart';
@@ -27,7 +25,6 @@ import 'package:citizen_user/membership/membership_revision.dart';
 import 'package:citizen_user/membership/subscription_service.dart';
 import 'package:citizen_user/identity/current_user_context.dart';
 import 'package:citizen_user/identity/cid_business_gate.dart';
-import 'package:citizen_user/identity/finalized_identity_resolver.dart';
 import 'package:citizen_user/contacts/contact_book_page.dart';
 import 'package:citizen_user/contacts/contact_service.dart';
 import 'package:citizen_scanner/scan_dispatch.dart';

@@ -123,9 +123,11 @@ message AcknowledgeMessages {
 }
 
 message MessageAvailable {
-  string message_id = 1;
-  string conversation_id = 2;
-  uint64 server_time_millis = 3;
+  reserved 1, 2, 3;
+  reserved "message_id", "conversation_id", "server_time_millis";
+
+  EncryptedMessage message = 4;
+  uint64 expires_at_millis = 5;
 }
 
 // 查询业务会话唯一已接受的 MLS 组。空 group_id 表示尚未建组。

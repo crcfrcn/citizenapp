@@ -562,23 +562,30 @@ final $typed_data.Uint8List acknowledgeMessagesDescriptor = $convert.base64Decod
 const MessageAvailable$json = {
   '1': 'MessageAvailable',
   '2': [
-    {'1': 'message_id', '3': 1, '4': 1, '5': 9, '10': 'messageId'},
-    {'1': 'conversation_id', '3': 2, '4': 1, '5': 9, '10': 'conversationId'},
     {
-      '1': 'server_time_millis',
-      '3': 3,
+      '1': 'message',
+      '3': 4,
       '4': 1,
-      '5': 4,
-      '10': 'serverTimeMillis'
+      '5': 11,
+      '6': '.chat.protocol.EncryptedMessage',
+      '10': 'message'
     },
+    {'1': 'expires_at_millis', '3': 5, '4': 1, '5': 4, '10': 'expiresAtMillis'},
   ],
+  '9': [
+    {'1': 1, '2': 2},
+    {'1': 2, '2': 3},
+    {'1': 3, '2': 4},
+  ],
+  '10': ['message_id', 'conversation_id', 'server_time_millis'],
 };
 
 /// Descriptor for `MessageAvailable`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List messageAvailableDescriptor = $convert.base64Decode(
-    'ChBNZXNzYWdlQXZhaWxhYmxlEh0KCm1lc3NhZ2VfaWQYASABKAlSCW1lc3NhZ2VJZBInCg9jb2'
-    '52ZXJzYXRpb25faWQYAiABKAlSDmNvbnZlcnNhdGlvbklkEiwKEnNlcnZlcl90aW1lX21pbGxp'
-    'cxgDIAEoBFIQc2VydmVyVGltZU1pbGxpcw==');
+    'ChBNZXNzYWdlQXZhaWxhYmxlEjkKB21lc3NhZ2UYBCABKAsyHy5jaGF0LnByb3RvY29sLkVuY3'
+    'J5cHRlZE1lc3NhZ2VSB21lc3NhZ2USKgoRZXhwaXJlc19hdF9taWxsaXMYBSABKARSD2V4cGly'
+    'ZXNBdE1pbGxpc0oECAEQAkoECAIQA0oECAMQBFIKbWVzc2FnZV9pZFIPY29udmVyc2F0aW9uX2'
+    'lkUhJzZXJ2ZXJfdGltZV9taWxsaXM=');
 
 @$core.Deprecated('Use resolveGroupDescriptor instead')
 const ResolveGroup$json = {

@@ -53,7 +53,6 @@ class ChatTab extends StatefulWidget {
     this.profileMediaCache,
     this.sessionProvider,
     this.contactService,
-    this.subscriptionService,
   }) : store = store ?? runtime.store;
 
   /// 生产固定使用同一 ChatRuntime 的 Store；显式值只用于不启动原生运行时的组件测试。
@@ -72,7 +71,6 @@ class ChatTab extends StatefulWidget {
   final CitizenProfileMediaCache? profileMediaCache;
   final SquareSessionProvider? sessionProvider;
   final UserContactService? contactService;
-  final SubscriptionService? subscriptionService;
 
   @override
   State<ChatTab> createState() => _ChatTabState();
@@ -88,7 +86,6 @@ class _ChatTabState extends State<ChatTab> {
   late final CitizenProfileMediaCache _profileMediaCache =
       widget.profileMediaCache ?? CitizenProfileMediaCache();
   SquareSessionProvider? _sessionProvider;
-  SubscriptionService? _subscriptionService;
   UserContactService? _contactService;
   CitizenSdk? _wallet;
   AccountSecurityService? _accountSecurity;
@@ -99,7 +96,6 @@ class _ChatTabState extends State<ChatTab> {
       <String, CitizenProfileMediaSnapshot>{};
   final Set<String> _resolvedPeerCidNumbers = <String>{};
   final Map<String, String> _peerContactRemarks = <String, String>{};
-  SquareSession? _chatSession;
   String _cidNumber = '';
   String _accountId = '';
   bool _loading = true;
@@ -154,7 +150,6 @@ class _ChatTabState extends State<ChatTab> {
     _profileRequests.clear();
     _peerContactRemarks.clear();
     _conversationDeletesInFlight.clear();
-    _chatSession = null;
     _cidNumber = '';
     _accountId = '';
     _loading = true;
@@ -177,7 +172,6 @@ class _ChatTabState extends State<ChatTab> {
     if (widget.cidNumber != null && widget.accountId != null) {
       _wallet = widget.wallet;
       _sessionProvider = widget.sessionProvider;
-      _subscriptionService = widget.subscriptionService;
       _contactService = widget.contactService;
       _dependenciesReady = true;
       return;
@@ -186,19 +180,9 @@ class _ChatTabState extends State<ChatTab> {
     final accountSecurity = context.read<AccountSecurityService>();
     final currentUserContext = context.read<CurrentUserContext>();
     _currentUserContext = currentUserContext;
-    final identityResolver = context.read<FinalizedIdentityResolver>();
     _wallet = widget.wallet ?? runtime;
     _sessionProvider =
         widget.sessionProvider ?? context.read<SquareSessionProvider>();
-    _subscriptionService =
-        widget.subscriptionService ??
-        SubscriptionService(
-          chainData: context.read<ChainDataService?>(),
-          wallet: _wallet!,
-          chain: runtime,
-          transactions: runtime,
-          identityResolver: identityResolver,
-        );
     _contactService =
         widget.contactService ??
         context.read<UserContactService?>() ??
@@ -227,7 +211,6 @@ class _ChatTabState extends State<ChatTab> {
       _checkingIdentity = false;
       _resetScope();
       _sessionProvider = widget.sessionProvider ?? _sessionProvider;
-      _subscriptionService = widget.subscriptionService ?? _subscriptionService;
       _contactService = widget.contactService ?? _contactService;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
@@ -365,7 +348,6 @@ class _ChatTabState extends State<ChatTab> {
         _cidNumber = ownerUserId;
         _accountId = activeWallet;
       });
-      unawaited(_ensureChatEntitlement(ownerUserId, generation));
       if (ownerUserId.isEmpty) {
         // 默认账户未注册 CID 是合法状态；禁止回退到其他账户，必须在此
         // 短路。会话存储读取第一步就要解析密钥绑定,对未注册身份必抛
@@ -420,51 +402,6 @@ class _ChatTabState extends State<ChatTab> {
         // 二级页返回只需恢复既有既有Realtime订阅，不重复执行首次补发链。
         _listController.configureScope(serviceAccountId);
       }
-    }
-  }
-
-  /// 打开聊天复用普通会话；附件动作单独读取服务端资源许可。
-  Future<void> _ensureChatEntitlement(
-    String cidNumber,
-    int reloadGeneration,
-  ) async {
-    if (cidNumber.isEmpty) {
-      return;
-    }
-    final sessionProvider = _sessionProvider;
-    if (sessionProvider == null || _subscriptionService == null) {
-      return;
-    }
-    if (!mounted ||
-        reloadGeneration != _reloadGeneration ||
-        cidNumber != _cidNumber) {
-      return;
-    }
-    try {
-      final session = _chatSession ?? await sessionProvider.ensureSession();
-      if (!mounted ||
-          reloadGeneration != _reloadGeneration ||
-          cidNumber != _cidNumber ||
-          session == null ||
-          session.cidNumber.trim() != cidNumber) {
-        return;
-      }
-      await session.validateCurrent();
-      if (!mounted ||
-          reloadGeneration != _reloadGeneration ||
-          cidNumber != _cidNumber) {
-        return;
-      }
-      _chatSession = session;
-      SubscriptionService.rememberCitizenSession(session);
-      // 打开聊天只登记基础会话；首次附件动作由聊天模块异步钩子取得唯一会员缓存。
-    } on Exception {
-      // 基础会话失败不读取会员；保留离线展示，服务端仍最终核验会话。
-    }
-    if (mounted &&
-        reloadGeneration == _reloadGeneration &&
-        cidNumber == _cidNumber) {
-      setState(() {});
     }
   }
 

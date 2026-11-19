@@ -1015,6 +1015,23 @@ void main() {
       isEmpty,
     );
   });
+  test('在线原密文直接验密落库，重复事件不再处理且不触发补拉', () async {
+    final fixture = await _Fixture.create();
+    final stop = await fixture.runtime.startRealtimeSync(onNotice: () async {});
+    final before = fixture.transport.fetches;
+    final event = ChatMessageAvailableEvent(message: _Message(1));
+    await Future.wait([
+      fixture.transport.onEvent!(event),
+      fixture.transport.onEvent!(event),
+    ]);
+    expect(fixture.transport.fetches, before);
+    expect(fixture.crypto.processed, 1);
+    expect(fixture.transport.acknowledged.expand((batch) => batch).toSet(), {
+      event.message.messageId,
+    });
+    await stop!();
+  });
+
   test('停止最后实时订阅后，旧补拉不落库不ACK；重连重发同一KeyPackage', () async {
     final fixture = await _Fixture.create();
     final stop = await fixture.runtime.startRealtimeSync(onNotice: () async {});
@@ -1022,12 +1039,9 @@ void main() {
     final original = fixture.transport.published.first.keyPackageRef;
     fixture.transport.fetch = Completer<List<ChatMailboxMessage>>();
     fixture.transport.enteredFetch = Completer<void>();
-    final event = fixture.transport.onEvent!(
-      const ChatMessageAvailableEvent(
-        messageId: 'message-1',
-        conversationId: 'conversation',
-        serverTimeMillis: 1,
-      ),
+    final event = fixture.runtime.handleWake().then<void>(
+      (_) => fail('已关闭的同步不能接受迟到补拉结果'),
+      onError: (Object error) => expect(error, isA<StateError>()),
     );
     await fixture.transport.enteredFetch!.future;
     final stopping = stop!();
