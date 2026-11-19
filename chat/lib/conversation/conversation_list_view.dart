@@ -282,24 +282,39 @@ class _ConversationTileState extends State<_ConversationTile> {
     IconData icon,
     Color color,
     Future<void> Function() action,
-    double width,
-  ) => SizedBox(
+    double width, {
+    double leftOverlap = 0,
+    double rightOverlap = 0,
+  }) => SizedBox(
     width: width,
-    child: Material(
-      color: color,
-      child: InkWell(
-        onTap: _busy ? null : () => _runAction(action),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, color: Colors.white),
-              const SizedBox(height: 4),
-              Text(label, style: const TextStyle(color: Colors.white)),
-            ],
+    // 底色延伸到卡片圆角下方，由前景卡片遮盖形成同半径的互补圆弧。
+    child: Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Positioned.fill(
+          left: -leftOverlap,
+          right: -rightOverlap,
+          child: ColoredBox(color: color),
+        ),
+        Positioned.fill(
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: _busy ? null : () => _runAction(action),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(icon, color: Colors.white),
+                    const SizedBox(height: 4),
+                    Text(label, style: const TextStyle(color: Colors.white)),
+                  ],
+                ),
+              ),
+            ),
           ),
         ),
-      ),
+      ],
     ),
   );
 
@@ -380,6 +395,10 @@ class _ConversationTileState extends State<_ConversationTile> {
                                         await item.onTogglePin?.call();
                                       },
                                       actionWidth,
+                                      leftOverlap: math.max(
+                                        radius.topRight.x,
+                                        radius.bottomRight.x,
+                                      ),
                                     ),
                                     _action(
                                       '删除',
@@ -407,6 +426,10 @@ class _ConversationTileState extends State<_ConversationTile> {
                                         item.onVideo?.call();
                                       },
                                       actionWidth,
+                                      rightOverlap: math.max(
+                                        radius.topLeft.x,
+                                        radius.bottomLeft.x,
+                                      ),
                                     ),
                                   ],
                           ),
@@ -459,14 +482,43 @@ class _ConversationTileState extends State<_ConversationTile> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      Text(
-                                        item.title,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                          color: AppTheme.textPrimary,
-                                        ),
+                                      Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Flexible(
+                                            child: Text(
+                                              item.title,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w700,
+                                                color: AppTheme.textPrimary,
+                                              ),
+                                            ),
+                                          ),
+                                          if (item.isPinned) ...[
+                                            SizedBox(
+                                              width: AppLayout.scaled(
+                                                context,
+                                                4,
+                                              ),
+                                            ),
+                                            Tooltip(
+                                              message: '已置顶',
+                                              child: Icon(
+                                                Icons.push_pin_rounded,
+                                                key: ValueKey(
+                                                  'chat-pinned-${item.id}',
+                                                ),
+                                                size: AppLayout.scaled(
+                                                  context,
+                                                  16,
+                                                ),
+                                                color: AppTheme.primary,
+                                              ),
+                                            ),
+                                          ],
+                                        ],
                                       ),
                                       SizedBox(
                                         height: AppLayout.scaled(context, 4),

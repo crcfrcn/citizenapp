@@ -1,6 +1,9 @@
 import 'package:citizen_system/theme/app_layout.dart';
 import 'package:citizen_testing/chat_runtime_fixture.dart';
 import 'dart:async';
+import 'dart:ui' as ui;
+
+import 'package:flutter/rendering.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -347,6 +350,126 @@ void main() {
     await tester.tap(find.text('语音'));
     await tester.pumpAndSettle();
     expect(voices, 2);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('昵称和长群名右侧保留置顶图钉，未置顶不显示', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(320, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    for (final name in ['用户昵称', '这是一个很长很长需要省略但仍必须完整显示置顶标志的群聊名称']) {
+      for (final pinned in [true, false]) {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ChatConversationOverview(
+                header: const SizedBox(),
+                onRefresh: () async {},
+                onSearch: () {},
+                items: [
+                  ChatConversationListItem(
+                    id: 'pin-label',
+                    title: name,
+                    subtitle: '消息',
+                    updatedAt: DateTime(2026),
+                    unreadCount: 1,
+                    leading: const CircleAvatar(),
+                    onTap: () {},
+                    onDelete: () async {},
+                    isPinned: pinned,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+        final marker = find.byKey(const ValueKey('chat-pinned-pin-label'));
+        expect(marker, pinned ? findsOneWidget : findsNothing);
+        if (pinned) {
+          final title = tester.getRect(find.text(name));
+          final icon = tester.getRect(marker);
+          expect(icon.left, greaterThan(title.right));
+          expect(icon.center.dy, closeTo(title.center.dy, .5));
+          expect(icon.right, lessThan(320));
+          expect(find.byTooltip('已置顶'), findsOneWidget);
+        }
+        expect(tester.takeException(), isNull);
+      }
+    }
+  });
+
+  testWidgets('左右滑动后按钮底色填满卡片上下圆角接缝', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    const captureKey = ValueKey('swipe-capture');
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: RepaintBoundary(
+            key: captureKey,
+            child: ChatConversationOverview(
+              header: const SizedBox(height: 20),
+              onRefresh: () async {},
+              onSearch: () {},
+              items: [
+                ChatConversationListItem(
+                  id: 'seam',
+                  title: '圆角衔接',
+                  subtitle: '消息',
+                  updatedAt: DateTime(2026),
+                  unreadCount: 0,
+                  leading: const CircleAvatar(),
+                  onTap: () {},
+                  onDelete: () async {},
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    final tile = find.byKey(const ValueKey('chat-conversation-seam'));
+    final context = tester.element(tile);
+    final radius = AppLayout.scaled(context, 12);
+    final card = find
+        .ancestor(of: find.text('圆角衔接'), matching: find.byType(DecoratedBox))
+        .first;
+    for (final left in [true, false]) {
+      await tester.drag(tile, Offset(left ? -170 : 170, 0));
+      await tester.pumpAndSettle();
+      final cardRect = tester.getRect(card);
+      final capture = tester.getRect(find.byKey(captureKey));
+      final boundary = tester.renderObject<RenderRepaintBoundary>(
+        find.byKey(captureKey),
+      );
+      final image = (await tester.runAsync(
+        () => boundary.toImage(pixelRatio: 1),
+      ))!;
+      final bytes = (await tester.runAsync(
+        () => image.toByteData(format: ui.ImageByteFormat.rawRgba),
+      ))!;
+      final x =
+          (left ? cardRect.right - radius / 4 : cardRect.left + radius / 4) -
+          capture.left;
+      final expected = left ? Colors.orange.shade700 : Colors.blue.shade600;
+      for (final y in [cardRect.top + 2, cardRect.bottom - 3]) {
+        final offset =
+            (((y - capture.top).floor() * image.width) + x.floor()) * 4;
+        final actual = Color.fromARGB(
+          bytes.getUint8(offset + 3),
+          bytes.getUint8(offset),
+          bytes.getUint8(offset + 1),
+          bytes.getUint8(offset + 2),
+        );
+        // 圆弧抗锯齿允许两个色阶误差，空白接缝与按钮底色的差异远大于此值。
+        expect(actual.r, closeTo(expected.r, 2 / 255), reason: '接缝红色通道');
+        expect(actual.g, closeTo(expected.g, 2 / 255), reason: '接缝绿色通道');
+        expect(actual.b, closeTo(expected.b, 2 / 255), reason: '接缝蓝色通道');
+        expect(actual.a, 1);
+      }
+      image.dispose();
+      await tester.tapAt(cardRect.intersect(tester.getRect(tile)).center);
+      await tester.pumpAndSettle();
+    }
     expect(tester.takeException(), isNull);
   });
 
