@@ -42,7 +42,17 @@ import 'chat_media_limits.dart';
 
 // 原版基线采样。输出固定阶段名和耗时，正式发布删除。
 void _baselineLatency(String stage, Stopwatch timer) {
-  stderr.writeln('[ChatBaseline] stage=$stage us=${timer.elapsedMicroseconds}');
+  _baselineOutput(
+    '[ChatBaseline] stage=$stage us=${timer.elapsedMicroseconds}',
+  );
+}
+
+void _baselineOutput(String line) {
+  if (Platform.isAndroid) {
+    debugPrintSynchronously(line);
+  } else {
+    stderr.writeln(line);
+  }
 }
 
 typedef MlsStateStoreFactory = Future<MlsStateStore> Function(String userId);
@@ -5044,7 +5054,7 @@ class ChatRuntime {
           try {
             await _runRuntimeOperation(() async {
               if (event is ChatMessageAvailableEvent) {
-                stderr.writeln('[ChatBaseline] stage=online_notice');
+                _baselineOutput('[ChatBaseline] stage=online_notice');
                 await _drainMailbox(account, signalContext.transport);
               }
             });

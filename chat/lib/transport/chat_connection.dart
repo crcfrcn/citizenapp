@@ -3,6 +3,7 @@ import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_user/identity/square_session_provider.dart';
 import 'package:citizen_user/membership/subscription_service.dart';
 import 'dart:io';
+import 'package:flutter/foundation.dart' show debugPrintSynchronously;
 import 'package:chat/mls/mls_boundary.dart';
 import 'package:citizen_network/protocol/chat_frame.pb.dart'
     show ResourceUsage, ChatFrame;
@@ -16,6 +17,15 @@ import 'package:citizen_network/protocol/attachment.pb.dart'
 import 'package:citizen_network/protocol/chat_frame.pb.dart' as frame_protocol;
 import 'package:citizen_network/protocol/message.dart' as message_protocol;
 import 'attachment_transfer.dart';
+
+// 原版基线输出到各端有线可见的日志；正式发布删除。
+void _baselineOutput(String line) {
+  if (Platform.isAndroid) {
+    debugPrintSynchronously(line);
+  } else {
+    stderr.writeln(line);
+  }
+}
 
 /// App签发的短期聊天许可。只接受完整WSS入口，Token只保存在内存中。
 class ChatAccess {
@@ -766,7 +776,7 @@ final class ChatConnection implements ChatServiceTransport {
       return;
     }
     final current = _commands.first;
-    stderr.writeln(
+    _baselineOutput(
       '[ChatBaseline] stage=wss_result kind=${current.baselineKind} '
       'us=${current.baselineWire.elapsedMicroseconds}',
     );
@@ -876,7 +886,7 @@ final class ChatConnection implements ChatServiceTransport {
       }
       command.resource?.sent();
       sending = true;
-      stderr.writeln(
+      _baselineOutput(
         '[ChatBaseline] stage=wss_queue kind=${command.baselineKind} '
         'us=${command.baselineQueue.elapsedMicroseconds}',
       );
