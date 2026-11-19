@@ -477,11 +477,15 @@ final class _MailboxMessage implements ChatMailboxMessage {
 
 final class _PendingCommand<T> {
   _PendingCommand({
+    required this.baselineKind,
     required this.bytes,
     required this.accept,
     required this.decode,
   });
 
+  final String baselineKind;
+  final Stopwatch baselineQueue = Stopwatch()..start();
+  final Stopwatch baselineWire = Stopwatch();
   final Uint8List bytes;
   final bool Function(frame_protocol.ChatFrame frame) accept;
   final T Function(frame_protocol.ChatFrame frame) decode;
@@ -762,6 +766,10 @@ final class ChatConnection implements ChatServiceTransport {
       return;
     }
     final current = _commands.first;
+    stderr.writeln(
+      '[ChatBaseline] stage=wss_result kind=${current.baselineKind} '
+      'us=${current.baselineWire.elapsedMicroseconds}',
+    );
     if (frame.whichBody() == frame_protocol.ChatFrame_Body.failure) {
       _access?.finishResources(
         current.resource,
@@ -825,6 +833,7 @@ final class ChatConnection implements ChatServiceTransport {
       throw const ChatConnectionException('realtime_frame_size_invalid');
     }
     final pending = _PendingCommand<T>(
+      baselineKind: frame.whichBody().name,
       bytes: bytes,
       accept: accept,
       decode: decode,
@@ -867,6 +876,11 @@ final class ChatConnection implements ChatServiceTransport {
       }
       command.resource?.sent();
       sending = true;
+      stderr.writeln(
+        '[ChatBaseline] stage=wss_queue kind=${command.baselineKind} '
+        'us=${command.baselineQueue.elapsedMicroseconds}',
+      );
+      command.baselineWire.start();
       _socket!.add(bytes);
       if (_commands.isNotEmpty && identical(_commands.first, command)) {
         command.deadline = Timer(_responseDeadline, () {

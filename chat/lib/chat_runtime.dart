@@ -40,6 +40,11 @@ import 'message/direct_flow.dart';
 import 'group/group_flow.dart';
 import 'chat_media_limits.dart';
 
+// 原版基线采样。输出固定阶段名和耗时，正式发布删除。
+void _baselineLatency(String stage, Stopwatch timer) {
+  stderr.writeln('[ChatBaseline] stage=$stage us=${timer.elapsedMicroseconds}');
+}
+
 typedef MlsStateStoreFactory = Future<MlsStateStore> Function(String userId);
 
 enum ChatPersistentWipeState { none, pending, complete }
@@ -2903,6 +2908,7 @@ class ChatRuntime {
     required String conversationId,
     required String text,
   }) async {
+    final baselineLocal = Stopwatch()..start();
     final payload = ChatPayloadCodec.encode(ChatContent.text(text));
     await _savePendingDirectPayload(
       peerUserId: peerUserId,
@@ -2910,6 +2916,7 @@ class ChatRuntime {
       messageKind: ChatMessageKind.text,
       payload: payload,
     );
+    _baselineLatency('local_outbox', baselineLocal);
     return const <ChatDeliveryResult>[];
   }
 
@@ -3597,7 +3604,9 @@ class ChatRuntime {
     ChatRuntimeAccountContext context,
     String targetUserId,
   ) async {
+    final baselineKeyPackages = Stopwatch()..start();
     final resolved = await context.transport.resolveKeyPackages(targetUserId);
+    _baselineLatency('key_packages_total', baselineKeyPackages);
     final now = DateTime.now().millisecondsSinceEpoch;
     if (resolved.isEmpty ||
         resolved.any(
@@ -4318,7 +4327,9 @@ class ChatRuntime {
   ) async {
     final cached = context._groupBindings[conversationId];
     if (cached != null) return cached;
+    final baselineGroup = Stopwatch()..start();
     final id = await context.transport.resolveGroup(conversationId);
+    _baselineLatency('group_binding_total', baselineGroup);
     if (id.isNotEmpty) context._groupBindings[conversationId] = id;
     return id;
   }
@@ -4495,7 +4506,9 @@ class ChatRuntime {
       }
     }
 
+    final baselineSeal = Stopwatch()..start();
     await send();
+    _baselineLatency('encode_and_store', baselineSeal);
   }
 
   Future<void> _sendPendingMedia({
@@ -4690,12 +4703,14 @@ class ChatRuntime {
         continue;
       }
       try {
+        final baselineSend = Stopwatch()..start();
         final result = await context.transport.sendEncryptedMessage(
           messageId: item.messageId,
           messageBytes: item.messageBytes,
           recipientUserId: item.recipientUserId,
           recipientDeviceId: message.recipientDeviceId,
         );
+        _baselineLatency('send_command_total', baselineSend);
         await _store.markOutgoingDelivery(
           bindingToken: context.bindingToken,
           ownerUserId: context.account.userId,
@@ -5029,6 +5044,7 @@ class ChatRuntime {
           try {
             await _runRuntimeOperation(() async {
               if (event is ChatMessageAvailableEvent) {
+                stderr.writeln('[ChatBaseline] stage=online_notice');
                 await _drainMailbox(account, signalContext.transport);
               }
             });
@@ -5182,7 +5198,9 @@ class ChatRuntime {
           }
           for (var page = 0; page < 32; page++) {
             await _requireMailboxCurrent(account, generation, epoch);
+            final baselineSync = Stopwatch()..start();
             final batch = await transport.fetchMailbox(cursor: cursor);
+            _baselineLatency('mailbox_fetch_total', baselineSync);
             final items = batch.messages;
             if (batch.nextCursor != null && !cursors.add(batch.nextCursor!)) {
               throw const ChatConnectionException('mailbox_cursor_no_progress');
@@ -5309,7 +5327,9 @@ class ChatRuntime {
     // 一批只发一次 ACK；单条失败不阻断同批其它密文，且失败条目不进入删除集合。
     await _requireMailboxCurrent(account, generation, epoch);
     if (acknowledgedMessageIds.isNotEmpty) {
+      final baselineAck = Stopwatch()..start();
       await transport.acknowledgeMailbox(acknowledgedMessageIds.toList());
+      _baselineLatency('mailbox_ack_total', baselineAck);
       await _requireMailboxCurrent(account, generation, epoch);
     }
     return acknowledgedMessageIds.length;
@@ -5338,11 +5358,13 @@ class ChatRuntime {
     try {
       final context = await _readyContext(account);
       // 原生操作和 Isar 写入各自复核当前绑定，网络不能占用文件租约。
+      final baselineIncoming = Stopwatch()..start();
       final accepted = await _processMailboxMessage(
         context,
         item.senderUserId,
         item.messageBytes,
       );
+      _baselineLatency('verify_and_store', baselineIncoming);
       if (!accepted.contains(item.messageId)) {
         throw StateError('聊天密文尚无本机精确持久收据');
       }
