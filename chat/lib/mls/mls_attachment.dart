@@ -276,6 +276,7 @@ class MlsAttachment {
       if (bundle.welcome == null) throw StateError('附件Welcome缺失');
       welcome = bundle.welcome!.wireBytes;
     }
+    await crypto.settlePendingCommit('$group:add', accepted: true);
     final state = await crypto.groupState(group);
     final actual = [...state.memberIdentities]..sort();
     if (state.epoch != 1 || jsonEncode(actual) != jsonEncode(roster)) {

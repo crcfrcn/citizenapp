@@ -163,6 +163,7 @@ class EncryptedMessage extends $pb.GeneratedMessage {
     $core.String? senderDeviceId,
     $core.Iterable<EncryptedDelivery>? deliveries,
     $fixnum.Int64? createdAtMillis,
+    $core.List<$core.int>? groupId,
   }) {
     final result = create();
     if (messageId != null) result.messageId = messageId;
@@ -171,6 +172,7 @@ class EncryptedMessage extends $pb.GeneratedMessage {
     if (senderDeviceId != null) result.senderDeviceId = senderDeviceId;
     if (deliveries != null) result.deliveries.addAll(deliveries);
     if (createdAtMillis != null) result.createdAtMillis = createdAtMillis;
+    if (groupId != null) result.groupId = groupId;
     return result;
   }
 
@@ -196,6 +198,8 @@ class EncryptedMessage extends $pb.GeneratedMessage {
     ..a<$fixnum.Int64>(
         6, _omitFieldNames ? '' : 'createdAtMillis', $pb.PbFieldType.OU6,
         defaultOrMaker: $fixnum.Int64.ZERO)
+    ..a<$core.List<$core.int>>(
+        7, _omitFieldNames ? '' : 'groupId', $pb.PbFieldType.OY)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -264,6 +268,15 @@ class EncryptedMessage extends $pb.GeneratedMessage {
   $core.bool hasCreatedAtMillis() => $_has(5);
   @$pb.TagNumber(6)
   void clearCreatedAtMillis() => $_clearField(6);
+
+  @$pb.TagNumber(7)
+  $core.List<$core.int> get groupId => $_getN(6);
+  @$pb.TagNumber(7)
+  set groupId($core.List<$core.int> value) => $_setBytes(6, value);
+  @$pb.TagNumber(7)
+  $core.bool hasGroupId() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearGroupId() => $_clearField(7);
 }
 
 /// chat 内部使用的设备路由快照。

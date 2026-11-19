@@ -285,12 +285,13 @@ final class MlsContactSync {
         'device_ids': existing,
         'mls_message': result.commit.wireHex,
       });
+      final joined = _members(result.welcomeMemberIdentities);
       envelopes.add({
         'message_type': 'welcome',
-        'device_ids': targets,
+        'device_ids': joined,
         'mls_message': result.welcome!.wireHex,
       });
-      next = _members((await crypto.groupState(groupId)).memberIdentities);
+      next = [..._members(result.priorMemberIdentities), ...joined]..sort();
     } else if (kind == 'remove') {
       final result = await crypto.withMessage(
         nativeId,
@@ -306,7 +307,9 @@ final class MlsContactSync {
             .toList(),
         'mls_message': result.commit.wireHex,
       });
-      next = _members((await crypto.groupState(groupId)).memberIdentities);
+      next = _members(
+        result.priorMemberIdentities,
+      ).where((id) => !targets.contains(id)).toList();
     } else {
       if (original == null && payload == null) throw StateError('通讯录操作缺少原业务载荷');
       final business = original == null
@@ -343,6 +346,9 @@ final class MlsContactSync {
       'member_devices': next,
       'messages': envelopes,
     });
+    if (kind == 'add' || kind == 'remove') {
+      await crypto.settlePendingCommit(nativeId, accepted: true);
+    }
     await crypto.acknowledgeMessage(nativeId);
     return kind == 'application' ? payload : null;
   }

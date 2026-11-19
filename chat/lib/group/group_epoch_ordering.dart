@@ -6,7 +6,7 @@ import 'package:citizen_network/protocol/message.dart';
 //
 // MLS 群解密链要求 Commit 按 epoch 顺序应用;零存储瞬时中转不保证到达序。
 // 规则(Rust `group_process` 已给出 status 判定):
-//   applied    + commit → 成功应用,epoch 前进;回放缓冲中"下一个 epoch"的项
+//   applied    + welcome/commit → 成功应用,epoch 前进;回放缓冲中"下一个 epoch"的项
 //   out_of_order        → 该消息 epoch > 当前 epoch,缓冲待补
 //   stale               → epoch 已过(密钥已 ratchet),丢弃
 // epoch 状态机由本模块测试固定。
@@ -22,7 +22,7 @@ typedef GroupBufferPut =
       EncryptedMessage message,
     );
 
-/// 取出并删除某 (groupId, messageEpoch) 下最早的一条缓冲 message;无则 null。
+/// 读取某 (groupId, messageEpoch) 下本轮尚未处理的最早密文。
 typedef GroupBufferTake =
     Future<EncryptedMessage?> Function(String groupId, int messageEpoch);
 
@@ -57,8 +57,10 @@ class GroupEpochOrdering {
       return result;
     }
     await onProcessed?.call(message, result);
-    if (result.status == GroupProcessStatus.applied &&
-        result.kind == GroupInboundKind.commit) {
+    if (result.isApplied &&
+        !result.selfRemoved &&
+        (result.kind == GroupInboundKind.welcome ||
+            result.kind == GroupInboundKind.commit)) {
       await _drain(
         groupId: result.groupId,
         fromEpoch: result.groupEpoch,
@@ -74,7 +76,7 @@ class GroupEpochOrdering {
 
   /// 回放缓冲:从 [fromEpoch] 起,取该 epoch 下缓冲项依次重放。
   /// application 应用后 epoch 不变(继续取同 epoch);Commit 应用后 epoch+1
-  /// (移到下一 epoch 继续)。取空即止;每次取出即删除,必然收敛。
+  /// (移到下一 epoch 继续)。调用方在处理成功后确认原缓冲。
   static Future<void> _drain({
     required String groupId,
     required int fromEpoch,
@@ -90,7 +92,13 @@ class GroupEpochOrdering {
       if (buffered == null) {
         break;
       }
-      final result = await process(wireFromMessage(buffered));
+      final GroupInbound result;
+      try {
+        result = await process(wireFromMessage(buffered));
+      } catch (_) {
+        // 失败密文仍由原队列保留，同 epoch 的其他密文可以继续。
+        continue;
+      }
       switch (result.status) {
         case GroupProcessStatus.applied:
           await onProcessed?.call(buffered, result);

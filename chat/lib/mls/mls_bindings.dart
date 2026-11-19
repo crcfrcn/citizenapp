@@ -13,7 +13,8 @@ import 'mls_state_store.dart';
 /// 通过现有 native 库调用 Rust OpenMLS。
 ///
 /// 该类只负责跨 FFI 边界，密码学实现全部在 Rust OpenMLS 中完成。
-class MlsCrypto implements MlsGroupCrypto, MlsPersistentCrypto {
+class MlsCrypto
+    implements MlsGroupCrypto, MlsPersistentCrypto, MlsCommitControl {
   MlsCrypto({
     MlsBindings? bindings,
     ChatDevice? identity,
@@ -42,6 +43,21 @@ class MlsCrypto implements MlsGroupCrypto, MlsPersistentCrypto {
   @override
   Future<List<Map<String, dynamic>>> pendingMessageResults(String? messageId) =>
       _requireStateStore().pendingResults(messageId);
+
+  @override
+  Future<void> finishCommit(
+    String operationId, {
+    required bool accepted,
+  }) async {
+    final state = _requireStateStore();
+    await state.ensureReady();
+    _bindings.callJson(_bindings.store, {
+      'state_store_dir': state.path,
+      'user_id': _requireIdentity().userId,
+      'action': accepted ? 'confirm_commit' : 'reject_commit',
+      'message_id': operationId,
+    });
+  }
 
   /// 上下文释放不删除持久化MLS身份。
   void dispose() {
@@ -140,6 +156,8 @@ class MlsCrypto implements MlsGroupCrypto, MlsPersistentCrypto {
       ),
       priorMemberIdentities: (response['prior_member_identities'] as List)
           .cast<String>(),
+      welcomeMemberIdentities: (response['welcome_member_identities'] as List)
+          .cast<String>(),
       createdAtMillis: (response['created_at_millis'] as num).toInt(),
       welcome: welcomeHex.isEmpty
           ? null
@@ -216,8 +234,9 @@ class MlsCrypto implements MlsGroupCrypto, MlsPersistentCrypto {
       'message_id': _messageId,
       'user_id': identity.userId,
       'device_id': identity.deviceId,
-      'group_id': wire.conversationId,
+      'group_id': wire.groupId,
       'wire_message_hex': wire.wireHex,
+      'sender_member_identity': ?wire.senderMemberIdentity,
     });
     final plaintextHex = response['plaintext_hex']?.toString();
     final members = (response['member_identities'] as List?)
@@ -306,14 +325,16 @@ class MlsCrypto implements MlsGroupCrypto, MlsPersistentCrypto {
   }
 }
 
-typedef MlsJsonNative = Pointer<Utf8> Function(
-  Pointer<Utf8> requestJson,
-  Pointer<Pointer<Utf8>> errorOut,
-);
-typedef MlsJsonDart = Pointer<Utf8> Function(
-  Pointer<Utf8> requestJson,
-  Pointer<Pointer<Utf8>> errorOut,
-);
+typedef MlsJsonNative =
+    Pointer<Utf8> Function(
+      Pointer<Utf8> requestJson,
+      Pointer<Pointer<Utf8>> errorOut,
+    );
+typedef MlsJsonDart =
+    Pointer<Utf8> Function(
+      Pointer<Utf8> requestJson,
+      Pointer<Pointer<Utf8>> errorOut,
+    );
 typedef MlsFreeStringNative = Void Function(Pointer<Utf8> ptr);
 typedef MlsFreeStringDart = void Function(Pointer<Utf8> ptr);
 

@@ -117,6 +117,13 @@ class _Store implements ChatFlowStore<Object> {
   }
 
   @override
+  Future<void> acknowledgePendingInbound({
+    required Object bindingToken,
+    required String ownerUserId,
+    required Iterable<String> messageIds,
+  }) async {}
+
+  @override
   dynamic noSuchMethod(Invocation invocation) =>
       throw StateError('unexpected store');
 }

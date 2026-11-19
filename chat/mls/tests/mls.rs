@@ -45,6 +45,11 @@ impl Fixture {
         r["group_id"] = json!(group);
         r
     }
+    fn confirm_commit(&self, id: &str) {
+        let request = json!({"state_store_dir":self.dir,"user_id":self.user,
+            "action":"confirm_commit","message_id":id});
+        invoke(store_json, request).unwrap();
+    }
     fn acknowledge(&self, id: &str) {
         invoke(store_json, json!({"state_store_dir":self.dir,"user_id":self.user,"action":"acknowledge","message_id":id})).unwrap();
     }
@@ -75,11 +80,149 @@ fn group_pair(group: &str) -> (Fixture, Fixture) {
     add["key_packages_hex"] = json!([published["key_package_hex"]]);
     add["expected_member_identities"] = json!([format!("{}:{}", b.user, b.device)]);
     let added = invoke(group_add_members_json, add).unwrap();
+    a.confirm_commit("add");
     let mut welcome = b.group("welcome", group);
     welcome["wire_message_hex"] = added["welcome_wire_hex"].clone();
     invoke(group_process_json, welcome).unwrap();
     (a, b)
 }
+#[test]
+fn official_group_conflicts_leave_existing_state_intact() {
+    let a = Fixture::new("user-a");
+    let b = Fixture::new("user-b");
+    let mut kp = b.request("package");
+    kp["last_resort"] = json!(false);
+    let package = invoke(create_key_package_json, kp).unwrap();
+    let create = a.group("create", "group");
+    let created = invoke(group_create_json, create.clone()).unwrap();
+    assert_eq!(invoke(group_create_json, create).unwrap(), created);
+    let before = fs::read(storage_path(&a.dir)).unwrap();
+    assert!(invoke(group_create_json, a.group("duplicate", "group"))
+        .unwrap_err()
+        .ends_with("GroupAlreadyExists"));
+    assert_eq!(fs::read(storage_path(&a.dir)).unwrap(), before);
+
+    let mut add = a.group("add", "group");
+    add["key_packages_hex"] = json!([package["key_package_hex"]]);
+    add["expected_member_identities"] = json!([format!("{}:{}", b.user, b.device)]);
+    let added = invoke(group_add_members_json, add).unwrap();
+    a.confirm_commit("add");
+    let mut welcome = b.group("welcome", "group");
+    welcome["wire_message_hex"] = added["welcome_wire_hex"].clone();
+    let before = fs::read(storage_path(&b.dir)).unwrap();
+    let mut wrong = welcome.clone();
+    wrong["group_id"] = json!("other");
+    assert!(invoke(group_process_json, wrong).is_err());
+    assert_eq!(fs::read(storage_path(&b.dir)).unwrap(), before);
+    assert_eq!(
+        invoke(group_process_json, welcome).unwrap()["message_kind"],
+        "welcome"
+    );
+
+    // 独立设备同名组已存在时，官方拒绝入组且普通KeyPackage不会被持久消费。
+    let c = Fixture::new("user-c");
+    let mut kp = c.request("package");
+    kp["last_resort"] = json!(false);
+    let package = invoke(create_key_package_json, kp).unwrap();
+    invoke(group_create_json, c.group("create", "group")).unwrap();
+    let mut add = a.group("add-c", "group");
+    add["key_packages_hex"] = json!([package["key_package_hex"]]);
+    add["expected_member_identities"] = json!([format!("{}:{}", c.user, c.device)]);
+    let added = invoke(group_add_members_json, add).unwrap();
+    a.confirm_commit("add-c");
+    let mut welcome = c.group("conflict", "group");
+    welcome["wire_message_hex"] = added["welcome_wire_hex"].clone();
+    let before = fs::read(storage_path(&c.dir)).unwrap();
+    assert_eq!(
+        invoke(group_process_json, welcome).unwrap_err(),
+        "CHAT_MLS_WELCOME_CONFLICT"
+    );
+    assert_eq!(fs::read(storage_path(&c.dir)).unwrap(), before);
+}
+
+#[test]
+fn confirmed_direct_commit_is_durable_before_bidirectional_messages() {
+    let alice = Fixture::new("alice");
+    let bob = Fixture::new("bob");
+    let mut pk = bob.request("package");
+    pk["last_resort"] = json!(false);
+    let package = invoke(create_key_package_json, pk).unwrap();
+    let created = invoke(group_create_json, alice.group("operation", "")).unwrap();
+    let group = created["group_id"].as_str().unwrap();
+    assert_eq!(group.len(), 36);
+    assert_eq!(
+        invoke(group_create_json, alice.group("operation", "")).unwrap(),
+        created
+    );
+    let mut add = alice.group("operation", group);
+    add["key_packages_hex"] = json!([package["key_package_hex"]]);
+    add["expected_member_identities"] = json!([format!("{}:{}", bob.user, bob.device)]);
+    let receipt = invoke(group_add_members_json, add.clone()).unwrap();
+    assert_eq!(receipt["epoch"], 0);
+    let group_state = json!({"state_store_dir":alice.dir,"user_id":alice.user,
+        "device_id":alice.device,"group_id":group});
+    assert_eq!(
+        invoke(group_state_json, group_state.clone()).unwrap()["epoch"],
+        0
+    );
+    assert_eq!(invoke(group_add_members_json, add).unwrap(), receipt);
+    let accept = json!({"state_store_dir":alice.dir,"user_id":alice.user,
+        "action":"confirm_commit","message_id":"operation"});
+    invoke(store_json, accept.clone()).unwrap();
+    invoke(store_json, accept).unwrap();
+    assert_eq!(
+        invoke(group_state_json, group_state.clone()).unwrap()["epoch"],
+        1
+    );
+    let mut welcome = bob.group("welcome", group);
+    welcome["wire_message_hex"] = receipt["welcome_wire_hex"].clone();
+    invoke(group_process_json, welcome).unwrap();
+    for (sender, recipient) in [(&alice, &bob), (&bob, &alice)] {
+        let mut send = sender.group("send", group);
+        send["plaintext_hex"] = json!("3132");
+        let sent = invoke(group_create_message_json, send).unwrap();
+        let mut recv = recipient.group("recv", group);
+        recv["wire_message_hex"] = sent["application_wire_hex"].clone();
+        assert_eq!(
+            invoke(group_process_json, recv).unwrap()["plaintext_hex"],
+            "3132"
+        );
+    }
+
+    // 胜出 Commit 可能先于冲突回包抵达。败选方只结清旧收据。
+    let carol = Fixture::new("carol");
+    let dave = Fixture::new("dave");
+    let stage = |sender: &Fixture, invitee: &Fixture| {
+        let mut kp = invitee.request("package");
+        kp["last_resort"] = json!(false);
+        let package = invoke(create_key_package_json, kp).unwrap();
+        let mut add = sender.group("next", group);
+        add["key_packages_hex"] = json!([package["key_package_hex"]]);
+        add["expected_member_identities"] = json!([format!("{}:{}", invitee.user, invitee.device)]);
+        invoke(group_add_members_json, add).unwrap()
+    };
+    let winner = stage(&alice, &carol);
+    stage(&bob, &dave);
+    alice.confirm_commit("next");
+    let mut incoming = bob.group("winner", group);
+    incoming["wire_message_hex"] = winner["commit_wire_hex"].clone();
+    assert_eq!(
+        invoke(group_process_json, incoming).unwrap()["group_epoch"],
+        2
+    );
+    let reject = json!({"state_store_dir":bob.dir,"user_id":bob.user,
+        "action":"reject_commit","message_id":"next"});
+    invoke(store_json, reject).unwrap();
+    let state = json!({"state_store_dir":bob.dir,"user_id":bob.user,
+        "device_id":bob.device,"group_id":group});
+    let members = invoke(group_state_json, state).unwrap()["member_identities"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert!(members.contains(&json!(format!("{}:{}", carol.user, carol.device))));
+    assert!(!members.contains(&json!(format!("{}:{}", dave.user, dave.device))));
+}
+
 /// 损坏密文失败时不提交快照，原合法密文仍可精确消费。
 #[test]
 fn corrupt_ciphertext_rejects_without_committing_or_aborting() {
@@ -320,8 +463,15 @@ fn verify_authentication(proof: &serde_json::Value, label: &str) -> bool {
     if text("device_id") != hex::encode(&public) {
         return false;
     }
-    let mut content = vec![match text("token_purpose"){"device"=>0,"session"=>1,"request"=>2,_=>return false}];
-    if text("token_purpose")=="request"{content.extend(bytes("session_hash"));}
+    let mut content = vec![match text("token_purpose") {
+        "device" => 0,
+        "session" => 1,
+        "request" => 2,
+        _ => return false,
+    }];
+    if text("token_purpose") == "request" {
+        content.extend(bytes("session_hash"));
+    }
     VLBytes::from(text("user_id").as_bytes().to_vec())
         .tls_serialize(&mut content)
         .unwrap();
@@ -380,8 +530,8 @@ fn authentication_binds_every_field_and_is_separate_from_mls_protocol_labels() {
     let a = Fixture::new("user-a");
     let proof = invoke(identity_json, authentication_request(&a)).unwrap();
     for (field, value) in [
-        ("token_purpose",json!("device")),
-        ("session_hash",json!("55".repeat(32))),
+        ("token_purpose", json!("device")),
+        ("session_hash", json!("55".repeat(32))),
         ("user_id", json!("other")),
         ("device_id", json!("33".repeat(32))),
         ("public_key", json!(format!("0x{}", "33".repeat(32)))),
@@ -605,6 +755,7 @@ fn messages_survive_restart_before_host_commit() {
     let mut remove = a.group("remove-later", "group");
     remove["member_identities"] = json!([format!("{}:{}", b.user, b.device)]);
     invoke(group_remove_members_json, remove).unwrap();
+    a.confirm_commit("remove-later");
     assert_eq!(
         first,
         invoke(group_create_message_json, send.clone()).unwrap()
@@ -802,6 +953,7 @@ fn attachment_cursor_archives_chunks_and_deletes_only_owned_protocol_group() {
     add["key_packages_hex"] = json!([published["key_package_hex"]]);
     add["expected_member_identities"] = json!([format!("{}:{}", b.user, b.device)]);
     invoke(group_add_members_json, add).unwrap();
+    a.confirm_commit(&format!("{group}:add"));
     let header = serde_json::to_vec(
         &json!({"group_id":group,"attachment_id":"file","sender_member_identity":sender,
             "chunk_index":0,"chunk_count":1,"byte_size":3}),

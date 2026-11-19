@@ -17,6 +17,31 @@ import 'package:citizen_testing/chat_isar_test_env.dart';
 import 'package:citizen_testing/mls_test_env.dart';
 import 'package:chat/transport/chat_connection.dart';
 
+Future<GroupState> _joinedDirectGroup(
+  TestMlsDevice sender,
+  List<TestMlsDevice> receivers,
+  List<MlsKeyPackage> packages,
+) async {
+  final created = await sender.crypto.withMessage(
+    'group-bootstrap',
+    () => sender.crypto.createGroup(''),
+  );
+  final staged = await sender.crypto.withMessage(
+    'group-bootstrap',
+    () => sender.crypto.addMembers(created.groupId, packages),
+  );
+  expect((await sender.crypto.groupState(created.groupId)).epoch, 0);
+  expect(staged.epoch, 0);
+  await sender.crypto.finishCommit('group-bootstrap', accepted: true);
+  for (final receiver in receivers) {
+    await receiver.crypto.withMessage(
+      'group-welcome',
+      () => receiver.crypto.groupProcess(staged.welcome!),
+    );
+  }
+  return sender.crypto.groupState(created.groupId);
+}
+
 void main() {
   test('真实MLS同epoch改名A到B再到A，每次控制都实际应用', () async {
     final dir = await createMlsTestDirectory(),
@@ -40,6 +65,7 @@ void main() {
       userId: 'CID-B',
       currentAccountId: account,
       localDeviceId: b.identity.deviceId,
+      submitCommit: (_) async => throw StateError('收件端不得提交 Commit'),
       deliverer: (message, _, _, _) async => ChatDeliveryResult(
         messageId: message.messageId,
         state: ChatMessageDeliveryState.sent,
@@ -54,6 +80,11 @@ void main() {
       userId: 'CID-A',
       currentAccountId: account,
       localDeviceId: a.identity.deviceId,
+      submitCommit: (frame) async {
+        for (final message in frame.messages) {
+          await receiver.processIncomingGroupMessage(message.writeToBuffer());
+        }
+      },
       deliverer: (message, bytes, _, _) async {
         ids.add(message.messageId);
         await receiver.processIncomingGroupMessage(bytes);
@@ -80,134 +111,126 @@ void main() {
     expect((await a.crypto.groupState(group)).epoch, 1);
   });
   for (final sticker in [false, true]) {
-    test(
-      '真实MLS待发${sticker ? '贴纸' : '文字'}为每台设备保存Welcome和Application，重试不覆盖',
-      () async {
-        final dir = await createMlsTestDirectory(),
-            a = await createTestMlsDevice(dir, 'a');
-        final receivers = [
-          await createTestMlsDevice(dir, 'b', cid: 'CID-B'),
-          await createTestMlsDevice(dir, 'c', cid: 'CID-B'),
-        ];
-        final store = ChatStore(), account = '0x${'33' * 32}';
-        final token = await store.activateBindingFence(
-          ChatBinding(
-            userId: 'CID-A',
-            accountId: account,
-            bindingRevision: 1,
-            bindingScope: '0x${'44' * 32}',
-          ),
-        );
-        final payload = sticker
-            ? ChatContent.sticker(
-                packId: 'fluent3d',
-                stickerId: 'grinning_face',
-              )
-            : ChatContent.text('hello');
-        await store.savePendingOutgoingMessage(
-          bindingToken: token,
-          ownerUserId: 'CID-A',
-          currentAccountId: account,
-          localMessageId: 'pending:devices',
+    test('真实MLS已确认组的待发${sticker ? '贴纸' : '文字'}为每台设备保存应用密文，重试不覆盖', () async {
+      final dir = await createMlsTestDirectory(),
+          a = await createTestMlsDevice(dir, 'a');
+      final receivers = [
+        await createTestMlsDevice(dir, 'b', cid: 'CID-B'),
+        await createTestMlsDevice(dir, 'c', cid: 'CID-B'),
+      ];
+      final store = ChatStore(), account = '0x${'33' * 32}';
+      final token = await store.activateBindingFence(
+        ChatBinding(
+          userId: 'CID-A',
+          accountId: account,
+          bindingRevision: 1,
+          bindingScope: '0x${'44' * 32}',
+        ),
+      );
+      final payload = sticker
+          ? ChatContent.sticker(packId: 'fluent3d', stickerId: 'grinning_face')
+          : ChatContent.text('hello');
+      await store.savePendingOutgoingMessage(
+        bindingToken: token,
+        ownerUserId: 'CID-A',
+        currentAccountId: account,
+        localMessageId: 'pending:devices',
+        conversationId: 'direct-devices',
+        recipientUserId: 'CID-B',
+        messageKind: payload.kind,
+        payload: ChatPayloadCodec.encode(payload),
+        createdAtMillis: 1234,
+      );
+      final packages = <MlsKeyPackage>[];
+      for (final receiver in receivers) {
+        packages.add(await receiver.crypto.createKeyPackage(receiver.identity));
+      }
+      final audience = await _joinedDirectGroup(a, receivers, packages);
+      final flow = ChatFlow(
+        groupIdBytes: mlsGroupIdBytes(audience.groupId),
+        mediaLimits: const TestChatMediaLimits(),
+        crypto: a.crypto,
+        store: store,
+        bindingToken: token,
+        ownerUserId: 'CID-A',
+        currentAccountId: account,
+        deliveryScheduler: (_, _) {},
+        deliverer: (_, _, _, _) async => throw StateError('队列持久化阶段不得联网'),
+      );
+      if (sticker) {
+        await flow.sendSticker(
           conversationId: 'direct-devices',
+          senderUserId: 'CID-A',
           recipientUserId: 'CID-B',
-          messageKind: payload.kind,
-          payload: ChatPayloadCodec.encode(payload),
+          senderDeviceId: a.identity.deviceId,
+          packId: 'fluent3d',
+          stickerId: 'grinning_face',
+          pendingLocalMessageId: 'pending:devices',
           createdAtMillis: 1234,
         );
-        final packages = <MlsKeyPackage>[];
-        for (final receiver in receivers) {
-          packages.add(
-            await receiver.crypto.createKeyPackage(receiver.identity),
-          );
-        }
-        final flow = ChatFlow(
-          mediaLimits: const TestChatMediaLimits(),
-          crypto: a.crypto,
-          store: store,
-          bindingToken: token,
+      } else {
+        await flow.sendText(
+          conversationId: 'direct-devices',
+          senderUserId: 'CID-A',
+          recipientUserId: 'CID-B',
+          senderDeviceId: a.identity.deviceId,
+          text: 'hello',
+          pendingLocalMessageId: 'pending:devices',
+          createdAtMillis: 1234,
+        );
+      }
+      final queued = await store.readQueuedMessages(
+        bindingToken: token,
+        ownerUserId: 'CID-A',
+      );
+      expect(queued, hasLength(2));
+      expect(queued.map((q) => q.messageId).toSet(), hasLength(2));
+      expect(
+        await store.readMessages(
           ownerUserId: 'CID-A',
           currentAccountId: account,
-          deliveryScheduler: (_, _) {},
-          deliverer: (_, _, _, _) async => throw StateError('队列持久化阶段不得联网'),
-        );
-        if (sticker) {
-          await flow.sendSticker(
-            conversationId: 'direct-devices',
-            senderUserId: 'CID-A',
-            recipientUserId: 'CID-B',
-            senderDeviceId: a.identity.deviceId,
-            recipientKeyPackages: packages,
-            packId: 'fluent3d',
-            stickerId: 'grinning_face',
-            pendingLocalMessageId: 'pending:devices',
-            createdAtMillis: 1234,
-          );
-        } else {
-          await flow.sendText(
-            conversationId: 'direct-devices',
-            senderUserId: 'CID-A',
-            recipientUserId: 'CID-B',
-            senderDeviceId: a.identity.deviceId,
-            recipientKeyPackages: packages,
-            text: 'hello',
-            pendingLocalMessageId: 'pending:devices',
-            createdAtMillis: 1234,
-          );
-        }
-        final queued = await store.readQueuedMessages(
-          bindingToken: token,
-          ownerUserId: 'CID-A',
-        );
-        expect(queued, hasLength(4));
-        expect(queued.map((q) => q.messageId).toSet(), hasLength(4));
-        expect(
-          await store.readMessages(
-            ownerUserId: 'CID-A',
-            currentAccountId: account,
-            conversationId: 'direct-devices',
-          ),
-          hasLength(1),
-        );
-        for (final receiver in receivers) {
-          var applications = 0;
-          for (final item in queued) {
-            final message = EncryptedMessage.fromBuffer(item.messageBytes);
-            if (message.recipientDeviceId != receiver.identity.deviceId) {
-              continue;
-            }
-            final received = await receiver.crypto.withMessage(
-              message.messageId,
-              () => receiver.crypto.groupProcess(
-                mlsWireMessageFromEncryptedMessage(message),
-              ),
-            );
-            if (received.kind == GroupInboundKind.application) {
-              applications++;
-              expect(
-                ChatPayloadCodec.decode(utf8.decode(received.plaintext!)).kind,
-                payload.kind,
-              );
-            }
-            await receiver.crypto.acknowledgeMessage(message.messageId);
-            final replay = await receiver.crypto.withMessage(
-              message.messageId,
-              () => receiver.crypto.groupProcess(
-                mlsWireMessageFromEncryptedMessage(message),
-              ),
-            );
-            expect(replay.status, GroupProcessStatus.stale);
+          conversationId: 'direct-devices',
+        ),
+        hasLength(1),
+      );
+      for (final receiver in receivers) {
+        var applications = 0;
+        for (final item in queued) {
+          final message = EncryptedMessage.fromBuffer(item.messageBytes);
+          if (message.recipientDeviceId != receiver.identity.deviceId) {
+            continue;
           }
-          expect(applications, 1);
+          final received = await receiver.crypto.withMessage(
+            message.messageId,
+            () => receiver.crypto.groupProcess(
+              mlsWireMessageFromEncryptedMessage(message),
+            ),
+          );
+          if (received.kind == GroupInboundKind.application) {
+            applications++;
+            expect(
+              ChatPayloadCodec.decode(utf8.decode(received.plaintext!)).kind,
+              payload.kind,
+            );
+          }
+          await receiver.crypto.acknowledgeMessage(message.messageId);
+          final replay = await receiver.crypto.withMessage(
+            message.messageId,
+            () => receiver.crypto.groupProcess(
+              mlsWireMessageFromEncryptedMessage(message),
+            ),
+          );
+          expect(replay.status, GroupProcessStatus.stale);
         }
-      },
-    );
+        expect(applications, 1);
+      }
+    });
   }
 
   useIsolatedChatIsar();
   requireMlsTestLibrary();
 
-  test('真实MLS附件控制为同CID两台收件设备分别持久化Welcome和投递条目', () async {
+  test('真实MLS附件控制为已确认组的两台收件设备分别持久化投递条目', () async {
     final dir = await createMlsTestDirectory(),
         a = await createTestMlsDevice(dir, 'a');
     final receivers = [
@@ -235,7 +258,9 @@ void main() {
     );
     final tasks = <Future<void> Function()>[];
     final controls = <ChatContent>[];
+    final audience = await _joinedDirectGroup(a, receivers, packages);
     final flow = ChatFlow<ChatBindingFenceToken>(
+      groupIdBytes: mlsGroupIdBytes(audience.groupId),
       mediaLimits: const TestChatMediaLimits(),
       crypto: a.crypto,
       store: database,
@@ -250,10 +275,7 @@ void main() {
         final result = await receiver.crypto.withMessage(
           message.messageId,
           () => receiver.crypto.groupProcess(
-            MlsWireMessage(
-              conversationId: message.conversationId,
-              wireBytes: message.openmlsCiphertext,
-            ),
+            mlsWireMessageFromEncryptedMessage(message),
           ),
         );
         if (result.kind == GroupInboundKind.application) {
@@ -266,23 +288,12 @@ void main() {
       },
     );
     const conversation = 'direct-two-devices';
-    final audience = await flow.prepareAttachmentAudience(
-      conversationId: conversation,
-      recipientUserId: 'CID-B',
-      senderDeviceId: a.identity.deviceId,
-      keyPackages: packages,
-      messageId: 'file-1',
-    );
     Future<List<ChatQueuedMessage>> queued() => database.readQueuedMessages(
       bindingToken: token,
       ownerUserId: a.identity.userId,
       conversationId: conversation,
     );
-    final welcomes = await queued();
-    expect(welcomes.length, 2);
-    expect(welcomes.map((m) => m.messageId).toSet().length, 2);
-    final welcomeTask = tasks.removeAt(0);
-    await welcomeTask();
+    expect(await queued(), isEmpty);
     final source = File('${a.root.path}/source'),
         cipher = File('${a.root.path}/cipher');
     await source.writeAsBytes([1, 2, 3], flush: true);
@@ -322,7 +333,7 @@ void main() {
       true,
     );
     expect(
-      (await a.crypto.groupState(conversation)).memberIdentities.toSet(),
+      (await a.crypto.groupState(audience.groupId)).memberIdentities.toSet(),
       roster.toSet(),
     );
   });

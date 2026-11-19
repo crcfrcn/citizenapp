@@ -34,6 +34,9 @@ enum ChatFrame_Body {
   messageBatch,
   acknowledgeMessages,
   messageAvailable,
+  resolveGroup,
+  groupBinding,
+  submitCommit,
   beginAttachment,
   completeAttachment,
   attachmentReady,
@@ -60,6 +63,9 @@ class ChatFrame extends $pb.GeneratedMessage {
     MessageBatch? messageBatch,
     AcknowledgeMessages? acknowledgeMessages,
     MessageAvailable? messageAvailable,
+    ResolveGroup? resolveGroup,
+    GroupBinding? groupBinding,
+    SubmitCommit? submitCommit,
     BeginAttachment? beginAttachment,
     CompleteAttachment? completeAttachment,
     AttachmentReady? attachmentReady,
@@ -85,6 +91,9 @@ class ChatFrame extends $pb.GeneratedMessage {
     if (acknowledgeMessages != null)
       result.acknowledgeMessages = acknowledgeMessages;
     if (messageAvailable != null) result.messageAvailable = messageAvailable;
+    if (resolveGroup != null) result.resolveGroup = resolveGroup;
+    if (groupBinding != null) result.groupBinding = groupBinding;
+    if (submitCommit != null) result.submitCommit = submitCommit;
     if (beginAttachment != null) result.beginAttachment = beginAttachment;
     if (completeAttachment != null)
       result.completeAttachment = completeAttachment;
@@ -121,6 +130,9 @@ class ChatFrame extends $pb.GeneratedMessage {
     22: ChatFrame_Body.messageBatch,
     23: ChatFrame_Body.acknowledgeMessages,
     24: ChatFrame_Body.messageAvailable,
+    25: ChatFrame_Body.resolveGroup,
+    26: ChatFrame_Body.groupBinding,
+    27: ChatFrame_Body.submitCommit,
     30: ChatFrame_Body.beginAttachment,
     31: ChatFrame_Body.completeAttachment,
     32: ChatFrame_Body.attachmentReady,
@@ -148,6 +160,9 @@ class ChatFrame extends $pb.GeneratedMessage {
       22,
       23,
       24,
+      25,
+      26,
+      27,
       30,
       31,
       32,
@@ -179,6 +194,12 @@ class ChatFrame extends $pb.GeneratedMessage {
         subBuilder: AcknowledgeMessages.create)
     ..aOM<MessageAvailable>(24, _omitFieldNames ? '' : 'messageAvailable',
         subBuilder: MessageAvailable.create)
+    ..aOM<ResolveGroup>(25, _omitFieldNames ? '' : 'resolveGroup',
+        subBuilder: ResolveGroup.create)
+    ..aOM<GroupBinding>(26, _omitFieldNames ? '' : 'groupBinding',
+        subBuilder: GroupBinding.create)
+    ..aOM<SubmitCommit>(27, _omitFieldNames ? '' : 'submitCommit',
+        subBuilder: SubmitCommit.create)
     ..aOM<BeginAttachment>(30, _omitFieldNames ? '' : 'beginAttachment',
         subBuilder: BeginAttachment.create)
     ..aOM<CompleteAttachment>(31, _omitFieldNames ? '' : 'completeAttachment',
@@ -229,6 +250,9 @@ class ChatFrame extends $pb.GeneratedMessage {
   @$pb.TagNumber(22)
   @$pb.TagNumber(23)
   @$pb.TagNumber(24)
+  @$pb.TagNumber(25)
+  @$pb.TagNumber(26)
+  @$pb.TagNumber(27)
   @$pb.TagNumber(30)
   @$pb.TagNumber(31)
   @$pb.TagNumber(32)
@@ -250,6 +274,9 @@ class ChatFrame extends $pb.GeneratedMessage {
   @$pb.TagNumber(22)
   @$pb.TagNumber(23)
   @$pb.TagNumber(24)
+  @$pb.TagNumber(25)
+  @$pb.TagNumber(26)
+  @$pb.TagNumber(27)
   @$pb.TagNumber(30)
   @$pb.TagNumber(31)
   @$pb.TagNumber(32)
@@ -402,95 +429,128 @@ class ChatFrame extends $pb.GeneratedMessage {
   @$pb.TagNumber(24)
   MessageAvailable ensureMessageAvailable() => $_ensure(12);
 
+  @$pb.TagNumber(25)
+  ResolveGroup get resolveGroup => $_getN(13);
+  @$pb.TagNumber(25)
+  set resolveGroup(ResolveGroup value) => $_setField(25, value);
+  @$pb.TagNumber(25)
+  $core.bool hasResolveGroup() => $_has(13);
+  @$pb.TagNumber(25)
+  void clearResolveGroup() => $_clearField(25);
+  @$pb.TagNumber(25)
+  ResolveGroup ensureResolveGroup() => $_ensure(13);
+
+  @$pb.TagNumber(26)
+  GroupBinding get groupBinding => $_getN(14);
+  @$pb.TagNumber(26)
+  set groupBinding(GroupBinding value) => $_setField(26, value);
+  @$pb.TagNumber(26)
+  $core.bool hasGroupBinding() => $_has(14);
+  @$pb.TagNumber(26)
+  void clearGroupBinding() => $_clearField(26);
+  @$pb.TagNumber(26)
+  GroupBinding ensureGroupBinding() => $_ensure(14);
+
+  @$pb.TagNumber(27)
+  SubmitCommit get submitCommit => $_getN(15);
+  @$pb.TagNumber(27)
+  set submitCommit(SubmitCommit value) => $_setField(27, value);
+  @$pb.TagNumber(27)
+  $core.bool hasSubmitCommit() => $_has(15);
+  @$pb.TagNumber(27)
+  void clearSubmitCommit() => $_clearField(27);
+  @$pb.TagNumber(27)
+  SubmitCommit ensureSubmitCommit() => $_ensure(15);
+
   @$pb.TagNumber(30)
-  BeginAttachment get beginAttachment => $_getN(13);
+  BeginAttachment get beginAttachment => $_getN(16);
   @$pb.TagNumber(30)
   set beginAttachment(BeginAttachment value) => $_setField(30, value);
   @$pb.TagNumber(30)
-  $core.bool hasBeginAttachment() => $_has(13);
+  $core.bool hasBeginAttachment() => $_has(16);
   @$pb.TagNumber(30)
   void clearBeginAttachment() => $_clearField(30);
   @$pb.TagNumber(30)
-  BeginAttachment ensureBeginAttachment() => $_ensure(13);
+  BeginAttachment ensureBeginAttachment() => $_ensure(16);
 
   @$pb.TagNumber(31)
-  CompleteAttachment get completeAttachment => $_getN(14);
+  CompleteAttachment get completeAttachment => $_getN(17);
   @$pb.TagNumber(31)
   set completeAttachment(CompleteAttachment value) => $_setField(31, value);
   @$pb.TagNumber(31)
-  $core.bool hasCompleteAttachment() => $_has(14);
+  $core.bool hasCompleteAttachment() => $_has(17);
   @$pb.TagNumber(31)
   void clearCompleteAttachment() => $_clearField(31);
   @$pb.TagNumber(31)
-  CompleteAttachment ensureCompleteAttachment() => $_ensure(14);
+  CompleteAttachment ensureCompleteAttachment() => $_ensure(17);
 
   @$pb.TagNumber(32)
-  AttachmentReady get attachmentReady => $_getN(15);
+  AttachmentReady get attachmentReady => $_getN(18);
   @$pb.TagNumber(32)
   set attachmentReady(AttachmentReady value) => $_setField(32, value);
   @$pb.TagNumber(32)
-  $core.bool hasAttachmentReady() => $_has(15);
+  $core.bool hasAttachmentReady() => $_has(18);
   @$pb.TagNumber(32)
   void clearAttachmentReady() => $_clearField(32);
   @$pb.TagNumber(32)
-  AttachmentReady ensureAttachmentReady() => $_ensure(15);
+  AttachmentReady ensureAttachmentReady() => $_ensure(18);
 
   @$pb.TagNumber(33)
-  AcknowledgeAttachment get acknowledgeAttachment => $_getN(16);
+  AcknowledgeAttachment get acknowledgeAttachment => $_getN(19);
   @$pb.TagNumber(33)
   set acknowledgeAttachment(AcknowledgeAttachment value) =>
       $_setField(33, value);
   @$pb.TagNumber(33)
-  $core.bool hasAcknowledgeAttachment() => $_has(16);
+  $core.bool hasAcknowledgeAttachment() => $_has(19);
   @$pb.TagNumber(33)
   void clearAcknowledgeAttachment() => $_clearField(33);
   @$pb.TagNumber(33)
-  AcknowledgeAttachment ensureAcknowledgeAttachment() => $_ensure(16);
+  AcknowledgeAttachment ensureAcknowledgeAttachment() => $_ensure(19);
 
   @$pb.TagNumber(34)
-  AbortAttachment get abortAttachment => $_getN(17);
+  AbortAttachment get abortAttachment => $_getN(20);
   @$pb.TagNumber(34)
   set abortAttachment(AbortAttachment value) => $_setField(34, value);
   @$pb.TagNumber(34)
-  $core.bool hasAbortAttachment() => $_has(17);
+  $core.bool hasAbortAttachment() => $_has(20);
   @$pb.TagNumber(34)
   void clearAbortAttachment() => $_clearField(34);
   @$pb.TagNumber(34)
-  AbortAttachment ensureAbortAttachment() => $_ensure(17);
+  AbortAttachment ensureAbortAttachment() => $_ensure(20);
 
   @$pb.TagNumber(40)
-  RegisterPush get registerPush => $_getN(18);
+  RegisterPush get registerPush => $_getN(21);
   @$pb.TagNumber(40)
   set registerPush(RegisterPush value) => $_setField(40, value);
   @$pb.TagNumber(40)
-  $core.bool hasRegisterPush() => $_has(18);
+  $core.bool hasRegisterPush() => $_has(21);
   @$pb.TagNumber(40)
   void clearRegisterPush() => $_clearField(40);
   @$pb.TagNumber(40)
-  RegisterPush ensureRegisterPush() => $_ensure(18);
+  RegisterPush ensureRegisterPush() => $_ensure(21);
 
   @$pb.TagNumber(41)
-  RemovePush get removePush => $_getN(19);
+  RemovePush get removePush => $_getN(22);
   @$pb.TagNumber(41)
   set removePush(RemovePush value) => $_setField(41, value);
   @$pb.TagNumber(41)
-  $core.bool hasRemovePush() => $_has(19);
+  $core.bool hasRemovePush() => $_has(22);
   @$pb.TagNumber(41)
   void clearRemovePush() => $_clearField(41);
   @$pb.TagNumber(41)
-  RemovePush ensureRemovePush() => $_ensure(19);
+  RemovePush ensureRemovePush() => $_ensure(22);
 
   /// 仅服务端响应填写；客户端不能用它声明资格或修改用量。
   @$pb.TagNumber(50)
-  ResourceUsage get resourceUsage => $_getN(20);
+  ResourceUsage get resourceUsage => $_getN(23);
   @$pb.TagNumber(50)
   set resourceUsage(ResourceUsage value) => $_setField(50, value);
   @$pb.TagNumber(50)
-  $core.bool hasResourceUsage() => $_has(20);
+  $core.bool hasResourceUsage() => $_has(23);
   @$pb.TagNumber(50)
   void clearResourceUsage() => $_clearField(50);
   @$pb.TagNumber(50)
-  ResourceUsage ensureResourceUsage() => $_ensure(20);
+  ResourceUsage ensureResourceUsage() => $_ensure(23);
 }
 
 /// 中性App计量回执；不包含会员、价格或数据库模型。
@@ -1655,6 +1715,242 @@ class MessageAvailable extends $pb.GeneratedMessage {
   $core.bool hasServerTimeMillis() => $_has(2);
   @$pb.TagNumber(3)
   void clearServerTimeMillis() => $_clearField(3);
+}
+
+/// 查询业务会话唯一已接受的 MLS 组。空 group_id 表示尚未建组。
+class ResolveGroup extends $pb.GeneratedMessage {
+  factory ResolveGroup({
+    $core.String? conversationId,
+  }) {
+    final result = create();
+    if (conversationId != null) result.conversationId = conversationId;
+    return result;
+  }
+
+  ResolveGroup._();
+
+  factory ResolveGroup.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory ResolveGroup.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ResolveGroup',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'chat.protocol'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'conversationId')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ResolveGroup clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ResolveGroup copyWith(void Function(ResolveGroup) updates) =>
+      super.copyWith((message) => updates(message as ResolveGroup))
+          as ResolveGroup;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static ResolveGroup create() => ResolveGroup._();
+  @$core.override
+  ResolveGroup createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static ResolveGroup getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ResolveGroup>(create);
+  static ResolveGroup? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get conversationId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set conversationId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasConversationId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearConversationId() => $_clearField(1);
+}
+
+class GroupBinding extends $pb.GeneratedMessage {
+  factory GroupBinding({
+    $core.String? conversationId,
+    $core.List<$core.int>? groupId,
+  }) {
+    final result = create();
+    if (conversationId != null) result.conversationId = conversationId;
+    if (groupId != null) result.groupId = groupId;
+    return result;
+  }
+
+  GroupBinding._();
+
+  factory GroupBinding.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory GroupBinding.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'GroupBinding',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'chat.protocol'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'conversationId')
+    ..a<$core.List<$core.int>>(
+        2, _omitFieldNames ? '' : 'groupId', $pb.PbFieldType.OY)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  GroupBinding clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  GroupBinding copyWith(void Function(GroupBinding) updates) =>
+      super.copyWith((message) => updates(message as GroupBinding))
+          as GroupBinding;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static GroupBinding create() => GroupBinding._();
+  @$core.override
+  GroupBinding createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static GroupBinding getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<GroupBinding>(create);
+  static GroupBinding? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get conversationId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set conversationId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasConversationId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearConversationId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.List<$core.int> get groupId => $_getN(1);
+  @$pb.TagNumber(2)
+  set groupId($core.List<$core.int> value) => $_setBytes(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasGroupId() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearGroupId() => $_clearField(2);
+}
+
+/// 服务端仅决定投递次序。客户端用 OpenMLS 校验及合并 Commit、Welcome。
+/// 重试须提交原 operation_id 与完全相同的内容，禁止换密文占用同一 epoch。
+class SubmitCommit extends $pb.GeneratedMessage {
+  factory SubmitCommit({
+    $core.String? conversationId,
+    $core.List<$core.int>? groupId,
+    $fixnum.Int64? epoch,
+    $core.String? operationId,
+    $core.List<$core.int>? commit,
+    $core.Iterable<$0.EncryptedMessage>? messages,
+  }) {
+    final result = create();
+    if (conversationId != null) result.conversationId = conversationId;
+    if (groupId != null) result.groupId = groupId;
+    if (epoch != null) result.epoch = epoch;
+    if (operationId != null) result.operationId = operationId;
+    if (commit != null) result.commit = commit;
+    if (messages != null) result.messages.addAll(messages);
+    return result;
+  }
+
+  SubmitCommit._();
+
+  factory SubmitCommit.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory SubmitCommit.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'SubmitCommit',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'chat.protocol'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'conversationId')
+    ..a<$core.List<$core.int>>(
+        2, _omitFieldNames ? '' : 'groupId', $pb.PbFieldType.OY)
+    ..a<$fixnum.Int64>(3, _omitFieldNames ? '' : 'epoch', $pb.PbFieldType.OU6,
+        defaultOrMaker: $fixnum.Int64.ZERO)
+    ..aOS(4, _omitFieldNames ? '' : 'operationId')
+    ..a<$core.List<$core.int>>(
+        5, _omitFieldNames ? '' : 'commit', $pb.PbFieldType.OY)
+    ..pPM<$0.EncryptedMessage>(6, _omitFieldNames ? '' : 'messages',
+        subBuilder: $0.EncryptedMessage.create)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SubmitCommit clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SubmitCommit copyWith(void Function(SubmitCommit) updates) =>
+      super.copyWith((message) => updates(message as SubmitCommit))
+          as SubmitCommit;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static SubmitCommit create() => SubmitCommit._();
+  @$core.override
+  SubmitCommit createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static SubmitCommit getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<SubmitCommit>(create);
+  static SubmitCommit? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get conversationId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set conversationId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasConversationId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearConversationId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.List<$core.int> get groupId => $_getN(1);
+  @$pb.TagNumber(2)
+  set groupId($core.List<$core.int> value) => $_setBytes(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasGroupId() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearGroupId() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $fixnum.Int64 get epoch => $_getI64(2);
+  @$pb.TagNumber(3)
+  set epoch($fixnum.Int64 value) => $_setInt64(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasEpoch() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearEpoch() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.String get operationId => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set operationId($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasOperationId() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearOperationId() => $_clearField(4);
+
+  @$pb.TagNumber(5)
+  $core.List<$core.int> get commit => $_getN(4);
+  @$pb.TagNumber(5)
+  set commit($core.List<$core.int> value) => $_setBytes(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasCommit() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearCommit() => $_clearField(5);
+
+  @$pb.TagNumber(6)
+  $pb.PbList<$0.EncryptedMessage> get messages => $_getList(5);
 }
 
 class BeginAttachment extends $pb.GeneratedMessage {

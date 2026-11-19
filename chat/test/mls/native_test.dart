@@ -280,6 +280,7 @@ void main() {
       'add',
       () => cryptos[0].addMembers('exact-leaves', [b, c]),
     );
+    await cryptos[0].finishCommit('add', accepted: true);
     for (var index = 1; index < 3; index++) {
       await cryptos[index].withMessage(
         'welcome',
@@ -309,6 +310,7 @@ void main() {
       'remove',
       () => cryptos[0].removeMembers('exact-leaves', [target]),
     );
+    await cryptos[0].finishCommit('remove', accepted: true);
     expect(removed.removedMemberIdentities, [target]);
     final accepted = await cryptos[2].withMessage(
       'commit',

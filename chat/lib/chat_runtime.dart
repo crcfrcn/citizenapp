@@ -29,6 +29,8 @@ import 'package:chat/mls/mls_group_boundary.dart';
 import 'package:chat/mls/mls_bindings.dart';
 import 'package:chat/mls/mls_state_store.dart';
 import 'package:citizen_network/protocol/message.dart';
+import 'package:citizen_network/protocol/chat_frame.pb.dart' show SubmitCommit;
+import 'package:fixnum/fixnum.dart' show Int64;
 import 'package:chat/chat_store.dart';
 import 'package:chat/chat_models.dart';
 import 'package:citizen_system/security/system_protected_storage.dart';
@@ -1217,7 +1219,7 @@ class _ChatUserLeaseScope {
 /// Runtime 的上层流程仍会把“密码学状态推进 + Isar 最终 CAS”包在同一 user ID lease
 /// 内；本代理是最后一道边界，避免后来新增的直接 crypto 调用绕过跨 isolate 协调。
 class _ChatBindingFencedMlsCrypto
-    implements MlsGroupCrypto, MlsPersistentCrypto {
+    implements MlsGroupCrypto, MlsPersistentCrypto, MlsCommitControl {
   const _ChatBindingFencedMlsCrypto({
     required ChatRuntime runtime,
     required ChatBindingFenceToken bindingToken,
@@ -1246,6 +1248,15 @@ class _ChatBindingFencedMlsCrypto
   @override
   Future<List<Map<String, dynamic>>> pendingMessageResults(String? messageId) =>
       _run(() => _delegate.pendingMessageResults(messageId));
+
+  @override
+  Future<void> finishCommit(String operationId, {required bool accepted}) =>
+      _run(
+        () => (_delegate as MlsCommitControl).finishCommit(
+          operationId,
+          accepted: accepted,
+        ),
+      );
 
   void dispose() {
     final delegate = _delegate;
@@ -1402,6 +1413,7 @@ class ChatRuntimeAccountContext {
   final MlsStateStore? stateStore;
   final MlsGroupCrypto crypto;
   final ChatServiceTransport transport;
+  final Map<String, List<int>> _groupBindings = {};
   late final _RetryableAsyncDisposer _disposer = _RetryableAsyncDisposer(
     _dispose,
   );
@@ -3150,13 +3162,11 @@ class ChatRuntime {
       if (peer == null) {
         throw StateError('附件私聊收件人缺失');
       }
-      final packages = await _resolveKeyPackages(context, peer);
-      audience = await _messageFlow(context).prepareAttachmentAudience(
-        conversationId: conversationId,
-        recipientUserId: peer,
-        senderDeviceId: context.deviceId,
-        keyPackages: packages,
-        messageId: attachmentId,
+      audience = await _ensureDirectGroup(
+        context,
+        conversationId,
+        peer,
+        attachmentId,
       );
     }
     final roster = [...audience.memberIdentities]..sort();
@@ -3179,7 +3189,12 @@ class ChatRuntime {
     final engine = await _attachmentEngine(
       context,
       requireAudience: () async {
-        final state = await context.crypto.groupState(conversationId);
+        final binding = conversationId.startsWith('dm:')
+            ? await _readDirectGroup(context, conversationId)
+            : const <int>[];
+        final state = await context.crypto.groupState(
+          binding.isEmpty ? conversationId : mlsGroupId(binding),
+        );
         if (state.epoch != audience.epoch ||
             jsonEncode([...state.memberIdentities]..sort()) !=
                 jsonEncode(roster)) {
@@ -3287,7 +3302,12 @@ class ChatRuntime {
     ChatContent content,
   ) async {
     await _runBindingFileMutation(context.bindingToken, () async {});
-    final state = await context.crypto.groupState(conversationId);
+    final binding = conversationId.startsWith('dm:')
+        ? await _readDirectGroup(context, conversationId)
+        : const <int>[];
+    final state = await context.crypto.groupState(
+      binding.isEmpty ? conversationId : mlsGroupId(binding),
+    );
     final members = [...state.memberIdentities]..sort();
     if (state.epoch != content.attachmentChatEpoch ||
         jsonEncode(members) != jsonEncode(content.attachmentMemberIdentities) ||
@@ -3403,7 +3423,7 @@ class ChatRuntime {
     required String name,
     List<String> inviteeUserIds = const [],
   }) {
-    return _runWithReadyBinding((context) async {
+    return _runWithReadyContext((context) async {
       final invitees = await _fetchInviteeKeyPackages(context, inviteeUserIds);
       final groupId = newGroupId(context.account.userId);
       return _groupFlow(context).createGroup(
@@ -3421,7 +3441,7 @@ class ChatRuntime {
     required String groupId,
     required List<String> inviteeUserIds,
   }) {
-    return _runWithReadyBinding((context) async {
+    return _runWithReadyContext((context) async {
       final invitees = await _fetchInviteeKeyPackages(context, inviteeUserIds);
       await _groupFlow(context).addMembers(
         groupId: groupId,
@@ -3437,7 +3457,7 @@ class ChatRuntime {
     required String groupId,
     required List<String> targetUserIds,
   }) {
-    return _runWithReadyBinding((context) async {
+    return _runWithReadyContext((context) async {
       await _groupFlow(context).removeMembers(
         groupId: groupId,
         actorUserId: context.account.userId,
@@ -3597,6 +3617,7 @@ class ChatRuntime {
   ) {
     return ChatGroupFlow<ChatBindingFenceToken>(
       crypto: context.crypto,
+      submitCommit: context.transport.submitCommit,
       store: _store,
       bindingToken: context.bindingToken,
       ownerUserId: context.account.userId,
@@ -4291,6 +4312,125 @@ class ChatRuntime {
     }
   }
 
+  Future<List<int>> _readDirectGroup(
+    ChatRuntimeAccountContext context,
+    String conversationId,
+  ) async {
+    final cached = context._groupBindings[conversationId];
+    if (cached != null) return cached;
+    final id = await context.transport.resolveGroup(conversationId);
+    if (id.isNotEmpty) context._groupBindings[conversationId] = id;
+    return id;
+  }
+
+  /// 准备和确认不同阶段分别持久化。没有明确回执时复用原Commit和Welcome。
+  Future<GroupState> _ensureDirectGroup(
+    ChatRuntimeAccountContext context,
+    String conversationId,
+    String peer,
+    String messageId, {
+    bool refreshDevices = true,
+  }) async {
+    if (conversationId != directConversationId(context.account.userId, peer) ||
+        peer == context.account.userId) {
+      throw const ChatConnectionException('message_identity_invalid');
+    }
+    final crypto = context.crypto;
+    final transport = context.transport;
+    final operation = crypto_hash.sha256
+        .convert(utf8.encode('commit:$conversationId:$messageId'))
+        .toString();
+    final bound = await _readDirectGroup(context, conversationId);
+    final records = await crypto.pendingMessageResults(operation);
+    Map<String, dynamic>? staged;
+    for (final entry in records) {
+      final result = (entry['result'] as Map).cast<String, dynamic>();
+      if (result['commit_wire_hex'] is String &&
+          result['commit_accepted'] != false) {
+        staged = result;
+      }
+    }
+    final local = bound.isEmpty ? null : mlsGroupId(bound);
+    if (staged != null && local != null && staged['group_id'] != local) {
+      await crypto.settlePendingCommit(operation, accepted: false);
+      await crypto.acknowledgeMessage(operation);
+      staged = null;
+    }
+    if (staged == null) {
+      final state = local == null ? null : await crypto.groupState(local);
+      if (state != null && !refreshDevices) return state;
+      final existing = state?.memberIdentities.toSet() ?? const <String>{};
+      final packages = (await _resolveKeyPackages(context, peer))
+          .where(
+            (package) =>
+                !existing.contains('${package.userId}:${package.deviceId}'),
+          )
+          .toList(growable: false);
+      if (packages.isEmpty && state != null) return state;
+      if (packages.isEmpty ||
+          packages.any((package) => package.userId != peer)) {
+        throw const ChatConnectionException('key_package_identity_invalid');
+      }
+      await crypto.withMessage(operation, () async {
+        final group = local ?? (await crypto.createGroup('')).groupId;
+        await crypto.addMembers(group, packages);
+      });
+      final saved = await crypto.pendingMessageResults(operation);
+      staged = saved
+          .map((entry) => (entry['result'] as Map).cast<String, dynamic>())
+          .singleWhere((result) => result['commit_wire_hex'] is String);
+    }
+    final pending = staged;
+    final id = pending['group_id'] as String;
+    final groupBytes = mlsGroupIdBytes(id);
+    if (pending['commit_accepted'] != true) {
+      final commit = _wireFromHex(pending['commit_wire_hex'] as String);
+      final welcome = _wireFromHex(pending['welcome_wire_hex'] as String);
+      final now = pending['created_at_millis'] as int;
+      try {
+        await transport.submitCommit(
+          SubmitCommit(
+            conversationId: conversationId,
+            groupId: groupBytes,
+            epoch: Int64(pending['epoch'] as int),
+            operationId: operation,
+            commit: commit,
+            messages: mlsCommitMessages(
+              operationId: operation,
+              conversationId: conversationId,
+              groupId: groupBytes,
+              senderUserId: context.account.userId,
+              senderDeviceId: context.deviceId,
+              createdAtMillis: now,
+              commit: commit,
+              priorMembers: (pending['prior_member_identities'] as List)
+                  .cast<String>(),
+              welcome: welcome,
+              invitees: (pending['welcome_member_identities'] as List)
+                  .cast<String>(),
+            ),
+          ),
+        );
+      } on ChatConnectionException catch (error) {
+        if (error.code == 'commit_conflict') {
+          await crypto.settlePendingCommit(operation, accepted: false);
+          await crypto.acknowledgeMessage(operation);
+          context._groupBindings.remove(conversationId);
+        }
+        rethrow;
+      }
+      await crypto.settlePendingCommit(operation, accepted: true);
+    }
+    context._groupBindings[conversationId] = List<int>.unmodifiable(groupBytes);
+    await crypto.acknowledgeMessage(operation);
+    return crypto.groupState(id);
+  }
+
+  static List<int> _wireFromHex(String hex) => [
+    for (var i = 0; i < hex.length; i += 2)
+      int.parse(hex.substring(i, i + 2), radix: 16),
+  ];
+
   Future<void> _sendPendingOutgoing(
     ChatRuntimeAccountContext context,
     ChatPendingOutgoingMessage pending,
@@ -4306,10 +4446,18 @@ class ChatRuntime {
       await _sendPendingGroupAttachment(context, pending, content);
       return;
     }
-    final flow = _messageFlow(context, scheduleDelivery: false);
-    final recipientKeyPackages = content.isMedia
-        ? const <MlsKeyPackage>[]
-        : await context.transport.resolveKeyPackages(pending.recipientUserId);
+    await _ensureDirectGroup(
+      context,
+      pending.conversationId,
+      pending.recipientUserId,
+      pending.localMessageId,
+      refreshDevices: !content.isMedia,
+    );
+    final flow = _messageFlow(
+      context,
+      scheduleDelivery: false,
+      groupIdBytes: context._groupBindings[pending.conversationId]!,
+    );
 
     Future<void> send() async {
       switch (content.kind) {
@@ -4319,7 +4467,6 @@ class ChatRuntime {
             senderUserId: context.account.userId,
             recipientUserId: pending.recipientUserId,
             senderDeviceId: context.deviceId,
-            recipientKeyPackages: recipientKeyPackages,
             text: content.text ?? '',
             pendingLocalMessageId: pending.localMessageId,
             createdAtMillis: pending.createdAtMillis,
@@ -4330,7 +4477,6 @@ class ChatRuntime {
             senderUserId: context.account.userId,
             recipientUserId: pending.recipientUserId,
             senderDeviceId: context.deviceId,
-            recipientKeyPackages: recipientKeyPackages,
             packId: content.packId ?? '',
             stickerId: content.stickerId ?? '',
             pendingLocalMessageId: pending.localMessageId,
@@ -4508,7 +4654,7 @@ class ChatRuntime {
     );
     var sent = 0;
     String? errorCode;
-    final failedConversations = <String>{};
+    final failedGroups = <(String, String)>{};
     for (final item in queued) {
       EncryptedMessage message;
       try {
@@ -4536,7 +4682,11 @@ class ChatRuntime {
         );
         continue;
       }
-      if (failedConversations.contains(message.conversationId)) {
+      final group = (
+        message.conversationId,
+        message.groupId.isEmpty ? '' : mlsGroupId(message.groupId),
+      );
+      if (failedGroups.contains(group)) {
         continue;
       }
       try {
@@ -4555,16 +4705,16 @@ class ChatRuntime {
         );
         if (result.state == ChatMessageDeliveryState.sent) {
           sent += 1;
-        } else {
+        } else if (result.errorMessage != 'commit_required') {
           errorCode ??= result.errorMessage ?? 'outbound_retry_required';
-          failedConversations.add(message.conversationId);
+          failedGroups.add(group);
         }
       } on Object catch (error) {
         debugPrint(
           '[ChatTrace] direction=outbound stage=delivery code=${chatDiagnosticCode(error)}',
         );
         errorCode ??= chatDiagnosticCode(error);
-        failedConversations.add(message.conversationId);
+        failedGroups.add(group);
       }
     }
     return (sent: sent, errorCode: errorCode);
@@ -5145,12 +5295,12 @@ class ChatRuntime {
     int generation,
     int epoch,
   ) async {
-    final acknowledgedMessageIds = <String>[];
+    final acknowledgedMessageIds = <String>{};
     for (final item in items) {
       await _requireMailboxCurrent(account, generation, epoch);
-      if (await _consumeMailboxMessage(account, transport, item)) {
-        acknowledgedMessageIds.add(item.messageId);
-      }
+      acknowledgedMessageIds.addAll(
+        await _consumeMailboxMessage(account, transport, item),
+      );
     }
     final hub = _realtimeHubs[account.accountId];
     if (acknowledgedMessageIds.isNotEmpty && hub != null) {
@@ -5159,7 +5309,7 @@ class ChatRuntime {
     // 一批只发一次 ACK；单条失败不阻断同批其它密文，且失败条目不进入删除集合。
     await _requireMailboxCurrent(account, generation, epoch);
     if (acknowledgedMessageIds.isNotEmpty) {
-      await transport.acknowledgeMailbox(acknowledgedMessageIds);
+      await transport.acknowledgeMailbox(acknowledgedMessageIds.toList());
       await _requireMailboxCurrent(account, generation, epoch);
     }
     return acknowledgedMessageIds.length;
@@ -5176,52 +5326,49 @@ class ChatRuntime {
     }
   }
 
-  Future<bool> _consumeMailboxMessage(
+  Future<List<String>> _consumeMailboxMessage(
     ChatRuntimeAccount account,
     ChatServiceTransport transport,
     ChatMailboxMessage item,
   ) async {
     final receiptKey = '${account.accountId}|${item.messageId}';
-    var processedNow = false;
-    if (!_mailboxMessageReceipts.contains(receiptKey)) {
-      try {
-        final context = await _readyContext(account);
-        final accepted = await _runBindingFileMutation(
-          context.bindingToken,
-          () => _processMailboxMessage(
-            context,
-            item.senderUserId,
-            item.messageBytes,
-          ),
-        );
-        if (!accepted.contains(item.messageId)) {
-          throw StateError('聊天密文尚无本机精确持久收据');
-        }
-        _mailboxMessageReceipts.add(receiptKey);
-        processedNow = true;
-        // 每批最多100条；4000条有界窗口覆盖 ACK 瞬时失败，不作为持久收据替代。
-        while (_mailboxMessageReceipts.length > 4000) {
-          _mailboxMessageReceipts.remove(_mailboxMessageReceipts.first);
-        }
-      } catch (error) {
-        _mailboxMessageReceipts.remove(receiptKey);
-        // ACK 的唯一条件是密文已经成功验密并写入本机。格式、身份、OpenMLS、附件或
-        // ChatIsar 任一失败都保留服务端副本到后续重试/七天 TTL；禁止永久丢消息。
-        final code = chatDiagnosticCode(error);
-        if (transport.lastRealtimeDiagnosticCode != code) {
-          final stage = error is MlsException
-              ? error.diagnosticOperation
-              : 'message';
-          debugPrint('[ChatTrace] direction=inbound stage=$stage code=$code');
-        }
-        transport.lastRealtimeDiagnosticCode = code;
-        return false;
+    if (_mailboxMessageReceipts.contains(receiptKey)) {
+      return [item.messageId];
+    }
+    try {
+      final context = await _readyContext(account);
+      // 原生操作和 Isar 写入各自复核当前绑定，网络不能占用文件租约。
+      final accepted = await _processMailboxMessage(
+        context,
+        item.senderUserId,
+        item.messageBytes,
+      );
+      if (!accepted.contains(item.messageId)) {
+        throw StateError('聊天密文尚无本机精确持久收据');
       }
-    }
-    if (processedNow) {
+      for (final id in accepted) {
+        _mailboxMessageReceipts.add('${account.accountId}|$id');
+      }
+      // 每批最多100条；4000条有界窗口覆盖 ACK 瞬时失败，不作为持久收据替代。
+      while (_mailboxMessageReceipts.length > 4000) {
+        _mailboxMessageReceipts.remove(_mailboxMessageReceipts.first);
+      }
       _scheduleOutgoingRetry(account, item.senderUserId);
+      return accepted;
+    } catch (error) {
+      _mailboxMessageReceipts.remove(receiptKey);
+      // ACK 的唯一条件是密文已经成功验密并写入本机。格式、身份、OpenMLS、附件或
+      // ChatIsar 任一失败都保留服务端副本到后续重试/七天 TTL；禁止永久丢消息。
+      final code = chatDiagnosticCode(error);
+      if (transport.lastRealtimeDiagnosticCode != code) {
+        final stage = error is MlsException
+            ? error.diagnosticOperation
+            : 'message';
+        debugPrint('[ChatTrace] direction=inbound stage=$stage code=$code');
+      }
+      transport.lastRealtimeDiagnosticCode = code;
+      return const [];
     }
-    return true;
   }
 
   /// 新密文落盘后仅按发送方合并重试本机待发队列。普通消息不发送实时信令，
@@ -5582,8 +5729,10 @@ class ChatRuntime {
   ChatFlow<ChatBindingFenceToken> _messageFlow(
     ChatRuntimeAccountContext context, {
     bool scheduleDelivery = true,
+    List<int> groupIdBytes = const [],
   }) {
     return ChatFlow<ChatBindingFenceToken>(
+      groupIdBytes: groupIdBytes,
       crypto: context.crypto,
       store: _store,
       bindingToken: context.bindingToken,
@@ -5781,6 +5930,15 @@ class ChatRuntime {
         message.recipientUserId != context.account.userId ||
         message.recipientDeviceId != context.identity.deviceId) {
       throw const FormatException('Chat 邮箱路由与 Message 身份不一致');
+    }
+    if (message.conversationId.startsWith('dm:') &&
+        message.groupId.isNotEmpty) {
+      final id = await _readDirectGroup(context, message.conversationId);
+      if (message.conversationId !=
+              directConversationId(context.account.userId, senderUserId) ||
+          !listEquals(id, message.groupId)) {
+        throw const ChatConnectionException('group_binding_invalid');
+      }
     }
     final accepted = <EncryptedMessage>[];
     // 每次都复核原生精确请求收据；仅存在同message_id的业务行不能授权ACK。

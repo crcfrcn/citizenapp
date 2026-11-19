@@ -8,6 +8,7 @@ import 'package:chat/group/group_membership.dart';
 import 'package:chat/group/group_models.dart';
 import 'package:chat/mls/mls_boundary.dart';
 import 'package:chat/mls/mls_group_boundary.dart';
+import 'package:citizen_network/protocol/chat_frame.pb.dart' show SubmitCommit;
 import 'package:citizen_network/protocol/message.dart';
 import 'package:chat/message/direct_flow.dart';
 import 'package:chat/group/group_flow.dart';
@@ -30,13 +31,14 @@ Future<ChatBindingFenceToken> _bindingToken(ChatStore store) =>
     store.activateBindingFence(_binding);
 
 /// 内存态 fake:模拟 MLS 群语义(roster + epoch),不做真加密。
-class _FakeGroupCrypto implements MlsGroupCrypto {
+class _FakeGroupCrypto implements MlsGroupCrypto, MlsCommitControl {
   _FakeGroupCrypto({required this.userId, required this.localDeviceId});
 
   final String userId;
   final String localDeviceId;
   final Map<String, List<String>> _roster = {};
   final Map<String, int> _epoch = {};
+  final Map<String, List<String>> _pending = {};
   GroupProcessStatus inboundStatus = GroupProcessStatus.applied;
   bool committed = false;
   String senderIdentity = '$_userB:devB';
@@ -61,16 +63,23 @@ class _FakeGroupCrypto implements MlsGroupCrypto {
     String groupId,
     List<MlsKeyPackage> keyPackages,
   ) async {
-    final roster = _roster[groupId]!;
-    for (final keyPackage in keyPackages) {
-      roster.add('${keyPackage.userId}:${keyPackage.deviceId}');
-    }
-    _epoch[groupId] = (_epoch[groupId] ?? 0) + 1;
+    final prior = _roster[groupId]!;
+    _pending[groupId] = [
+      ...prior,
+      for (final package in keyPackages)
+        '${package.userId}:${package.deviceId}',
+    ];
     return GroupCommitBundle(
       groupId: groupId,
       epoch: _epoch[groupId]!,
       commit: _wire(groupId, 'commit'),
       welcome: _wire(groupId, 'welcome'),
+      welcomeMemberIdentities: [
+        for (final package in keyPackages)
+          '${package.userId}:${package.deviceId}',
+      ],
+      priorMemberIdentities: List.of(prior),
+      createdAtMillis: 1,
     );
   }
 
@@ -79,15 +88,33 @@ class _FakeGroupCrypto implements MlsGroupCrypto {
     String groupId,
     List<String> memberIdentities,
   ) async {
-    final roster = _roster[groupId]!;
-    roster.removeWhere((identity) => memberIdentities.contains(identity));
-    _epoch[groupId] = (_epoch[groupId] ?? 0) + 1;
+    final prior = _roster[groupId]!;
+    _pending[groupId] = prior
+        .where((identity) => !memberIdentities.contains(identity))
+        .toList();
     return GroupCommitBundle(
       groupId: groupId,
       epoch: _epoch[groupId]!,
       commit: _wire(groupId, 'commit'),
       removedMemberIdentities: memberIdentities,
+      priorMemberIdentities: List.of(prior),
+      createdAtMillis: 1,
     );
+  }
+
+  @override
+  Future<void> finishCommit(
+    String operationId, {
+    required bool accepted,
+  }) async {
+    final group = _pending.keys.singleWhere(
+      (groupId) => operationId.startsWith('$groupId:'),
+    );
+    final roster = _pending.remove(group)!;
+    if (accepted) {
+      _roster[group] = roster;
+      _epoch[group] = _epoch[group]! + 1;
+    }
   }
 
   @override
@@ -151,6 +178,24 @@ Future<ChatDeliveryResult> _okDeliverer(
   state: ChatMessageDeliveryState.sent,
 );
 
+Future<void> Function(SubmitCommit) _submit(
+  EncryptedMessageDeliverer deliverer,
+) => (frame) async {
+  for (final envelope in frame.messages) {
+    for (final delivery in envelope.deliveries) {
+      final message = envelope.deepCopy()
+        ..deliveries.clear()
+        ..deliveries.add(delivery);
+      await deliverer(
+        message,
+        message.writeToBuffer(),
+        message.recipientUserId,
+        message.recipientDeviceId,
+      );
+    }
+  }
+};
+
 MlsKeyPackage _keyPackage(String userId, String device) => MlsKeyPackage(
   userId: userId,
   deviceId: device,
@@ -192,6 +237,7 @@ void main() {
       userId: _userB,
       currentAccountId: _accountA,
       localDeviceId: 'devB',
+      submitCommit: _submit(_okDeliverer),
       deliverer: _okDeliverer,
     );
     await expectLater(
@@ -234,6 +280,7 @@ void main() {
       crypto: crypto,
       store: store,
       bindingToken: await _bindingToken(store),
+      submitCommit: _submit(_okDeliverer),
       deliverer: _okDeliverer,
       userId: _userA,
       currentAccountId: _accountA,
@@ -289,6 +336,7 @@ void main() {
       crypto: crypto,
       store: store,
       bindingToken: await _bindingToken(store),
+      submitCommit: _submit(deliverer),
       deliverer: deliverer,
       userId: _userA,
       currentAccountId: _accountA,
@@ -394,6 +442,7 @@ void main() {
       crypto: crypto,
       store: store,
       bindingToken: await _bindingToken(store),
+      submitCommit: _submit(deliverer),
       deliverer: deliverer,
       userId: _userA,
       currentAccountId: _accountA,
@@ -427,6 +476,7 @@ void main() {
       crypto: crypto,
       store: store,
       bindingToken: await _bindingToken(store),
+      submitCommit: _submit(_okDeliverer),
       deliverer: (message, bytes, recipientUserId, recipientDeviceId) async =>
           ChatDeliveryResult(
             messageId: message.messageId,
@@ -474,6 +524,7 @@ void main() {
       crypto: crypto,
       store: store,
       bindingToken: await _bindingToken(store),
+      submitCommit: _submit(_okDeliverer),
       deliverer: (message, bytes, recipientUserId, recipientDeviceId) async =>
           ChatDeliveryResult(
             messageId: message.messageId,
@@ -529,6 +580,7 @@ void main() {
       crypto: crypto,
       store: store,
       bindingToken: await _bindingToken(store),
+      submitCommit: _submit(_okDeliverer),
       deliverer: (message, bytes, recipientUserId, recipientDeviceId) async {
         delivered.add(message);
         return ChatDeliveryResult(
@@ -580,6 +632,7 @@ void main() {
         crypto: crypto,
         store: store,
         bindingToken: await _bindingToken(store),
+        submitCommit: _submit(deliverer),
         deliverer: deliverer,
         userId: _userA,
         currentAccountId: _accountA,

@@ -8,6 +8,7 @@ use std::{
 };
 
 use openmls::{
+    group::WelcomeError,
     prelude::{
         tls_codec::{Deserialize as TlsDeserialize, Serialize as TlsSerialize},
         BasicCredential, Capabilities, Ciphersuite, Credential, CredentialWithKey, ExtensionType,
@@ -79,8 +80,8 @@ enum IdentityRequest {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AuthenticationRequest {
-    token_purpose:String,
-    session_hash:Option<String>,
+    token_purpose: String,
+    session_hash: Option<String>,
     service_origin: String,
     nonce_id: String,
     expires_at: u64,
@@ -92,9 +93,9 @@ struct AuthenticationRequest {
 /// 只返回公开证明；正文和私钥均不进入响应或持久化结果。
 #[derive(Clone, Serialize)]
 struct AuthenticationProof {
-    token_purpose:String,
-    #[serde(skip_serializing_if="Option::is_none")]
-    session_hash:Option<String>,
+    token_purpose: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    session_hash: Option<String>,
     user_id: String,
     device_id: String,
     public_key: String,
@@ -462,8 +463,16 @@ fn authentication_proof(
     validate_authentication_origin(&request.service_origin)?;
     validate_authentication_target(&request.request_target)?;
     let now = now_millis()?;
-    if !matches!(request.token_purpose.as_str(),"device"|"session"|"request") || (request.token_purpose=="request")!=request.session_hash.is_some(){return Err(authentication_error());}
-    if let Some(h)=&request.session_hash{authentication_hex(&format!("0x{h}"))?;}
+    if !matches!(
+        request.token_purpose.as_str(),
+        "device" | "session" | "request"
+    ) || (request.token_purpose == "request") != request.session_hash.is_some()
+    {
+        return Err(authentication_error());
+    }
+    if let Some(h) = &request.session_hash {
+        authentication_hex(&format!("0x{h}"))?;
+    }
     if bind_rev > MAX_JSON_INTEGER
         || request.expires_at > MAX_JSON_INTEGER
         || request.expires_at <= now
@@ -487,7 +496,8 @@ fn authentication_proof(
         .hash(HashType::Sha2_256, &body)
         .map_err(|_| authentication_error())?;
     let mut proof = AuthenticationProof {
-        token_purpose:request.token_purpose.clone(),session_hash:request.session_hash.clone(),
+        token_purpose: request.token_purpose.clone(),
+        session_hash: request.session_hash.clone(),
         user_id: provider.device.user_id.clone(),
         device_id: provider.device.device_id.clone(),
         public_key: provider.device.public_key.clone(),
@@ -526,8 +536,15 @@ fn authentication_proof(
 }
 
 fn authentication_content(proof: &AuthenticationProof) -> Result<Vec<u8>, String> {
-    let mut content=vec![match proof.token_purpose.as_str(){"device"=>0,"session"=>1,"request"=>2,_=>return Err(authentication_error())}];
-    if let Some(h)=&proof.session_hash{content.extend(authentication_hex(&format!("0x{h}"))?);}
+    let mut content = vec![match proof.token_purpose.as_str() {
+        "device" => 0,
+        "session" => 1,
+        "request" => 2,
+        _ => return Err(authentication_error()),
+    }];
+    if let Some(h) = &proof.session_hash {
+        content.extend(authentication_hex(&format!("0x{h}"))?);
+    }
     fn text(content: &mut Vec<u8>, value: &str) -> Result<(), String> {
         VLBytes::from(value.as_bytes().to_vec())
             .tls_serialize(content)
@@ -607,6 +624,57 @@ fn store_json(input: *const c_char) -> Result<String, String> {
                 save_provider(dir, &provider)?;
             }
             response
+        }
+        "confirm_commit" | "reject_commit" => {
+            if request.pending_inbound.is_some() {
+                return Err("Commit 确认禁止收件字段".into());
+            }
+            let operation = request.message_id.as_deref().ok_or("缺少message_id")?;
+            require_non_empty("message_id", operation)?;
+            let accept = request.action == "confirm_commit";
+            let mut results = provider.results.borrow_mut();
+            let mut candidates = results.iter_mut().filter(|(_, saved)| {
+                saved.request["message_id"].as_str() == Some(operation)
+                    && saved.result["commit_wire_hex"].is_string()
+            });
+            let (_, saved) = candidates.next().ok_or("找不到原 pending commit")?;
+            if candidates.next().is_some() {
+                return Err("同一操作包含多个 pending commit".into());
+            }
+            if let Some(previous) = saved.result["commit_accepted"].as_bool() {
+                if previous != accept {
+                    return Err("原 Commit 已经确认".into());
+                }
+            } else {
+                let group = saved.request["group_id"].as_str().ok_or("缺少 group_id")?;
+                let group_id = group_id_from_conversation(group)?;
+                let mut group = MlsGroup::load(provider.storage(), &group_id)
+                    .map_err(|_| "加载待确认MLS组失败")?
+                    .ok_or("待确认MLS组不存在")?;
+                let staged_epoch = saved.result["epoch"].as_u64().ok_or("缺少待确认 epoch")?;
+                let epoch = group.epoch().as_u64();
+                if epoch == staged_epoch {
+                    if group.pending_commit().is_none() {
+                        return Err("缺少与原回执对应的 pending commit".into());
+                    }
+                    if accept {
+                        group
+                            .merge_pending_commit(&provider)
+                            .map_err(|e| format!("合并 pending commit 失败: {e:?}"))?;
+                    } else {
+                        group
+                            .clear_pending_commit(provider.storage())
+                            .map_err(|e| format!("清除 pending commit 失败: {e:?}"))?;
+                    }
+                } else if accept || epoch < staged_epoch {
+                    return Err("Commit 已被同 epoch 接受的协议消息替代".into());
+                }
+                // 已应用胜出的远端 Commit 时，只结清败选收据，不清除新 epoch 的状态。
+                saved.result["commit_accepted"] = json!(accept);
+                drop(results);
+                save_provider(dir, &provider)?;
+            }
+            json!({"ok": true})
         }
         "pending_results" => {
             let mut results: Vec<_> = provider
@@ -1436,6 +1504,13 @@ fn mls_group_config() -> MlsGroupCreateConfig {
 
 fn group_id_from_conversation(conversation_id: &str) -> Result<GroupId, String> {
     require_non_empty("conversation_id", conversation_id)?;
+    if let Some(value) = conversation_id.strip_prefix("mls:") {
+        let bytes = decode_hex_field("group_id", value)?;
+        if bytes.len() != 16 || hex::encode(&bytes) != value {
+            return Err("MLS group_id 编码不规范".into());
+        }
+        return Ok(GroupId::from_slice(&bytes));
+    }
     Ok(GroupId::from_slice(conversation_id.as_bytes()))
 }
 
@@ -1661,6 +1736,7 @@ struct GroupProcessRequest {
     device_id: String,
     group_id: String,
     wire_message_hex: String,
+    sender_member_identity: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1795,7 +1871,6 @@ fn group_create_json(request_json: *const c_char) -> Result<String, String> {
     require_non_empty("state_store_dir", &request.state_store_dir)?;
     require_non_empty("user_id", &request.user_id)?;
     require_non_empty("device_id", &request.device_id)?;
-    require_non_empty("group_id", &request.group_id)?;
 
     let state_dir = Path::new(&request.state_store_dir);
     let _lock = lock_store(state_dir)?;
@@ -1804,25 +1879,27 @@ fn group_create_json(request_json: *const c_char) -> Result<String, String> {
     if let Some(result) = committed_response(&provider, "create", request_json)? {
         return Ok(result);
     }
-    let group_id = group_id_from_conversation(&request.group_id)?;
-    if MlsGroup::load(provider.storage(), &group_id)
-        .map_err(|error| format!("加载 MLS 群失败: {error:?}"))?
-        .is_some()
-    {
-        return Err("MLS 群已存在，请勿重复创建".to_string());
+    let group = if request.group_id.is_empty() {
+        MlsGroup::new(&provider, &signer, &mls_group_config(), credential)
+    } else {
+        MlsGroup::new_with_group_id(
+            &provider,
+            &signer,
+            &mls_group_config(),
+            group_id_from_conversation(&request.group_id)?,
+            credential,
+        )
     }
-    let group = MlsGroup::new_with_group_id(
-        &provider,
-        &signer,
-        &mls_group_config(),
-        group_id,
-        credential,
-    )
     .map_err(|error| format!("创建 MLS 群失败: {error:?}"))?;
+    let group_id = if request.group_id.is_empty() {
+        format!("mls:{}", hex::encode(group.group_id().as_slice()))
+    } else {
+        request.group_id
+    };
     let epoch = group.epoch().as_u64();
 
     let response = json!({
-        "group_id": request.group_id,
+        "group_id": group_id,
         "epoch": epoch,
         "cipher_suite": format!("{:?}", GMB_MLS_CIPHERSUITE),
     });
@@ -1902,9 +1979,6 @@ fn group_add_members_json(request_json: *const c_char) -> Result<String, String>
     let (commit, welcome, _group_info) = group
         .add_members(&provider, &signer, &key_packages)
         .map_err(|error| format!("MLS 加人失败: {error:?}"))?;
-    group
-        .merge_pending_commit(&provider)
-        .map_err(|error| format!("合并 pending commit 失败: {error:?}"))?;
 
     let commit_wire_hex = hex::encode(
         commit
@@ -1993,9 +2067,6 @@ fn group_remove_members_json(request_json: *const c_char) -> Result<String, Stri
     let (commit, _welcome, _group_info) = group
         .remove_members(&provider, &signer, &indices)
         .map_err(|error| format!("MLS 删人失败: {error:?}"))?;
-    group
-        .merge_pending_commit(&provider)
-        .map_err(|error| format!("合并 pending commit 失败: {error:?}"))?;
 
     let commit_wire_hex = hex::encode(
         commit
@@ -2082,19 +2153,19 @@ fn group_process_json(request_json: *const c_char) -> Result<String, String> {
 
     let response = match message_in.extract() {
         MlsMessageBodyIn::Welcome(welcome) => {
-            if MlsGroup::load(provider.storage(), &group_id)
-                .map_err(|_| "MLS组加载失败")?
-                .is_some()
-            {
-                return Err("MLS Welcome不能覆盖已消费的组".into());
-            }
             let staged = StagedWelcome::new_from_welcome(
                 &provider,
                 mls_group_config().join_config(),
                 welcome,
                 None,
             )
-            .map_err(|error| format!("处理群 Welcome 失败: {error:?}"))?;
+            .map_err(|error| match error {
+                WelcomeError::GroupAlreadyExists => "CHAT_MLS_WELCOME_CONFLICT".into(),
+                _ => format!("处理群 Welcome 失败: {error:?}"),
+            })?;
+            if staged.group_context().group_id() != &group_id {
+                return Err("Welcome group_id 与 group_id 不一致".into());
+            }
             let sender_identity = identity_of(
                 staged
                     .welcome_sender()
@@ -2129,9 +2200,6 @@ fn group_process_json(request_json: *const c_char) -> Result<String, String> {
             let group = staged
                 .into_group(&provider)
                 .map_err(|error| format!("从 Welcome 创建群失败: {error:?}"))?;
-            if group.group_id() != &group_id {
-                return Err("Welcome group_id 与 group_id 不一致".to_string());
-            }
             let epoch = group.epoch().as_u64();
             let members: Vec<String> = group
                 .members()
@@ -2157,6 +2225,16 @@ fn group_process_json(request_json: *const c_char) -> Result<String, String> {
         }
         _ => return Err("不支持的群 MLS wire message 类型".to_string()),
     };
+    if response["status"] == "applied"
+        && request
+            .sender_member_identity
+            .as_ref()
+            .is_some_and(|sender| {
+                response["sender_member_identity"].as_str() != Some(sender.as_str())
+            })
+    {
+        return Err("MLS真实发送者与邮箱身份不一致".into());
+    }
     commit_response(state_dir, &provider, "process", request_json, response)
 }
 
@@ -2171,7 +2249,7 @@ fn process_group_protocol(
     let message_epoch = protocol_message.epoch().as_u64();
     let mut group = MlsGroup::load(provider.storage(), &group_id)
         .map_err(|error| format!("加载 MLS 群失败: {error:?}"))?
-        .ok_or_else(|| "群会话不存在，需先处理 Welcome".to_string())?;
+        .ok_or_else(|| "CHAT_MLS_GROUP_MISSING".to_string())?;
     let current = group.epoch().as_u64();
 
     if message_epoch > current {
@@ -2288,7 +2366,7 @@ fn group_state_json(request_json: *const c_char) -> Result<String, String> {
     let group_id = group_id_from_conversation(&request.group_id)?;
     let group = MlsGroup::load(provider.storage(), &group_id)
         .map_err(|error| format!("加载 MLS 群失败: {error:?}"))?
-        .ok_or_else(|| "MLS 群不存在".to_string())?;
+        .ok_or_else(|| "CHAT_MLS_GROUP_MISSING".to_string())?;
     let epoch = group.epoch().as_u64();
     let members: Vec<String> = group
         .members()

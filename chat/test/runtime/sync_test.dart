@@ -18,6 +18,7 @@ import 'package:chat/mls/mls_group_boundary.dart';
 import 'package:chat/mls/mls_bindings.dart';
 import 'package:chat/mls/mls_state_store.dart';
 import 'package:citizen_network/protocol/message.dart';
+import 'package:citizen_network/protocol/chat_frame.pb.dart' show SubmitCommit;
 import 'package:chat/chat_runtime.dart';
 import 'package:chat/message/direct_flow.dart';
 import 'package:chat/chat_media_limits.dart';
@@ -200,6 +201,26 @@ final class _Transport implements ChatServiceTransport {
   final messages = <ChatMailboxMessage>[];
   final acknowledged = <List<String>>[];
   final published = <MlsKeyPackage>[];
+  final _commits = <String, SubmitCommit>{};
+  final submittedCommits = <SubmitCommit>[];
+  bool loseCommitReply = false;
+  @override
+  Future<List<int>> resolveGroup(String conversationId) async =>
+      _commits[conversationId]?.groupId ?? const [];
+  @override
+  Future<void> submitCommit(SubmitCommit commit) async {
+    final previous = _commits[commit.conversationId];
+    if (previous != null && previous != commit) {
+      throw const ChatConnectionException('commit_conflict');
+    }
+    _commits[commit.conversationId] = commit.deepCopy();
+    submittedCommits.add(commit.deepCopy());
+    if (loseCommitReply) {
+      loseCommitReply = false;
+      throw const ChatConnectionException('realtime_command_timeout');
+    }
+  }
+
   Future<void> Function()? onPublish;
   Future<void> Function()? onRealtimeConnect;
   int realtimeConnects = 0;
@@ -624,10 +645,18 @@ void main() {
       ),
       createdAtMillis: DateTime.now().millisecondsSinceEpoch,
     );
+    transport.loseCommitReply = true;
+    await expectLater(
+      runtime.retryOutgoing(recipientUserId: 'user-b'),
+      throwsA(isA<ChatConnectionException>()),
+    );
+    expect(transport.submittedCommits, hasLength(1));
+    final original = transport.submittedCommits.single;
     expect(
       await runtime.retryOutgoing(recipientUserId: 'user-b'),
       greaterThan(0),
     );
+    expect(transport.submittedCommits, [original, original]);
     expect(commandProofs, greaterThanOrEqualTo(2));
     expect(
       await store.readPendingOutgoingMessages(
@@ -1179,8 +1208,8 @@ void main() {
     }
   });
 
-  for (final mode in ['exception', 'failure']) {
-    test('密文投递$mode只阻断同会话，另一个会话仍提交且保留实际错误码', () async {
+  for (final mode in ['exception', 'failure', 'commit_required']) {
+    test('密文投递 $mode 区分可重试失败和确定淘汰的握手', () async {
       final f = await _Fixture.create();
       await f.runtime.ensureReady(_account.accountId);
       var notices = 0;
@@ -1221,27 +1250,35 @@ void main() {
           throw StateError('synthetic transport failure');
         }
       };
-      if (mode == 'failure') {
+      if (mode != 'exception') {
         f.transport.deliveryResult = (id) => ChatDeliveryResult(
           messageId: id,
           state: sends == 1
               ? ChatMessageDeliveryState.failed
               : ChatMessageDeliveryState.sent,
-          errorMessage: sends == 1 ? 'storage_unavailable' : null,
+          errorMessage: sends == 1
+              ? (mode == 'failure' ? 'storage_unavailable' : mode)
+              : null,
         );
       }
-      await expectLater(
-        f.runtime.retryOutgoing(),
-        throwsA(
-          isA<ChatConnectionException>().having(
-            (error) => error.code,
-            '实际固定码',
-            mode == 'exception' ? 'operation_failed' : 'storage_unavailable',
+      if (mode == 'commit_required') {
+        expect(await f.runtime.retryOutgoing(), 2);
+        expect(sends, 3);
+        expect(await f.store.outboundQueueCount(_account.userId), 0);
+      } else {
+        await expectLater(
+          f.runtime.retryOutgoing(),
+          throwsA(
+            isA<ChatConnectionException>().having(
+              (error) => error.code,
+              '实际固定码',
+              mode == 'exception' ? 'operation_failed' : 'storage_unavailable',
+            ),
           ),
-        ),
-      );
-      expect(sends, 2);
-      expect(await f.store.outboundQueueCount(_account.userId), 2);
+        );
+        expect(sends, 2);
+        expect(await f.store.outboundQueueCount(_account.userId), 2);
+      }
       expect(notices, 1);
       await stop!();
     });
@@ -1278,7 +1315,7 @@ void main() {
       });
       f.crypto.processFailure = native
           ? MlsException.fromTechnicalMessage(
-              'MLS Welcome不能覆盖已消费的组',
+              'CHAT_MLS_WELCOME_CONFLICT',
               operation: MlsOperation.groupProcess,
             )
           : StateError('synthetic-private-detail');
@@ -1294,7 +1331,7 @@ void main() {
         '[ChatTrace] direction=inbound stage=${native ? 'group_process' : 'message'} code=${native ? 'welcome_conflict' : 'operation_failed'}',
       ]);
       expect(diagnostics.join(), isNot(contains('synthetic-private-detail')));
-      expect(diagnostics.join(), isNot(contains('MLS Welcome')));
+      expect(diagnostics.join(), isNot(contains('CHAT_MLS_WELCOME_CONFLICT')));
     });
   }
 

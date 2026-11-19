@@ -30,6 +30,7 @@ void main() {
       'chat-add',
       () => a.crypto.addMembers('ordinary-chat', packages),
     );
+    await a.crypto.finishCommit('chat-add', accepted: true);
     await b.crypto.withMessage(
       'chat-join',
       () => b.crypto.groupProcess(added.welcome!),
@@ -153,22 +154,20 @@ void main() {
       );
       await expectLater(seal(a.attachment(state: hooked)), throwsStateError);
       final prefix = await cipher.readAsBytes();
-      final nativeBefore = await a.store.attachmentAction(
-        'attachment_progress',
-        {
-          'group_id': MlsAttachment.groupId(
-            roster.firstWhere((m) => m.endsWith(a.identity.deviceId)),
-            'file-1',
-          ),
-        },
-      );
+      final nativeBefore = await a.store
+          .attachmentAction('attachment_progress', {
+            'group_id': MlsAttachment.groupId(
+              roster.firstWhere((m) => m.endsWith(a.identity.deviceId)),
+              'file-1',
+            ),
+          });
       expect(nativeBefore['next_chunk'], committed ? 1 : 0);
       final control = await seal(a.attachment());
       final complete = await cipher.readAsBytes();
       expect(complete.sublist(0, prefix.length), prefix);
-      final state = jsonDecode(
-        await File('${a.store.path}/state.bin').readAsString(),
-      ) as Map;
+      final state =
+          jsonDecode(await File('${a.store.path}/state.bin').readAsString())
+              as Map;
       expect(
         (state['results'] as Map).values.where(
           (v) => (v as Map)['request']['group_id'] == control.attachmentGroupId,

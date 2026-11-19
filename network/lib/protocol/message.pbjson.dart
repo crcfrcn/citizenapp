@@ -74,6 +74,7 @@ const EncryptedMessage$json = {
       '10': 'deliveries'
     },
     {'1': 'created_at_millis', '3': 6, '4': 1, '5': 4, '10': 'createdAtMillis'},
+    {'1': 'group_id', '3': 7, '4': 1, '5': 12, '10': 'groupId'},
   ],
 };
 
@@ -84,7 +85,7 @@ final $typed_data.Uint8List encryptedMessageDescriptor = $convert.base64Decode(
     'ASgJUgxzZW5kZXJVc2VySWQSKAoQc2VuZGVyX2RldmljZV9pZBgEIAEoCVIOc2VuZGVyRGV2aW'
     'NlSWQSQAoKZGVsaXZlcmllcxgFIAMoCzIgLmNoYXQucHJvdG9jb2wuRW5jcnlwdGVkRGVsaXZl'
     'cnlSCmRlbGl2ZXJpZXMSKgoRY3JlYXRlZF9hdF9taWxsaXMYBiABKARSD2NyZWF0ZWRBdE1pbG'
-    'xpcw==');
+    'xpcxIZCghncm91cF9pZBgHIAEoDFIHZ3JvdXBJZA==');
 
 @$core.Deprecated('Use chatRouteDescriptor instead')
 const ChatRoute$json = {

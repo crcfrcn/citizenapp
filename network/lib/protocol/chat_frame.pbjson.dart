@@ -145,6 +145,33 @@ const ChatFrame$json = {
       '10': 'messageAvailable'
     },
     {
+      '1': 'resolve_group',
+      '3': 25,
+      '4': 1,
+      '5': 11,
+      '6': '.chat.protocol.ResolveGroup',
+      '9': 0,
+      '10': 'resolveGroup'
+    },
+    {
+      '1': 'group_binding',
+      '3': 26,
+      '4': 1,
+      '5': 11,
+      '6': '.chat.protocol.GroupBinding',
+      '9': 0,
+      '10': 'groupBinding'
+    },
+    {
+      '1': 'submit_commit',
+      '3': 27,
+      '4': 1,
+      '5': 11,
+      '6': '.chat.protocol.SubmitCommit',
+      '9': 0,
+      '10': 'submitCommit'
+    },
+    {
       '1': 'begin_attachment',
       '3': 30,
       '4': 1,
@@ -231,17 +258,21 @@ final $typed_data.Uint8List chatFrameDescriptor = $convert.base64Decode(
     'IbLmNoYXQucHJvdG9jb2wuTWVzc2FnZUJhdGNoSABSDG1lc3NhZ2VCYXRjaBJXChRhY2tub3ds'
     'ZWRnZV9tZXNzYWdlcxgXIAEoCzIiLmNoYXQucHJvdG9jb2wuQWNrbm93bGVkZ2VNZXNzYWdlc0'
     'gAUhNhY2tub3dsZWRnZU1lc3NhZ2VzEk4KEW1lc3NhZ2VfYXZhaWxhYmxlGBggASgLMh8uY2hh'
-    'dC5wcm90b2NvbC5NZXNzYWdlQXZhaWxhYmxlSABSEG1lc3NhZ2VBdmFpbGFibGUSSwoQYmVnaW'
-    '5fYXR0YWNobWVudBgeIAEoCzIeLmNoYXQucHJvdG9jb2wuQmVnaW5BdHRhY2htZW50SABSD2Jl'
-    'Z2luQXR0YWNobWVudBJUChNjb21wbGV0ZV9hdHRhY2htZW50GB8gASgLMiEuY2hhdC5wcm90b2'
-    'NvbC5Db21wbGV0ZUF0dGFjaG1lbnRIAFISY29tcGxldGVBdHRhY2htZW50EksKEGF0dGFjaG1l'
-    'bnRfcmVhZHkYICABKAsyHi5jaGF0LnByb3RvY29sLkF0dGFjaG1lbnRSZWFkeUgAUg9hdHRhY2'
-    'htZW50UmVhZHkSXQoWYWNrbm93bGVkZ2VfYXR0YWNobWVudBghIAEoCzIkLmNoYXQucHJvdG9j'
-    'b2wuQWNrbm93bGVkZ2VBdHRhY2htZW50SABSFWFja25vd2xlZGdlQXR0YWNobWVudBJLChBhYm'
-    '9ydF9hdHRhY2htZW50GCIgASgLMh4uY2hhdC5wcm90b2NvbC5BYm9ydEF0dGFjaG1lbnRIAFIP'
-    'YWJvcnRBdHRhY2htZW50EkIKDXJlZ2lzdGVyX3B1c2gYKCABKAsyGy5jaGF0LnByb3RvY29sLl'
-    'JlZ2lzdGVyUHVzaEgAUgxyZWdpc3RlclB1c2gSPAoLcmVtb3ZlX3B1c2gYKSABKAsyGS5jaGF0'
-    'LnByb3RvY29sLlJlbW92ZVB1c2hIAFIKcmVtb3ZlUHVzaEIGCgRib2R5');
+    'dC5wcm90b2NvbC5NZXNzYWdlQXZhaWxhYmxlSABSEG1lc3NhZ2VBdmFpbGFibGUSQgoNcmVzb2'
+    'x2ZV9ncm91cBgZIAEoCzIbLmNoYXQucHJvdG9jb2wuUmVzb2x2ZUdyb3VwSABSDHJlc29sdmVH'
+    'cm91cBJCCg1ncm91cF9iaW5kaW5nGBogASgLMhsuY2hhdC5wcm90b2NvbC5Hcm91cEJpbmRpbm'
+    'dIAFIMZ3JvdXBCaW5kaW5nEkIKDXN1Ym1pdF9jb21taXQYGyABKAsyGy5jaGF0LnByb3RvY29s'
+    'LlN1Ym1pdENvbW1pdEgAUgxzdWJtaXRDb21taXQSSwoQYmVnaW5fYXR0YWNobWVudBgeIAEoCz'
+    'IeLmNoYXQucHJvdG9jb2wuQmVnaW5BdHRhY2htZW50SABSD2JlZ2luQXR0YWNobWVudBJUChNj'
+    'b21wbGV0ZV9hdHRhY2htZW50GB8gASgLMiEuY2hhdC5wcm90b2NvbC5Db21wbGV0ZUF0dGFjaG'
+    '1lbnRIAFISY29tcGxldGVBdHRhY2htZW50EksKEGF0dGFjaG1lbnRfcmVhZHkYICABKAsyHi5j'
+    'aGF0LnByb3RvY29sLkF0dGFjaG1lbnRSZWFkeUgAUg9hdHRhY2htZW50UmVhZHkSXQoWYWNrbm'
+    '93bGVkZ2VfYXR0YWNobWVudBghIAEoCzIkLmNoYXQucHJvdG9jb2wuQWNrbm93bGVkZ2VBdHRh'
+    'Y2htZW50SABSFWFja25vd2xlZGdlQXR0YWNobWVudBJLChBhYm9ydF9hdHRhY2htZW50GCIgAS'
+    'gLMh4uY2hhdC5wcm90b2NvbC5BYm9ydEF0dGFjaG1lbnRIAFIPYWJvcnRBdHRhY2htZW50EkIK'
+    'DXJlZ2lzdGVyX3B1c2gYKCABKAsyGy5jaGF0LnByb3RvY29sLlJlZ2lzdGVyUHVzaEgAUgxyZW'
+    'dpc3RlclB1c2gSPAoLcmVtb3ZlX3B1c2gYKSABKAsyGS5jaGF0LnByb3RvY29sLlJlbW92ZVB1'
+    'c2hIAFIKcmVtb3ZlUHVzaEIGCgRib2R5');
 
 @$core.Deprecated('Use resourceUsageDescriptor instead')
 const ResourceUsage$json = {
@@ -548,6 +579,61 @@ final $typed_data.Uint8List messageAvailableDescriptor = $convert.base64Decode(
     'ChBNZXNzYWdlQXZhaWxhYmxlEh0KCm1lc3NhZ2VfaWQYASABKAlSCW1lc3NhZ2VJZBInCg9jb2'
     '52ZXJzYXRpb25faWQYAiABKAlSDmNvbnZlcnNhdGlvbklkEiwKEnNlcnZlcl90aW1lX21pbGxp'
     'cxgDIAEoBFIQc2VydmVyVGltZU1pbGxpcw==');
+
+@$core.Deprecated('Use resolveGroupDescriptor instead')
+const ResolveGroup$json = {
+  '1': 'ResolveGroup',
+  '2': [
+    {'1': 'conversation_id', '3': 1, '4': 1, '5': 9, '10': 'conversationId'},
+  ],
+};
+
+/// Descriptor for `ResolveGroup`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List resolveGroupDescriptor = $convert.base64Decode(
+    'CgxSZXNvbHZlR3JvdXASJwoPY29udmVyc2F0aW9uX2lkGAEgASgJUg5jb252ZXJzYXRpb25JZA'
+    '==');
+
+@$core.Deprecated('Use groupBindingDescriptor instead')
+const GroupBinding$json = {
+  '1': 'GroupBinding',
+  '2': [
+    {'1': 'conversation_id', '3': 1, '4': 1, '5': 9, '10': 'conversationId'},
+    {'1': 'group_id', '3': 2, '4': 1, '5': 12, '10': 'groupId'},
+  ],
+};
+
+/// Descriptor for `GroupBinding`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List groupBindingDescriptor = $convert.base64Decode(
+    'CgxHcm91cEJpbmRpbmcSJwoPY29udmVyc2F0aW9uX2lkGAEgASgJUg5jb252ZXJzYXRpb25JZB'
+    'IZCghncm91cF9pZBgCIAEoDFIHZ3JvdXBJZA==');
+
+@$core.Deprecated('Use submitCommitDescriptor instead')
+const SubmitCommit$json = {
+  '1': 'SubmitCommit',
+  '2': [
+    {'1': 'conversation_id', '3': 1, '4': 1, '5': 9, '10': 'conversationId'},
+    {'1': 'group_id', '3': 2, '4': 1, '5': 12, '10': 'groupId'},
+    {'1': 'epoch', '3': 3, '4': 1, '5': 4, '10': 'epoch'},
+    {'1': 'operation_id', '3': 4, '4': 1, '5': 9, '10': 'operationId'},
+    {'1': 'commit', '3': 5, '4': 1, '5': 12, '10': 'commit'},
+    {
+      '1': 'messages',
+      '3': 6,
+      '4': 3,
+      '5': 11,
+      '6': '.chat.protocol.EncryptedMessage',
+      '10': 'messages'
+    },
+  ],
+};
+
+/// Descriptor for `SubmitCommit`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List submitCommitDescriptor = $convert.base64Decode(
+    'CgxTdWJtaXRDb21taXQSJwoPY29udmVyc2F0aW9uX2lkGAEgASgJUg5jb252ZXJzYXRpb25JZB'
+    'IZCghncm91cF9pZBgCIAEoDFIHZ3JvdXBJZBIUCgVlcG9jaBgDIAEoBFIFZXBvY2gSIQoMb3Bl'
+    'cmF0aW9uX2lkGAQgASgJUgtvcGVyYXRpb25JZBIWCgZjb21taXQYBSABKAxSBmNvbW1pdBI7Cg'
+    'htZXNzYWdlcxgGIAMoCzIfLmNoYXQucHJvdG9jb2wuRW5jcnlwdGVkTWVzc2FnZVIIbWVzc2Fn'
+    'ZXM=');
 
 @$core.Deprecated('Use beginAttachmentDescriptor instead')
 const BeginAttachment$json = {

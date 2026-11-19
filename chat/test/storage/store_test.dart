@@ -331,12 +331,18 @@ void main() {
       );
       expect(await store.pendingInboundCount(_ownerUserId), 1);
 
-      final pending = await store.takePendingInbound(
+      final pending = await store.readPendingInbound(
         _ownerUserId,
         'conv-store',
         bindingToken: bindingToken,
       );
       expect(pending.single.messageId, 'env-store');
+      expect(await store.pendingInboundCount(_ownerUserId), 1);
+      await store.acknowledgePendingInbound(
+        bindingToken: bindingToken,
+        ownerUserId: _ownerUserId,
+        messageIds: ['env-store'],
+      );
       expect(await store.pendingInboundCount(_ownerUserId), 0);
 
       final incomingMessage = message.deepCopy()
@@ -1130,11 +1136,12 @@ void main() {
       '此前群上下文',
     );
     expect(
-      await store.takeGroupPendingCommit(
+      await store.readGroupPendingCommit(
         _ownerUserId,
         'group-isolate',
         2,
         bindingToken: nextBindingToken,
+        processed: {},
       ),
       isNull,
     );

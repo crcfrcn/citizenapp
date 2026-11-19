@@ -187,6 +187,7 @@ enum MlsErrorCode {
   keyPackageFailed,
   operationFailed,
   welcomeConflict,
+  groupMissing,
 }
 
 /// 公开诊断只携带固定FFI操作，不暴露路径、身份或请求内容。
@@ -237,7 +238,10 @@ class MlsException implements Exception {
     if (message.contains('CHAT_MLS_SIGNER_MISSING')) {
       return MlsErrorCode.signerMissing;
     }
-    if (message == 'MLS Welcome不能覆盖已消费的组') {
+    if (message == 'CHAT_MLS_GROUP_MISSING') {
+      return MlsErrorCode.groupMissing;
+    }
+    if (message == 'CHAT_MLS_WELCOME_CONFLICT') {
       return MlsErrorCode.welcomeConflict;
     }
     if (message.startsWith('CHAT_MLS_REQUEST_CONFLICT:')) {
@@ -286,6 +290,7 @@ class MlsException implements Exception {
     MlsErrorCode.keyPackageFailed => 'key_package_failed',
     MlsErrorCode.operationFailed => 'operation_failed',
     MlsErrorCode.welcomeConflict => 'welcome_conflict',
+    MlsErrorCode.groupMissing => 'group_missing',
   };
 
   String get userMessage => switch (code) {
@@ -301,6 +306,7 @@ class MlsException implements Exception {
     MlsErrorCode.invalidResponse ||
     MlsErrorCode.requestConflict ||
     MlsErrorCode.welcomeConflict ||
+    MlsErrorCode.groupMissing ||
     MlsErrorCode.pendingFull ||
     MlsErrorCode.keyPackageFailed ||
     MlsErrorCode.operationFailed => '聊天安全组件暂时无法使用，请稍后重试',

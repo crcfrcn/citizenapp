@@ -266,6 +266,8 @@ abstract interface class ChatServiceTransport
 
   Future<void> publishKeyPackage(MlsKeyPackage keyPackage);
   Future<List<MlsKeyPackage>> resolveKeyPackages(String recipientUserId);
+  Future<List<int>> resolveGroup(String conversationId);
+  Future<void> submitCommit(frame_protocol.SubmitCommit commit);
   Future<({List<ChatMailboxMessage> messages, String? nextCursor})>
   fetchMailbox({String? cursor});
   Future<void> acknowledgeMailbox(List<String> messageIds);
@@ -412,6 +414,8 @@ const _serverFailureCodes = <String>{
   'forbidden',
   'not_found',
   'conflict',
+  'commit_conflict',
+  'commit_required',
   'resource_limit',
   'storage_unavailable',
 };
@@ -965,6 +969,32 @@ final class ChatConnection implements ChatServiceTransport {
       },
     );
   }
+
+  @override
+  Future<List<int>> resolveGroup(String conversationId) => _command<List<int>>(
+    frame: frame_protocol.ChatFrame(
+      resolveGroup: frame_protocol.ResolveGroup(conversationId: conversationId),
+    ),
+    accept: (frame) =>
+        frame.whichBody() == frame_protocol.ChatFrame_Body.groupBinding,
+    decode: (frame) {
+      final binding = frame.groupBinding;
+      if (binding.conversationId != conversationId ||
+          binding.groupId.isNotEmpty && binding.groupId.length != 16) {
+        throw const ChatConnectionException('group_binding_invalid');
+      }
+      return List<int>.unmodifiable(binding.groupId);
+    },
+  );
+
+  @override
+  Future<void> submitCommit(frame_protocol.SubmitCommit commit) =>
+      _command<void>(
+        frame: frame_protocol.ChatFrame(submitCommit: commit),
+        accept: (frame) =>
+            _success(frame, 'commit.accepted', id: commit.operationId),
+        decode: (_) {},
+      );
 
   @override
   Future<ChatDeliveryResult> sendEncryptedMessage({

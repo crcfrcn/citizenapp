@@ -1,4 +1,8 @@
 import 'dart:io';
+
+import 'package:citizen_network/protocol/message.dart';
+import 'package:fixnum/fixnum.dart';
+
 import 'mls_boundary.dart';
 
 // 私密小群(MLS 群)的 Dart 侧边界模型与接口。
@@ -119,7 +123,8 @@ class GroupCommitBundle {
     this.welcome,
     this.removedMemberIdentities = const [],
     this.priorMemberIdentities = const [],
-    this.createdAtMillis,
+    this.welcomeMemberIdentities = const [],
+    required this.createdAtMillis,
   });
 
   final String groupId;
@@ -128,7 +133,55 @@ class GroupCommitBundle {
   final MlsWireMessage? welcome;
   final List<String> removedMemberIdentities;
   final List<String> priorMemberIdentities;
-  final int? createdAtMillis;
+  final List<String> welcomeMemberIdentities;
+  final int createdAtMillis;
+}
+
+/// 分发服务接收每类原始握手密文各一份，并按该密文的完整设备名单路由。
+List<EncryptedMessage> mlsCommitMessages({
+  required String operationId,
+  required String conversationId,
+  required List<int> groupId,
+  required String senderUserId,
+  required String senderDeviceId,
+  required int createdAtMillis,
+  required List<int> commit,
+  required Iterable<String> priorMembers,
+  List<int>? welcome,
+  Iterable<String> invitees = const [],
+}) {
+  EncryptedMessage? envelope(
+    String kind,
+    List<int> wire,
+    Iterable<String> roster,
+  ) {
+    final deliveries = [
+      for (final member in membersFromMemberIdentities(roster))
+        if (member.userId != senderUserId || member.deviceId != senderDeviceId)
+          EncryptedDelivery(
+            recipient: Recipient(
+              userId: member.userId,
+              deviceId: member.deviceId,
+            ),
+            openmlsCiphertext: wire,
+          ),
+    ];
+    if (deliveries.isEmpty) return null;
+    return EncryptedMessage(
+      messageId: '$operationId-$kind',
+      conversationId: conversationId,
+      senderUserId: senderUserId,
+      senderDeviceId: senderDeviceId,
+      groupId: groupId,
+      createdAtMillis: Int64(createdAtMillis),
+      deliveries: deliveries,
+    );
+  }
+
+  return [
+    ?envelope('commit', commit, priorMembers),
+    if (welcome != null) ?envelope('welcome', welcome, invitees),
+  ];
 }
 
 /// `group_process` 处理入站群消息的结果。
@@ -225,6 +278,11 @@ abstract class MlsGroupCrypto {
   Future<GroupState> groupState(String groupId);
 }
 
+/// 只有分发层明确选择或拒绝同一 Commit 后，才可结清 OpenMLS pending 状态。
+abstract interface class MlsCommitControl {
+  Future<void> finishCommit(String operationId, {required bool accepted});
+}
+
 /// 持久化实现的事务能力；复用现有message_id，不扩展密码协议。
 abstract interface class MlsPersistentCrypto {
   Future<T> withMessage<T>(String messageId, Future<T> Function() operation);
@@ -234,6 +292,20 @@ abstract interface class MlsPersistentCrypto {
 
 /// 生产必须接入持久化实现；非持久化替身只允许合成测试。
 extension MlsPersistentOperations on MlsGroupCrypto {
+  Future<void> settlePendingCommit(
+    String operationId, {
+    required bool accepted,
+  }) {
+    final current = this;
+    if (current is! MlsCommitControl) {
+      throw StateError('MLS实现缺少待确认Commit接口');
+    }
+    return (current as MlsCommitControl).finishCommit(
+      operationId,
+      accepted: accepted,
+    );
+  }
+
   Future<T> withMessage<T>(String messageId, Future<T> Function() operation) {
     final current = this;
     if (current is MlsPersistentCrypto) {

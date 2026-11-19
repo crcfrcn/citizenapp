@@ -1358,7 +1358,8 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
       await _requireBindingTokenInTxn(isar, bindingToken);
       final terminalMessageFailure =
           errorMessage == 'chat_message_expired' ||
-          errorMessage == 'chat_message_invalid';
+          errorMessage == 'chat_message_invalid' ||
+          errorMessage == 'commit_required';
       final effectiveState = terminalMessageFailure
           ? ChatMessageDeliveryState.failed
           : state;
@@ -1406,36 +1407,48 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
   }
 
   @override
-  Future<List<EncryptedMessage>> takePendingInbound(
+  Future<List<EncryptedMessage>> readPendingInbound(
     String ownerUserId,
     String conversationId, {
     required ChatBindingFenceToken bindingToken,
   }) {
     _requireWriterContext(bindingToken: bindingToken, ownerUserId: ownerUserId);
-    return _chatIsar.writeTxn((isar) async {
+    return _chatIsar.read((isar) async {
       await _requireBindingTokenInTxn(isar, bindingToken);
       final rows = await isar.chatPendingInboundEntitys
           .filter()
-          .idGreaterThan(0, include: true)
+          .ownerUserIdEqualTo(ownerUserId)
+          .conversationIdEqualTo(conversationId)
+          .sortByCreatedAtMillis()
           .findAll();
-      final matched =
-          rows
-              .where(
-                (row) =>
-                    row.ownerUserId == ownerUserId &&
-                    row.conversationId == conversationId,
-              )
-              .toList(growable: false)
-            ..sort((a, b) => a.createdAtMillis.compareTo(b.createdAtMillis));
-      for (final row in matched) {
-        await isar.chatPendingInboundEntitys.delete(row.id);
-      }
-      return matched
+      return rows
           .map(
             (row) =>
                 EncryptedMessage.fromBuffer(_hexToBytes(row.messageBytesHex)),
           )
           .toList(growable: false);
+    });
+  }
+
+  @override
+  Future<void> acknowledgePendingInbound({
+    required ChatBindingFenceToken bindingToken,
+    required String ownerUserId,
+    required Iterable<String> messageIds,
+  }) {
+    _requireWriterContext(bindingToken: bindingToken, ownerUserId: ownerUserId);
+    return _chatIsar.writeTxn((isar) async {
+      await _requireBindingTokenInTxn(isar, bindingToken);
+      for (final id in messageIds) {
+        await isar.chatPendingInboundEntitys.deleteByOwnerUserIdMessageId(
+          ownerUserId,
+          id,
+        );
+        await isar.chatGroupPendingCommitEntitys.deleteByOwnerUserIdMessageId(
+          ownerUserId,
+          id,
+        );
+      }
     });
   }
 
@@ -1820,16 +1833,17 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
     });
   }
 
-  /// 取出并删除某 (groupId, messageEpoch) 下最早的一条缓冲;无则 null。
+  /// 读取指定 epoch 中本轮尚未处理的最早密文。
   @override
-  Future<EncryptedMessage?> takeGroupPendingCommit(
+  Future<EncryptedMessage?> readGroupPendingCommit(
     String ownerUserId,
     String groupId,
     int messageEpoch, {
     required ChatBindingFenceToken bindingToken,
+    required Set<String> processed,
   }) {
     _requireWriterContext(bindingToken: bindingToken, ownerUserId: ownerUserId);
-    return _chatIsar.writeTxn((isar) async {
+    return _chatIsar.read((isar) async {
       await _requireBindingTokenInTxn(isar, bindingToken);
       final rows = await isar.chatGroupPendingCommitEntitys
           .filter()
@@ -1838,13 +1852,13 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
           .groupIdEqualTo(groupId)
           .messageEpochEqualTo(messageEpoch)
           .findAll();
-      if (rows.isEmpty) {
-        return null;
-      }
       rows.sort((a, b) => a.createdAtMillis.compareTo(b.createdAtMillis));
-      final row = rows.first;
-      await isar.chatGroupPendingCommitEntitys.delete(row.id);
-      return EncryptedMessage.fromBuffer(_hexToBytes(row.messageBytesHex));
+      for (final row in rows) {
+        if (!processed.contains(row.messageId)) {
+          return EncryptedMessage.fromBuffer(_hexToBytes(row.messageBytesHex));
+        }
+      }
+      return null;
     });
   }
 
@@ -2294,6 +2308,48 @@ List<String> _searchTokens(String text) {
 ///
 /// The binding token is supplied by the host so 公民聊天 does not depend on a
 /// wallet, database engine, account format, or chain-specific binding model.
+/// 重新验密当前组的缓冲消息。只有确认落库的原消息才能退出缓冲。
+extension ChatPendingInbound<TBindingToken> on ChatFlowStore<TBindingToken> {
+  Future<List<EncryptedMessage>> replayPendingInbound({
+    required TBindingToken bindingToken,
+    required String ownerUserId,
+    required EncryptedMessage after,
+    required Future<List<EncryptedMessage>> Function(List<int>) process,
+  }) async {
+    final pending = await readPendingInbound(
+      ownerUserId,
+      after.conversationId,
+      bindingToken: bindingToken,
+    );
+    final remaining = [
+      for (final message in pending)
+        if (message.messageId != after.messageId &&
+            listEquals(message.groupId, after.groupId))
+          message,
+    ];
+    final accepted = <EncryptedMessage>[];
+    while (remaining.isNotEmpty) {
+      final before = remaining.length;
+      for (var index = 0; index < remaining.length;) {
+        final message = remaining[index];
+        try {
+          final messages = await process(message.writeToBuffer());
+          if (messages.any((item) => item.messageId == message.messageId)) {
+            accepted.addAll(messages);
+            remaining.removeAt(index);
+            continue;
+          }
+        } catch (_) {
+          // 单条验密或写入失败继续保留，允许同组的其他准确密文前进。
+        }
+        index++;
+      }
+      if (remaining.length == before) break;
+    }
+    return accepted;
+  }
+}
+
 abstract interface class ChatFlowStore<TBindingToken> {
   Future<void> saveOutgoingMessage({
     required TBindingToken bindingToken,
@@ -2342,10 +2398,16 @@ abstract interface class ChatFlowStore<TBindingToken> {
     required List<int> messageBytes,
   });
 
-  Future<List<EncryptedMessage>> takePendingInbound(
+  Future<List<EncryptedMessage>> readPendingInbound(
     String ownerUserId,
     String conversationId, {
     required TBindingToken bindingToken,
+  });
+
+  Future<void> acknowledgePendingInbound({
+    required TBindingToken bindingToken,
+    required String ownerUserId,
+    required Iterable<String> messageIds,
   });
 
   Future<void> upsertGroupShell({
@@ -2390,11 +2452,12 @@ abstract interface class ChatFlowStore<TBindingToken> {
     required List<int> messageBytes,
   });
 
-  Future<EncryptedMessage?> takeGroupPendingCommit(
+  Future<EncryptedMessage?> readGroupPendingCommit(
     String ownerUserId,
     String groupId,
     int messageEpoch, {
     required TBindingToken bindingToken,
+    required Set<String> processed,
   });
 
   Future<void> saveOutgoingGroupMessage({

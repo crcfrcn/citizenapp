@@ -12,7 +12,12 @@ import 'package:chat/group/group_fanout.dart';
 import 'package:chat/group/group_models.dart';
 import 'package:chat/mls/mls_boundary.dart';
 import 'package:chat/mls/mls_group_boundary.dart';
+import 'package:chat/transport/attachment_transfer.dart'
+    show ChatConnectionException;
+import 'package:citizen_network/protocol/chat_frame.pb.dart' show SubmitCommit;
 import 'package:citizen_network/protocol/message.dart';
+import 'package:crypto/crypto.dart';
+import 'package:fixnum/fixnum.dart';
 import 'package:chat/chat_store.dart';
 import 'package:chat/transport/chat_connection.dart';
 
@@ -40,6 +45,7 @@ class ChatGroupFlow<TBindingToken> {
     required MlsGroupCrypto crypto,
     required ChatFlowStore<TBindingToken> store,
     required EncryptedMessageDeliverer deliverer,
+    required Future<void> Function(SubmitCommit) submitCommit,
     required TBindingToken bindingToken,
     required String ownerUserId,
     required String userId,
@@ -50,6 +56,7 @@ class ChatGroupFlow<TBindingToken> {
   }) : _crypto = crypto,
        _store = store,
        _deliverer = deliverer,
+       _submitCommit = submitCommit,
        _bindingToken = bindingToken,
        _ownerUserId = ownerUserId,
        _userId = userId,
@@ -59,6 +66,7 @@ class ChatGroupFlow<TBindingToken> {
   final MlsGroupCrypto _crypto;
   final ChatFlowStore<TBindingToken> _store;
   final EncryptedMessageDeliverer _deliverer;
+  final Future<void> Function(SubmitCommit) _submitCommit;
   final TBindingToken _bindingToken;
 
   final String _ownerUserId;
@@ -109,7 +117,6 @@ class ChatGroupFlow<TBindingToken> {
         actorUserId: userId,
         actorDeviceId: localDeviceId,
         creatorUserId: userId,
-        existingUserIds: [userId],
         invitees: invitees,
       );
     }
@@ -138,7 +145,6 @@ class ChatGroupFlow<TBindingToken> {
       actorUserId: actorUserId,
       actorDeviceId: actorDeviceId,
       creatorUserId: group.creatorUserId,
-      existingUserIds: group.memberUserIds,
       invitees: invitees,
     );
   }
@@ -148,65 +154,21 @@ class ChatGroupFlow<TBindingToken> {
     required String actorUserId,
     required String actorDeviceId,
     required String creatorUserId,
-    required List<String> existingUserIds,
     required List<MlsKeyPackage> invitees,
   }) async {
-    final existingMembers = membersFromMemberIdentities(
-      (await _crypto.groupState(groupId)).memberIdentities,
-    );
-    final nativeMessageId =
-        '$groupId:add:${(await _requireGroup(groupId)).epoch}';
+    final nativeId = '$groupId:add:${(await _requireGroup(groupId)).epoch}';
     final bundle = await _crypto.withMessage(
-      nativeMessageId,
+      nativeId,
       () => _crypto.addMembers(groupId, invitees),
     );
-    final nowMillis =
-        bundle.createdAtMillis ?? DateTime.now().millisecondsSinceEpoch;
-
-    // Welcome → 全部新人;Commit → 现有成员(减自己)。
-    final inviteeMembers = invitees
-        .map(
-          (keyPackage) => MlsMemberIdentity(
-            userId: keyPackage.userId,
-            deviceId: keyPackage.deviceId,
-          ),
-        )
-        .toList(growable: false);
-    final welcome = bundle.welcome;
-    if (welcome != null && inviteeMembers.isNotEmpty) {
-      await _fanoutHandshake(
-        wire: welcome,
-        recipients: inviteeMembers,
-        senderUserId: actorUserId,
-        senderDeviceId: actorDeviceId,
-        groupId: groupId,
-        nowMillis: nowMillis,
-        tag: 'welcome',
-      );
-    }
-    final commitRecipients =
-        (bundle.priorMemberIdentities.isEmpty
-                ? existingMembers
-                : membersFromMemberIdentities(bundle.priorMemberIdentities))
-            .where(
-              (member) =>
-                  member.userId != actorUserId ||
-                  member.deviceId != actorDeviceId,
-            )
-            .toList(growable: false);
-    if (commitRecipients.isNotEmpty) {
-      await _fanoutHandshake(
-        wire: bundle.commit,
-        recipients: commitRecipients,
-        senderUserId: actorUserId,
-        senderDeviceId: actorDeviceId,
-        groupId: groupId,
-        nowMillis: nowMillis,
-        tag: 'commit',
-      );
-    }
-    await _reconcileFromChain(groupId, creatorUserId);
-    await _crypto.acknowledgeMessage(nativeMessageId);
+    if (bundle.welcome == null) throw StateError('群邀请缺少 Welcome');
+    await _commitMembership(
+      nativeId: nativeId,
+      bundle: bundle,
+      creatorUserId: creatorUserId,
+      actorUserId: actorUserId,
+      actorDeviceId: actorDeviceId,
+    );
   }
 
   /// 删人（仅 admin，按 user ID）。
@@ -221,22 +183,17 @@ class ChatGroupFlow<TBindingToken> {
       adminSet: group.adminSet,
       actorUserId: actorUserId,
     );
-    final recipients =
-        membersFromMemberIdentities(
-              (await _crypto.groupState(groupId)).memberIdentities,
-            )
-            .where(
-              (member) =>
-                  member.userId != actorUserId ||
-                  member.deviceId != actorDeviceId,
-            )
-            .toList(growable: false);
-    final nativeMessageId = '$groupId:remove:${group.epoch}';
+    final nativeId = '$groupId:remove:${group.epoch}';
+    final receipts = await _crypto.pendingMessageResults(nativeId);
+    final members = receipts.isEmpty
+        ? (await _crypto.groupState(groupId)).memberIdentities
+        : ((receipts.single['request'] as Map)['member_identities'] as List)
+              .cast<String>();
     final bundle = await _crypto.withMessage(
-      nativeMessageId,
-      () async => _crypto.removeMembers(
+      nativeId,
+      () => _crypto.removeMembers(
         groupId,
-        (await _crypto.groupState(groupId)).memberIdentities
+        members
             .where(
               (identity) =>
                   targetUserIds.contains(userIdFromMemberIdentity(identity)),
@@ -244,30 +201,56 @@ class ChatGroupFlow<TBindingToken> {
             .toList(),
       ),
     );
-    final nowMillis =
-        bundle.createdAtMillis ?? DateTime.now().millisecondsSinceEpoch;
-    final committedRecipients = bundle.priorMemberIdentities.isEmpty
-        ? recipients
-        : membersFromMemberIdentities(bundle.priorMemberIdentities)
-              .where(
-                (m) => m.userId != actorUserId || m.deviceId != actorDeviceId,
-              )
-              .toList();
+    await _commitMembership(
+      nativeId: nativeId,
+      bundle: bundle,
+      creatorUserId: group.creatorUserId,
+      actorUserId: actorUserId,
+      actorDeviceId: actorDeviceId,
+    );
+  }
 
-    // Commit → 剩余成员 + 被删者(镜像此刻仍含被删者),都减自己。
-    if (committedRecipients.isNotEmpty) {
-      await _fanoutHandshake(
-        wire: bundle.commit,
-        recipients: committedRecipients,
-        senderUserId: actorUserId,
-        senderDeviceId: actorDeviceId,
-        groupId: groupId,
-        nowMillis: nowMillis,
-        tag: 'commit',
+  Future<void> _commitMembership({
+    required String nativeId,
+    required GroupCommitBundle bundle,
+    required String creatorUserId,
+    required String actorUserId,
+    required String actorDeviceId,
+  }) async {
+    final groupId = bundle.groupId;
+    final operationId = sha256.convert(utf8.encode(nativeId)).toString();
+    final commit = bundle.commit.wireBytes;
+    try {
+      await _submitCommit(
+        SubmitCommit(
+          conversationId: groupId,
+          groupId: utf8.encode(groupId),
+          epoch: Int64(bundle.epoch),
+          operationId: operationId,
+          commit: commit,
+          messages: mlsCommitMessages(
+            operationId: operationId,
+            conversationId: groupId,
+            groupId: const [],
+            senderUserId: actorUserId,
+            senderDeviceId: actorDeviceId,
+            createdAtMillis: bundle.createdAtMillis,
+            commit: commit,
+            priorMembers: bundle.priorMemberIdentities,
+            welcome: bundle.welcome?.wireBytes,
+            invitees: bundle.welcomeMemberIdentities,
+          ),
+        ),
       );
+    } on ChatConnectionException catch (error) {
+      if (error.code == 'commit_conflict') {
+        await _crypto.settlePendingCommit(nativeId, accepted: false);
+      }
+      rethrow;
     }
-    await _reconcileFromChain(groupId, group.creatorUserId);
-    await _crypto.acknowledgeMessage(nativeMessageId);
+    await _crypto.settlePendingCommit(nativeId, accepted: true);
+    await _reconcileFromChain(groupId, creatorUserId);
+    await _crypto.acknowledgeMessage(nativeId);
   }
 
   /// 退群:先发退群请求(群 admin 收到后自动 removeMembers 重钥,保证后向保密),
@@ -345,7 +328,7 @@ class ChatGroupFlow<TBindingToken> {
           (entry) => (entry['result'] as Map)['application_wire_hex'] is String,
         )
         .firstOrNull;
-    await _fanoutHandshake(
+    await _fanoutControl(
       wire: wire,
       recipients: committedRecipients,
       senderUserId: _userId,
@@ -354,7 +337,6 @@ class ChatGroupFlow<TBindingToken> {
       nowMillis: created == null
           ? DateTime.now().millisecondsSinceEpoch
           : ((created['result'] as Map)['created_at_millis'] as num).toInt(),
-      tag: 'ctrl',
     );
     await _crypto.acknowledgeMessage(nativeMessageId);
   }
@@ -543,15 +525,16 @@ class ChatGroupFlow<TBindingToken> {
 
   /// 处理入站群 message:经 epoch 有序处理后落地。
   ///
-  /// 入群前(未处理 Welcome)到达的 Commit/Application 会让 Rust 报"群会话不存在",
-  /// 此时存入 pending-inbound,由 Welcome 处理后回放(复用 1:1 机制)。
+  /// 入群前或跨 epoch 的消息只有在精确收据已落库后才确认。
   Future<List<EncryptedMessage>> processIncomingGroupMessage(
-    List<int> messageBytes,
-  ) async {
+    List<int> messageBytes, {
+    bool replayPending = true,
+  }) async {
     final message = EncryptedMessage.fromBuffer(messageBytes);
     final wire = mlsWireMessageFromEncryptedMessage(message);
     final acceptedMessages = <EncryptedMessage>[];
     final messageIds = <String, String>{wire.wireHex: message.messageId};
+    final processed = <String>{message.messageId};
     try {
       await GroupEpochOrdering.processOrdered(
         wire: wire,
@@ -569,12 +552,17 @@ class ChatGroupFlow<TBindingToken> {
               message: bufferedMessage,
               messageBytes: bufferedMessage.writeToBuffer(),
             ),
-        bufferTake: (groupId, messageEpoch) => _store.takeGroupPendingCommit(
-          _ownerUserId,
-          groupId,
-          messageEpoch,
-          bindingToken: _bindingToken,
-        ),
+        bufferTake: (groupId, messageEpoch) async {
+          final next = await _store.readGroupPendingCommit(
+            _ownerUserId,
+            groupId,
+            messageEpoch,
+            bindingToken: _bindingToken,
+            processed: processed,
+          );
+          if (next != null) processed.add(next.messageId);
+          return next;
+        },
         wireFromMessage: (buffered) {
           final current = mlsWireMessageFromEncryptedMessage(buffered);
           messageIds[current.wireHex] = buffered.messageId;
@@ -582,19 +570,36 @@ class ChatGroupFlow<TBindingToken> {
         },
         onProcessed: (processedMessage, result) async {
           if (result.status == GroupProcessStatus.applied) {
-            final replayed = await _applyInbound(
+            await _applyInbound(
               processedMessage,
               processedMessage.writeToBuffer(),
               result,
             );
             await _crypto.acknowledgeMessage(processedMessage.messageId);
-            acceptedMessages
-              ..add(processedMessage)
-              ..addAll(replayed);
-          } else if (result.status == GroupProcessStatus.stale &&
-              result.committed) {
-            // 只有已提交且落库确认的精确密文收据，才允许重复设备确认。
-            acceptedMessages.add(processedMessage);
+          } else if (result.status != GroupProcessStatus.stale ||
+              !result.committed) {
+            return;
+          }
+          await _store.acknowledgePendingInbound(
+            bindingToken: _bindingToken,
+            ownerUserId: _ownerUserId,
+            messageIds: [processedMessage.messageId],
+          );
+          acceptedMessages.add(processedMessage);
+          if (replayPending &&
+              result.isApplied &&
+              !result.selfRemoved &&
+              (result.kind == GroupInboundKind.welcome ||
+                  result.kind == GroupInboundKind.commit)) {
+            acceptedMessages.addAll(
+              await _store.replayPendingInbound(
+                bindingToken: _bindingToken,
+                ownerUserId: _ownerUserId,
+                after: processedMessage,
+                process: (bytes) =>
+                    processIncomingGroupMessage(bytes, replayPending: false),
+              ),
+            );
           }
         },
       );
@@ -613,20 +618,19 @@ class ChatGroupFlow<TBindingToken> {
     }
   }
 
-  Future<List<EncryptedMessage>> _applyInbound(
+  Future<void> _applyInbound(
     EncryptedMessage message,
     List<int> messageBytes,
     GroupInbound result,
   ) async {
     if (!result.isApplied) {
-      return const <EncryptedMessage>[]; // out_of_order 已缓冲;stale 丢弃。
+      return; // out_of_order 已缓冲;stale 丢弃。
     }
     // 所有业务载荷和控制均绑定OpenMLS实际发送设备，不能信任外层自报身份。
     if (result.senderMemberIdentity !=
         '${message.senderUserId}:${message.senderDeviceId}') {
       throw StateError('群消息实际MLS发送者不一致');
     }
-    final replayedMessages = <EncryptedMessage>[];
     final creator = creatorUserIdFromGroupId(result.groupId);
     switch (result.kind) {
       case GroupInboundKind.welcome:
@@ -640,17 +644,6 @@ class ChatGroupFlow<TBindingToken> {
           epoch: result.groupEpoch,
         );
         await _reconcileRosterFrom(result, creator);
-        // 回放入群前缓冲的同群消息。
-        final pending = await _store.takePendingInbound(
-          _ownerUserId,
-          result.groupId,
-          bindingToken: _bindingToken,
-        );
-        for (final buffered in pending) {
-          replayedMessages.addAll(
-            await processIncomingGroupMessage(buffered.writeToBuffer()),
-          );
-        }
       case GroupInboundKind.commit:
         if (result.selfRemoved) {
           await _store.markGroupLeft(
@@ -658,7 +651,7 @@ class ChatGroupFlow<TBindingToken> {
             result.groupId,
             bindingToken: _bindingToken,
           );
-          return replayedMessages;
+          return;
         }
         await _reconcileRosterFrom(result, creator);
       case GroupInboundKind.application:
@@ -667,7 +660,7 @@ class ChatGroupFlow<TBindingToken> {
         final control = GroupControlCodec.tryDecode(plaintext);
         if (control != null) {
           await _handleGroupControl(message, control);
-          return replayedMessages;
+          return;
         }
         final content = ChatPayloadCodec.decode(plaintext);
         if (content.isMedia &&
@@ -691,9 +684,8 @@ class ChatGroupFlow<TBindingToken> {
           unawaited(postStore.catchError((Object _) {}));
         }
       case GroupInboundKind.unknown:
-        break;
+        throw StateError('OpenMLS 未生成可接受的群消息');
     }
-    return replayedMessages;
   }
 
   Future<void> _handleGroupControl(
@@ -769,16 +761,14 @@ class ChatGroupFlow<TBindingToken> {
     };
   }
 
-  Future<void> _fanoutHandshake({
+  Future<void> _fanoutControl({
     required MlsWireMessage wire,
     required List<MlsMemberIdentity> recipients,
     required String senderUserId,
     required String senderDeviceId,
     required String groupId,
     required int nowMillis,
-    required String tag,
   }) async {
-    if (tag.isEmpty) throw ArgumentError.value(tag, 'tag', '群握手类型不能为空');
     final messages = GroupMessageFanout.fanOut(
       wire: wire,
       recipients: recipients,
@@ -834,7 +824,7 @@ class ChatGroupFlow<TBindingToken> {
 }
 
 bool _needsWelcomeFirst(Object error) {
-  return error.toString().contains('群会话不存在');
+  return error is MlsException && error.code == MlsErrorCode.groupMissing;
 }
 
 String _nonce() {

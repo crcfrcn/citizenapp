@@ -35,6 +35,7 @@ void main() {
       'add',
       () => a.addMembers('group', [package]),
     );
+    await a.finishCommit('add', accepted: true);
     await b.withMessage('welcome', () => b.groupProcess(added.welcome!));
     // 群已建立后签认证证明，快照逐字不变；随后继续真实MLS发送和重启恢复。
     final snapshot = File('${aStore.path}/state.bin');

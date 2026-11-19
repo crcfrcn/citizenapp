@@ -22,6 +22,7 @@ message EncryptedMessage {
   string sender_device_id = 4;
   repeated EncryptedDelivery deliveries = 5;
   uint64 created_at_millis = 6;
+  bytes group_id = 7;
 }
 
 // chat 内部使用的设备路由快照。

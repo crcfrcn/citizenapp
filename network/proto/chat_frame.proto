@@ -23,6 +23,9 @@ message ChatFrame {
     MessageBatch message_batch = 22;
     AcknowledgeMessages acknowledge_messages = 23;
     MessageAvailable message_available = 24;
+    ResolveGroup resolve_group = 25;
+    GroupBinding group_binding = 26;
+    SubmitCommit submit_commit = 27;
     BeginAttachment begin_attachment = 30;
     CompleteAttachment complete_attachment = 31;
     AttachmentReady attachment_ready = 32;
@@ -123,6 +126,27 @@ message MessageAvailable {
   string message_id = 1;
   string conversation_id = 2;
   uint64 server_time_millis = 3;
+}
+
+// 查询业务会话唯一已接受的 MLS 组。空 group_id 表示尚未建组。
+message ResolveGroup {
+  string conversation_id = 1;
+}
+
+message GroupBinding {
+  string conversation_id = 1;
+  bytes group_id = 2;
+}
+
+// 服务端仅决定投递次序。客户端用 OpenMLS 校验及合并 Commit、Welcome。
+// 重试须提交原 operation_id 与完全相同的内容，禁止换密文占用同一 epoch。
+message SubmitCommit {
+  string conversation_id = 1;
+  bytes group_id = 2;
+  uint64 epoch = 3;
+  string operation_id = 4;
+  bytes commit = 5;
+  repeated EncryptedMessage messages = 6;
 }
 
 message BeginAttachment {

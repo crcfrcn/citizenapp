@@ -112,7 +112,7 @@ Flutter资源通过citizen_assets包限定键消费，原生图标由本仓asset
 
 原生MLS收据的唯一业务请求规范化入口移除state_store_dir，读取与写入使用同一定义；物理目录仍用于加载并核验真实身份，身份、消息ID及业务参数变化继续拒绝。保护目录搬迁后复用原身份、原KeyPackage和原提交结果。初始化pendingWake只补拉收件，出站由Hub交接ready后启动。
 
-出站失败保留首个实际固定错误码，不以汇总状态覆盖传输拒绝原因。入站失败同样保留唯一分类与原生固定操作阶段，相同原因去重输出，不记录异常正文；既有组拒绝Welcome的原生结果明确为welcome_conflict，不能被汇总重试码掩盖，也不因此覆盖原组或授权ACK。出站只保留一份账户编排及TTL判定；在有效绑定围栏内先终结过期pending和密文，无真实待发不为补发请求授权，过期附件暂存清理也受同一围栏保护。转换或投递失败只阻断本会话后续项，继续其它会话；页面进入与新增待发共同遵守账户Hub的连接退避。邮箱沿服务端游标有界扫描，只有无下一游标才到本轮末尾；坏项保留且不ACK，不阻断后续正常项。
+出站失败保留首个实际固定错误码，不以汇总状态覆盖传输拒绝原因。入站失败同样保留唯一分类与原生固定操作阶段，相同原因去重输出，不记录异常正文；OpenMLS判定同名组冲突，原生仅将官方WelcomeError::GroupAlreadyExists转换为固定welcome_conflict，实际入组前核对已验证组ID，不能被汇总重试码掩盖，也不因此覆盖原组或授权ACK。出站只保留一份账户编排及TTL判定；在有效绑定围栏内先终结过期pending和密文，无真实待发不为补发请求授权，过期附件暂存清理也受同一围栏保护。转换或投递失败只阻断本会话后续项，继续其它会话；页面进入与新增待发共同遵守账户Hub的连接退避。邮箱沿服务端游标有界扫描，只有无下一游标才到本轮末尾；坏项保留且不ACK，不阻断后续正常项。
 
 chat 是 CitizenApp Dart workspace 中的普通本地业务包，唯一包声明为 chat/pubspec.yaml，name 为 chat，publish_to 为 none。聊天源码随 App 当前工作区冻结、编译和交付，不再选择聊天客户端产品的 Git 提交、Release 或安装包。
 
@@ -121,6 +121,10 @@ chat 是 CitizenApp Dart workspace 中的普通本地业务包，唯一包声明
 聊天数据库唯一在 storage/lib/chat_isar.dart 声明，生成代码为 storage/lib/chat_isar.g.dart，物理文件为 chat.isar。十个集合、实例、事务、操作队列、开库、关闭和擦除均独立；用户库与广场库不承接聊天集合或聊天事务。chat/lib/chat_store.dart 仅承担这一个聊天库的业务读写。底层 Isar Core 由既有启动设施加载，不形成共享业务数据库或共享操作队列。
 
 OpenMLS Rust 源码、原锁和 C ABI 属于 chat/mls；Dart 调用在 chat/lib/mls。Android 与 iOS 的媒体、目录保护源码分别归 android/chat、ios/chat，由 App 注册和编译。二进制为 libmls.so、MLS.framework，随 App 构建，不作为另一款 SDK 发布。Rust 1.97 Apple 构建强制 strip=none，并检查 Mach-O 字符串表八字节对齐；Android ARM64 使用原 NDK 与十六 KB ELF 页面对齐。
+
+私聊会话 ID 与 MLS GroupId 各自承担业务定位和密码协议定位。发件经既有连接解析服务端已确认的绑定。首次私聊用官方 OpenMLS 生成 GroupId，原生保留待确认 Commit 和原 Welcome。按稳定操作 ID 取得专用确认后才调用官方合并，并生成应用密文。明确冲突才清除待确认 Commit。双方同一当前绑定内验证真实 MLS 发送者，密文未验真落库时不 ACK。附件受众复用该已确认的聊天组。现有会话 ID 继续定位消息历史。两端旧组已经分叉时，首次往返使用服务端共同选择的新 GroupId，原组、设备身份和历史保留，无法验明的旧密文继续保留到邮箱的既有到期时间。
+
+私聊和小群通过同一命令提交 OpenMLS 原 Commit 和对应设备的 Welcome。小群的既有组继续按原 GroupId 提交，管理员仍受 MLS 权限检查。通讯录沿用已有预留和确认接口，独占附件组由创建者确认后才开始生成分块。共用原生加人和移除接口只生成待确认 Commit，唯一合并入口调用 OpenMLS。邮箱在成功处理 Welcome 或 Commit 后回放当前组的待收密文，逐条验密、落库及确认后才移除缓冲。 出站缓冲中的旧握手收到服务端明确的 commit_required 后终结。旧组投递失败只阻断该组，已确认新组的应用消息继续按自己的顺序投递。
 
 Proto 的唯一源为 network/proto，生成类型归 network/lib/protocol；应用认证请求、证明、公开 MLS 身份与错误模型归 network/lib/mls_authentication.dart。用户认证通过读取本机身份和生成受限证明两个定型操作复用同一身份；身份绑定及注销业务使用定型回调，不持有聊天运行时。会员事实与资源结算仍唯一归 user 包。
 

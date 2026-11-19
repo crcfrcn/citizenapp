@@ -23,7 +23,7 @@ void main() {
     expect(invalid.code, MlsErrorCode.stateInvalid);
     expect(chatDiagnosticCode(StateError('hidden')), 'operation_failed');
     final conflict = MlsException.fromTechnicalMessage(
-      'MLS Welcome不能覆盖已消费的组',
+      'CHAT_MLS_WELCOME_CONFLICT',
       operation: MlsOperation.groupProcess,
     );
     expect(conflict.code, MlsErrorCode.welcomeConflict);
