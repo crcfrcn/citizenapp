@@ -30,6 +30,7 @@ import 'package:citizenapp/main.dart' show AppShell;
 import 'package:citizen_user/profile/profile_avatar.dart';
 import 'package:citizen_user/square_api_client.dart';
 import 'package:chat/chat.dart';
+import 'package:citizen_user/identity/cid_business_gate.dart';
 import 'package:citizen_user/identity/current_user_context.dart';
 import 'package:citizen_user/membership/subscription_service.dart';
 import 'package:citizen_user/contacts/contact_service.dart';
@@ -422,14 +423,22 @@ void main() {
 
       security.revision.dispose();
     });
-    final resolver = _NoChatChainRecovery();
+    final resolver = _NoChatChainRecovery(), currentUser = _LocalChatIdentity();
     await tester.pumpWidget(
       MultiProvider(
         providers: [
           Provider<CitizenSdk>.value(value: sdk),
           Provider<AccountSecurityService>.value(value: security),
           Provider<FinalizedIdentityResolver>.value(value: resolver),
-          Provider<CurrentUserContext>.value(value: _LocalChatIdentity()),
+          Provider<CurrentUserContext>.value(value: currentUser),
+          Provider<CidBusinessGate>.value(
+            value: CidBusinessGate(
+              currentUserContext: currentUser,
+              identityResolver: resolver,
+              synchronizeIdentity: (_) async => fail('聊天页触发身份恢复'),
+              revision: security.revision,
+            ),
+          ),
           Provider<SquareSessionProvider>.value(value: sessions),
         ],
         child: MaterialApp(

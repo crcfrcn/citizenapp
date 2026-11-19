@@ -24,7 +24,6 @@ import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_user/membership/membership_revision.dart';
 import 'package:citizen_user/membership/subscription_service.dart';
 import 'package:citizen_user/identity/current_user_context.dart';
-import 'package:citizen_user/identity/cid_business_gate.dart';
 import 'package:citizen_user/contacts/contact_book_page.dart';
 import 'package:citizen_user/contacts/contact_service.dart';
 import 'package:citizen_scanner/scan_dispatch.dart';

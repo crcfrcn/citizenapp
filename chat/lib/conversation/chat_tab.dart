@@ -560,14 +560,6 @@ class _ChatTabState extends State<ChatTab> {
     }
     final currentUserContext = _currentUserContext;
     if (currentUserContext != null) {
-      // 根准备与页面复用同一CID事实门禁；读取失败不能冒充没有公民号。
-      final decision = await context.read<CidBusinessGate?>()?.resolve();
-      if (decision?.status == CidBusinessStatus.unavailable) {
-        throw const SquareApiException(
-          '身份读取失败，请重试',
-          errorCode: 'identity_projection_unavailable',
-        );
-      }
       return _resolveChatIdentity(currentUserContext);
     }
     final current = await widget.runtime.readCurrentUser();
