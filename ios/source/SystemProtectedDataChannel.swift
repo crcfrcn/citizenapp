@@ -31,10 +31,7 @@ final class SystemProtectedDataChannel {
           try Self.protectUserDatabase(directory); result(nil)
         case "eraseObsoleteDataMaterial": try Self.eraseObsoleteDataMaterial(); result(nil)
         case "prepareWipeDirectory": result(try Self.prepareWipeDirectory().path)
-        case "syncWipeLayout":
-          let args = call.arguments as? [String: Any]
-          try Self.syncWipeLayout(migration: args?["migration"] as? Bool == true)
-          result(nil)
+        case "syncWipeLayout": try Self.syncWipeLayout(); result(nil)
         case "prepareDeviceStorage": result(try Self.prepareDeviceStorage(call))
         case "eraseDeviceStorage": try Self.eraseDeviceStorage(call); result(nil)
         default: result(FlutterMethodNotImplemented)
@@ -106,19 +103,6 @@ final class SystemProtectedDataChannel {
     return target.path
   }
 
-  private static func protectedDirectoryExists(_ url: URL) throws -> Bool {
-    var info = stat()
-    if lstat(url.path, &info) != 0 {
-      if errno == ENOENT { return false }
-      throw CocoaError(.fileReadUnknown)
-    }
-    guard (info.st_mode & mode_t(S_IFMT)) == mode_t(S_IFDIR),
-          info.st_uid == geteuid(), url.resolvingSymlinksInPath().path == url.path else {
-      throw CocoaError(.fileReadInvalidFileName)
-    }
-    return true
-  }
-
   private static func syncProtectedDirectory(_ url: URL) throws {
     let descriptor = open(url.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
     guard descriptor >= 0 else { throw CocoaError(.fileWriteUnknown) }
@@ -126,31 +110,24 @@ final class SystemProtectedDataChannel {
     guard fsync(descriptor) == 0 else { throw CocoaError(.fileWriteUnknown) }
   }
 
-  private static func syncWipeLayout(migration: Bool) throws {
+  private static func syncWipeLayout() throws {
     let base = try support()
     try syncProtectedDirectory(base.appendingPathComponent("wipe", isDirectory: true))
-    if migration {
-      let previous = base.appendingPathComponent("chat_data", isDirectory: true)
-      if try protectedDirectoryExists(previous) { try syncProtectedDirectory(previous) }
-    }
     try syncProtectedDirectory(base)
   }
 
-  /// 整目录同卷改名，保留每台已登记设备的原状态和权限。
-  static func deviceStorageRoot(in protectedBase: URL? = nil) throws -> URL {
-    let base = try protectedBase ?? support()
-    let previous = base.appendingPathComponent("chat_mls", isDirectory: true)
-    let current = base.appendingPathComponent("device", isDirectory: true)
-    let previousExists = try protectedDirectoryExists(previous)
-    let currentExists = try protectedDirectoryExists(current)
-    if previousExists {
-      guard !currentExists, renamex_np(previous.path, current.path, UInt32(RENAME_EXCL)) == 0 else {
-        throw CocoaError(.fileWriteUnknown)
-      }
+  private static func deviceStorageRoot() throws -> URL {
+    let root = try support().appendingPathComponent("device", isDirectory: true)
+    var info = stat()
+    if lstat(root.path, &info) != 0 {
+      if errno == ENOENT { return root }
+      throw CocoaError(.fileReadUnknown)
     }
-    // 重试也同步父目录，覆盖上次改名后同步失败的情况。
-    if previousExists || currentExists { try syncProtectedDirectory(base) }
-    return current
+    guard (info.st_mode & mode_t(S_IFMT)) == mode_t(S_IFDIR),
+          info.st_uid == geteuid(), root.resolvingSymlinksInPath().path == root.path else {
+      throw CocoaError(.fileReadInvalidFileName)
+    }
+    return root
   }
 
   private static func prepareWipeDirectory() throws -> URL {

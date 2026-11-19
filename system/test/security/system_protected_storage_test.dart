@@ -23,87 +23,29 @@ void main() {
     return root;
   }
 
-  const olderPending = '.chat_data_wipe.pending';
-  const olderComplete = '.chat_data_wipe.complete';
-
-  Future<(Directory, Directory)> wipeFixtures() async {
+  test('读取擦除目录保留原地标记并直接同步', () async {
     final base = await fixtureRoot();
-    final previous = await Directory('${base.path}/chat_data').create();
-    final current = await Directory('${base.path}/wipe').create();
-    return (previous, current);
-  }
-
-  test('擦除标记改名中断后续跑并保持两种状态', () async {
-    final (previous, current) = await wipeFixtures();
-    await File('${previous.path}/synthetic-data').writeAsString('synthetic');
-    await File('${previous.path}/$olderPending').writeAsString('pending\n');
-    await File('${previous.path}/$olderComplete').writeAsString('complete\n');
-    var failOnce = true;
+    final root = await Directory('${base.path}/wipe').create();
+    final pending = File('${root.path}/${SystemProtectedStorage.wipePending}');
+    final complete = File('${root.path}/${SystemProtectedStorage.wipeComplete}');
+    await pending.writeAsString('pending\n');
+    await complete.writeAsString('complete\n');
+    final calls = <String>[];
     messenger.setMockMethodCallHandler(SystemProtectedStorage.channel, (
       call,
     ) async {
-      if (call.method == 'prepareWipeDirectory') return current.path;
-      expect(call.method, 'syncWipeLayout');
-      if (failOnce) {
-        failOnce = false;
-        throw PlatformException(code: 'interrupted');
-      }
-      return null;
-    });
-
-    await expectLater(
-      SystemProtectedStorage.wipeDirectory(),
-      throwsA(isA<PlatformException>()),
-    );
-    expect(await File('${current.path}/pending').readAsString(), 'pending\n');
-    expect(await File('${previous.path}/$olderComplete').exists(), isTrue);
-    expect((await SystemProtectedStorage.wipeDirectory()).path, current.path);
-    expect(await File('${current.path}/complete').readAsString(), 'complete\n');
-    expect(await previous.exists(), isFalse);
-    expect((await SystemProtectedStorage.wipeDirectory()).path, current.path);
-  });
-
-  test('只有旧待擦除标记时仍保持待擦除；意外冲突时不覆盖', () async {
-    final (previous, current) = await wipeFixtures();
-    final old = File('${previous.path}/$olderPending');
-    final next = File('${current.path}/pending');
-    await old.writeAsString('pending\n');
-    await next.writeAsString('existing\n');
-    messenger.setMockMethodCallHandler(SystemProtectedStorage.channel, (
-      call,
-    ) async {
-      if (call.method == 'prepareWipeDirectory') return current.path;
+      calls.add(call.method);
+      expect(call.arguments, isNull);
+      if (call.method == 'prepareWipeDirectory') return root.path;
       expect(call.method, 'syncWipeLayout');
       return null;
     });
-    await expectLater(SystemProtectedStorage.wipeDirectory(), throwsStateError);
-    expect(await old.readAsString(), 'pending\n');
-    expect(await next.readAsString(), 'existing\n');
-    await next.delete();
-    await SystemProtectedStorage.wipeDirectory();
-    expect(await next.readAsString(), 'pending\n');
-    expect(await File('${current.path}/complete').exists(), isFalse);
-  });
 
-  test('拒绝链接标记，也拒绝没有待擦除标记的旧完成态', () async {
-    final (previous, current) = await wipeFixtures();
-    final pointer = await Link(
-      '${previous.path}/$olderPending',
-    ).create('${current.path}/nonexistent');
-    messenger.setMockMethodCallHandler(SystemProtectedStorage.channel, (
-      call,
-    ) async {
-      expect(call.method, 'prepareWipeDirectory');
-      return current.path;
-    });
-    await expectLater(SystemProtectedStorage.wipeDirectory(), throwsStateError);
-    expect(await pointer.exists(), isTrue);
-    await pointer.delete();
-    final oldComplete = File('${previous.path}/$olderComplete');
-    await oldComplete.writeAsString('complete\n');
-    await expectLater(SystemProtectedStorage.wipeDirectory(), throwsStateError);
-    expect(await oldComplete.readAsString(), 'complete\n');
-    expect(await current.list().isEmpty, isTrue);
+    expect((await SystemProtectedStorage.wipeDirectory()).path, root.path);
+    expect(await pending.readAsString(), 'pending\n');
+    expect(await complete.readAsString(), 'complete\n');
+    await SystemProtectedStorage.syncWipeLayout();
+    expect(calls, ['prepareWipeDirectory', 'syncWipeLayout']);
   });
 
   test('生产提交不持Dart外层文件锁，等待回执期间仍能调度其他任务', () async {

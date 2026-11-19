@@ -230,7 +230,7 @@ class MainActivity : FlutterFragmentActivity() {
                         "prepareDeviceStorage" -> result.success(prepareDeviceStorage(call))
                         "prepareWipeDirectory" -> result.success(preparePrivateDirectory(File(protectedBase(), "wipe")).canonicalPath)
                         "syncWipeLayout" -> {
-                            syncWipeLayout(call.argument<Boolean>("migration") == true)
+                            syncWipeLayout()
                             result.success(null)
                         }
                         "eraseDeviceStorage" -> { eraseDeviceStorage(call); result.success(null) }
@@ -455,18 +455,6 @@ class MainActivity : FlutterFragmentActivity() {
         return noBackupFilesDir.canonicalFile
     }
 
-    private fun protectedDirectoryExists(file: File): Boolean {
-        val info = try {
-            android.system.Os.lstat(file.path)
-        } catch (error: android.system.ErrnoException) {
-            if (error.errno == android.system.OsConstants.ENOENT) return false
-            throw error
-        }
-        require(android.system.OsConstants.S_ISDIR(info.st_mode) &&
-            info.st_uid == android.os.Process.myUid() && file.absolutePath == file.canonicalPath)
-        return true
-    }
-
     private fun syncProtectedDirectory(file: File) {
         val flags = android.system.OsConstants.O_RDONLY or
             android.system.OsConstants.O_DIRECTORY or android.system.OsConstants.O_NOFOLLOW
@@ -474,30 +462,23 @@ class MainActivity : FlutterFragmentActivity() {
         try { android.system.Os.fsync(descriptor) } finally { android.system.Os.close(descriptor) }
     }
 
-    private fun syncWipeLayout(migration: Boolean) {
+    private fun syncWipeLayout() {
         val base = protectedBase()
         syncProtectedDirectory(File(base, "wipe"))
-        if (migration) {
-            val previous = File(base, "chat_data")
-            if (protectedDirectoryExists(previous)) syncProtectedDirectory(previous)
-        }
         syncProtectedDirectory(base)
     }
 
-    // 整目录同卷改名，保留每台已登记设备的原状态和权限。
     private fun deviceStorageRoot(): File {
-        val base = protectedBase()
-        val previous = File(base, "chat_mls")
-        val current = File(base, "device")
-        val previousExists = protectedDirectoryExists(previous)
-        val currentExists = protectedDirectoryExists(current)
-        if (previousExists) {
-            require(!currentExists) { "设备保护目录存在冲突" }
-            android.system.Os.rename(previous.path, current.path)
+        val root = File(protectedBase(), "device")
+        val info = try {
+            android.system.Os.lstat(root.path)
+        } catch (error: android.system.ErrnoException) {
+            if (error.errno == android.system.OsConstants.ENOENT) return root
+            throw error
         }
-        // 重试也同步父目录，覆盖上次改名后同步失败的情况。
-        if (previousExists || currentExists) syncProtectedDirectory(base)
-        return current
+        require(android.system.OsConstants.S_ISDIR(info.st_mode) &&
+            info.st_uid == android.os.Process.myUid() && root.absolutePath == root.canonicalPath)
+        return root
     }
 
     private fun deviceDirectoryName(user: String): String {

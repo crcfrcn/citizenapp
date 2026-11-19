@@ -2178,7 +2178,7 @@ entry以账户/准确tx_hash或账户/block_hash/event_index在原事务定位�
 
 通知只持有真实事件、未读状态和notice_rev；scope仍为cidNumber/accountId/bindRev及原generation。独立已读进度、持久意图、同版本补存和推送端点apns_env保持。ResourceUsage由会员用量模块定义，MLS请求证明归App 的用户鉴权原生接口与 CitizenServe 公开合同。
 
-升级时在平台原有保护根目录内把已注册设备目录原子改名为 `device`，保留设备公钥、密钥和持久状态。擦除目录为 `wipe`，升级先迁移待擦除标记，再迁移完成标记，每次改名后同步两端目录，随后启动流程从新路径继续。有持久待擦除标记时，沿原全量擦除意图清理旧目录中的剩余资料。发现链接、路径冲突或缺待擦除标记的旧完成态时阻止继续处理，保持原件。
+设备签名状态保存在平台保护根的 `device` 目录，按 CID 的 UTF-8 十六进制编码定位。全量擦除标记保存在同一保护根的 `wipe/pending` 和 `wipe/complete`。标记原子写入后同步目录，启动时按标记续跑未完成的擦除。
 
 MLS认证证明统一归用户鉴权原生接口：user_id/device_id/public_key/account_id/bind_rev/service_origin/nonce_id/expires_at/http_method/request_target/body_hash/token_purpose/signature，request额外包含session_hash。Dart严格核对唯一字段集、身份和实际请求上下文；应用域为CitizenRequestV2。
 

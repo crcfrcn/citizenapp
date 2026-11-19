@@ -775,7 +775,7 @@ mod tests {
     use std::ffi::CString;
 
     #[test]
-    fn preserves_registered_signer_when_state_contains_previous_payload() {
+    fn reopens_device_state_without_changing_signer() {
         let dir = std::env::temp_dir().join(format!(
             "citizen-device-{}-{}",
             std::process::id(),
@@ -813,13 +813,7 @@ mod tests {
             },
         });
         let first = invoke(sign.clone());
-        let mut previous: serde_json::Value =
-            serde_json::from_slice(&fs::read(storage_path(&dir)).unwrap()).unwrap();
-        previous["results"] = serde_json::json!({});
-        previous["attachments"] = serde_json::json!({});
-        previous["pending_inbound"] = serde_json::json!([]);
-        let bytes = serde_json::to_vec(&previous).unwrap();
-        atomic_write(&storage_path(&dir), &bytes).unwrap();
+        let bytes = fs::read(storage_path(&dir)).unwrap();
         assert_eq!(invoke(prepare), identity);
         assert_eq!(invoke(sign), first);
         assert_eq!(fs::read(storage_path(&dir)).unwrap(), bytes);

@@ -9,10 +9,9 @@ abstract final class SystemProtectedStorage {
   static const channel = MethodChannel('citizenapp/system_protected_data');
   static const wipePending = 'pending';
   static const wipeComplete = 'complete';
-  static final _wipeMigrations = <String, Future<void>>{};
 
-  static Future<void> syncWipeLayout({bool migration = false}) =>
-      channel.invokeMethod<void>('syncWipeLayout', {'migration': migration});
+  static Future<void> syncWipeLayout() =>
+      channel.invokeMethod<void>('syncWipeLayout');
 
   static Future<Directory> wipeDirectory() async {
     final path = await channel.invokeMethod<String>('prepareWipeDirectory');
@@ -22,68 +21,7 @@ abstract final class SystemProtectedStorage {
             FileSystemEntityType.directory) {
       throw StateError('全量擦除记录目录不可用');
     }
-    final root = Directory(await Directory(path).resolveSymbolicLinks());
-    final migration = _wipeMigrations.putIfAbsent(
-      root.path,
-      () => _migrateWipeMarkers(root),
-    );
-    try {
-      await migration;
-    } finally {
-      if (identical(_wipeMigrations[root.path], migration)) {
-        _wipeMigrations.remove(root.path);
-      }
-    }
-    return root;
-  }
-
-  /// 标记按 pending、complete 依次同卷改名。中断时下一次先补齐标记，
-  /// 再让擦除流程读取新目录，绝不把未完成擦除当作普通启动。
-  static Future<void> _migrateWipeMarkers(Directory root) async {
-    final previous = Directory('${root.parent.path}/chat_data');
-    final type = await FileSystemEntity.type(previous.path, followLinks: false);
-    if (type == FileSystemEntityType.notFound) return;
-    if (type != FileSystemEntityType.directory ||
-        await previous.resolveSymbolicLinks() != previous.path) {
-      throw StateError('旧擦除标记目录无效');
-    }
-    final oldPending = File('${previous.path}/.chat_data_wipe.pending');
-    final oldComplete = File('${previous.path}/.chat_data_wipe.complete');
-    final pending = File('${root.path}/$wipePending');
-    final complete = File('${root.path}/$wipeComplete');
-
-    Future<bool> exists(File file) async {
-      final type = await FileSystemEntity.type(file.path, followLinks: false);
-      if (type == FileSystemEntityType.notFound) return false;
-      if (type != FileSystemEntityType.file) {
-        throw StateError('擦除标记必须是普通文件');
-      }
-      return true;
-    }
-
-    final hadPending = await exists(oldPending);
-    final hadComplete = await exists(oldComplete);
-    final hasPending = await exists(pending);
-    final hasComplete = await exists(complete);
-    if ((hadPending && (hasPending || hasComplete)) ||
-        (hadComplete && (hasComplete || !(hadPending || hasPending)))) {
-      throw StateError('新旧擦除标记冲突');
-    }
-    if (hadPending) {
-      await oldPending.rename(pending.path);
-      await syncWipeLayout(migration: true);
-    }
-    if (hadComplete) {
-      await oldComplete.rename(complete.path);
-      await syncWipeLayout(migration: true);
-    }
-    // 待擦除标记已持久化才沿原全量擦除意图清理旧目录；正常升级只移除空目录。
-    await syncWipeLayout(migration: true);
-    final wipeRequested = hadPending || hasPending;
-    if (wipeRequested || await previous.list(followLinks: false).isEmpty) {
-      await previous.delete(recursive: wipeRequested);
-      await syncWipeLayout(migration: true);
-    }
+    return Directory(await Directory(path).resolveSymbolicLinks());
   }
 
   static Future<void> eraseDeviceStorage({String? cidNumber}) =>

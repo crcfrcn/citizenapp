@@ -7,32 +7,6 @@ import XCTest
 @testable import Runner
 
 class RunnerTests: XCTestCase {
-  func testDeviceDirectoryRenamesWithoutChangingStoredBytes() throws {
-    let manager = FileManager.default
-    let base = manager.temporaryDirectory.resolvingSymlinksInPath()
-      .appendingPathComponent(UUID().uuidString, isDirectory: true)
-    try manager.createDirectory(at: base, withIntermediateDirectories: false)
-    defer { try? manager.removeItem(at: base) }
-    let previous = base.appendingPathComponent("chat_mls", isDirectory: true)
-    try manager.createDirectory(at: previous, withIntermediateDirectories: false)
-    let fixture = Data("synthetic device state".utf8)
-    try fixture.write(to: previous.appendingPathComponent("state.bin"))
-    let current = try SystemProtectedDataChannel.deviceStorageRoot(in: base)
-    XCTAssertEqual(current.lastPathComponent, "device")
-    XCTAssertFalse(manager.fileExists(atPath: previous.path))
-    XCTAssertEqual(try Data(contentsOf: current.appendingPathComponent("state.bin")), fixture)
-    XCTAssertEqual(try SystemProtectedDataChannel.deviceStorageRoot(in: base), current)
-    try manager.createDirectory(at: previous, withIntermediateDirectories: false)
-    XCTAssertThrowsError(try SystemProtectedDataChannel.deviceStorageRoot(in: base))
-    XCTAssertEqual(try Data(contentsOf: current.appendingPathComponent("state.bin")), fixture)
-  }
-
-
-
-
-
-
-
   func testStoreRegistrationAndCountryUseOfficialIdentifiers() {
     XCTAssertEqual(AppDelegate.appStoreId(["AppStoreId":"6800953222"]), "6800953222")
     XCTAssertNil(AppDelegate.appStoreId([:]))
