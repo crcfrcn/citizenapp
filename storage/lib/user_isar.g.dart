@@ -1,5 +1,6 @@
-// ignore_for_file: experimental_member_use
 // GENERATED CODE - DO NOT MODIFY BY HAND
+
+// ignore_for_file: experimental_member_use
 
 part of 'user_isar.dart';
 
@@ -29251,6 +29252,9 @@ extension ActionQueryProperty on QueryBuilder<Action, Action, QQueryProperty> {
   }
 }
 
+// coverage:ignore-file
+// ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
+
 extension GetWalletCursorCollection on Isar {
   IsarCollection<WalletCursor> get walletCursors => this.collection();
 }
@@ -29274,13 +29278,18 @@ const WalletCursorSchema = CollectionSchema(
       name: r'cursor_block',
       type: IsarType.long,
     ),
-    r'genesis_hash': PropertySchema(
+    r'event_version': PropertySchema(
       id: 3,
+      name: r'event_version',
+      type: IsarType.long,
+    ),
+    r'genesis_hash': PropertySchema(
+      id: 4,
       name: r'genesis_hash',
       type: IsarType.string,
     ),
     r'start_block': PropertySchema(
-      id: 4,
+      id: 5,
       name: r'start_block',
       type: IsarType.long,
     ),
@@ -29335,8 +29344,9 @@ void _walletCursorSerialize(
   writer.writeString(offsets[0], object.accountId);
   writer.writeLong(offsets[1], object.createdAt);
   writer.writeLong(offsets[2], object.cursorBlock);
-  writer.writeString(offsets[3], object.genesisHash);
-  writer.writeLong(offsets[4], object.startBlock);
+  writer.writeLong(offsets[3], object.eventVersion);
+  writer.writeString(offsets[4], object.genesisHash);
+  writer.writeLong(offsets[5], object.startBlock);
 }
 
 WalletCursor _walletCursorDeserialize(
@@ -29345,13 +29355,15 @@ WalletCursor _walletCursorDeserialize(
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
-  final object = WalletCursor();
+  final object = WalletCursor(
+    eventVersion: reader.readLongOrNull(offsets[3]) ?? 0,
+  );
   object.accountId = reader.readString(offsets[0]);
   object.createdAt = reader.readLong(offsets[1]);
   object.cursorBlock = reader.readLong(offsets[2]);
-  object.genesisHash = reader.readString(offsets[3]);
+  object.genesisHash = reader.readString(offsets[4]);
   object.rowId = id;
-  object.startBlock = reader.readLong(offsets[4]);
+  object.startBlock = reader.readLong(offsets[5]);
   return object;
 }
 
@@ -29369,8 +29381,10 @@ P _walletCursorDeserializeProp<P>(
     case 2:
       return (reader.readLong(offset)) as P;
     case 3:
-      return (reader.readString(offset)) as P;
+      return (reader.readLongOrNull(offset) ?? 0) as P;
     case 4:
+      return (reader.readString(offset)) as P;
+    case 5:
       return (reader.readLong(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -29843,6 +29857,61 @@ extension WalletCursorQueryFilter
   }
 
   QueryBuilder<WalletCursor, WalletCursor, QAfterFilterCondition>
+  eventVersionEqualTo(int value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'event_version', value: value),
+      );
+    });
+  }
+
+  QueryBuilder<WalletCursor, WalletCursor, QAfterFilterCondition>
+  eventVersionGreaterThan(int value, {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'event_version',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<WalletCursor, WalletCursor, QAfterFilterCondition>
+  eventVersionLessThan(int value, {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'event_version',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<WalletCursor, WalletCursor, QAfterFilterCondition>
+  eventVersionBetween(
+    int lower,
+    int upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'event_version',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<WalletCursor, WalletCursor, QAfterFilterCondition>
   genesisHashEqualTo(String value, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
@@ -30141,6 +30210,19 @@ extension WalletCursorQuerySortBy
     });
   }
 
+  QueryBuilder<WalletCursor, WalletCursor, QAfterSortBy> sortByEventVersion() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'event_version', Sort.asc);
+    });
+  }
+
+  QueryBuilder<WalletCursor, WalletCursor, QAfterSortBy>
+  sortByEventVersionDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'event_version', Sort.desc);
+    });
+  }
+
   QueryBuilder<WalletCursor, WalletCursor, QAfterSortBy> sortByGenesisHash() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'genesis_hash', Sort.asc);
@@ -30207,6 +30289,19 @@ extension WalletCursorQuerySortThenBy
     });
   }
 
+  QueryBuilder<WalletCursor, WalletCursor, QAfterSortBy> thenByEventVersion() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'event_version', Sort.asc);
+    });
+  }
+
+  QueryBuilder<WalletCursor, WalletCursor, QAfterSortBy>
+  thenByEventVersionDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'event_version', Sort.desc);
+    });
+  }
+
   QueryBuilder<WalletCursor, WalletCursor, QAfterSortBy> thenByGenesisHash() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'genesis_hash', Sort.asc);
@@ -30268,6 +30363,12 @@ extension WalletCursorQueryWhereDistinct
     });
   }
 
+  QueryBuilder<WalletCursor, WalletCursor, QDistinct> distinctByEventVersion() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'event_version');
+    });
+  }
+
   QueryBuilder<WalletCursor, WalletCursor, QDistinct> distinctByGenesisHash({
     bool caseSensitive = true,
   }) {
@@ -30306,6 +30407,12 @@ extension WalletCursorQueryProperty
   QueryBuilder<WalletCursor, int, QQueryOperations> cursorBlockProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'cursor_block');
+    });
+  }
+
+  QueryBuilder<WalletCursor, int, QQueryOperations> eventVersionProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'event_version');
     });
   }
 

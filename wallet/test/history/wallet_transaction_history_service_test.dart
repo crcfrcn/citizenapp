@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'package:citizen_storage/user_isar.dart' as store show WalletCursor;
+import 'package:citizen_storage/user_isar.dart' show UserIsar;
 import 'dart:convert';
 
 import 'dart:typed_data';
@@ -103,6 +105,124 @@ WalletTransactionHistoryService _submissionHistory({
 
 void main() {
   useIsolatedIsar();
+
+  CitizenSystemEvent reward(
+    int block, {
+    String? recipient,
+    String amount = '999900',
+    int index = 9,
+  }) => CitizenSystemEvent(
+    eventIndex: index,
+    extrinsicIndex: null,
+    pallet: 'FullnodeIssuance',
+    name: 'FullnodeIssuanceIssued',
+    fields: {
+      'block': '$block',
+      'reward_account_id': List<String>.filled(32, recipient ?? '170'),
+      'miner_account_id': List<String>.filled(32, '187'),
+      'amount': amount,
+    },
+  );
+
+  test('奖励以接收账户保存，保留导入时间边界且无普通交易哈希', () async {
+    final chain = _HistoryChain();
+    chain.encodedEvents[3] = [reward(3)];
+    chain.encodedEvents[4] = [reward(4)];
+    chain.encodedEvents[5] = [reward(5, recipient: '187')];
+    chain.encodedEvents[6] = [reward(6, amount: '9007199254740993')];
+    final service = _service(chain, _HistoryWallet(createdAt: 4000));
+    await service.start();
+    await service.sync();
+    await service.stop();
+    final rows = await LocalTxStore.queryByAccountId(_accountId);
+    expect(rows.length, 2);
+    expect(rows.map((r) => r.blockNumber), [6, 4]);
+    expect(
+      rows.every(
+        (r) =>
+            r.entryKind == 'reward' &&
+            r.txHash == null &&
+            r.extrinsicIndex == null &&
+            r.feeAmount == null,
+      ),
+      isTrue,
+    );
+    expect(rows.first.amountDelta, '9007199254740993');
+  });
+
+  test('旧游标补扫失败后断点重启且奖励转账手续费均不重复', () async {
+    final chain = _HistoryChain()..height = 40;
+    chain.encodedEvents[4] = [
+      ..._eventFacts(feeAmount: BigInt.from(2)),
+      reward(4),
+    ];
+    chain.encodedEvents[5] = _eventFacts(
+      failed: true,
+      feeAmount: BigInt.from(2),
+    );
+    chain.encodedEvents[6] = [reward(6)];
+    final wallet = _HistoryWallet(createdAt: 4000);
+    final original = _service(chain, wallet);
+    await original.start();
+    await original.sync();
+    await original.sync();
+    await original.stop();
+    final before = await LocalTxStore.queryByAccountId(_accountId);
+    final old = (await LocalTxStore.historyCursor(_accountId))!;
+    old.eventVersion = 0;
+    await UserIsar.instance.writeTxn(
+      (isar) async => isar.collection<store.WalletCursor>().put(old),
+    );
+    chain.eventBlocks.clear();
+    chain.failEventsAt = 6;
+    final failed = _service(chain, wallet);
+    await failed.start();
+    await expectLater(failed.sync(), throwsStateError);
+    await failed.stop();
+    final partial = (await LocalTxStore.historyCursor(_accountId))!;
+    expect(partial.eventVersion, 1);
+    expect(partial.cursorBlock, 5);
+    chain.eventBlocks.clear();
+    chain.failEventsAt = null;
+    final resumed = _service(chain, wallet);
+    await resumed.start();
+    await resumed.sync();
+    await resumed.sync();
+    await resumed.stop();
+    expect(chain.eventBlocks.first, 6);
+    final after = await LocalTxStore.queryByAccountId(_accountId);
+    expect(
+      after.map((r) => r.rowId).toSet(),
+      before.map((r) => r.rowId).toSet(),
+    );
+    expect(after.length, 4);
+    expect(after.where((r) => r.entryKind == 'reward').length, 2);
+    expect((await LocalTxStore.historyCursor(_accountId))!.cursorBlock, 40);
+  });
+
+  test('错误奖励金额高度或阶段拒绝且不推进该块', () async {
+    for (final bad in [
+      reward(999),
+      reward(4, amount: '0'),
+      CitizenSystemEvent(
+        eventIndex: 9,
+        extrinsicIndex: 0,
+        pallet: 'FullnodeIssuance',
+        name: 'FullnodeIssuanceIssued',
+        fields: reward(4).fields,
+      ),
+    ]) {
+      await LocalTxStore.clearAllWalletLocalHistory();
+      final chain = _HistoryChain();
+      chain.encodedEvents[4] = [bad];
+      final service = _service(chain, _HistoryWallet(createdAt: 4000));
+      await service.start();
+      await expectLater(service.sync(), throwsFormatException);
+      await service.stop();
+      expect((await LocalTxStore.historyCursor(_accountId))!.cursorBlock, 3);
+      expect(await LocalTxStore.countByAccountId(_accountId), 0);
+    }
+  });
 
   test('执行网络异常但既有回读确认成功，通知页面且不增加查询或重试', () async {
     final core = await openTestSdk();

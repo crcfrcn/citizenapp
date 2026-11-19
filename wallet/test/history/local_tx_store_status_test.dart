@@ -1,4 +1,5 @@
 import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_storage/user_isar.dart' show UserIsar;
 import 'package:citizen_storage/user_isar.dart'
     as wallet_store
     show WalletCursor, Entry;
@@ -45,6 +46,39 @@ void main() {
       updatedAtMillis: BigInt.from(2), poolRejectionReason: failReason,
     );
   }
+
+  test('游标升级一次回退并拒绝旧版本迟到提交', () async {
+    final cursor = wallet_store.WalletCursor()
+      ..accountId = fromAccountId
+      ..createdAt = 1000
+      ..genesisHash = 'genesis'
+      ..startBlock = 4
+      ..cursorBlock = 10;
+    await LocalTxStore.insertHistoryCursor(cursor..cursorBlock = 3);
+    // 模拟旧安装已扫描到10块的持久化事实。
+    cursor.cursorBlock = 10;
+    await UserIsar.instance.writeTxn((isar) async {
+      await isar.collection<wallet_store.WalletCursor>().put(cursor);
+    });
+    final upgraded = await LocalTxStore.upgradeHistoryCursor(cursor);
+    expect(upgraded.cursorBlock, 3);
+    expect(upgraded.eventVersion, 1);
+    cursor.cursorBlock = 3;
+    await expectLater(
+      LocalTxStore.commitHistoryBlock(
+        blockNumber: 4,
+        cursors: [cursor],
+        records: [],
+      ),
+      throwsStateError,
+    );
+    await LocalTxStore.commitHistoryBlock(
+      blockNumber: 4,
+      cursors: [upgraded],
+      records: [],
+    );
+    expect((await LocalTxStore.upgradeHistoryCursor(upgraded)).cursorBlock, 4);
+  });
 
   test('对方地址取真实收发双方，净余额因费用为负也不改变收款方向', () {
     final owner = citizenSs58FromAccountId(fromAccountId);
@@ -319,6 +353,68 @@ void main() {
     ..startBlock = 10
     ..cursorBlock = 9;
 
+  test('奖励事件重放幂等且账户和事件序号分别隔离', () async {
+    final other = '0x${'bb' * 32}';
+    final a = cursor(), b = cursor()..accountId = other;
+    await LocalTxStore.insertHistoryCursor(a);
+    await LocalTxStore.insertHistoryCursor(b);
+    List<wallet_store.Entry> rewards() => [
+      historicalRow('sdk_finalized_event', 1)
+        ..entryKind = 'reward'
+        ..blockNumber = 10,
+      historicalRow('sdk_finalized_event', 1, accountId: other)
+        ..entryKind = 'reward'
+        ..blockNumber = 10,
+      historicalRow('sdk_finalized_event', 2)
+        ..entryKind = 'reward'
+        ..blockNumber = 10,
+    ];
+    await LocalTxStore.commitHistoryBlock(
+      blockNumber: 10,
+      cursors: [a, b],
+      records: rewards(),
+    );
+    final ids = (await LocalTxStore.queryByAccountId(
+      fromAccountId,
+    )).map((r) => r.rowId).toSet();
+    final upgradedA = await LocalTxStore.upgradeHistoryCursor(a);
+    final upgradedB = await LocalTxStore.upgradeHistoryCursor(b);
+    await LocalTxStore.commitHistoryBlock(
+      blockNumber: 10,
+      cursors: [upgradedA, upgradedB],
+      records: rewards(),
+    );
+    expect(
+      (await LocalTxStore.queryByAccountId(
+        fromAccountId,
+      )).map((r) => r.rowId).toSet(),
+      ids,
+    );
+    expect(await LocalTxStore.countByAccountId(fromAccountId), 2);
+    expect(await LocalTxStore.countByAccountId(other), 1);
+  });
+
+  test('补扫拒绝另一账户代次和未知事件版本', () async {
+    final original = cursor();
+    await LocalTxStore.insertHistoryCursor(original);
+    final wrong = cursor()
+      ..rowId = original.rowId
+      ..createdAt = 2000;
+    await expectLater(
+      LocalTxStore.upgradeHistoryCursor(wrong),
+      throwsStateError,
+    );
+    original.eventVersion = 2;
+    await UserIsar.instance.writeTxn((isar) async {
+      await isar.collection<wallet_store.WalletCursor>().put(original);
+    });
+    await expectLater(
+      LocalTxStore.upgradeHistoryCursor(original),
+      throwsStateError,
+    );
+    expect((await LocalTxStore.historyCursor(fromAccountId))!.cursorBlock, 9);
+  });
+
   test('记录和进度原子提交，重新提交过期进度被拒绝', () async {
     final progress = cursor();
     await LocalTxStore.insertHistoryCursor(progress);
@@ -343,7 +439,9 @@ void main() {
   test('块内第二条越界记录使第一条和进度一起回滚', () async {
     final progress = cursor();
     await LocalTxStore.insertHistoryCursor(progress);
-    final valid = historicalRow('sdk_finalized_event', 10000)..blockNumber = 10;
+    final valid = historicalRow('sdk_finalized_event', 10000)
+      ..blockNumber = 10
+      ..entryKind = 'reward';
     final invalid = historicalRow('sdk_finalized_event', 10001)
       ..blockNumber = 11;
     await expectLater(

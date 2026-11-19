@@ -367,7 +367,8 @@ final class WalletTransactionHistoryService {
           ..createdAt = account.createdAtMillis.toInt()
           ..genesisHash = genesis
           ..startBlock = start
-          ..cursorBlock = start - 1;
+          ..cursorBlock = start - 1
+          ..eventVersion = 1;
         await LocalTxStore.insertHistoryCursor(cursor);
       }
       if (cursor.genesisHash != genesis ||
@@ -377,6 +378,10 @@ final class WalletTransactionHistoryService {
           cursor.cursorBlock > head.number.toInt()) {
         throw StateError('钱包进度的链身份或账户代次不一致');
       }
+      if (cursor.eventVersion != 1) {
+        cursor = await LocalTxStore.upgradeHistoryCursor(cursor);
+      }
+      if (!_current(epoch)) return false;
       cursors[account.accountId] = cursor;
     }
     final first = cursors.values
@@ -477,6 +482,16 @@ final class WalletTransactionHistoryService {
       ..createdAt = time
       ..confirmedAt = time;
 
+    // 奖励是发行收入，不伪造交易哈希、转账付款人或手续费。
+    for (final reward in facts.rewards) {
+      records.add(
+        row(reward.accountId, reward.eventIndex, null, null)
+          ..entryKind = 'reward'
+          ..amountDelta = reward.amountFen.toString()
+          ..toAddress = addresses[reward.accountId]
+          ..txNote = '铸块奖励',
+      );
+    }
     final attached = <(int, String)>{};
     for (final transfer in facts.transfers) {
       final from = transfer.fromAccountId;

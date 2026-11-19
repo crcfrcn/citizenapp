@@ -33,6 +33,28 @@ wallet_store.Entry _record({String status = LocalTxStore.statusFinalized}) {
 
 void main() {
   useIsolatedIsar();
+  testWidgets('铸块奖励无交易哈希仍显示正向收入和链上发行来源', (tester) async {
+    final row = _record()
+      ..entryKind = 'reward'
+      ..amountDelta = '999900'
+      ..transferAmount = null
+      ..fromAddress = null
+      ..toAddress = null
+      ..txHash = null;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: LocalTxRecordTile(record: row)),
+      ),
+    );
+    expect(find.textContaining('链上发行'), findsOneWidget);
+    expect(find.text('奖励'), findsOneWidget);
+    await tester.pumpWidget(
+      MaterialApp(home: LocalTxRecordDetailPage(record: row)),
+    );
+    expect(find.text('铸块奖励'), findsOneWidget);
+    expect(find.text('链上发行'), findsOneWidget);
+    expect(find.text('转账金额'), findsNothing);
+  });
   TopupRecord order() => TopupRecord.signed(
     TopupDraft.create(
       TopupSelection(

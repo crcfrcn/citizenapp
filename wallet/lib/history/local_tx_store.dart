@@ -383,6 +383,30 @@ class LocalTxStore {
             .findFirst(),
       );
 
+  /// 同一账户代次只回退一次；已有流水保留，由事件身份保证重读幂等。
+  static Future<wallet_store.WalletCursor> upgradeHistoryCursor(
+    wallet_store.WalletCursor cursor,
+  ) => UserIsar.instance.writeTxn((isar) async {
+    final current = await isar.collection<wallet_store.WalletCursor>().get(
+      cursor.rowId,
+    );
+    if (current == null ||
+        current.accountId != cursor.accountId ||
+        current.genesisHash != cursor.genesisHash ||
+        current.createdAt != cursor.createdAt ||
+        current.startBlock != cursor.startBlock) {
+      throw StateError('补扫账户代次已变化');
+    }
+    if (current.eventVersion == 0) {
+      current.cursorBlock = current.startBlock - 1;
+      current.eventVersion = 1;
+      await isar.collection<wallet_store.WalletCursor>().put(current);
+    } else if (current.eventVersion != 1) {
+      throw StateError('不支持的钱包事件处理版本');
+    }
+    return current;
+  });
+
   /// 初始起点必须已由账户导入时间和 verified Timestamp.Now 确定。
   static Future<void> insertHistoryCursor(wallet_store.WalletCursor cursor) =>
       UserIsar.instance.writeTxn((isar) async {
@@ -416,7 +440,8 @@ class LocalTxStore {
             current.accountId != cursor.accountId ||
             current.createdAt != cursor.createdAt ||
             current.genesisHash != cursor.genesisHash ||
-            current.cursorBlock != blockNumber - 1) {
+            current.cursorBlock != blockNumber - 1 ||
+            current.eventVersion != cursor.eventVersion) {
           throw StateError('账户进度已变化，拒绝过期投影');
         }
         owners.add(current.accountId);

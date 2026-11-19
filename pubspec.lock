@@ -137,15 +137,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.4.0"
-  citizen_sdk:
-    dependency: "direct main"
-    description:
-      path: "."
-      ref: main
-      resolved-ref: "536e9fbf969591720f94253f8645f54af35d2a68"
-      url: "https://github.com/crcfrcn/citizensdk.git"
-    source: git
-    version: "2.0.0"
   clock:
     dependency: transitive
     description:

@@ -677,6 +677,7 @@ class Action {
 @Name('cursor')
 @collection
 class WalletCursor {
+  WalletCursor({this.eventVersion = 0});
   @Name('id')
   Id rowId = Isar.autoIncrement;
 
@@ -690,6 +691,10 @@ class WalletCursor {
   late String genesisHash;
   @Name('start_block')
   late int startBlock;
+
+  /// 事件处理版本；旧数据为0，升级时只回退原时间范围内的扫描进度。
+  @Name('event_version')
+  int eventVersion;
 
   /// 已完整处理的高度；初始化为 start_block - 1。
   @Name('cursor_block')

@@ -496,7 +496,11 @@ class _LocalTxRecordDetailPageState extends State<LocalTxRecordDetailPage> {
                 ),
                 SizedBox(height: AppLayout.scaled(context, 24)),
                 const Divider(height: 1),
-                _buildRow(context, label: '类型', value: label),
+                _buildRow(
+                  context,
+                  label: '类型',
+                  value: record.entryKind == 'reward' ? '铸块奖励' : label,
+                ),
                 _buildRow(
                   context,
                   label: '确认进度',
@@ -530,6 +534,8 @@ class _LocalTxRecordDetailPageState extends State<LocalTxRecordDetailPage> {
                         : '真实手续费',
                     value: '${formatFen(BigInt.parse(record.feeAmount!).abs())} 元',
                   ),
+                if (record.entryKind == 'reward')
+                  _buildRow(context, label: '来源', value: '链上发行'),
                 if (record.fromAddress != null)
                   _buildRow(
                     context,
@@ -554,7 +560,7 @@ class _LocalTxRecordDetailPageState extends State<LocalTxRecordDetailPage> {
                 if (record.txNote != null && record.txNote!.isNotEmpty)
                   _buildRow(
                     context,
-                    label: '转账备注',
+                    label: record.entryKind == 'reward' ? '说明' : '转账备注',
                     value: record.txNote!,
                     copyable: true,
                   ),

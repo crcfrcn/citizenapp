@@ -70,8 +70,12 @@ class LocalTxRecordTile extends StatelessWidget {
     final label = topup == null
         ? businessTypeLabel(record.entryKind)
         : '充值 · ${topup.payment.token}';
-    final counterpartyPrefix = _isExpense || !hasVerifiedDelta(record) ? '去向' : '来自';
-    final counterparty = shortAddress(record.peerAddress);
+    final counterpartyPrefix = _isExpense || !hasVerifiedDelta(record)
+        ? '去向'
+        : '来自';
+    final counterparty = record.entryKind == 'reward'
+        ? '链上发行'
+        : shortAddress(record.peerAddress);
     final timeStr = formatMillis(record.confirmedAt ?? record.createdAt);
 
     return ListTile(

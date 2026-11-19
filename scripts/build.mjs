@@ -124,7 +124,7 @@ export async function build(platform, options={}) {
     }
 }
 
-// SDK只在本轮开始时选择一次正式Release，之后固定准确来源。
+// 本轮开始时自动选择最高版本且生产塔塔自动化成功的正式SDK包，之后固定准确来源。
 export async function selectSDKRelease(product, read) {
     const releases = await readReleases(read, product);
     const candidates = releases.flatMap(release => {
@@ -142,22 +142,22 @@ export async function selectSDKRelease(product, read) {
         for (let i = 0; i < 3; i++) if (left[i] !== right[i]) return left[i] > right[i] ? -1 : 1;
         return b.release.id - a.release.id;
     });
-    const selected = candidates[0];
-    if (selected) {
+    for (const selected of candidates) {
         const proof = selected.proof;
         const run = await read('actions/runs/' + proof.producer_run_id + '/attempts/' + proof.producer_run_attempt);
-        if (run.status === 'completed' && run.conclusion === 'success'
-            && run.id === proof.producer_run_id && run.run_attempt === proof.producer_run_attempt
-            && run.head_sha === proof.git_commit_sha) return selected;
+        if (run.id !== proof.producer_run_id || run.run_attempt !== proof.producer_run_attempt
+            || run.head_sha !== proof.git_commit_sha) throw Error(product + '正式SDK来源不一致');
+        // 未完成或失败的版本不参与成功版本选择；读取或来源核验失败仍立即停止。
+        if (run.status === 'completed' && run.conclusion === 'success') return selected;
     }
     throw Error(product + '没有可用的成功正式SDK版本');
 }
 
-export async function resolveSDK({root,lock,environment,execute=execFileSync}) {
+export async function resolveSDK({root,pubspec,environment,execute=execFileSync}) {
     const name='citizen_sdk';
-    const record=lock.split('\n  '+name+':\n')[1]?.split(/\n  \S/)[0];
-    const url=/url: "?(https:\/\/github.com\/[^"\s]+\.git)"?/.exec(record||'')?.[1];
-    if (!url) throw Error('pubspec.lock 的 '+name+' 条目缺少可解析的 Git URL');
+    const declaration=pubspec.split('\n  '+name+':\n')[1]?.split(/\n  \S/)[0];
+    const url=/url: "?(https:\/\/github.com\/[^"\s]+\.git)"?/.exec(declaration||'')?.[1];
+    if (!url) throw Error('pubspec.yaml 的 '+name+' 声明缺少可解析的 Git URL');
     const repository=url.slice('https://github.com/'.length,-4),product=repository.split('/')[1];
     const local=resolve(root,'..',product);
     const selected=environment.GITHUB_ACTIONS==='true' ? await selectSDKRelease(product,
@@ -192,7 +192,7 @@ export function mapSdkSource(root,name,output){
  return changed;
 }
 
-// 仅在普通工程解析冻结SDK的新内部包；原有锁记录不变，不手写SDK包清单。
+// 仅由官方Pub在普通工程生成本轮SDK及内部包的path锁条目；原第三方记录不变。
 // 新包必须由官方Pub配置指向本轮SDK源码，第三方新增、漂移或缺件直接失败。
 export async function preparePackages(project,{sources,environment=process.env,execute=run}){
  if(realpathSync(project)===realpathSync(root))throw Error('依赖装配禁止修改正式源码锁');
@@ -211,9 +211,9 @@ export async function preparePackages(project,{sources,environment=process.env,e
  for(const [name,record]of after){
   if(before.has(name))continue;
   const entry=packages.find(entry=>entry.name===name);
-  if(!/^    source: path$/m.test(record)||!entry)throw Error('依赖装配新增非SDK内部包：'+name);
+  if(!/^    source: path$/m.test(record)||!entry)throw Error('依赖装配新增非SDK源码包：'+name);
   const path=realpathSync(fileURLToPath(new URL(entry.rootUri,pathToFileURL(configFile))));
-  if(!roots.some(source=>path===source||path.startsWith(source+sep)))throw Error('依赖装配新增非SDK内部包：'+name);
+  if(!roots.some(source=>path===source||path.startsWith(source+sep)))throw Error('依赖装配新增非SDK源码包：'+name);
  }
  await execute(flutter,['pub','get','--enforce-lockfile'],project,false,environment,'依赖锁验收');
 }
@@ -269,8 +269,8 @@ const files = [...new Set(listed.split('\0').filter(Boolean))].filter(entry => e
 mkdirSync(project);
 execute('/usr/bin/rsync', ['-lp','--from0','--files-from=-',root + '/',project + '/'],
     {input: files.join('\0') + '\0', env: environment});
-let lock = readFileSync(join(project, 'pubspec.lock'), 'utf8');
-const {name,url,repository,product,local,selected,ref,version}=await resolveSDK({root,lock,environment,execute});
+const lock = readFileSync(join(project, 'pubspec.lock'), 'utf8');
+const {name,url,repository,product,local,selected,ref,version}=await resolveSDK({root,pubspec:readFileSync(join(project,'pubspec.yaml'),'utf8'),environment,execute});
 writeFileSync(join(work,'sdk-sources.json'),JSON.stringify({[name]:{
     source:selected?'release':'local_workspace',software_version:version,
     ...(selected?{git_commit_sha:ref}:{base_commit_sha:ref}),
@@ -326,10 +326,6 @@ if (selected) {
     cpSync(result.output, output, {recursive: true});
 }
 mapSdkSource(project,name,output);
-lock = lock.replace(new RegExp('  ' + name + ':\n(?:    .*\n)+'), () =>
-    '  ' + name + ':\n    dependency: "direct main"\n    description:\n      path: "' + output +
-    '"\n      relative: false\n    source: path\n    version: ' +
-    JSON.stringify(/^version: (\S+)$/m.exec(readFileSync(join(output,'pubspec.yaml'),'utf8'))[1]) + '\n');
 await prepareWhitepaper(project,{sourceRoot:root,work,environment});
 prepareTests(project);
 // Flutter官方模板只写本轮工程；保留既有业务源码和平台工程原件。
@@ -337,7 +333,7 @@ const flutter = join(environment.FLUTTER_ROOT, 'bin/flutter');
 execute(flutter, ['create', '--empty', '--no-pub', '--platforms=android,ios', '--org=com.crcfrcn', '--project-name=citizenapp', project], {stdio: 'inherit'});
 // Gradle 仍会编译模板目录，只移除本轮生成的入口，保留产品自己的 MainActivity。
 rmSync(join(project,'android/app/src/main/kotlin/com/crcfrcn/citizenapp/MainActivity.kt'),{force:true});
-// create即使不执行Pub也会重写锁；完成后写回只映射SDK路径的完整原锁。
+// create会重写锁；先恢复第三方原锁，再由官方Pub在本轮工程补齐SDK路径条目。
 writeFileSync(join(project, 'pubspec.lock'), lock);
 const write = (path, text) => {
     mkdirSync(dirname(join(project, path)), {recursive: true});

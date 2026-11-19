@@ -11,6 +11,52 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   useIsolatedIsar();
 
+  test('无事件版本的旧游标物理库重开后默认0且原进度完整保留', () async {
+    final definition =
+        jsonDecode(jsonEncode(app_store.WalletCursorSchema.toJson()))
+            as Map<String, dynamic>;
+    definition['id'] = app_store.WalletCursorSchema.id.toString();
+    definition['idName'] = app_store.WalletCursorSchema.idName;
+    definition['version'] = app_store.WalletCursorSchema.version;
+    for (final index in definition['indexes'] as List) {
+      index['id'] = app_store.WalletCursorSchema.indexes[index['name']]!.id
+          .toString();
+    }
+    final properties = (definition['properties'] as List)
+        .where((dynamic p) => p['name'] != 'event_version')
+        .toList();
+    for (var i = 0; i < properties.length; i++) {
+      properties[i]['id'] = i;
+    }
+    definition['properties'] = properties;
+    final legacy = _oldProposalSchema<app_store.WalletCursor>(definition);
+    final old = Isar.openSync(
+      [legacy],
+      name: 'citizenapp_user',
+      directory: await IsarCoreBootstrap.resolveDirectory(),
+    );
+    await old.writeTxn(() async {
+      await old.collection<app_store.WalletCursor>().importJson([
+        {
+          'id': 1,
+          'account_id': '0x${'aa' * 32}',
+          'created_at': 4000,
+          'genesis_hash': 'genesis',
+          'start_block': 4,
+          'cursor_block': 99,
+        },
+      ]);
+    });
+    await old.close();
+    final reopened = await app_store.UserIsar.instance.db();
+    final saved = await reopened.collection<app_store.WalletCursor>().get(1);
+    expect(saved!.eventVersion, 0);
+    expect(saved.startBlock, 4);
+    expect(saved.cursorBlock, 99);
+    expect(saved.createdAt, 4000);
+    expect(saved.genesisHash, 'genesis');
+  });
+
   test('原名 UserIsar 保存目录状态后连续关闭重开，不触发旧版本键冲突', () async {
     final first = await app_store.UserIsar.instance.db();
     expect(first.name, 'citizenapp_user');
