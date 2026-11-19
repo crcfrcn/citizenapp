@@ -157,19 +157,21 @@ class _ChatRealtimeSession {
     }
   }
 
-  Future<void> runCallback(Future<void> Function() operation) {
+  Future<void> runCallback(
+    Future<void> Function() operation, {
+    bool ordered = true,
+  }) {
     if (!_acceptingCallbacks) {
       return Future<void>.value();
     }
-    // WebSocket 可能在上一个 callback 尚未完成时继续推送 Welcome/Application；
-    // MLS ratchet 必须严格按到达顺序推进，因此所有实时来源共用一条串行尾链。
-    final previous = _callbackTail;
-    final running = previous.then<void>(
-      (_) => operation(),
-      onError: (Object _, StackTrace _) => operation(),
-    );
+    // MLS 验密按原顺序推进，ACK 和补拉的网络等待也跟踪到关闭，但不占用验密尾链。
+    final running = ordered
+        ? _callbackTail.then<void>((_) => operation())
+        : Future<void>.sync(operation);
     _callbacks.add(running);
-    _callbackTail = running.then<void>((_) {}, onError: (_, _) {});
+    if (ordered) {
+      _callbackTail = running.then<void>((_) {}, onError: (_, _) {});
+    }
     return running.whenComplete(() => _callbacks.remove(running));
   }
 
@@ -5032,6 +5034,37 @@ class ChatRuntime {
       _ensureActive();
       session.ensureOpen();
 
+      final pendingAck = <String>{};
+      var sendingAck = false;
+      void acknowledgeLater(Set<String> ids) {
+        pendingAck.addAll(ids);
+        if (sendingAck) {
+          return;
+        }
+        sendingAck = true;
+        final generation = _accountGenerations[account.accountId] ?? 0;
+        final epoch = _mailboxEpochs[account.accountId] ?? 0;
+        unawaited(
+          session.runCallback(() async {
+            try {
+              await Future<void>.delayed(Duration.zero);
+              while (pendingAck.isNotEmpty) {
+                await _requireMailboxCurrent(account, generation, epoch);
+                session.ensureOpen();
+                final batch = pendingAck.take(100).toList();
+                pendingAck.removeAll(batch);
+                await signalContext.transport.acknowledgeMailbox(batch);
+              }
+            } catch (_) {
+              // 原密文仍由邮箱持有，重连或推送恢复时会从本机持久收据重新确认。
+              pendingAck.clear();
+            } finally {
+              sendingAck = false;
+            }
+          }, ordered: false),
+        );
+      }
+
       Future<void> handleEvent(ChatServiceEvent event) {
         return session.runCallback(() async {
           try {
@@ -5047,6 +5080,7 @@ class ChatRuntime {
                   generation,
                   epoch,
                   waitingForGroup: () => waiting = true,
+                  acknowledgeLater: acknowledgeLater,
                 );
                 if (waiting) {
                   _scheduleMailboxRetry(
@@ -5096,25 +5130,19 @@ class ChatRuntime {
       _ensureActive();
       session.ensureOpen();
 
-      // 必须先完成 WSS ready，再补拉可靠密文邮箱。建连后的新消息由 WSS
-      // 立即交付，建连前的消息由本次补拉收敛，两者重叠时由 message_id
-      // 和本机落库幂等去重；禁止留下“补拉结束、WSS 尚未建立”的丢失窗口。
-      stage = 'mailbox';
-      await _drainMailbox(account, signalContext.transport);
-      _ensureActive();
-      session.ensureOpen();
-
       Future<void> refreshMailboxFromCallback() async {
         await session.runCallback(() async {
           try {
-            await _runRuntimeOperation(() async {
-              final context = await _readyContext(account);
-              await _drainMailbox(account, context.transport);
-            });
+            await _drainMailbox(
+              account,
+              signalTransport,
+              session: session,
+              acknowledgeLater: acknowledgeLater,
+            );
           } catch (_) {
-            // 未 ACK 密文仍在 聊天服务模块；下次推送、启动或恢复前台继续补拉。
+            // 未 ACK 密文留在邮箱，下次唤醒或重连继续补拉。
           }
-        });
+        }, ordered: false);
       }
 
       Future<void> refreshPushFromCallback() async {
@@ -5139,12 +5167,16 @@ class ChatRuntime {
         (_) => unawaited(refreshMailboxFromCallback()),
       );
       session.attachWakeSubscription(pushSubscription.cancel);
-      final pendingWake = await push.takePendingWake();
+      // WSS ready 后只启动一次初始补拉，它同时涵盖此前持久化的唤醒。
+      await push.takePendingWake();
+      stage = 'mailbox';
+      await _drainMailbox(
+        account,
+        signalTransport,
+        session: session,
+        acknowledgeLater: acknowledgeLater,
+      );
       _ensureActive();
-      if (pendingWake) {
-        // 初始化只补拉收件；出站由Hub交接ready后启动，不能等待自身connecting。
-        await refreshMailboxFromCallback();
-      }
       final tokenSubscription = push.tokenChanges.listen(
         (_) => unawaited(refreshPushFromCallback()),
       );
@@ -5190,6 +5222,8 @@ class ChatRuntime {
     ChatRuntimeAccount account,
     ChatServiceTransport transport, {
     String? cursor,
+    _ChatRealtimeSession? session,
+    void Function(Set<String>)? acknowledgeLater,
   }) {
     final key = account.accountId;
     final existing = _mailboxDrains[key];
@@ -5220,15 +5254,25 @@ class ChatRuntime {
             if (items.length > 100) {
               throw StateError('聊天邮箱批量超过100条');
             }
-            final acknowledged = items.isEmpty
-                ? 0
-                : await _consumeMailboxBatch(
-                    account,
-                    transport,
-                    items,
-                    generation,
-                    epoch,
-                  );
+            var acknowledged = 0;
+            if (items.isNotEmpty) {
+              Future<void> consume() async {
+                acknowledged = await _consumeMailboxBatch(
+                  account,
+                  transport,
+                  items,
+                  generation,
+                  epoch,
+                  acknowledgeLater: acknowledgeLater,
+                );
+              }
+
+              if (session == null) {
+                await consume();
+              } else {
+                await session.runCallback(consume);
+              }
+            }
             if (cursor == null) {
               if (items.isNotEmpty && acknowledged == 0) {
                 _mailboxDrainRequested.remove(key);
@@ -5323,6 +5367,7 @@ class ChatRuntime {
     int generation,
     int epoch, {
     void Function()? waitingForGroup,
+    void Function(Set<String>)? acknowledgeLater,
   }) async {
     final acknowledgedMessageIds = <String>{};
     for (final item in items) {
@@ -5345,8 +5390,12 @@ class ChatRuntime {
     // 一批只发一次 ACK；单条失败不阻断同批其它密文，且失败条目不进入删除集合。
     await _requireMailboxCurrent(account, generation, epoch);
     if (acknowledgedMessageIds.isNotEmpty) {
-      await transport.acknowledgeMailbox(acknowledgedMessageIds.toList());
-      await _requireMailboxCurrent(account, generation, epoch);
+      if (acknowledgeLater == null) {
+        await transport.acknowledgeMailbox(acknowledgedMessageIds.toList());
+        await _requireMailboxCurrent(account, generation, epoch);
+      } else {
+        acknowledgeLater(acknowledgedMessageIds);
+      }
     }
     return acknowledgedMessageIds.length;
   }

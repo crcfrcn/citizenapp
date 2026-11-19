@@ -229,6 +229,7 @@ final class _Transport implements ChatServiceTransport {
   Completer<List<ChatMailboxMessage>>? fetch;
   Completer<void>? emptyMailbox;
   Completer<void>? enteredFetch;
+  Future<void> Function()? beforeMailboxAck;
   Future<void> Function(ChatServiceEvent)? onEvent;
   int fetches = 0,
       activeFetches = 0,
@@ -308,6 +309,7 @@ final class _Transport implements ChatServiceTransport {
       isTrue,
     );
     expect(ids.length, lessThanOrEqualTo(100));
+    await beforeMailboxAck?.call();
     acknowledged.add(List.of(ids));
     messages.removeWhere((message) => ids.contains(message.messageId));
   }
@@ -1015,19 +1017,41 @@ void main() {
       isEmpty,
     );
   });
-  test('在线原密文直接验密落库，重复事件不再处理且不触发补拉', () async {
+  test('在线原密文直接验密落库，旧 ACK 等待不阻塞新消息', () async {
     final fixture = await _Fixture.create();
     final stop = await fixture.runtime.startRealtimeSync(onNotice: () async {});
+    final enteredAck = Completer<void>();
+    final releaseAck = Completer<void>();
+    final bothAcked = Completer<void>();
+    fixture.transport.beforeMailboxAck = () async {
+      if (!enteredAck.isCompleted) {
+        enteredAck.complete();
+        await releaseAck.future;
+      } else {
+        bothAcked.complete();
+      }
+    };
     final before = fixture.transport.fetches;
-    final event = ChatMessageAvailableEvent(message: _Message(1));
-    await Future.wait([
-      fixture.transport.onEvent!(event),
-      fixture.transport.onEvent!(event),
-    ]);
-    expect(fixture.transport.fetches, before);
-    expect(fixture.crypto.processed, 1);
+    final first = ChatMessageAvailableEvent(message: _Message(1));
+    final second = ChatMessageAvailableEvent(message: _Message(2));
+    try {
+      await fixture.transport.onEvent!(first);
+      await enteredAck.future.timeout(const Duration(seconds: 2));
+      await fixture.transport.onEvent!(second).timeout(
+        const Duration(seconds: 2),
+      );
+      await fixture.transport.onEvent!(second);
+      expect(fixture.transport.fetches, before);
+      expect(fixture.crypto.processed, 2);
+      expect(fixture.transport.acknowledged, isEmpty);
+    } finally {
+      releaseAck.complete();
+    }
+    await bothAcked.future.timeout(const Duration(seconds: 2));
+    await Future<void>.delayed(Duration.zero);
     expect(fixture.transport.acknowledged.expand((batch) => batch).toSet(), {
-      event.message.messageId,
+      first.message.messageId,
+      second.message.messageId,
     });
     await stop!();
   });
@@ -1112,7 +1136,7 @@ void main() {
     expect(rows.single.deliveryState, ChatMessageDeliveryState.failed);
   });
 
-  test('待处理唤醒和出站共存时完成ready交接，不等待自身建连', () async {
+  test('待处理唤醒只走一次初始补拉，出站不等待自身建连', () async {
     final f = await _Fixture.create();
     f.host.pendingWake = true;
     await f.runtime.ensureReady(_account.accountId);
@@ -1148,7 +1172,7 @@ void main() {
     await f.runtime.retryOutgoing().timeout(const Duration(seconds: 2));
     expect(ready, isTrue);
     expect(sends, 1);
-    expect(f.transport.fetches, 2);
+    expect(f.transport.fetches, 1);
     expect(await f.store.outboundQueueCount(_account.userId), 0);
     await stop!();
   });
