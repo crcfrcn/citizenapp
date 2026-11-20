@@ -53,109 +53,88 @@ void _setViewport(WidgetTester tester, Size logicalSize) {
 }
 
 void main() {
-  test('移动端产品名称中文为公民、英文为 CitizenApp', () {
-    final catalog = jsonDecode(
-      File('ios/source/InfoPlist.xcstrings').readAsStringSync(),
-    ) as Map<String, dynamic>;
-    final strings = catalog['strings'] as Map<String, dynamic>;
-    Map<String, String> language(String name) => strings.map(
-      (key, value) => MapEntry(
-        key,
-        value['localizations'][name]['stringUnit']['value'] as String,
-      ),
-    );
-    final iosChinese = language('zh-Hans');
-    final iosEnglish = language('en');
-    final androidChinese = platformInput(
-      'android/app/src/main/res/values/strings.xml',
-    );
-    final androidEnglish = platformInput(
-      'android/app/src/main/res/values-en_strings.xml',
-    );
+  final platform = Platform.environment['PLATFORM'];
 
-    expect(iosChinese['CFBundleDisplayName'], '公民');
-    expect(iosChinese['CFBundleName'], '公民');
-    expect(iosEnglish['CFBundleDisplayName'], 'CitizenApp');
-    expect(iosEnglish['CFBundleName'], 'CitizenApp');
-    expect(androidChinese, contains('<string name="app_name">公民</string>'));
-    expect(
-      androidEnglish,
-      contains('<string name="app_name">CitizenApp</string>'),
-    );
-    expect(iosEnglish.values, isNot(contains('Citizen')));
-    expect(androidEnglish, isNot(contains('>Citizen<')));
-  });
+  if (platform != 'android') {
+    test('iOS 产品名称及系统弹窗本地化完整进入 Runner 资源配置', () {
+      final infoPlist = File('ios/source/Info.plist').readAsStringSync();
+      final project = File('ios/project/Runner.pbxproj').readAsStringSync();
+      final catalog = jsonDecode(
+        File('ios/source/InfoPlist.xcstrings').readAsStringSync(),
+      ) as Map<String, dynamic>;
+      final strings = catalog['strings'] as Map<String, dynamic>;
+      Map<String, String> language(String name) => strings.map(
+        (key, value) => MapEntry(
+          key,
+          value['localizations'][name]['stringUnit']['value'] as String,
+        ),
+      );
+      final iosChinese = language('zh-Hans');
+      final iosEnglish = language('en');
 
-  test('iOS 系统弹窗本地化完整进入 Runner 资源配置', () {
-    final infoPlist = File('ios/source/Info.plist').readAsStringSync();
-    final project = File('ios/project/Runner.pbxproj').readAsStringSync();
-    final catalog = jsonDecode(
-      File('ios/source/InfoPlist.xcstrings').readAsStringSync(),
-    ) as Map<String, dynamic>;
-    final strings = catalog['strings'] as Map<String, dynamic>;
-    Map<String, String> language(String name) => strings.map(
-      (key, value) => MapEntry(
-        key,
-        value['localizations'][name]['stringUnit']['value'] as String,
-      ),
-    );
-    final iosChinese = language('zh-Hans');
-    final iosEnglish = language('en');
+      expect(project, contains('developmentRegion = "zh-Hans";'));
+      expect(catalog['sourceLanguage'], 'zh-Hans');
+      expect(project, contains('InfoPlist.xcstrings in Resources'));
+      expect(project, contains('lastKnownFileType = text.json.xcstrings;'));
+      expect(infoPlist, contains('<string>zh-Hans</string>'));
+      expect(infoPlist, contains('<string>en</string>'));
 
-    expect(project, contains('developmentRegion = "zh-Hans";'));
-    expect(catalog['sourceLanguage'], 'zh-Hans');
-    expect(project, contains('InfoPlist.xcstrings in Resources'));
-    expect(project, contains('lastKnownFileType = text.json.xcstrings;'));
-    expect(infoPlist, contains('<string>zh-Hans</string>'));
-    expect(infoPlist, contains('<string>en</string>'));
+      String keys(Map<String, String> source) =>
+          (source.keys.toList()..sort()).join(',');
 
-    String keys(Map<String, String> source) =>
-        (source.keys.toList()..sort()).join(',');
+      expect(keys(iosChinese), keys(iosEnglish));
+      expect(keys(iosChinese), contains('CFBundleDisplayName'));
+      expect(keys(iosChinese), contains('CFBundleName'));
+      expect(iosChinese['CFBundleDisplayName'], '公民');
+      expect(iosChinese['CFBundleName'], '公民');
+      expect(iosEnglish['CFBundleDisplayName'], 'CitizenApp');
+      expect(iosEnglish['CFBundleName'], 'CitizenApp');
+      expect(iosEnglish.values, isNot(contains('Citizen')));
+    });
+  }
 
-    expect(keys(iosChinese), keys(iosEnglish));
-    expect(keys(iosChinese), contains('CFBundleDisplayName'));
-    expect(keys(iosChinese), contains('CFBundleName'));
-  });
+  if (platform != 'ios') {
+    test('Android 系统权限弹窗应用名保留默认中文与英文限定资源', () {
+      final manifest = File('android/app/AndroidManifest.xml').readAsStringSync();
+      final androidChinese = platformInput(
+        'android/app/src/main/res/values/strings.xml',
+      );
+      final androidEnglish = platformInput(
+        'android/app/src/main/res/values-en_strings.xml',
+      );
 
-  test('Android 系统权限弹窗应用名保留默认中文与英文限定资源', () {
-    final manifest = File('android/app/AndroidManifest.xml').readAsStringSync();
-    final androidChinese = platformInput(
-      'android/app/src/main/res/values/strings.xml',
-    );
-    final androidEnglish = platformInput(
-      'android/app/src/main/res/values-en_strings.xml',
-    );
+      expect(manifest, contains('android:label="@string/app_name"'));
+      expect(androidChinese, contains('<string name="app_name">公民</string>'));
+      expect(
+        androidEnglish,
+        contains('<string name="app_name">CitizenApp</string>'),
+      );
+      expect(androidEnglish, isNot(contains('>Citizen<')));
+      expect(
+        RegExp(r'<string name="([^"]+)"')
+            .allMatches(androidChinese)
+            .map((match) => match.group(1))
+            .toSet(),
+        RegExp(r'<string name="([^"]+)"')
+            .allMatches(androidEnglish)
+            .map((match) => match.group(1))
+            .toSet(),
+      );
+    });
 
-    expect(manifest, contains('android:label="@string/app_name"'));
-    expect(androidChinese, contains('<string name="app_name">公民</string>'));
-    expect(
-      androidEnglish,
-      contains('<string name="app_name">CitizenApp</string>'),
-    );
-    expect(
-      RegExp(r'<string name="([^"]+)"')
-          .allMatches(androidChinese)
-          .map((match) => match.group(1))
-          .toSet(),
-      RegExp(r'<string name="([^"]+)"')
-          .allMatches(androidEnglish)
-          .map((match) => match.group(1))
-          .toSet(),
-    );
-  });
+    test('Android MainActivity 固定竖屏，不跟随系统自动旋转', () {
+      final manifest = File('android/app/AndroidManifest.xml').readAsStringSync();
+      final androidBuild = File('android/app/build.gradle.kts')
+          .readAsStringSync();
+      final androidEntry = File('android/app/MainActivity.kt').readAsStringSync();
 
-  test('Android MainActivity 固定竖屏，不跟随系统自动旋转', () {
-    final manifest = File('android/app/AndroidManifest.xml').readAsStringSync();
-    final androidBuild = File('android/app/build.gradle.kts')
-        .readAsStringSync();
-    final androidEntry = File('android/app/MainActivity.kt').readAsStringSync();
-
-    expect(manifest, contains('android:name=".MainActivity"'));
-    expect(manifest, contains('android:screenOrientation="portrait"'));
-    expect(androidBuild, contains('applicationId = "com.crcfrcn.citizenapp"'));
-    expect(androidBuild, contains('namespace = "com.crcfrcn.citizenapp"'));
-    expect(androidEntry, contains('package com.crcfrcn.citizenapp'));
-  });
+      expect(manifest, contains('android:name=".MainActivity"'));
+      expect(manifest, contains('android:screenOrientation="portrait"'));
+      expect(androidBuild, contains('applicationId = "com.crcfrcn.citizenapp"'));
+      expect(androidBuild, contains('namespace = "com.crcfrcn.citizenapp"'));
+      expect(androidEntry, contains('package com.crcfrcn.citizenapp'));
+    });
+  }
 
   test('视觉倍率以 411×914 为基准并限制极端缩放', () {
     expect(AppLayout.visualScaleForSize(const Size(411, 914)), 1);

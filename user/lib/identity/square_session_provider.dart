@@ -215,7 +215,7 @@ class SquareSessionResolution {
   }
 }
 
-/// 广场会话使用本机设备签名与服务端登录。
+/// 广场与聊天共用的MLS准备和会话协调；普通认证不启动聊天权益或消息网络。
 class SquareSessionProvider {
   SquareSessionProvider({
     required AccountSecurityService accountSecurity,
@@ -229,18 +229,44 @@ class SquareSessionProvider {
        _cidBusinessGate = cidBusinessGate {
     _authentication =
         authentication ??
-        MlsAuthentication.native(currentBinding: _currentMlsBinding);
+        MlsAuthentication(
+          readLocalIdentity: () =>
+              (_readLocalIdentity ??
+              (throw const MlsAuthenticationException('MLS身份读取未接入')))(),
+          createProof: (request) =>
+              (_createMlsProof ??
+              (throw const MlsAuthenticationException('MLS认证未接入')))(request),
+          currentBinding: _currentMlsBinding,
+        );
   }
 
   final SquareApiClient _client;
   final AccountSecurityService _accountSecurity;
   final CurrentUserContext _currentUserContext;
   late final MlsAuthenticationSource _authentication;
+  Future<mls.ChatDevice> Function()? _readLocalIdentity;
+  Future<mls.MlsAuthenticationProof> Function(mls.MlsAuthenticationRequest)?
+  _createMlsProof;
   final CidBusinessGate? _cidBusinessGate;
   final Map<(String, int), Future<SquareSession?>> _flights = {};
   final Set<(String, String, int)> _blockedAuthorization = {};
   MlsAuthenticationSource get authentication => _authentication;
   CurrentUserContext get _currentUser => _currentUserContext;
+
+  /// 注入唯一 MLS 身份的受限操作，安装本身不创建身份或连接网络。
+  void installMlsAuthentication({
+    required Future<mls.ChatDevice> Function() readLocalIdentity,
+    required Future<mls.MlsAuthenticationProof> Function(
+      mls.MlsAuthenticationRequest,
+    )
+    createProof,
+  }) {
+    if (_readLocalIdentity != null || _createMlsProof != null) {
+      throw StateError('MLS认证已接入');
+    }
+    _readLocalIdentity = readLocalIdentity;
+    _createMlsProof = createProof;
+  }
 
   void closeAuthentication() {
     final source = _authentication;
@@ -272,6 +298,10 @@ class SquareSessionProvider {
 
   Future<SquareSession?> ensureSession() => _ensureSession();
 
+  /// 聊天消费本机已经核验的绑定，缺失时由身份页负责恢复。
+  Future<SquareSession?> ensureChatSession() =>
+      _ensureSession(recoverBinding: false);
+
   /// 主动重试只恢复内部准备，不进入公民号注册或真人验证。
   Future<SquareSession?> registerCurrentDevice() =>
       _ensureSession(userInitiated: true);
@@ -279,21 +309,24 @@ class SquareSessionProvider {
   /// 所有消费者共用当前账户的 MLS 与服务会话准备任务。
   Future<SquareSession?> _ensureSession({
     bool userInitiated = false,
+    bool recoverBinding = true,
     String? expectedAccountId,
   }) async {
     try {
-      final decision = await _cidBusinessGate?.resolve();
-      if (decision != null && decision.status != CidBusinessStatus.ready) {
-        if (decision.status == CidBusinessStatus.noWallet) return null;
-        throw SquareApiException(
-          decision.status == CidBusinessStatus.unregistered
-              ? '当前账户尚未注册公民号'
-              : '身份读取失败，请重试',
-          errorCode: decision.status == CidBusinessStatus.unregistered
-              ? 'identity_unregistered'
-              : 'identity_projection_unavailable',
-          stage: SquareApiStage.identity,
-        );
+      if (recoverBinding) {
+        final decision = await _cidBusinessGate?.resolve();
+        if (decision != null && decision.status != CidBusinessStatus.ready) {
+          if (decision.status == CidBusinessStatus.noWallet) return null;
+          throw SquareApiException(
+            decision.status == CidBusinessStatus.unregistered
+                ? '当前账户尚未注册公民号'
+                : '身份读取失败，请重试',
+            errorCode: decision.status == CidBusinessStatus.unregistered
+                ? 'identity_unregistered'
+                : 'identity_projection_unavailable',
+            stage: SquareApiStage.identity,
+          );
+        }
       }
       final current = await _currentUser.resolve();
       if (current == null) return null;
@@ -421,6 +454,48 @@ class SquareSessionProvider {
       );
     }
     return session;
+  }
+
+  /// 聊天模块只提交设备标识和预期身份；会话建立、请求签名与 HTTP 均留在服务模块。
+  Future<CitizenServeChatAccess> requestChatAccess({
+    required String deviceId,
+    required String expectedCidNumber,
+    required int expectedBindingRevision,
+    required String expectedAccountId,
+  }) async {
+    final session = await ensureChatSession();
+    final identity = await _authentication.readIdentity();
+    if (identity.cidNumber != expectedCidNumber ||
+        identity.bindRev != expectedBindingRevision ||
+        identity.accountId != expectedAccountId ||
+        identity.deviceId != deviceId) {
+      throw const MlsAuthenticationException(
+        '聊天许可身份已变化',
+        code: 'identityChanged',
+      );
+    }
+    if (session == null ||
+        session.cidNumber != expectedCidNumber ||
+        session.bindRev != expectedBindingRevision ||
+        session.accountId != expectedAccountId ||
+        session.deviceId != deviceId) {
+      throw const SquareApiException('聊天会话与当前用户绑定不一致');
+    }
+    await _authentication.requireCurrent(identity);
+    final access = await _client.fetchChatAccess(
+      session: session,
+      deviceId: deviceId,
+    );
+    await _authentication.requireCurrent(identity);
+    await session.validateCurrent();
+    if ((await _currentUser.resolve())?.accountId != expectedAccountId ||
+        !session.isUsable) {
+      throw const MlsAuthenticationException(
+        '聊天许可返回时会话已变化',
+        code: 'identityChanged',
+      );
+    }
+    return access;
   }
 
   /// 为页面保留失败原因；动作服务仍可使用 [ensureSession] 让异常失败关闭。

@@ -98,7 +98,7 @@ void main() {
       debugDeleteCitizenSdkWallet: () async {},
       debugDeleteProtectedRecords: () async {},
       debugClearSharedPreferences: () async {},
-      debugWipeDirectoryProvider: () async => records,
+      debugChatDocumentsDirectoryProvider: () async => records,
     );
 
     expect(balance.value, isNull);

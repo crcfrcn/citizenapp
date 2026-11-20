@@ -5,6 +5,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:chat/chat.dart';
 
 import 'package:citizen_scanner/qr_scan_page.dart';
 import 'package:citizen_scanner/qr_sign_response_page.dart';
@@ -23,7 +24,7 @@ import 'package:citizen_scanner/scan_dispatch.dart';
 class AppScanDispatch implements ScanDispatch {
   const AppScanDispatch();
 
-  /// 公民「扫一扫」统一入口：扫码 → 按协议分派。
+  /// 聊天 tab「扫一扫」统一入口：扫码 → 按协议分派。
   ///
   /// - 收款 / 链下支付码 → 现有链下支付流程（用 [paymentWallet]）。
   /// - signRequest → 用 QR `u` 对应的本机 CitizenWalletStateAccount 签名，与付款钱包无关。
@@ -270,6 +271,7 @@ Future<void> _handleOccupySignRequest(
     if (!prep.isOccupy && prep.currentAccount != null) {
       if (!context.mounted) return;
       final chain = context.read<CitizenSdk>();
+      final chatRuntime = context.read<ChatRuntime>();
       final target = IdentityBinding(
         genesisHash: prep.genesisHash,
         cidNumber: prep.cidNumber,
@@ -281,6 +283,7 @@ Future<void> _handleOccupySignRequest(
         _completeRegistryBinding(
           chain: chain,
           accountSecurity: accountSecurity,
+          chatRuntime: chatRuntime,
           target: target,
           expiresAt: prep.expiresAt.toInt(),
         ),
@@ -308,6 +311,7 @@ Future<void> _handleOccupySignRequest(
 Future<void> _completeRegistryBinding({
   required CitizenSdk chain,
   required AccountSecurityService accountSecurity,
+  required ChatRuntime chatRuntime,
   required IdentityBinding target,
   required int expiresAt,
 }) async {
@@ -322,6 +326,14 @@ Future<void> _completeRegistryBinding({
           cidNumber: target.cidNumber,
           bindRev: target.bindRev,
           accountId: target.accountId,
+        );
+        await chatRuntime.convergeFinalizedBinding(
+          ChatBinding(
+            bindingScope: target.genesisHash,
+            userId: target.cidNumber,
+            bindingRevision: target.bindRev,
+            accountId: target.accountId,
+          ),
         );
         accountSecurity.notifyIdentityBindingChanged();
         return;

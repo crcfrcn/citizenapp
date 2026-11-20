@@ -1,4 +1,4 @@
-/// 操作系统推送端点的中性产品值；不携带广场或账户业务状态。
+/// 操作系统推送端点的中性产品值；不携带聊天、广场或账户业务状态。
 final class AppPushToken {
   const AppPushToken({
     required this.provider,

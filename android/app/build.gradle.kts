@@ -55,6 +55,7 @@ android {
         }
     }
 
+    sourceSets.getByName("main").java.srcDir("../chat")
 
     packaging {
         jniLibs {

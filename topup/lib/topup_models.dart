@@ -109,66 +109,61 @@ class TopupPackage {
   final String packageId, payDisplay, coinDisplay, coinFen;
   final Map<String, String> payments;
   String amount(TopupRail rail) =>
-      payments[rail.key] ?? (throw const FormatException('该套餐不支持当前币轨'));
-  factory TopupPackage.fromJson(Map<String, dynamic> j) {
-    final id = j['package_id'];
-    if (id != 'pkg_10' && id != 'pkg_1000') {
-      throw const FormatException('不支持自定义套餐');
+      payments[rail.key] ?? (throw const FormatException('该报价不支持当前币轨'));
+
+  /// 输入接受整数公民币或.00写法；全程使用整数分和最小单位，不经过浮点数。
+  factory TopupPackage.input(String input) {
+    if (input.length > 24 ||
+        !RegExp(r'^[1-9][0-9]*(?:\.00)?$').hasMatch(input)) {
+      throw const FormatException('仅限1000或1000的整数倍');
     }
-    final payment = j['payments'];
-    if (payment is! List) throw const FormatException('缺少币轨报价');
-    final amounts = <String, String>{};
-    for (final raw in payment) {
-      if (raw is! Map<String, dynamic>) throw const FormatException('币轨报价无效');
-      final n = TopupNetwork.parse(raw['network']);
-      final token = raw['token'];
-      if (token is! String || !allowedPair(token, n)) {
-        throw const FormatException('不支持的币轨');
-      }
-      final key = '$token:${n.wire}';
-      if (amounts.containsKey(key)) throw const FormatException('币轨报价重复');
-      final a = decimal(raw['pay_amount']);
-      final expected = scaleTokenUnits(
-        BigInt.from(id == 'pkg_10' ? 10 : 1000),
-        n == TopupNetwork.bnb ? 18 : 6,
-      );
-      if (a != expected.toString()) throw const FormatException('套餐金额无效');
-      amounts[key] = a;
+    return TopupPackage.quote(
+      BigInt.parse(input.split('.').first) * BigInt.from(100),
+    );
+  }
+  factory TopupPackage.quote(BigInt coin) {
+    final step = BigInt.from(100000);
+    if (coin < step ||
+        coin % step != BigInt.zero ||
+        coin > BigInt.parse('18446744073709551615')) {
+      throw const FormatException('充值金额无效或超出整数范围');
     }
-    if (amounts.length != 6 ||
-        j['pay_display'] != (id == 'pkg_10' ? '10' : '1000') ||
-        j['coin_fen'] != (id == 'pkg_10' ? '1000000' : '100000000') ||
-        j['coin_display'] is! String) {
-      throw const FormatException('套餐配置无效');
-    }
+    final dollars = coin ~/ step;
     return TopupPackage(
-      packageId: id as String,
-      payDisplay: j['pay_display'] as String,
-      coinDisplay: j['coin_display'] as String,
-      coinFen: decimal(j['coin_fen']),
-      payments: Map.unmodifiable(amounts),
+      packageId: 'pkg_$dollars',
+      payDisplay: '$dollars',
+      coinDisplay: '${coin ~/ BigInt.from(100)}.00',
+      coinFen: '$coin',
+      payments: Map.unmodifiable({
+        for (final token in const ['USDC', 'USDT'])
+          for (final network in TopupNetwork.values)
+            '$token:${network.wire}': scaleTokenUnits(
+              dollars,
+              network == TopupNetwork.bnb ? 18 : 6,
+            ).toString(),
+      }),
     );
   }
 }
 
 class TopupConfig {
-  const TopupConfig({
-    required this.ready,
-    required this.rails,
-    required this.packages,
-  });
+  const TopupConfig({required this.ready, required this.rails});
   final bool ready;
   final List<TopupRail> rails;
-  final List<TopupPackage> packages;
   List<String> get tokens => const ['USDC', 'USDT'];
   TopupRail rail(String token, TopupNetwork n) => rails.firstWhere(
     (r) => r.token == token && r.network == n,
     orElse: () => throw const FormatException('当前币种不支持所选网络'),
   );
-  TopupPackage packageById(String id) => packages.firstWhere(
-    (p) => p.packageId == id,
-    orElse: () => throw const FormatException('充值套餐不存在'),
-  );
+  TopupPackage packageById(String id) {
+    if (!RegExp(r'^pkg_[1-9][0-9]{0,14}$').hasMatch(id)) {
+      throw const FormatException('充值金额标识无效');
+    }
+    return TopupPackage.quote(
+      BigInt.parse(id.substring(4)) * BigInt.from(100000),
+    );
+  }
+
   static const origin = 'https://www.crcfrcn.com';
   static const genesis =
       '0x18847a5dfd263272f2e7727836fe6582f8c4463ff48609df7b96d5e4d9dd24dd';
@@ -218,34 +213,18 @@ class TopupConfig {
         recvAddress: evm,
       ),
     ];
-    return TopupConfig(
-      ready: true,
-      rails: List.unmodifiable(rails),
-      packages: List.unmodifiable([
-        for (final amount in [10, 1000])
-          TopupPackage(
-            packageId: 'pkg_$amount',
-            payDisplay: '$amount',
-            coinDisplay: amount == 10 ? '10,000.00' : '1,000,000.00',
-            coinFen: amount == 10 ? '1000000' : '100000000',
-            payments: Map.unmodifiable({
-              for (final rail in rails)
-                rail.key: scaleTokenUnits(
-                  BigInt.from(amount),
-                  rail.decimals,
-                ).toString(),
-            }),
-          ),
-      ]),
-    );
+    return TopupConfig(ready: true, rails: List.unmodifiable(rails));
   }
 
-  /// 消费CitizenServe公开合同：固定21行UTF-8/LF，显示文字及JSON顺序不参与。
+  /// 消费CitizenServe公开合同：固定12行UTF-8/LF，显示文字及JSON顺序不参与。
   String get fingerprint {
     final lines = [
       'CitizenServe Topup Config',
       'service_origin=$origin',
       'chain_genesis_hash=$genesis',
+      'min_coin_fen=100000',
+      'step_coin_fen=100000',
+      'coin_per_usd=1000',
     ];
     for (final token in const ['USDC', 'USDT']) {
       for (final network in const [
@@ -258,10 +237,6 @@ class TopupConfig {
         lines.add(
           'rail=${value.token}|${value.network.wire}|${value.asset}|${value.decimals}|${value.recvAddress}',
         );
-        for (final id in const ['pkg_10', 'pkg_1000']) {
-          final pack = packageById(id);
-          lines.add('package=$id|${pack.amount(value)}|${pack.coinFen}');
-        }
       }
     }
     return '${lines.join('\n')}\n';
@@ -273,39 +248,31 @@ class TopupConfig {
     if (j['is_ok'] != true ||
         j['ready'] is! bool ||
         j['rails'] is! List ||
-        j['packages'] is! List) {
+        j['pricing'] is! Map) {
       throw const FormatException('充值配置无效');
     }
     final rails = (j['rails'] as List)
         .map((r) => TopupRail.fromJson(Map<String, dynamic>.from(r as Map)))
         .toList(growable: false);
-    final packs = (j['packages'] as List)
-        .map((r) => TopupPackage.fromJson(Map<String, dynamic>.from(r as Map)))
-        .toList(growable: false);
-    if (rails.length != 6 ||
-        rails.map((r) => r.key).toSet().length != 6 ||
-        packs.length != 2 ||
-        packs.map((p) => p.packageId).toSet().length != 2) {
-      throw const FormatException('充值配置缺项或重复');
+    final pricing = j['pricing'] as Map;
+    if (pricing.length != 3 ||
+        pricing['min_coin_fen'] != '100000' ||
+        pricing['step_coin_fen'] != '100000' ||
+        pricing['coin_per_usd'] != '1000' ||
+        rails.length != 6 ||
+        rails.map((r) => r.key).toSet().length != 6) {
+      throw const FormatException('充值规则缺项或无效');
     }
     final evm = rails.map((r) => r.recvAddress).toSet();
     if (evm.length != 1) throw const FormatException('EVM收款账户不一致');
-    packs.sort(
-      (a, b) => a.packageId == b.packageId
-          ? 0
-          : a.packageId == 'pkg_10'
-          ? -1
-          : 1,
-    );
     return TopupConfig(
       ready: j['ready'] as bool,
       rails: List.unmodifiable(rails),
-      packages: List.unmodifiable(packs),
     );
   }
 }
 
-/// 一次点击固定币种、套餐和主网；本地订单冻结本次选择，不恢复或重付旧单。
+/// 一次点击固定币种、金额和主网；本地订单冻结本次选择，不恢复或重付旧单。
 class TopupSelection {
   factory TopupSelection({
     required String token,
@@ -338,7 +305,8 @@ class TopupSelection {
 abstract final class TopupWallet {
   static const id = 'metamask';
   // MetaMask官方扩展app/images/logo/metamask-fox.svg，随包绘制，不请求远程图片。
-  static const logo = r'''<svg width="35" height="34" viewBox="0 0 35 34" fill="none" xmlns="http://www.w3.org/2000/svg">
+  static const logo =
+      r'''<svg width="35" height="34" viewBox="0 0 35 34" fill="none" xmlns="http://www.w3.org/2000/svg">
 <path d="M32.7077 32.7522L25.1688 30.5174L19.4833 33.9008L15.5167 33.8991L9.82793 30.5174L2.29225 32.7522L0 25.0489L2.29225 16.4993L0 9.27094L2.29225 0.312256L14.0674 7.31554H20.9326L32.7077 0.312256L35 9.27094L32.7077 16.4993L35 25.0489L32.7077 32.7522Z" fill="#FF5C16"/>
 <path d="M2.29395 0.312256L14.0691 7.32047L13.6008 12.1301L2.29395 0.312256Z" fill="#FF5C16"/>
 <path d="M9.82959 25.0522L15.0106 28.9811L9.82959 30.5175V25.0522Z" fill="#FF5C16"/>
@@ -376,7 +344,7 @@ class TopupDraft {
         pack = config.packageById(selection.package.packageId);
     if (pack.coinFen != selection.package.coinFen ||
         pack.amount(rail) != selection.package.amount(rail)) {
-      throw const FormatException('充值套餐与本地可信配置不一致');
+      throw const FormatException('充值金额与本地可信配置不一致');
     }
     return TopupDraft._(
       Map.unmodifiable({
@@ -726,13 +694,15 @@ class TopupReceipt {
         value['result_ack'] is! bool ||
         value['auto_final'] != (state == 'paid' || state == 'exception') ||
         value['result_publickey'] is! String ||
-        !RegExp(r'^0x[0-9a-f]{64}$')
-            .hasMatch(value['result_publickey'] as String) ||
+        !RegExp(
+          r'^0x[0-9a-f]{64}$',
+        ).hasMatch(value['result_publickey'] as String) ||
         value['payment_txid'] is! String ||
         value['gmb_tx_hash'] != null &&
             (value['gmb_tx_hash'] is! String ||
-                !RegExp(r'^0x[0-9a-f]{64}$')
-                    .hasMatch(value['gmb_tx_hash'] as String)) ||
+                !RegExp(
+                  r'^0x[0-9a-f]{64}$',
+                ).hasMatch(value['gmb_tx_hash'] as String)) ||
         value['exception_reason'] != null &&
             value['exception_reason'] is! String ||
         (result == null) != (signature == null)) {

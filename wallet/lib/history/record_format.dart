@@ -113,31 +113,14 @@ String recordStatusLabel(Entry row) {
     return '记录损坏';
   }
   return switch (record.progress) {
-    TopupProgress.pending => switch (record.failureCode) {
-      'payment_cancelled' => '取消支付',
-      'payment_failed' => '支付失败',
-      'wallet_unauthorized' => '授权失效',
-      _ => '待支付',
-    },
+    TopupProgress.pending => '待支付',
     TopupProgress.paid => '已支付',
     TopupProgress.completed => '已完成',
   };
 }
 
-/// 复用原失败原因显示本地终态；未知结果仍保留待核实，已支付事实不被降级。
-Color recordStatusColor(Entry row) {
-  if (row.entryKind == 'topup' &&
-      row.entryState == TopupProgress.pending.name &&
-      row.failReason == 'wallet_unauthorized') {
-    return AppTheme.warning;
-  }
-  if (row.entryKind == 'topup' &&
-      row.entryState == TopupProgress.pending.name &&
-      const {'payment_cancelled', 'payment_failed'}.contains(row.failReason)) {
-    return AppTheme.danger;
-  }
-  return statusColor(row.entryState);
-}
+/// 三种业务状态使用同一显示规则；取消与失败事实仅在详情说明中保留。
+Color recordStatusColor(Entry row) => statusColor(row.entryState);
 
 String topupPaymentLabel(TopupRecord record) {
   final decimals = record.payment.network == TopupNetwork.bnb ? 18 : 6;

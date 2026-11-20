@@ -6,7 +6,7 @@ import 'package:citizen_storage/isar_core_bootstrap.dart';
 
 part 'social_isar.g.dart';
 
-/// 按浏览者CID和帖子保存已读取评论与待重试操作。
+/// 按浏览者CID和帖子保存已读取评论与待重试操作；公开内容不写入聊天历史。
 @Name('reply')
 @collection
 class Reply {
@@ -295,7 +295,7 @@ class _SocialOpeningCancelled implements Exception {
 /// 广场域独立数据库。
 ///
 /// SocialIsar 拥有自己的数据库文件、schema、串行队列和关闭终态。广场操作挂起时不得
-/// 占用 App、钱包或用户数据库的队列。回调内只允许访问 SocialIsar；网络、平台、
+/// 占用 App、钱包、聊天或用户数据库的队列。回调内只允许访问 SocialIsar；网络、平台、
 /// 文件和跨域读取必须在回调外完成。
 class SocialIsar {
   SocialIsar._();
@@ -456,9 +456,8 @@ class SocialIsar {
       return opened;
     }
     try {
-      final deleted = await _deleteInstance(
-        opened,
-      ).timeout(_forcedDeleteTimeout);
+      final deleted = await _deleteInstance(opened)
+          .timeout(_forcedDeleteTimeout);
       if (!deleted) throw StateError('Social 数据库仍被其它实例持有，未实际删除。');
       throw const _SocialOpeningCancelled();
     } catch (error) {
@@ -588,9 +587,8 @@ class SocialIsar {
       if (!candidate.isOpen) continue;
       deleteWasAttempted = true;
       try {
-        final deleted = await _deleteInstance(
-          candidate,
-        ).timeout(_forcedDeleteTimeout);
+        final deleted = await _deleteInstance(candidate)
+            .timeout(_forcedDeleteTimeout);
         if (!deleted) failures.add('Social 数据库仍被其它实例持有，未实际删除。');
       } catch (error) {
         failures.add('强制删除 Social 数据库失败：$error');

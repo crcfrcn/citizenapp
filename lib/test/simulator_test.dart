@@ -14,7 +14,9 @@ import '../../user/test/profile/follows_list_page_test.dart' as follows;
 import '../../user/test/user/contact_book_page_test.dart' as contacts;
 import '../../8964/test/square_home_page_test.dart' as square;
 import '../../user/test/membership/membership_page_test.dart' as membership;
-import '../../user/test/identity/square_session_selfheal_test.dart' as session;
+import '../../user/test/identity/square_session_selfheal_test.dart'
+    as session;
+import 'chat_tab_test.dart' as chat;
 
 // 复用现有软件回归夹具；真实硬件认证和钥保护由用户真机验收。
 void main() {
@@ -43,6 +45,7 @@ void main() {
     'square': square.main,
     'membergate': membership.main,
     'session': session.main,
+    'chat': chat.main,
   };
   if (!suites.containsKey(selected)) {
     throw ArgumentError('必须明确选择已登记的软件测试组');

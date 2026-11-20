@@ -21,7 +21,7 @@ TopupPayment payment(TopupNetwork network, {String? token}) =>
       TopupDraft.create(
         TopupSelection(
           token: token ?? (network == TopupNetwork.base ? 'USDC' : 'USDT'),
-          package: TopupConfig.local().packages.first,
+          package: TopupConfig.local().packageById('pkg_10'),
           network: network,
         ),
         '0x${'04' * 32}',
@@ -85,6 +85,42 @@ Map<String, dynamic> evmFacts(
 
 void main() {
   _documentTests();
+  test('输入只接受最低1000及1000整数倍，u64边界精确且禁止浮点写法', () {
+    for (final input in [
+      '1000',
+      '1000.00',
+      '2000',
+      '10000',
+      '184467440737095000',
+    ]) {
+      final q = TopupPackage.input(input);
+      expect(TopupConfig.local().packageById(q.packageId).coinFen, q.coinFen);
+    }
+    for (final input in [
+      '',
+      '999',
+      '1100',
+      '1500',
+      '1000.01',
+      '-1000',
+      '1e3',
+      'NaN',
+      '1000.0',
+      '184467440737096000',
+    ]) {
+      expect(() => TopupPackage.input(input), throwsFormatException);
+    }
+    for (final id in [
+      'pkg_0',
+      'pkg_01',
+      'pkg_-1',
+      'pkg_1.1',
+      'pkg_184467440737096',
+    ]) {
+      expect(() => TopupConfig.local().packageById(id), throwsFormatException);
+    }
+  });
+
   test('失败日志仅保留新流程固定阶段，旧意图/授权及异常正文零输出', () {
     final lines = <String>[];
     runZoned(
@@ -132,7 +168,7 @@ void main() {
     expect(lines.length, 6);
     expect(lines.join(), isNot(contains('synthetic-private')));
   });
-  test('配置指纹逐字匹配服务端公开21行规范，JSON/显示顺序不影响结果', () {
+  test('配置指纹逐字匹配服务端公开12行规范，JSON/显示顺序不影响结果', () {
     final fixture =
         jsonDecode(
               fixtureFile('citizen_topup', 'contract.json').readAsStringSync(),
@@ -143,24 +179,33 @@ void main() {
     );
     expect(value.hash, fixture['config_hash']);
     final local = TopupConfig.local();
-    for (final pack in value.packages) {
+    for (final pack in [
+      value.packageById('pkg_1'),
+      value.packageById('pkg_2'),
+      value.packageById('pkg_10'),
+      value.packageById('pkg_1000'),
+    ]) {
       expect(local.packageById(pack.packageId).payments, pack.payments);
     }
-    expect(value.fingerprint.split('\n').length, 22);
+    expect(value.fingerprint.split('\n').length, 13);
     expect(value.fingerprint.endsWith('\n'), true);
     final reordered = TopupConfig(
       ready: false,
       rails: value.rails.reversed.toList(),
-      packages: value.packages.reversed.toList(),
     );
     expect(reordered.hash, value.hash);
   });
-  test('本地六条EVM币轨与两套餐完整，任意金额或收款更换均拒绝', () {
+  test('本地六条EVM币轨支持整数报价，资金字段篡改拒绝', () {
     final catalog = TopupConfig.local();
     expect(catalog.rails.length, 6);
-    expect(catalog.packages.length, 2);
+    expect(catalog.packageById('pkg_1').coinFen, '100000');
     for (final rail in catalog.rails) {
-      for (final pack in catalog.packages) {
+      for (final pack in [
+        catalog.packageById('pkg_1'),
+        catalog.packageById('pkg_2'),
+        catalog.packageById('pkg_10'),
+        catalog.packageById('pkg_1000'),
+      ]) {
         final p = TopupPayment.signed(
           TopupDraft.create(
             TopupSelection(
@@ -283,7 +328,12 @@ void main() {
   test('六条币轨两套餐均可由真实付款交易确定付款人，仍准确6次RPC', () async {
     final catalog = TopupConfig.local();
     for (final rail in catalog.rails) {
-      for (final pack in catalog.packages) {
+      for (final pack in [
+        catalog.packageById('pkg_1'),
+        catalog.packageById('pkg_2'),
+        catalog.packageById('pkg_10'),
+        catalog.packageById('pkg_1000'),
+      ]) {
         final p = TopupPayment.signed(
           TopupDraft.create(
             TopupSelection(

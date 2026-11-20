@@ -299,6 +299,7 @@ void _httpTimingTests() {
       '/api/notifications': 'notifications',
       '/api/topup/confirm': 'topup_confirm',
       '/api/topup/status': 'topup_status',
+      '/api/chat/access': 'chat_access',
     };
     for (final entry in paths.entries) {
       final lines = <String>[];

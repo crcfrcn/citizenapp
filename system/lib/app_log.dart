@@ -150,6 +150,7 @@ class AppLog {
       'request',
       'prepare',
       'contacts_session',
+      'contacts_mls',
       'contacts_apply',
       'topup_confirm',
       'topup_status',
@@ -209,6 +210,9 @@ class AppLog {
       'mls_invalid_request',
       'mls_invalid_response',
       'mls_operation_failed',
+      'mls_request_conflict',
+      'mls_pending_full',
+      'mls_key_package_failed',
       'topup_unconfigured',
       'topup_network_unconfigured',
       'json',
@@ -294,6 +298,7 @@ class AppLog {
       'contacts',
       'topup_confirm',
       'topup_status',
+      'chat_access',
       'media',
     };
     const phases = {'headers', 'complete', 'error', 'cancelled'};

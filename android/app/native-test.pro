@@ -8,3 +8,6 @@
 -keep class kotlin.io.FilesKt** { *; }
 -keep class kotlin.text.Charsets { *; }
 # 目录保护回归调用正式实现。
+-keep class com.crcfrcn.citizenapp.ChatStorageChannel {
+    static void protectOwnedTree(java.io.File);
+}

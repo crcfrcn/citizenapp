@@ -193,8 +193,8 @@ jobs:
           import {pathToFileURL} from 'node:url';
           const work = process.env.WORK;
           const apps = readdirSync(work + '/verify/Payload').filter(name => name.endsWith('.app'));
-          const device = await import(pathToFileURL(process.env.GITHUB_WORKSPACE + '/scripts/build.mjs'));
-          await device.verifyMls(work + '/verify/Payload/' + apps[0] + '/Frameworks/MLS.framework/MLS', 'ios');
+          const chat = await import(pathToFileURL(process.env.GITHUB_WORKSPACE + '/scripts/build.mjs'));
+          await chat.verifyMls(work + '/verify/Payload/' + apps[0] + '/Frameworks/MLS.framework/MLS', 'ios');
           JS
       - name: 生成本轮正式附件说明
         run: node .github/release.mjs manifest ios

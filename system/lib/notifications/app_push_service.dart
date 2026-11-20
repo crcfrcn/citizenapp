@@ -38,6 +38,12 @@ Future<void> ensureAppFirebaseReady() async {
   }
 }
 
+void registerAppPushBackgroundHandler(
+  Future<void> Function(RemoteMessage message) handler,
+) {
+  FirebaseMessaging.onBackgroundMessage(handler);
+}
+
 /// CitizenApp唯一Firebase所有者；业务模块只消费中性Token和通知数据流。
 final class AppPushService {
   AppPushService({

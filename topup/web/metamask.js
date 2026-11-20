@@ -171,7 +171,7 @@ async function authorizedAccount(sdk,scope){
 export const chains=Object.freeze({ethereum:'eip155:1',bnb:'eip155:56',base:'eip155:8453'});
 const walletTimeout=180000;
 export function selection(value){
- if(!value||Object.keys(value).sort().join()!=='network,package_id,token'||!['USDT','USDC'].includes(value.token)||!Object.hasOwn(chains,value.network)||!['pkg_10','pkg_1000'].includes(value.package_id))throw Error('付款选择无效');
+ if(!value||Object.keys(value).sort().join()!=='network,package_id,token'||!['USDT','USDC'].includes(value.token)||!Object.hasOwn(chains,value.network)||!/^pkg_[1-9][0-9]{0,14}$/.test(value.package_id)||BigInt(value.package_id.slice(4))*100000n>18446744073709551615n)throw Error('付款选择无效');
  return Object.freeze({...value});
 }
 export function paymentTransaction(value,chosen){

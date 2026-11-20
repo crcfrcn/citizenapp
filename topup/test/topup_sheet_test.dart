@@ -12,7 +12,6 @@ import 'package:citizen_topup/topup_api.dart';
 import 'package:citizen_topup/topup_result_page.dart';
 import 'package:citizen_topup/topup_models.dart';
 import 'package:citizen_topup/store.dart';
-import 'package:citizen_system/theme/app_theme.dart';
 
 class FakeApi extends TopupApi {
   int requests = 0;
@@ -98,7 +97,7 @@ void main() {
     );
     final selection = TopupSelection(
       token: 'USDT',
-      package: TopupConfig.local().packages.first,
+      package: TopupConfig.local().packageById('pkg_10'),
       network: TopupNetwork.ethereum,
     );
     final record = TopupRecord.signed(
@@ -173,8 +172,9 @@ void main() {
     }
   });
 
-  testWidgets('默认10000、所有链未选，顶部固定MetaMask，切换套餐不建单不访问充值接口', (tester) async {
+  testWidgets('初始空输入、三处文案与中文图标；无效金额不建单，合法金额实时换算', (tester) async {
     final api = FakeApi(), store = MemoryStore();
+    var opened = 0;
     await tester.pumpWidget(
       MaterialApp(
         home: TopupSheet(
@@ -182,94 +182,175 @@ void main() {
           token: 'USDT',
           api: api,
           store: store,
+          paymentOpener: (_) async {
+            opened++;
+            return null;
+          },
         ),
       ),
     );
     await tester.pumpAndSettle();
-    for (final title in ['充值金额', '支付网络', '使用 ', ' MetaMask 钱包支付']) {
-      expect(find.text(title), findsOneWidget);
-    }
-    expect(find.text('授权后请留在 MetaMask 完成付款。确认或取消后，请切回公民 App。'), findsOneWidget);
-    expect(find.byKey(const ValueKey('topup-metamask-logo')), findsOneWidget);
-    expect(
-      tester
-          .widget<SvgPicture>(find.byKey(const ValueKey('topup-metamask-logo')))
-          .bytesLoader,
-      isA<SvgStringLoader>(),
-    );
-    expect(
-      tester
-          .widget<ChoiceChip>(find.byKey(const ValueKey('topup-package-0')))
-          .selected,
-      true,
-    );
+    expect(find.text('充值1美元获得1000元公民币。'), findsNothing);
+    expect(find.text('充值1美元获得1000元公民币，充值仅限1000的整数倍。'), findsOneWidget);
+    expect(find.text('请输入充值金额'), findsOneWidget);
+    expect(find.text('0.00USDT'), findsOneWidget);
+    final field = find.byKey(const ValueKey('topup-amount'));
+    expect(tester.widget<TextField>(field).controller!.text, isEmpty);
+    expect(find.byType(ChoiceChip), findsNothing);
     for (final network in TopupNetwork.values) {
-      final node = tester.widget<Semantics>(
-        find.byWidgetPredicate(
-          (w) => w is Semantics && w.properties.label == network.label,
-        ),
-      );
-      expect(node.properties.selected, false);
+      expect(find.text(network.label.split('/').last), findsOneWidget);
+      expect(find.text(network.label.split('/').first), findsNothing);
     }
-    expect(find.text('10,000.00 元'), findsOneWidget);
-    expect(find.text('1,000,000.00 元'), findsOneWidget);
-    expect(find.text('公民币'), findsNothing);
-    expect(find.byType(Image), findsNothing);
-    expect(find.text('付款金额：10.00美元'), findsOneWidget);
-    final handle = find.byKey(const ValueKey('topup-handle'));
-    expect(handle, findsOneWidget);
-    expect(
-      tester.getTopLeft(handle).dy,
-      lessThan(
-        tester.getTopLeft(find.byKey(const ValueKey('topup-metamask-logo'))).dy,
-      ),
-    );
-    expect(
-      tester.getRect(find.byKey(const ValueKey('topup-pay-amount'))).top,
-      greaterThanOrEqualTo(
-        tester.getRect(find.byKey(const ValueKey('topup-package-1'))).bottom,
-      ),
-    );
-    expect(
+    final circles = tester.widgetList<Container>(
       find.byWidgetPredicate(
         (w) =>
             w is Container &&
             w.decoration is BoxDecoration &&
             (w.decoration! as BoxDecoration).shape == BoxShape.circle,
       ),
-      findsNWidgets(3),
     );
-    final selected = tester.widget<ChoiceChip>(
-      find.byKey(const ValueKey('topup-package-0')),
-    );
-    expect(selected.checkmarkColor, AppTheme.primary);
-    expect(selected.labelStyle?.color, AppTheme.primary);
-    for (final network in TopupNetwork.values) {
-      expect(
-        find.text(
-          '${network.label.split('/').last}\n${network.label.split('/').first}',
-        ),
-        findsOneWidget,
-      );
+    expect(circles.length, 3);
+    for (final circle in circles) {
+      expect(circle.constraints!.maxWidth, 39);
+      expect(circle.constraints!.maxHeight, 39);
     }
-    expect(find.text('付款钱包'), findsNothing);
-    expect(find.byType(ChoiceChip), findsNWidgets(2));
-    expect(find.byType(TextButton), findsNothing);
-    expect(find.byType(ElevatedButton), findsNothing);
-    await tester.tap(find.byKey(const ValueKey('topup-package-1')));
-    await tester.pumpAndSettle();
-    expect(find.text('付款金额：1000.00美元'), findsOneWidget);
-    expect(find.text('付款金额：10.00美元'), findsNothing);
-    await tester.tap(find.byKey(const ValueKey('topup-package-0')));
-    await tester.pumpAndSettle();
-    expect(find.text('付款金额：10.00美元'), findsOneWidget);
+    final svgs = tester
+        .widgetList<SvgPicture>(find.byType(SvgPicture))
+        .toList();
+    expect(svgs.map((v) => v.width), containsAll([24.0, 25.0, 25.0, 17.0]));
+    final handle = find.byKey(const ValueKey('topup-handle'));
+    expect(
+      tester.getTopLeft(handle).dy,
+      lessThan(
+        tester.getTopLeft(find.byKey(const ValueKey('topup-metamask-logo'))).dy,
+      ),
+    );
+    for (final bad in [
+      '',
+      '0',
+      '999',
+      '1100',
+      '1500',
+      '1000.01',
+      '-1000',
+      '1e3',
+      '184467440737096000',
+    ]) {
+      await tester.enterText(field, bad);
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('topup-network-ethereum')));
+      await tester.pump();
+      expect(find.text('0.00USDT'), findsOneWidget);
+      expect(opened, 0);
+    }
+    for (final amount in [1000, 2000, 10000]) {
+      await tester.enterText(field, '$amount');
+      await tester.pump();
+      expect(find.text('${amount ~/ 1000}.00USDT'), findsOneWidget);
+    }
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+    expect(tester.widget<TextField>(field).controller!.text, '10000.00');
     expect(api.requests, 0);
     expect(store.values, isEmpty);
-    expect(find.byType(TopupWebviewPage), findsNothing);
-    expect(find.byType(TextField), findsNothing);
     api.close();
   });
-  testWidgets('三网络两币种两套餐共12种链点击，直接开始且连点只交付一次', (tester) async {
+  testWidgets('两行标题对齐控件中心，小字右移一字，两币种付款量分别显示', (tester) async {
+    for (final scale in [1.0, 1.4]) {
+      for (final token in ['USDT', 'USDC']) {
+        await tester.pumpWidget(
+          MaterialApp(
+            key: UniqueKey(),
+            home: MediaQuery(
+              data: MediaQueryData(
+                size: const Size(480, 900),
+                textScaler: TextScaler.linear(scale),
+              ),
+              child: TopupSheet(
+                accountId: '0x${'04' * 32}',
+                token: token,
+                paymentOpener: (_) async => null,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final field = find.byKey(const ValueKey('topup-amount'));
+        expect(
+          tester.getCenter(find.text('充值金额')).dy,
+          closeTo(tester.getCenter(field).dy, 0.01),
+        );
+        for (final network in TopupNetwork.values) {
+          final tile = find.byKey(ValueKey('topup-network-${network.wire}'));
+          final circle = find.descendant(
+            of: tile,
+            matching: find.byWidgetPredicate(
+              (w) =>
+                  w is Container &&
+                  w.decoration is BoxDecoration &&
+                  (w.decoration! as BoxDecoration).shape == BoxShape.circle,
+            ),
+          );
+          final group = tester
+              .getRect(circle)
+              .expandToInclude(
+                tester.getRect(find.text(network.label.split('/').last)),
+              );
+          expect(
+            tester.getCenter(find.text('支付网络')).dy,
+            closeTo(group.center.dy, 0.01),
+          );
+        }
+        expect(
+          tester.getTopLeft(find.text('充值1美元获得1000元公民币，充值仅限1000的整数倍。')).dx -
+              tester.getTopLeft(field).dx,
+          closeTo(12 * scale, 0.01),
+        );
+        expect(find.text('0.00$token'), findsOneWidget);
+        for (final amount in [1000, 2000, 10000]) {
+          await tester.enterText(field, '$amount');
+          await tester.pump();
+          expect(find.text('${amount ~/ 1000}.00$token'), findsOneWidget);
+        }
+        expect(tester.takeException(), isNull);
+      }
+    }
+  });
+  testWidgets('真实底部弹窗随键盘避让，输入框不被遮挡', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => showTopup(
+                context,
+                accountId: '0x${'04' * 32}',
+                token: 'USDC',
+                paymentOpener: (_) async => null,
+              ),
+              child: const Text('打开'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开'));
+    await tester.pumpAndSettle();
+    tester.view.viewInsets = const FakeViewPadding(bottom: 250);
+    addTearDown(tester.view.resetViewInsets);
+    await tester.pumpAndSettle();
+    final field = find.byKey(const ValueKey('topup-amount'));
+    await tester.ensureVisible(field);
+    await tester.pumpAndSettle();
+    expect(
+      tester.getRect(field).bottom,
+      lessThanOrEqualTo(
+        tester.view.physicalSize.height / tester.view.devicePixelRatio - 250,
+      ),
+    );
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('三网络两币种两个输入金额共12种链点击，直接开始且连点只交付一次', (tester) async {
     var combinations = 0;
     for (final token in ['USDT', 'USDC']) {
       for (var package = 0; package < 2; package++) {
@@ -292,7 +373,11 @@ void main() {
             ),
           );
           await tester.pumpAndSettle();
-          await tester.tap(find.byKey(ValueKey('topup-package-$package')));
+          await tester.enterText(
+            find.byKey(const ValueKey('topup-amount')),
+            package == 0 ? '1000' : '2000',
+          );
+          await tester.pump();
           final icon = find.byKey(ValueKey('topup-network-${network.wire}'));
           await tester.tap(icon);
           await tester.pump();
@@ -300,7 +385,7 @@ void main() {
           expect(opened.length, 1);
           expect(opened.single.toJson(), {
             'token': token,
-            'package_id': package == 0 ? 'pkg_10' : 'pkg_1000',
+            'package_id': package == 0 ? 'pkg_1' : 'pkg_2',
             'network': network.wire,
           });
           expect(api.requests, 0);
@@ -326,6 +411,8 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('topup-amount')), '1000');
+    await tester.pump();
     await tester.tap(find.byKey(const ValueKey('topup-network-ethereum')));
     await tester.pumpAndSettle();
     expect(find.text('充值未完成，请核实本地订单'), findsOneWidget);
@@ -334,14 +421,16 @@ void main() {
     for (final network in TopupNetwork.values) {
       final node = tester.widget<Semantics>(
         find.byWidgetPredicate(
-          (w) => w is Semantics && w.properties.label == network.label,
+          (w) =>
+              w is Semantics &&
+              w.properties.label == network.label.split('/').last,
         ),
       );
       expect(node.properties.selected, false);
     }
     api.close();
   });
-  testWidgets('窄屏大字体显示两行，点击链直接开始付款', (tester) async {
+  testWidgets('窄屏大字体和键盘下可滚动输入，点击链直接开始付款', (tester) async {
     tester.view.physicalSize = const Size(320, 568);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -349,7 +438,11 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: MediaQuery(
-          data: const MediaQueryData(textScaler: TextScaler.linear(1.4)),
+          data: const MediaQueryData(
+            size: Size(320, 568),
+            viewInsets: EdgeInsets.only(bottom: 240),
+            textScaler: TextScaler.linear(1.4),
+          ),
           child: TopupSheet(
             accountId: '0x${'04' * 32}',
             token: 'USDT',
@@ -361,7 +454,12 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('topup-package-1')));
+    await tester.enterText(
+      find.byKey(const ValueKey('topup-amount')),
+      '1000000',
+    );
+    await tester.pump();
+    await tester.ensureVisible(find.byKey(const ValueKey('topup-network-bnb')));
     await tester.tap(find.byKey(const ValueKey('topup-network-bnb')));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
@@ -399,6 +497,8 @@ void main() {
       tester.getSize(find.byType(BottomSheet)).height,
       greaterThanOrEqualTo(300),
     );
+    await tester.enterText(find.byKey(const ValueKey('topup-amount')), '1000');
+    await tester.pump();
     await tester.tap(find.byKey(const ValueKey('topup-network-ethereum')));
     await tester.pumpAndSettle();
     expect(opened, 1);

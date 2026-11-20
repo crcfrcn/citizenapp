@@ -6,27 +6,28 @@ import 'package:flutter/services.dart';
 
 /// 仅处理App自有私有路径；平台校验失败不得继续开库或记录写入。
 abstract final class SystemProtectedStorage {
-  static const channel = MethodChannel('citizenapp/system_protected_data');
-  static const wipePending = 'pending';
-  static const wipeComplete = 'complete';
-
-  static Future<void> syncWipeLayout() =>
-      channel.invokeMethod<void>('syncWipeLayout');
-
-  static Future<Directory> wipeDirectory() async {
-    final path = await channel.invokeMethod<String>('prepareWipeDirectory');
+  static const chatChannel = MethodChannel('citizenapp/chat/storage');
+  static Future<Directory> prepareChatDataDirectory() async {
+    final path = await chatChannel.invokeMethod<String>('prepareDataStorage');
     if (path == null ||
         !path.startsWith(Platform.pathSeparator) ||
         await FileSystemEntity.type(path, followLinks: false) !=
             FileSystemEntityType.directory) {
-      throw StateError('全量擦除记录目录不可用');
+      throw StateError('聊天系统保护目录不可用');
     }
     return Directory(await Directory(path).resolveSymbolicLinks());
   }
 
-  static Future<void> eraseDeviceStorage({String? cidNumber}) =>
-      channel.invokeMethod<void>('eraseDeviceStorage', {'user_id': ?cidNumber});
+  static Future<void> verifyChatDirectory(Directory directory) async {
+    final root = await prepareChatDataDirectory();
+    if ((directory.path != root.path &&
+            !directory.path.startsWith(root.path + Platform.pathSeparator)) ||
+        await directory.resolveSymbolicLinks() != directory.path) {
+      throw StateError('拒绝聊天保护域以外或链接目录');
+    }
+  }
 
+  static const channel = MethodChannel('citizenapp/system_protected_data');
   static Future<String> recordsDirectory() async {
     final path = await channel.invokeMethod<String>('prepareRecords');
     if (path == null || path.isEmpty || !path.startsWith('/')) {

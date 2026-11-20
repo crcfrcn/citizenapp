@@ -176,14 +176,14 @@ test('只记录固定错误码和固定分类',()=>{
  assert.equal(api.connectFailure(Error('付款钱包结果待核实')).detail,'wallet_timeout');
  assert.doesNotMatch(JSON.stringify(api.connectFailure(Error('synthetic-private'))),/synthetic-private/);
 });
-test('两币种三网络两套餐使用完整冻结参数',()=>{
- for(const token of ['USDT','USDC'])for(const network of Object.keys(api.chains))for(const package_id of ['pkg_10','pkg_1000']){
+test('两币种三网络动态整数金额使用完整冻结参数',()=>{
+ for(const token of ['USDT','USDC'])for(const network of Object.keys(api.chains))for(const package_id of ['pkg_1','pkg_2','pkg_10','pkg_1000']){
   const c=api.selection({token,network,package_id});
   const value={...transaction,chainId:'0x'+Number(api.chains[network].split(':')[1]).toString(16)};
   assert.equal(api.paymentTransaction(value,c).data,data);
   for(const bad of [{...value,data:data.slice(0,-2)},{...value,value:'0x1'},{...value,chainId:'0xffff'},{...value,from:payer}])assert.throws(()=>api.paymentTransaction(bad,c));
  }
- for(const invalid of [{...chosen,network:'fake'},{...chosen,token:'fake'},{...chosen,package_id:'free'}])assert.throws(()=>api.selection(invalid));
+ for(const invalid of [{...chosen,network:'fake'},{...chosen,token:'fake'},{...chosen,package_id:'free'},{...chosen,package_id:'pkg_0'},{...chosen,package_id:'pkg_01'},{...chosen,package_id:'pkg_184467440737096'}])assert.throws(()=>api.selection(invalid));
 });
 test('网页只加载随包脚本',()=>{
  const html=readFileSync(new URL('../web/metamask.html',import.meta.url),'utf8');

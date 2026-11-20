@@ -23,31 +23,6 @@ void main() {
     return root;
   }
 
-  test('读取擦除目录保留原地标记并直接同步', () async {
-    final base = await fixtureRoot();
-    final root = await Directory('${base.path}/wipe').create();
-    final pending = File('${root.path}/${SystemProtectedStorage.wipePending}');
-    final complete = File('${root.path}/${SystemProtectedStorage.wipeComplete}');
-    await pending.writeAsString('pending\n');
-    await complete.writeAsString('complete\n');
-    final calls = <String>[];
-    messenger.setMockMethodCallHandler(SystemProtectedStorage.channel, (
-      call,
-    ) async {
-      calls.add(call.method);
-      expect(call.arguments, isNull);
-      if (call.method == 'prepareWipeDirectory') return root.path;
-      expect(call.method, 'syncWipeLayout');
-      return null;
-    });
-
-    expect((await SystemProtectedStorage.wipeDirectory()).path, root.path);
-    expect(await pending.readAsString(), 'pending\n');
-    expect(await complete.readAsString(), 'complete\n');
-    await SystemProtectedStorage.syncWipeLayout();
-    expect(calls, ['prepareWipeDirectory', 'syncWipeLayout']);
-  });
-
   test('生产提交不持Dart外层文件锁，等待回执期间仍能调度其他任务', () async {
     final root = await fixtureRoot();
     final entered = Completer<void>();

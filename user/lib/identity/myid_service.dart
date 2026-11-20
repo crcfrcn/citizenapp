@@ -133,6 +133,11 @@ class MyIdService {
     required CurrentUserContext currentUserContext,
     required FinalizedIdentityResolver identityResolver,
     required SquareSessionProvider sessionProvider,
+    required Future<void> Function(
+      IdentityBinding binding, {
+      required bool existingOnly,
+    })
+    onChatBindingChanged,
     CitizenSdk? chain,
     CitizenSdk? transactions,
     AdminDivisionStore? divisionStore,
@@ -180,10 +185,17 @@ class MyIdService {
              accountId: id,
              payload: payload,
              action: action,
+             // 自助换绑二维码交付完整授权；热/冷两端都只在签名端计算原0x11摘要。
+             transform: action == CitizenQrActions.cidRebind
+                 ? CitizenSigningTransform.blake2Domain(
+                     Uint8List.fromList([...kGmbSignDomain, kOpSignCidRebind]),
+                   )
+                 : null,
            )),
        _accountSecurity = accountSecurity,
        _currentUserContext = currentUserContext,
        _sessionProvider = sessionProvider,
+       _onChatBindingChanged = onChatBindingChanged,
        _divisionStore = divisionStore ?? IsarAdminDivisionStore(),
        _badgeSnapshotStore = badgeSnapshotStore ?? IdentityBadgeSnapshotStore(),
        _identityResolver = identityResolver,
@@ -244,6 +256,11 @@ class MyIdService {
   final AccountSecurityService _accountSecurity;
   final CurrentUserContext _currentUserContext;
   final SquareSessionProvider _sessionProvider;
+  final Future<void> Function(
+    IdentityBinding binding, {
+    required bool existingOnly,
+  })
+  _onChatBindingChanged;
   final AdminDivisionStore _divisionStore;
   final IdentityBadgeSnapshotStore _badgeSnapshotStore;
   final FinalizedIdentityResolver _identityResolver;
@@ -585,7 +602,7 @@ class MyIdService {
   /// 把当前身份 CID [cidNumber] 换绑到另一本地账户 [newAccountId]。
   ///
   /// 当前账户 = **当前 CID 绑定账户**(经 [FinalizedIdentityResolver] 解析,可为任意 `//n`,
-  /// 非恒账户0),对含创世、当前绑定、revision 与 expires_at 的授权载荷签名;新账户自签
+  /// 非恒账户0),对含创世、当前绑定、revision 的授权载荷签名;新账户自签
   /// 提交 `self_rebind_cid_account_id`(当前、新账户各签名一次)。换绑成功后 CID 归
   /// 新账户、广播身份绑定变化,常驻页/身份页跟随。
   /// 仅**匿名 CID** 可自助换绑;投票/竞选链端强制走注册局(`CivicRebindRequiresRegistrar`)。
@@ -630,22 +647,21 @@ class MyIdService {
       bindRev: source.bindRev + 1,
       accountId: newAccount.accountId,
     );
-    final currentAccountDigest =
-        await CitizenIdentityTransaction.buildRebindSigningDigest(
+    final currentAccountAuthorization =
+        CitizenIdentityTransaction.buildRebindAuthorization(
           genesisHash: context.genesisHash,
           cidNumber: cidNumber,
           currentAccountId: currentAccountId,
           newAccountId: newAccount.accountId,
           expectedBindingRevision: context.expectedBindingRevision,
-          expiresAt: context.expiresAt,
         );
     if (buildContext != null && !buildContext.mounted) {
       throw const AccountSecurityException('当前页面已经关闭');
     }
     final currentAccountSignature = await _payloadSigner(
       currentAccountId,
-      currentAccountDigest,
-      kOpSignCidRebind,
+      currentAccountAuthorization,
+      CitizenQrActions.cidRebind,
       buildContext,
     );
     await _identityTransaction.selfRebindCidAccount(
@@ -749,6 +765,7 @@ class MyIdService {
     await _finishFinalizedBinding(
       binding,
       identity: resolved.snapshot,
+      existingRuntimeOnly: true,
       requireCurrent: requireWallet,
     );
   }
@@ -757,6 +774,7 @@ class MyIdService {
   Future<void> _finishFinalizedBinding(
     IdentityBinding current, {
     CitizenIdentityChainSnapshot? identity,
+    bool existingRuntimeOnly = false,
     Future<void> Function()? requireCurrent,
   }) async {
     var bindingChanged = false;
@@ -829,6 +847,8 @@ class MyIdService {
         bindRev: current.bindRev,
         accountId: current.accountId,
       );
+      // 公开同步只通知已经存在的聊天实例，不能为刷新身份创建MLS运行态。
+      await _onChatBindingChanged(current, existingOnly: existingRuntimeOnly);
       await requireCurrent?.call();
     } finally {
       if (bindingChanged) {

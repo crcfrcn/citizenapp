@@ -17,6 +17,7 @@ workspace:
   - topup
   - citizen
   - '8964'
+  - chat
   - network
   - scanner
   - storage
@@ -36,6 +37,7 @@ dependencies:
   citizen_topup: any
   citizen_citizen: any
   citizen_square: any
+  chat: any
   citizen_network: any
   citizen_scanner: any
   citizen_storage: any
@@ -82,6 +84,9 @@ dependencies:
   # CitizenApp 不实现 sr25519；钱包签名与验签全部由 CitizenSDK 提供。
   # polkadart_keyring 仅用于 App 现有 SS58 地址编解码，禁止用它另造签名实现。
   path: ^1.9.1
+  flutter_chat_ui: ^2.11.1
+  flutter_chat_core: ^2.9.0
+  # Chat 自绘 Composer 通过现有 flutter_chat_ui Provider 同步输入栏高度。
   provider: ^6.1.5+1
   url_launcher: ^6.3.1
   firebase_core: ^4.11.0
@@ -99,7 +104,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: 6.0.0
-  # 仅媒体处理回归直接使用。
+  # 仅媒体处理回归直接使用；运行时图像能力由chat包声明。
   image: 4.9.1
 
 flutter:

@@ -25,4 +25,5 @@ dependencies:
   flutter_test:
     sdk: flutter
   http: 1.6.0
+  chat: any
   path: any

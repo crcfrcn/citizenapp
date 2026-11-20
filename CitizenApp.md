@@ -1,10 +1,12 @@
 # CitizenApp 技术文档
 
+公民号自助换绑不读取Timestamp.Now，不计算或传递内层expires_at；同一finalized块只核对原绑定账户和BindingRevisionByCid，创世标识独立核验。原账户签五字段SelfRebindAuthorization，目标账户沿SDK原生交易入口签call9；两次扫码各按发起设备时间300秒计时，过期/取消结束当前会话且不自动重签。交易nonce与绑定版本分别防止外层重复执行和内层授权重放。已签授权不因二维码过期自动撤销。
+
 钱包初始化页顶部使用既有assets/logo/icon180.png公民Logo，保持原56设计单位方形尺寸及圆角；创建按钮下不显示成功去向小字。底部“导入助记词”在左、“导入冷钱包”在右，同排等宽对称显示，两个入口各向中间收一个14设计单位字宽；原设备安全提示、入口启用条件和创建/导入完成回调保持。
 
 正式服务HTTP计时复用HttpsOnlyClient.send和AppLog.http，仅记录经过该客户端的正式API及所属媒体源。CitizenHttp包含固定功能类别、HTTP状态、headers_us、total_us及headers/complete/error/cancelled阶段；通讯录使用contacts类别，未知标签归other，无效数字归none。动态URL、查询、账户、请求头、正文和异常内容不进入门面。Stopwatch测量发送至响应头及原消费者读取正文结束，不预读正文，保留原背压、取消、响应元数据及异常身份/堆栈；正文错误在原流转发处记录，不能误报complete。headers、未消费或取消均不能当成成功。该计时不覆盖绕过客户端的图片、WebView、SDK内部WSS或页面渲染；原网络重试、超时、签名及CitizenFailure合同保持。
 
-双端验收逐项联合当轮HTTP终态、状态及页面业务结果。iOS既有RunnerUITests以CITIZEN_READONLY_SCENE选择推荐、关注、竞选、文章、视频、创作者刷新、本人内容主动刷新、通知列表八类场景；先执行testServiceReadOnlyAction，调度方取得对应HTTP终态后再执行不重启App的testServiceReadOnlyResult。UI事件仅表示动作或页面核验，缓存、按钮可见和等待结束不能代替远端成功。会员、三类关注和充值配置沿用既有业务断言及只读矩阵。通讯录普通进页只读本地，显式关系变更和主动刷新才访问云端、评论详情可能自动标记已读，不混入纯只读验收。原设备授权由用户完成，测试不代签、不注册身份、不点击通知项或全部已读，不保存账户截图。延迟报告分开列HTTP响应头、正文完成及页面等待，首轮与后续样本分列，失败或未覆盖项明确保留。
+双端验收逐项联合当轮HTTP终态、状态及页面业务结果。iOS既有RunnerUITests以CITIZEN_READONLY_SCENE选择推荐、关注、竞选、文章、视频、创作者刷新、本人内容主动刷新、通知列表八类场景；先执行testServiceReadOnlyAction，调度方取得对应HTTP终态后再执行不重启App的testServiceReadOnlyResult。UI事件仅表示动作或页面核验，缓存、按钮可见和等待结束不能代替远端成功。会员、三类关注和充值配置沿用既有业务断言及只读矩阵。通讯录普通进页只读本地，显式关系变更和主动刷新才访问云端、评论详情可能自动标记已读，不混入纯只读验收；聊天空列表不能证明WSS已连接。原设备授权由用户完成，测试不代签、不注册身份、不点击通知项或全部已读，不保存账户截图。延迟报告分开列HTTP响应头、正文完成及页面等待，首轮与后续样本分列，失败或未覆盖项明确保留。
 
 ## 当前构建合同
 
@@ -20,9 +22,9 @@ iOS 和 Android 塔塔自动化在各自原步骤调用 `.github/release.mjs` �
 
 所属Workflow在单一Run中依次计算版本、准备官方工具和正式SDK组件、执行既有Node/Flutter完整回归与严格分析、准备签名输入、调用同一build.mjs编译IPA或APK+AAB、核验完整包、上传Artifact、生成正式Tag/Release并逐件下载cmp回读。任一真实依赖、测试、编译、签名或交付失败必须失败。正式Release属于自动化交付。同一 Run 将已验收的 IPA 上传到 App Store Connect，或将已验收的 AAB 上传到 Google Play 临时编辑。商店步骤以本次上传回执为准，上传失败则 Run 失败。TestFlight 分组和 Google Play 内测推出独立处理。Google Play 临时编辑不自动提交，上传回执只证明 Google 接收了本轮 AAB。
 
-自动化平台工程生成在target/build/<Run>-<attempt>/project，本机工程生成在本轮target/build/local-*独立目录：Flutter官方create --empty --no-pub生成普通Android/iOS模板，装配原生工程和唯一assets/logo资源，Gradle与Xcode直接引用隔离工程内已有原生源码和测试，Podfile、Gradle根工程、启动页、主题和桥接头沿用本机现有Flutter的官方模板，不在脚本重复保存正文；产品既有assembleProject只复制本仓原生输入，并应用编译所需插件版本、iOS最低版本、Isar静态库输出及产品资源名称等差异。权限、网络安全和签名请求保持原产品配置。create即使使用--no-pub也会重写工程锁，因此双端在模板命令成功后写回完整第三方原锁，再由官方Pub补齐本轮SDK源码的path锁条目并执行pub get --enforce-lockfile；SDK条目只存在本轮工程锁，不回填正式锁。AppFrameworkInfo.plist保留原锁官方模板，不改写其中不存在的MinimumOSVersion；iOS最低16.0由既有Xcode工程与Podfile声明。Flutter空模板跳过示例测试。宿主入口直接把普通工程的lib/test和各包test中的测试路径交给同版Flutter，保留原位相对导入和开发依赖。正式仓库不恢复平台包装模块，不生成业务数据、不改Flutter/Pub包源码。testing/lib/platform_input.dart直接回读当前本轮工程里的真实平台文件，不解析脚本文本或模块源码；现有业务测试预期保持。
+自动化平台工程生成在target/build/<Run>-<attempt>/project，本机工程生成在本轮target/build/local-*独立目录：每次只复制目标平台源码，Flutter官方create --empty --no-pub只生成该平台模板，装配原生工程和唯一assets/logo资源；Android插件登记由Flutter生成在本轮临时工程，打包后清理；iOS沿用CocoaPods生成且与Manifest.lock字节一致的Podfile.lock，Gradle与Xcode直接引用隔离工程内已有原生源码和测试，Podfile、Gradle根工程、启动页、主题和桥接头沿用本机现有Flutter的官方模板，不在脚本重复保存正文；产品既有assembleProject只复制本仓原生输入，并应用编译所需插件版本、iOS最低版本、Isar静态库输出及产品资源名称等差异。权限、网络安全和签名请求保持原产品配置。create即使使用--no-pub也会重写工程锁，因此双端在模板命令成功后写回完整第三方原锁，再由官方Pub补齐本轮SDK源码的path锁条目并执行pub get --enforce-lockfile；SDK条目只存在本轮工程锁，不回填正式锁。AppFrameworkInfo.plist保留原锁官方模板，不改写其中不存在的MinimumOSVersion；iOS最低16.0由既有Xcode工程与Podfile声明。Flutter空模板跳过示例测试。宿主入口直接把普通工程的lib/test和各包test中的测试路径交给同版Flutter，保留原位相对导入和开发依赖。正式仓库不恢复平台包装模块，不生成业务数据、不改Flutter/Pub包源码。testing/lib/platform_input.dart直接回读当前本轮工程里的真实平台文件，不解析脚本文本或模块源码；流水线只登记目标平台文件的断言，共用业务测试保持全量执行。
 
-工具使用官方渠道和原锁：Node25.2.1、Flutter3.47.2、Rust1.97.1、Temurin17.0.20.1+1、Gradle9.1.0、AGP9.0.1、KGP2.2.20、NDK28.2.13676358、BuildTools36.0.0、CMake3.31.6和CocoaPods1.17.0。setup-java固定官方v6提交b843ebf9b913146b38da2eaa7aeddf76074ae1ad。显式交付官方运行机Android SDK完整路径；Rust准备iOS真机/模拟器或Android交叉目标。CitizenSDK 的 Git 来源只由pubspec.yaml声明，ref统一为main，正式pubspec.lock不保存citizen_sdk条目、旧提交或旧版本；塔塔安装器每轮自动读取最新本地HEAD，塔塔自动化每轮自动选择最新成功版本，本轮开始后固定来源。App 每轮编译开始先固定 CitizenSDK 的来源，设备签名随 App 源码进入同轮工程。本机读取 CitizenSDK 当前工作区的源码与版本声明，包含未提交修改、新增和删除，调用SDK既有编译入口；记录本轮实际本地HEAD，不用于检出旧源码。GitHub 从 CitizenSDK 的 Release 列表按正式语义版本倒序核对，选择生产塔塔自动化准确Run/attempt已完成且成功的最高版本完整包；未完成、失败或取消的版本不参与成功版本选择，读取失败或来源身份不一致立即停止。固定提交、Release ID、生产Run/attempt及产物摘要，再调用各SDK公开consume入口；不以Actions Artifact选版，不读取正式锁中的SDK提交。App 与 SDK 共用 Release 分页、GitHub API 读取和附件下载参数。SDK 仅接收已上传且标签唯一的附件，正式包校验由 SDK 自己执行。准确来源写入本轮sdk-sources.json，并进入本机编译回执及App既有正式发布回执。CitizenSDK 取得组件后不重复编译；GitHub真实读取错误或完整Release缺失直接失败。仅在本轮临时工程映射CitizenSDK路径；由官方Pub生成本轮SDK及其真实内部依赖的path锁条目，正式第三方锁记录必须保持，仅允许新增由官方package_config指向本轮SDK源码的path包，再以--enforce-lockfile严格消费。内部包清单由SDK声明与Pub解析确定，App不复制清单，不改正式pubspec.lock、不升级第三方；已有缓存优先复用，缺件按产品声明及原锁从官方来源获取。原记录变化直接失败。无可用正式版或真实获取、编译失败直接失败，不回退旧版本、不手填Run、不要求预置交付目录。普通工程视图与原生实现仍归SDK，控制台不参与版本选择。
+工具使用官方渠道和原锁：Node25.2.1、Flutter3.47.2、Rust1.97.1、Temurin17.0.20.1+1、Gradle9.1.0、AGP9.0.1、KGP2.2.20、NDK28.2.13676358、BuildTools36.0.0、CMake3.31.6和CocoaPods1.17.0。setup-java固定官方v6提交b843ebf9b913146b38da2eaa7aeddf76074ae1ad。显式交付官方运行机Android SDK完整路径；Rust准备iOS真机/模拟器或Android交叉目标。CitizenSDK 的 Git 来源只由pubspec.yaml声明，ref统一为main，正式pubspec.lock不保存citizen_sdk条目、旧提交或旧版本；塔塔安装器每轮自动读取最新本地HEAD，塔塔自动化每轮自动选择最新成功版本，本轮开始后固定来源。App 每轮编译开始先固定 CitizenSDK 的来源，本地 chat 随 App 源码进入同轮工程。本机读取 CitizenSDK 当前工作区的源码与版本声明，包含未提交修改、新增和删除，调用SDK既有编译入口；记录本轮实际本地HEAD，不用于检出旧源码。GitHub 从 CitizenSDK 的 Release 列表按正式语义版本倒序核对，选择生产塔塔自动化准确Run/attempt已完成且成功的最高版本完整包；未完成、失败或取消的版本不参与成功版本选择，读取失败或来源身份不一致立即停止。固定提交、Release ID、生产Run/attempt及产物摘要，再调用各SDK公开consume入口；不以Actions Artifact选版，不读取正式锁中的SDK提交。App 与 SDK 共用 Release 分页、GitHub API 读取和附件下载参数。SDK 仅接收已上传且标签唯一的附件，正式包校验由 SDK 自己执行。准确来源写入本轮sdk-sources.json，并进入本机编译回执及App既有正式发布回执。CitizenSDK 取得组件后不重复编译；GitHub真实读取错误或完整Release缺失直接失败。仅在本轮临时工程映射CitizenSDK路径；由官方Pub生成本轮SDK及其真实内部依赖的path锁条目，正式第三方锁记录必须保持，仅允许新增由官方package_config指向本轮SDK源码的path包，再以--enforce-lockfile严格消费。内部包清单由SDK声明与Pub解析确定，App不复制清单，不改正式pubspec.lock、不升级第三方；已有缓存优先复用，缺件按产品声明及原锁从官方来源获取。原记录变化直接失败。无可用正式版或真实获取、编译失败直接失败，不回退旧版本、不手填Run、不要求预置交付目录。普通工程视图与原生实现仍归SDK，控制台不参与版本选择。
 
 本机编译由Flutter直接读取本轮工程pubspec.yaml的版本号和构建号，不查询GitHub正式Release或Run。只有塔塔自动化通过发布脚本查询本平台已成功正式版本并递增。
 
@@ -44,7 +46,7 @@ GitHub官方缓存只保存Flutter、Pub、Cargo和Gradle可再生内容，不�
 
 钱包目录是 App 最外层门禁：SDK 报 empty 时 `WalletGate` 清空深页栈并显示钱包初始化页，状态未知不得当作无钱包或放行。钱包就绪后，公民服务业务先通过 `CidBusinessGate` 判定当前默认账户的公民号有或没有；读取失败仅表示本次操作失败。本机绑定缺失时用 `FinalizedIdentityResolver` 核对链上事实；确认未注册才显示各页共用的 `IdentityRegisterGuide`，链读取失败不冒充未注册。链上已有公民号而本机绑定缺失时复用 `MyIdService` 的 finalized 收敛入口恢复公开绑定。`SquareSessionProvider` 在门禁返回 ready 前不读取、创建或登记 MLS 设备；注册验证和缴纳注册链费所需请求仍允许在取得公民号前执行。
 
-广场、通讯录、会员、创作者及详情入口使用统一注册引导，只有引导中的注册按钮打开身份选择面板。面板在提交期间保留选择并阻止关闭，空闲时可以主动取消。注册、人验和设备持钥职责统一遵循本文“公民注册与设备认证”合同。
+广场、聊天、通讯录、会员、创作者及详情入口使用统一注册引导，只有引导中的注册按钮打开身份选择面板。面板在提交期间保留选择并阻止关闭，空闲时可以主动取消。注册、人验和设备持钥职责统一遵循本文“公民注册与设备认证”合同。
 
 确认余额不足时留在注册面板，显示准确错误及充值/USDT、充值/USDC按钮，由用户主动选择；只向当前选择账户充值，返回后不自动签名。余额读取错误、网络故障和未知链结果不能冒充余额不足、未注册或注册成功。受保护业务继续要求会话、设备和实际请求持钥证明。
 
@@ -80,6 +82,7 @@ citizenapp/
 ├── topup/               # pubspec.yaml + lib + test + web：稳定币充值
 ├── citizen/             # pubspec.yaml + lib + test：机构、提案、立法、管理员与升级
 ├── 8964/                # pubspec.yaml + lib + test：广场内容与媒体
+├── chat/                # pubspec.yaml + lib + openmls + test：完整聊天业务
 ├── network/             # pubspec.yaml + lib + test：公共传输、配置与编码
 ├── scanner/             # pubspec.yaml + lib + test：扫码界面与公开导航端口
 ├── storage/             # pubspec.yaml + lib + test：数据库实体与基础操作
@@ -100,6 +103,40 @@ Flutter资源通过citizen_assets包限定键消费，原生图标由本仓asset
 ## 图标来源
 
 用户指定的公民币图标 gmb_019473.png 已从 assets/icons 移至 CitizenChain 的 crates/icons，供公民链网络及原生币图标登记使用。本产品源码和 pubspec.yaml 均没有直接引用该文件，移动不引入跨仓运行时资源读取。
+
+## chat 本地包与独立聊天数据库
+
+聊天列表左滑显示置顶（已置顶显示取消置顶）和删除，滑到底仍进入原删除确认；右滑显示语音和视频，滑到底进入语音入口。私聊与群聊共用滑动界面，通话入口本轮只提示暂不可用，尚不发起通话或请求麦克风、相机权限。置顶卡片在昵称或群名称右侧显示主题色实心图钉，长名称省略时保留图钉。置顶按钮左缘、视频按钮右缘的底色延伸至卡片圆角下方，复用卡片圆角形成无空隙衔接，按钮宽度和滑动距离不变。置顶状态仅保存于当前永久CID的本机conversation.is_pinned字段，默认false；置顶优先，各组内仍按最后消息时间倒序。新消息和未读变化保留置顶，取消置顶恢复消息排序；写入继续校验当前账户和绑定围栏，不触发云端同步。
+
+消息行deliveryState是唯一持久投递状态，直接投影至现有Message.status；会话预览不保存投递状态镜像，不伪造发送/送达/已读时间。页面网络轮询已移除，真实连接ready与取消订阅句柄分离；前台账户Hub单飞建连、退避恢复。入站/出站本地变化按批通知页面重读，数据通知不能再次触发网络补发。
+
+连接准备失败按Hub记录固定诊断码，仅原因变化时输出，成功后解除去重；页面本地读取失败使用同一chatDiagnosticCode。SDK错误只消费公开枚举类别和阶段，禁止输出异常正文。
+
+原生MLS收据的唯一业务请求规范化入口移除state_store_dir，读取与写入使用同一定义；物理目录仍用于加载并核验真实身份，身份、消息ID及业务参数变化继续拒绝。保护目录搬迁后复用原身份、原KeyPackage和原提交结果。初始化pendingWake只补拉收件，出站由Hub交接ready后启动。
+
+出站失败保留首个实际固定错误码，不以汇总状态覆盖传输拒绝原因。入站失败同样保留唯一分类与原生固定操作阶段，相同原因去重输出，不记录异常正文；OpenMLS判定同名组冲突，原生仅将官方WelcomeError::GroupAlreadyExists转换为固定welcome_conflict，实际入组前核对已验证组ID，不能被汇总重试码掩盖，也不因此覆盖原组或授权ACK。出站只保留一份账户编排及TTL判定；在有效绑定围栏内先终结过期pending和密文，无真实待发不为补发请求授权，过期附件暂存清理也受同一围栏保护。转换或投递失败只阻断本会话后续项，继续其它会话；页面进入与新增待发共同遵守账户Hub的连接退避。邮箱沿服务端游标有界扫描，只有无下一游标才到本轮末尾；坏项保留且不ACK，不阻断后续正常项。
+
+chat 是 CitizenApp Dart workspace 中的普通本地业务包，唯一包声明为 chat/pubspec.yaml，name 为 chat，publish_to 为 none。聊天源码随 App 当前工作区冻结、编译和交付，不再选择聊天客户端产品的 Git 提交、Release 或安装包。
+
+消息、会话、群组、同步、可靠队列、附件、通话和完整界面归 chat/lib。唯一 ChatRuntime 直接使用现有用户身份、会话、会员与推送服务；不保留宿主 Host、SDK Adapter、运行时继承包装或独立客户端发布体系。私聊和群聊保留各自流程，真正共用的编码、设备扇出和持久化操作只有一份。
+
+聊天数据库唯一在 storage/lib/chat_isar.dart 声明，生成代码为 storage/lib/chat_isar.g.dart，物理文件为 chat.isar。十个集合、实例、事务、操作队列、开库、关闭和擦除均独立；用户库与广场库不承接聊天集合或聊天事务。chat/lib/chat_store.dart 仅承担这一个聊天库的业务读写。底层 Isar Core 由既有启动设施加载，不形成共享业务数据库或共享操作队列。
+
+OpenMLS Rust 源码、原锁和 C ABI 属于 chat/mls；Dart 调用在 chat/lib/mls。Android 与 iOS 的媒体、目录保护源码分别归 android/chat、ios/chat，由 App 注册和编译。二进制为 libmls.so、MLS.framework，随 App 构建，不作为另一款 SDK 发布。Rust 1.97 Apple 构建强制 strip=none，并检查 Mach-O 字符串表八字节对齐；Android ARM64 使用原 NDK 与十六 KB ELF 页面对齐。
+
+私聊会话 ID 与 MLS GroupId 各自承担业务定位和密码协议定位。发件经既有连接解析服务端已确认的绑定。首次私聊用官方 OpenMLS 生成 GroupId，原生保留待确认 Commit 和原 Welcome。按稳定操作 ID 取得专用确认后才调用官方合并，并生成应用密文。明确冲突才清除待确认 Commit。双方同一当前绑定内验证真实 MLS 发送者，密文未验真落库时不 ACK。附件受众复用该已确认的聊天组。现有会话 ID 继续定位消息历史。两端旧组已经分叉时，首次往返使用服务端共同选择的新 GroupId，原组、设备身份和历史保留，无法验明的旧密文继续保留到邮箱的既有到期时间。
+
+私聊和小群通过同一命令提交 OpenMLS 原 Commit 和对应设备的 Welcome。小群的既有组继续按原 GroupId 提交，管理员仍受 MLS 权限检查。通讯录沿用已有预留和确认接口，独占附件组由创建者确认后才开始生成分块。共用原生加人和移除接口只生成待确认 Commit，唯一合并入口调用 OpenMLS。邮箱在成功处理 Welcome 或 Commit 后回放当前组的待收密文，逐条验密、落库及确认后才移除缓冲。 出站缓冲中的旧握手收到服务端明确的 commit_required 后终结。旧组投递失败只阻断该组，已确认新组的应用消息继续按自己的顺序投递。
+
+已确认的私聊在同一连接内只做一次成功的成员检查，后续应用消息使用该 OpenMLS 名册。在线 WSS 直接传递已提交的设备密文，实时和邮箱补收共用有序验密与落库。ACK 在落库后合并发送，补拉与 ACK 的网络等待不占用验密回调。 WSS 就绪即交接出站，未发出的后台补拉与 ACK 排在用户命令之后。附件下载和 ACK 用已经验密的上传者 CID 定位原件。重连、离线推送和缺前序组消息走可靠邮箱补收。
+
+Proto 的唯一源为 network/proto，生成类型归 network/lib/protocol；应用认证请求、证明、公开 MLS 身份与错误模型归 network/lib/mls_authentication.dart。用户认证通过读取本机身份和生成受限证明两个定型操作复用同一身份；身份绑定及注销业务使用定型回调，不持有聊天运行时。会员事实与资源结算仍唯一归 user 包。
+
+贴纸 PNG 统一归 citizen_assets 的 assets/stickers，清单只在 chat/lib/compose/sticker_pack.dart。资源键由这一处产生，面板、气泡及资源加载测试读取同一份清单。
+
+聊天只使用当前chat_data与chat_mls目录，直接创建独立chat.isar及MLS状态；没有旧目录扫描、搬移、改名或数据导入分支。数据库、目录保护、关闭和擦除均按当前布局执行。
+
+聊天包与App统一构建、测试和交付，当前源码不维护独立聊天客户端产品。
 
 ## 钱包与轻节点
 
@@ -123,7 +160,7 @@ SDK继续唯一拥有P2P、最终性、runtime metadata与存储证明验证；c
 链上数据和链下资料分别组合展示，服务端资源授权、规则及用量不覆盖链上身份或会员。
 
 
-CitizenApp 提供钱包和轻节点 UI。钱包目录、签名、交易和轻节点能力由 CitizenSDK 提供，CID、广场、会员和通讯录由 App 的业务包拥有。
+CitizenApp 提供钱包和轻节点 UI。钱包目录、签名、交易和轻节点能力由 CitizenSDK 提供，CID、广场、会员、通讯录及聊天由 App 的业务包拥有。
 
 SDK返回初始化需求及真实状态；App按该状态显示原页面。任一热或冷账户存在均可进入，只有无钱包时初始化，读取失败不得当成无钱包。热账户热签，冷账户冷签，不能降级或替换。冷导入只接受账户码，不因恢复旧扫码页面而恢复旧的用户码或转账码解析分支。
 
@@ -150,7 +187,7 @@ SDK返回初始化需求及真实状态；App按该状态显示原页面。任�
 
 创建入口在SDK异步校验期间只阻止重复触发，不提前改变原按钮文案、非空密码确认或提交后备份顺序；退出后迟到的成功/失败均不能操作已销毁页面。原始密码只交SDK校验与规范化，不在App复制算法。账户及钱包重命名均等待原弹窗真实退场后归还控制器，不改变原Widget、文案或导航。
 
-钱包“身份钱包”标记只消费现有MyIdService公开结果，沿原isCitizen/votingAccountId条件呈现；不能以本地绑定存在替代公民状态，也不修改身份业务。读取失败清除标记、不阻断原余额刷新。默认账户乐观排序失败只可撤销同一SDK修订内的临时显示，不能用旧失败覆盖等待期间已读取的新修订。
+钱包“身份钱包”标记只消费现有MyIdService公开结果，沿原isCitizen/votingAccountId条件呈现；不能以本地绑定存在替代公民状态，也不修改身份业务。读取失败清除标记、不阻断原余额刷新；Chat运行态保持惰性，不因读取标记构造。默认账户乐观排序失败只可撤销同一SDK修订内的临时显示，不能用旧失败覆盖等待期间已读取的新修订。
 
 余额失败只按SDK明确事实映射原提示：startFailed为原初始化失败；unavailable/integrity为原链暂不可用；notReady且现行同步事实isSyncing为原正在同步。SDK未提供原因细分的network/timeout以及无法读取同步事实的情况，显示“区块链读取失败，请稍后再试”；不从peer数量或自由文本猜测设备离线/同步超时，不新增SDK接口。余额卡继续取finalized total，已有成功金额时失败保留旧值，没有旧值才显示原点击重试入口。
 
@@ -240,7 +277,7 @@ iOS 正式包的扫码回归分别从交易页地址栏、我的钱包冷导入�
 
 钱包、机构和交易消费同一份 SDK 链上余额快照。链上 free、reserved、total 来自同一个 finalized 块，SDK 负责校验、缓存、并发读取和通知。App 清算模块按账户和 WSS 端点维护零钱包余额，操作卡、零钱包和提现共用状态。提现预检强制查询节点。用户库沿用既有 `balance` 正文，链上快照和清算余额在同一事务入口分别更新。删除回执和整库擦除使相应的清算状态失效，迟到响应不能写回。
 
-页面通过 ChainBalanceScope 订阅需要展示的账户，SDK 先恢复持久快照，再按最新 finalized 区块核对。新区块直接驱动订阅账户的合并批量读取，不依赖流水、转账事件、充值回执或历史补齐。路由被覆盖、Tab 隐藏时释放订阅；SDK 在后台暂停自动查询，回前台核对最新头。读取期间只保留最新目标；相同区块的同账户复用证明。金额不变只推进内存核验块，不通知金额组件或重复写盘。未知显示占位，失败保留成功值并暴露错误；手动重试和交易预检进入同一调度队列，预检始终重新核对最新头。目录修订及删除结果来自 SDK，App 只维护拖拽预览、选择和显示。备份及私钥按 SDK 资源关闭信号清屏，擦除后只清理 App 的身份和业务记录。
+页面通过 ChainBalanceScope 订阅需要展示的账户，SDK 先恢复持久快照，再按最新 finalized 区块核对。新区块直接驱动订阅账户的合并批量读取，不依赖流水、转账事件、充值回执或历史补齐。路由被覆盖、Tab 隐藏时释放订阅；SDK 在后台暂停自动查询，回前台核对最新头。读取期间只保留最新目标；相同区块的同账户复用证明。金额不变只推进内存核验块，不通知金额组件或重复写盘。未知显示占位，失败保留成功值并暴露错误；手动重试和交易预检进入同一调度队列，预检始终重新核对最新头。目录修订及删除结果来自 SDK，App 只维护拖拽预览、选择和显示。备份及私钥按 SDK 资源关闭信号清屏，擦除后只清理 App 的身份、聊天和业务记录。
 
 余额真机回归由XCTest独立重启正式App，读取交易可用余额、两次进入钱包选择页、冷钱包卡片及两次详情、默认账户两次详情，并回到交易Tab及重启比较展示值。钱包行使用不含业务值的固定冷热语义标识；先等钱包目录出现，随后立即读取固定余额节点，不轮询金额或等待链查询后再通过。热钱包total在充值列，冷钱包在链上余额区。真实金额仅在内存比较，不进入查询谓词、日志、断言消息或截图；结果只记录固定步骤及布尔值。XCTest跨进程查询本身的耗时不作为产品网络加载时间，选择页与详情使用首次读取结果直接断言；冷钱包金额按实际卡片矩形中的唯一固定余额节点定位，不假设Flutter无障碍父子关系。身份未返回时卡片第一帧及查询次数、持久化边界另由真实数据库与Widget回归验证。
 
@@ -260,7 +297,7 @@ App不恢复WalletManager、旧sr25519、旧金库、旧轻节点或第二区块
 
 ## Android受控工具配置
 
-CitizenApp 已删除独立 hardware-secretvault 插件；钱包设备金库由 CitizenSDK 插件提供。普通设备认证归用户鉴权层，复用原设备密钥。
+CitizenApp 已删除独立 hardware-secretvault 插件；钱包设备金库由 CitizenSDK 插件提供。App 普通设备认证只复用本地 chat 保存的同一 MLS 身份，不再拥有原生设备认证桥。
 钱包秘密存储由 CitizenSDK 管理。
 
 #### 定位
@@ -292,14 +329,14 @@ CitizenApp 已删除独立 hardware-secretvault 插件；钱包设备金库由 C
   Worker 删除成功后才删同 CID 本地副本；只有精确 `404/post_not_found` 可视为远端已
   不存在并清理本地残留，权限、会话和网络错误必须保留本地副本。
 - 注销挑战与确认均用 finalized 链身份复核 `session.cid_number → 当前 account_id`；
-  `account_id` 只完成签名授权，Worker 按 CID 清理其云资料、广场、通讯录、关系、设备、挑战和会话。链上公开身份、钱包和永久付款核销不由注销删除。服务端硬删除成功后，App 再按 CID 删除全部本人副本和同步
-  检查点；某项本地清理失败不阻断其余资料、会话清理，也不得把已完成的
+  `account_id` 只完成签名授权，Worker 按 CID 清理其云资料、广场、通讯录、聊天、关系、设备、挑战和会话。链上公开身份、钱包和永久付款核销不由注销删除。服务端硬删除成功后，App 再按 CID 删除全部本人副本和同步
+  检查点；某项本地清理失败不阻断其余资料、会话、私信和SDK所属MLS状态清理，也不得把已完成的
   服务端注销误报为可重试失败。
 - 注销挑战是钱包账户签名，必须按当前 `account_id` 在“我的钱包”中的 `SignMode`
   分流：Hot 只读联网设备本机私钥，Cold 只生成 `square_account_action` QR_V1 请求
   交给 CitizenWallet；模式缺失、账户不在本机钱包列表或回扫签名者不一致时拒绝。
 - 本地 `CitizenProfileCache` 以 `cid_number` 为唯一资料键；注销后的本地资料必须调用
-  `clear(cid_number)`。`account_id` 只用于清除该账户的 API Session，
+  `clear(cid_number)`。`account_id` 只用于清除该账户的 API Session 与 Chat 本地数据，
   禁止用它删除 CID 资料缓存。
 
 #### Worker接口
@@ -317,12 +354,12 @@ CitizenApp 已删除独立 hardware-secretvault 插件；钱包设备金库由 C
 - `user_profile_page.dart`：`NestedScrollView + SliverAppBar(pinned) + CollapsibleHeader 直接作为 flexibleSpace + bottom:分类TabBar + TabBarView`；本人和他人首屏先显示入口资料、持久资料及媒体，后台进入刷新按完整浏览者绑定和目标CID限速十分钟；显式刷新复用资料和帖子同步入口。其他用户访问及主动操作仍由单个in-flight Future取得Session；远端帖子请求等待`sessionReady`，本人本地内容不依赖它。展开高度由头图、分类栏及`ProfileHeaderCard.requiredHeight`共同计算；固定区域按真实文字样式测量，不为异步会话预留纵向空间。
 - `collapsible_header.dart`：展开阶段由 `ImageFiltered` 对头图单图层渐进虚化（非全屏 `BackdropFilter`）并让资料主体淡出；完全折叠态另有一个固定覆盖“状态栏安全区 + 工具栏”的真实背景层，直接复用同一用户图片或稳定默认照片（本人图片由数据库重建临时展示文件），不参与强模糊、不依赖透明 Material 透出页面。折叠比例的最小高度必须包含 36px 分类栏，确保完全折叠时固定背景不透明度精确达到 1。分类栏继续为白底，返回和三点按钮保持既有深色圆形底衬。
 - `profile_header_card.dart`：圆角方形头像（用户图片优先；仅从未设置时显示稳定内置照片；已设置但暂不可读时显示中性占位）+ 身份徽章 + 公开昵称 + 独立“公民号”行 + 签名 + “互关、关注、关注者”三项关系计数 + 右上操作槽。三项统计按内容宽度紧凑连续排列，相邻项固定 18px；极窄大字体时整组保持一行并允许横向查看，不等比缩小、不拆列。互关点击进入互关列表；关注/取关仅在 `is_followed_by=true` 时同步增减互关数量，失败与关注者数量一起回滚。分类栏高 36px，显示“公文{数量}、竞选{数量}、视频{数量}、文章{数量}”，名称 16px/w700，花括号数量 11px/w400/次级色；按复合文字实宽计算左外侧、三段内部、右外侧共五段相等空隙。统计文字到分类文字的实际视觉间距始终为 15px。主页不展示 SS58、AccountId 或地址复制入口；公民号使用页面路由身份真源且不提供复制按钮。资料模型仍保留规范 `account_id`，供签名、授权和用户码使用。
-- `profile_action_icons.dart` + `user/lib/creator/creator_subscribe_button.dart`：本人主页显示通用关注/取关入口，隐藏通知和订阅；他人主页操作顺序固定为“可选订阅、通知、关注”。创作者有有效计划才显示一个 34px 高的紧凑“订阅”入口，固定在通知左侧；无计划、加载中或链读失败完全不占位。已订阅的更换档位和取消操作收进二级面板，不能在主页展开成两枚按钮或改变纵向高度。
+- `profile_action_icons.dart` + `user/lib/creator/creator_subscribe_button.dart`：本人主页显示通用关注/取关入口，隐藏通知、私信和订阅；他人主页操作顺序固定为“可选订阅、通知、私信、关注”。创作者有有效计划才显示一个 34px 高的紧凑“订阅”入口，固定在通知左侧；无计划、加载中或链读失败完全不占位。已订阅的更换档位和取消操作收进二级面板，不能在主页展开成两枚按钮或改变纵向高度。
 - `profile_kebab_menu.dart`：`⋮` 用户码（→ `user_qr_page.dart`）/编辑资料(self-only)/注销用户(self-only)；产品不提供举报功能。
 - `user_qr_page.dart`：用户主页 `⋮ → 用户码` 与“我的”背景图右上角图标复用同一页，传入当前
   `cid_number + display_name + account_id`，生成严格
   `UserQrPage.userContact` 固定身份码并支持存相册。本人页面标题为“我的用户码”，
-  他人主页仍为“用户码”；钱包和账户入口统一通过
+  他人主页仍为“用户码”；钱包/账户/聊天入口统一通过
   `openAccountQrPage()`，只有链上身份账户生成 `k=3`，其它账户生成五分钟 `k=4`。
   “我的”背景图图标使用 44px 点击区和紧凑可见图标；纵向位置由“我的”标题的实际行高、
   系统文字倍率和图标内边距共同计算，必须满足“可见二维码顶部 ≥ 标题文字底部”。横向中心
@@ -352,10 +389,10 @@ CitizenApp 已删除独立 hardware-secretvault 插件；钱包设备金库由 C
 - `profile_edit_page.dart`：`CitizenProfileEditPage` 公开昵称/签名/头像/背景编辑；保存上传 R2 + `PUT /profile`，不得读取或重命名本机钱包；旧格式读取失败保留原记录，显式安全擦除仍处理原目录。
 - `profile_presentation.dart`：唯一展示解析器；公开昵称只接受 `display_name`，优先以 `cid_number` 做 FNV-1a 稳定分桶，从内置词库与 `assets/profiles/` 11 张照片中选择默认昵称、头像和背景。头像与背景使用不同盐值且避免同图；任何钱包名、完整或截断账户都不能成为公开昵称。
 - `citizen_profile.dart`、`citizen_profile_api.dart`、`citizen_profile_cache.dart`、`profile_asset_service.dart`；会话协调归 `user/lib/identity/square_session_provider.dart`。
-- 通讯录、广场作者、关注/关注者/互关列表全部进入同一个 `UserProfilePage`；联系人只保存公民号和私人备注，不再维护联系人详情或公开资料副本。
+- 私聊入口统一使用 `chat/lib/conversation/chat_navigation.dart` 的 `openDirectChat()`。通讯录、聊天、广场作者、关注/关注者/互关列表全部进入同一个 `UserProfilePage`；联系人只保存公民号和私人备注，不再维护联系人详情或公开资料副本。
 - 两端主页访问及显式刷新统一调用`CitizenProfileApi.loadProfile/refreshProfile`，原业务请求通过后由`CitizenProfileCache.receiveRemote`在同一事务内选择有效资料。远端`profile_at=0`表示用户尚无公开资料，已有本机资料保留；远端版本落后也保留本机新资料。无本机资料时只展示默认值，不保存占位记录。相同资料不重复通知，实际新资料才落盘；编辑提交和确认仍使用严格版本保护。保留本机快照时，关注/互关/通知状态取本次已鉴权响应，不能沿用旧浏览者关系。
 - 资料接收结果区分更新、未变化、远端缺失、远端较旧及本机保存失败。主页和“我的”消费同一有效资料及结果；远端缺失/落后时静默保留本机资料，进入页面和下拉刷新均不弹状态提示，也不误报刷新完成；保存失败单独提示。云端请求失败（含401/403/404）不清空本地资料UI，未确认的关系操作禁用；下拉重试原接口，不额外前置会员GET。媒体只刷新本次实际采用的远端版本，既有图片字节不因占位响应被删除。
-- `profile_avatar.dart` 是用户主页、“我的”、通讯录、广场和关注列表共用的圆角方形头像、用户图片状态和身份徽章唯一 UI 实现，禁止各入口复制一套头像规则。“我的”头部头像与用户主页统一为 80 逻辑像素；由于“我的”头像没有主页的 4 像素边框，调用时用可配置外溢量补偿边框占位，使徽章同样明确超出头像右下边界，而不改变其它入口的默认位置。
+- `profile_avatar.dart` 是用户主页、“我的”、通讯录、广场、聊天和关注列表共用的圆角方形头像、用户图片状态和身份徽章唯一 UI 实现，禁止各入口复制一套头像规则。“我的”头部头像与用户主页统一为 80 逻辑像素；由于“我的”头像没有主页的 4 像素边框，调用时用可配置外溢量补偿边框占位，使徽章同样明确超出头像右下边界，而不改变其它入口的默认位置。
 
 #### 广场 feed 卡片（8964/lib/feed；媒体组件归8964/lib/media）
 - 六类（图片/视频/文章 × 普通/竞选）共用统一版式；竞选与普通**媒体布局一致**，只靠身份表达区分。
@@ -404,7 +441,7 @@ CitizenApp 已删除独立 hardware-secretvault 插件；钱包设备金库由 C
 
 registration.json只保存原SDK链交易检查点和真实最终结果，使用链与账户自然键；切换机构不能绕过同账户未决交易。记录不保存服务端任务、恢复秘密、人验或过期页面能力。原文件锁、原子CAS、读回校验、路径/链接防护和安全擦除保留；不迁移或兼容旧登记协议。未知广播先恢复原SDK交易，不重复签名注册；首次SDK执行前仍须持久保存原检查点。
 
-设备请求签名使用 user/native 的现有 OpenMLS 设备签名接口。user/lib/identity/mls_authentication.dart 读取当前绑定及原系统保护设备存储，用原公钥和签名协议继续认证。设备登记独立复用原钱包0x1C授权，正文仅account_id/public_key/issued_at/binding_signature。用途device；设备挑战另携已有issued_at/binding_signature，申请HTTP本身用现有MLS密钥自动签准确请求。设备挑战申请 nonce 在服务端一次性占用，实际设备提交仍使用并消费服务器签发的挑战。不伪造服务器挑战，不额外增加钱包确认或链交易。
+MLS底层继续使用现有OpenMLS库，身份密钥及生命周期由本地 chat 管理；App不生成另一套登录密钥，不重写密码学或SDK。设备登记独立复用原钱包0x1C授权，正文仅account_id/public_key/issued_at/binding_signature。用途device；设备挑战另携已有issued_at/binding_signature，申请HTTP本身用现有MLS密钥自动签准确请求。设备挑战申请 nonce 在服务端一次性占用，实际设备提交仍使用并消费服务器签发的挑战。不伪造服务器挑战，不额外增加钱包确认或链交易。
 
 常规session/request挑战也必须先附设备持钥证明。缺有效服务器上下文的会话挑战401/invalid_session，或明确device_not_registered，仅允许一次独立设备授权恢复；503和未知错误不触发钱包动作。首次 device 挑战由服务端核对最终链绑定；失败走既有设备登记错误处理。正常会话缓存、代次失效、在途合并、钱包取消后禁止自动重弹及成员权益规则保持。
 
@@ -440,7 +477,7 @@ registration.json只保存原SDK链交易检查点和真实最终结果，使用
 广场是 CitizenApp 的独立业务域，拥有自己的 `SocialIsar`。帖子、草稿、媒体字节及其
 关联按 CID 持久保存；文件仅承载可再生的处理输入，草稿打开时只按本地内容索引生成预览文件。它不得
 把帖子、草稿、媒体、同步检查点或文件清理事实放进其它数据库，也不得因广场队列挂起
-而阻塞 App、钱包或 UserIsar。
+而阻塞 App、钱包、聊天或 UserIsar。
 
 草稿按(cid_number,draft_id)唯一定位，列表只查询本机当前CID。只有明确点击发布才进入既有身份验真、上传、签名、交易广播及确认流程。
 
@@ -452,10 +489,11 @@ registration.json只保存原SDK链交易检查点和真实最终结果，使用
 | --- | --- |
 | `citizenapp_user.isar` | 27个集合：公共目录、用户资料、身份、设置、关注、余额、流水、多签与提案 |
 | `citizenapp_social.isar` | 广场10个集合 |
+| `chat.isar` | chat聊天10个集合 |
 | `public-state.sqlite3` | CitizenSDK公共链状态与执行历史 |
 | `secure-state.sqlite3` | CitizenSDK钱包安全记录与加密材料 |
 
-统一用户库只由UserIsar打开、排队和关闭，Social 具有独立生命周期。安装采用卸载后全新安装，不读取旧库、不迁移或增加存储版本标记。iOS和Android平台安全存储仍由所属SDK负责。
+统一用户库只由UserIsar打开、排队和关闭，Social与Chat保持各自独立生命周期。安装采用卸载后全新安装，不读取旧库、不迁移或增加存储版本标记。iOS和Android平台安全存储仍由所属SDK负责。
 
 #### 2. SocialIsar
 
@@ -582,10 +620,10 @@ registration.json只保存原SDK链交易检查点和真实最终结果，使用
 
 #### 6. 自动化验收
 
-- Social 隔离测试覆盖：Social 队列永久挂起时 User 仍可读写；同域重入快速失败；
-  永久挂起不阻止终态关闭；关闭 Social 不删除 User 数据。
+- Social 隔离测试覆盖：Social 队列永久挂起时 User/Chat 仍可读写；同域重入快速失败；
+  永久挂起不阻止终态关闭；关闭 Social 不删除 User/Chat 事实。
 - 草稿测试覆盖：类型化往返、纯读取、损坏行/媒体原样保留、文件失败计划保留和重试。
-- Social/User 的安全擦除与存储隔离均由现行广场目录测试覆盖。
+- Social/User/Chat 隔离、Chat/User/AppLock 综合隔离均由现行广场目录测试覆盖。
 
 #### 8. 广场手机本地媒体成品
 
@@ -1648,7 +1686,7 @@ PersonalAdmins storage：
 
 - 签名请求及响应只通过SDK公开会话生成、验真和消费；CitizenApp提供业务payload与审阅内容，不解析通用信封或自行验签。链交易使用CitizenSdk，不通过通用payload签名绕开交易流程。
 - 用户码只为链上CID与当前账户双向绑定成立的身份生成；“我的”和用户主页共用用户码页面。生成用户码须核验绑定；通讯录导入只读取码内 CID 并在本机按 CID 去重。
-- 账户码由钱包账户详情与应用收付款入口调用SDK生成；未注册账户及其他钱包账户可使用账户码。当前收款码生成仍属待实现，不以账户码代替已实现收款业务。
+- 账户码由钱包账户详情与聊天收付款入口调用SDK生成；未注册账户及其他钱包账户可使用账户码。当前收款码生成仍属待实现，不以账户码代替已实现收款业务。
 - 通讯录用途只接纳用户码；转账及分派用途按SDK公开用途允许关系消费用户码、账户码和收款码。用途不符、SDK拒绝或裸SS58输入不得触发第二解析入口。
 - 公开昵称仅由产品资料接口取得。账户地址仅用于页面展示和边界输入输出，账户授权与关系仍使用SDK给出的规范账户标识。
 - CitizenApp不处理管理员扫码登录；该业务入口归OnChina与CitizenWallet。
@@ -1920,6 +1958,13 @@ UserIsar中独立保存图片实际字节、用途、对象位置、资料版本
 
 不建立通用 `UserKv`，不保存钱包排序/活动钱包、PIN、设备锁或明文密钥。
 
+“我的 → 设置”在安全分组与关于分组之间同行展示“首页设置 / 广场|聊天 / Switch”。
+右侧复用设备锁和应用锁相同的 Switch，开关自身尺寸不缩小；卡片与“我的”主页的“设置”
+入口统一使用 `AppLayout.serviceEntryHeight`，不同屏幕倍率下保持相同行高。写入 UserIsar
+成功后才更新显示，失败保留原值并
+允许重试。该偏好只决定重新构造主界面时的初始 Tab；未触发主界面重建的普通
+后台恢复保持用户离开前的页面。
+
 ##### 4.2 通讯录
 
 本机contact是唯一联系人集合，按owner_cid与cid_number唯一定位，保存contact_remark、updated_at及仅本机的pending/change_version。新增和真实修改标记put；删除标记delete并立即隐藏，云端成功后物理删除。不保存永久删除历史；运行阶段和错误只在内存显示。
@@ -1998,8 +2043,8 @@ UserIsar中独立保存图片实际字节、用途、对象位置、资料版本
 - 备注只允许汉字和英文字母、可空、最多40字。实际保存或清空时标记同条联系人待同步；相同内容不建立会话或请求云端。
 - 排序：备注中文取拼音首字母、英文忽略大小写；无备注取公民号首个数字。数字0–9在前、字母A–Z在后，同键按完整拼音和公民号稳定排序，不按公开昵称或时间。
 - 同步失败重试只补发待发记录。下拉执行完整同步：先逐条提交待发增删改，再分页拉取云端全部联系人与备注。未变联系人不上传；下载完整成功后才对齐本地清单，保留下载期间新产生的本地变更。失败不自动重读或覆盖本地。网络恢复和前台准备只补发待发项。
-- 联系人卡片的头像、公开昵称、私人备注、公民号、徽章和搜索范围保持；菜单仍为转账、修改备注、删除联系人，删除项保持危险红色。
-- 联系人页复用同一服务与排序；只回传联系人CID，不改付款账户。付款确认前仍由链上支付服务核验CID当前finalized绑定。普通点击仍进入唯一UserProfilePage。
+- 联系人卡片的头像、公开昵称、私人备注、公民号、徽章和搜索范围保持；菜单仍为转账、私信、修改备注、删除联系人，删除项保持危险红色。
+- 联系人页和聊天选人复用同一服务与排序；只回传联系人CID，不改付款账户。付款确认前仍由链上支付服务核验CID当前finalized绑定。私信仅以CID寻址，普通点击仍进入唯一UserProfilePage。
 
 #### 6. 依赖
 
@@ -2029,7 +2074,7 @@ UserIsar中独立保存图片实际字节、用途、对象位置、资料版本
 - 首次占号完成 finalized 身份闭环且 Cloudflare 用户投影确认后，服务层递增统一身份
   revision 并使 `CurrentUserContext` 按钱包 revision 重读；占号不改变 `account_id` 也必须
   广播，因为当前默认账户的 `cid_number` 已从空推进为有效值。
-- “我的”、广场、身份、通讯录、创作者和会员等已挂载页面监听对应 revision，并以
+- “我的”、广场、聊天、身份、通讯录、创作者和会员等已挂载页面监听对应 revision，并以
   `account_id + cid_number` 或完整身份重新判定；创作者页还按 CID 监听独立
   `MembershipRevision`。通讯录/创作者加载使用代际保护，旧的“未注册”或旧 CID 异步结果
   不得覆盖新状态。
@@ -2039,7 +2084,7 @@ UserIsar中独立保存图片实际字节、用途、对象位置、资料版本
 #### 10. UserIsar 数据域边界
 
 - UserIsar统一承载27个集合，包括资料图片、修改恢复及钱包业务缓存；
-  用户与广场分别拥有独立文件、实例、打开任务、生命周期和操作队列。
+  两库以及 App/Social/Chat 各自拥有独立文件、实例、打开任务、生命周期和操作队列。
 - 资料媒体按准确 CID、用途和版本寻址，不扫描旧通用用户键。
 
 #### 11. 公开资料、用户图片与会员首帧
@@ -2047,7 +2092,7 @@ UserIsar中独立保存图片实际字节、用途、对象位置、资料版本
 本人及他人主页不再使用入口门禁或整页转圈阻塞已有UI。公开资料、头像和背景只由原本地缓存供首屏展示，缺数据使用占位。进入后台刷新按服务地址、目标CID、浏览者CID、账户、绑定版本及链隔离，十分钟最多一次；刷新尝试前持久记录时间，失败也占用窗口，进程重启不绕过。并发进入共享任务，页面退出不取消同身份的其他等待者。资料revision仅重读本地，云端无新版本、版本零、旧版本或请求失败均不清空本地。关系状态未由当前浏览者响应确认前禁用操作；手动下拉和修改后校准不受进入限速约束。其他用户帖子持久缓存不在本次范围。
 
 - `profile` 是按CID持久保存的唯一公开资料记录；MyTab、本人主页、
-  资料编辑、发布和头像不再维护固定行或本机路径第二真源。
+  资料编辑、发布和聊天头像不再维护固定行或本机路径第二真源。
 - 头像与背景严格区分两种状态：字段从未设置时，按 CID 稳定显示内置照片；字段已经设置时，
   优先显示数据库保存的用户图片。显式刷新失败保留上一张用户图片；没有可用本地图片时显示
   中性占位，禁止退回内置照片。
@@ -2055,7 +2100,7 @@ UserIsar中独立保存图片实际字节、用途、对象位置、资料版本
   revision；已挂载的 MyTab 和本人主页据此就地刷新，不依赖退出页面或重启 App。
 - 身份、会员与订阅的链上展示统一由轻节点提供；旧服务端展示输入已移除，按链、账户、CID及最终区块隔离的本地读模型已接入。未知时显示尚未就绪或读取失败，资源授权只供服务端业务预检。
 - 「我的→创作者」固定显示管理页，订阅未知时禁用操作；已确认无有效平台会员时右上角显示绿色“订阅”并进入“会员｜订阅”，有效时显示对应会员徽章。会员、档位与统计独立就绪，创建和编辑须会员有效且档位就绪。本人档位首次启用后由共享轻节点同步器维护并持久保存，页面退出不释放该关注；同一链、账户、CID和绑定版本的有效缓存直接复用，身份变化或缓存缺失、失效时合并补取。旧订阅引导整页及右上角刷新图标移除，统计保留独立下拉刷新和局部重试。
-- 「我的→会员｜订阅」先按链、账户、CID和绑定版本恢复共享会员快照，再独立准备价格及云端规则/用量。三档价格按链独立持久化并记录自己的最终区块、运行时版本与校验时间，展示缓存默认有效60分钟且可配置；页面退出和普通逐块同步不清除价格，也不持续订阅逐块核价。缓存缺失、过期、运行时变化或主动刷新时合并读取；磁盘恢复只供展示，需轻节点重新核验。订阅、换档和取消前强制核对当前身份、订阅状态及价格，页面身份与操作身份不符时拒绝签名；云端用量失败不覆盖会员及价格，身份变化立即撤下旧状态并阻止迟到结果回写。
+- 「我的→会员｜订阅」先按链、账户、CID和绑定版本恢复共享会员快照，再独立准备价格及云端规则/用量。三档价格按链独立持久化并记录自己的最终区块、运行时版本与校验时间，展示缓存默认有效60分钟且可配置；页面退出和普通逐块同步不清除价格，也不持续订阅逐块核价。缓存缺失、过期、运行时变化或主动刷新时合并读取；磁盘恢复只供展示，需轻节点重新核验。订阅、换档和取消前强制核对当前身份、订阅状态及价格，页面身份与操作身份不符时拒绝签名；云端会话或规则/用量读取失败静默结束，不显示提示横幅，不覆盖会员及价格；身份变化立即撤下旧状态并阻止迟到结果回写。
 - 用户主动注销仅删除对应CID的资料和媒体行、旧文件及临时展示目录。AppLock先关闭并
   擦除UserIsar，再删除旧`user/profile_media`与临时`profile_media_work`；媒体清理入口不得
   为擦除重新打开数据库。代次检查阻止迟到下载或展示文件写入复活已清理数据。
@@ -2099,6 +2144,16 @@ Android Emulator 和 Xcode Simulator 使用公开地址导入的冷账户作为�
 
 冷账户自助占号由 SDK 以 CitizenIdentity call5 生成完整交易请求；钱包登记并严格解码0x0a05。最终成功仍需用户签名、finalized绑定回读与重启身份恢复。
 
+## 非钱包附件MLS边界
+
+公民宿主的非钱包网络秘密统一由chat同一CID本设备MLS身份及协议内部状态承担。宿主二维码公开路由只接受联系与转账；冷签响应只通过CitizenSDK的externalSignature识别与同一会话签名预检。宿主不接收账户数据秘密，扫码页不消费签名或提交交易。媒体文件使用 chat 独立附件 MLS 组，不由公民生成、接收或保存文件用途钥。界面只消费 chat 经过普通聊天 MLS 验证的控制描述和系统保护缓存路径，保留现有媒体选择、压缩、权益、大小上限和展示行为。
+
+文件组仅包含当前聊天获准精确设备叶子，控制消息固定原聊天epoch和名册；上传后身份或成员变化，该动作明确失败，不能静默扩大收件人。接收按真实MLS发送者、块序号、组和附件绑定及完整摘要验证；网络失败只影响该附件，普通消息和邮箱确认继续运行。恢复只使用原协议结果及已持久文件，缺失或损坏的已消费状态明确失败，不调用钱包恢复或重新推进接收链。
+
+附件缓存与临时工作文件由 chat 自有系统保护域承载；App自己的系统保护记录和数据库继续由App负责。
+
+非钱包客户端直接依赖已删除cryptography与flutter_secure_storage；chat/mls 负责 MLS 协议，App记录由自有系统保护目录承载。钱包上游的ristretto255、sr25519、ss58及substrate_bip39仍按原锁传递依赖cryptography，不能将其作为新增设备或数据用途钥实现。原生Pod锁仅移除已停用的flutter_secure_storage_darwin；其他锁定版本保持。
+
 ### 产品独立资源与编译入口
 
 Release合同核验正式锁定SDK公开QR方法的准确返回类型、参数顺序及参数类型，不依赖Dart格式化的单行排列；保持禁止宿主第二QR实现及私有SDK导入的断言。
@@ -2111,12 +2166,12 @@ Release合同核验正式锁定SDK公开QR方法的准确返回类型、参数�
 
 注册 HTTP 使用既有人验接口。本机记录保存原链交易检查点和最终结果。首次设备挑战使用已有钱包授权和 MLS 证明。充值恢复字段属于独立付款合同，不与注册数据混用。
 
-认证HTTP直接签署token_purpose、nonce_id、expires_at及真实方法/目标/正文；request绑定当前session_hash。user/native拥有证明编码，服务端独立验签。资料与通知缓存正文不重复自然索引CID，评论恢复不转换旧分页或待发字段；校验失败撤销操作入口。
+认证HTTP直接签署token_purpose、nonce_id、expires_at及真实方法/目标/正文；request绑定当前session_hash。chat/mls拥有证明编码，服务端独立验签。资料与通知缓存正文不重复自然索引CID，评论恢复不转换旧分页或待发字段；校验失败撤销操作入口。
 
 
 详情直接读取既有post索引与manifest正文，清单schema/作者/类型须与索引一致；不接受旧内联正文，也不重编码清单计算链哈希。上传完成删除无上游、无消费者的storageState要求，上传就绪由 Serve 的 R2 发布控制记录判定。发布确认校验响应中的区块、交易和内容摘要。读取失败时保留原 finalized 恢复记录。
 
-广场上传预检复用当前会话的既有资源规则。存量采样在请求发起时记录本地代次，在途写入不覆盖原基线，成功或未知变更使存量失效，迟到旧采样不得恢复资格；不再把成功成本盲加到快照。缺回执的5xx或未知失败保留已发送日消耗，部分回执只结算其准确窗口，明确未扣量及幂等零扣量可结算；同身份换会话后的真实回执也能结算原未知许可，旧令牌仍不得发送。
+本地附件许可按原附件元数据稳定摘要复用一份预留，重试仍独立检查设备帧；未完成不是不存在，不重复占新建次数。存量采样在请求发起时记录本地代次，在途写入不覆盖原基线，成功或未知变更使存量失效，迟到旧采样不得恢复资格；不再把成功成本盲加到快照。缺回执的5xx或未知聊天失败保留已发送日消耗，部分回执只结算其准确窗口，明确未扣量及幂等零扣量可结算；同身份换会话后的真实回执也能结算原未知许可，旧令牌仍不得发送。App 媒体选择入口只消费当前会员单文件上限，不再固定512MiB；系统流式复制和最终媒体检查仍保留。
 
 ## 第一方存储与字段收敛
 
@@ -2138,7 +2193,7 @@ App第一方使用统一用户库27个集合与广场库10个集合，共37个�
 | user.media | id, cid_number, media_role, object_key, profile_at, body_hash, media_bytes  | 资料版本下的唯一图片字节及完整性依据 |
 | user.notice | id, cid_number, data, pending, list_data | 通知状态、待发已读及已获取列表缓存 |
 | user.profile | id, cid_number, data  | 公开资料；正文不重复索引CID |
-| user.setting | id, guide_seen, council_order, bank_order, square_tab_order  | 用户本机偏好 |
+| user.setting | id, guide_seen, chat_home, council_order, bank_order, square_tab_order  | 用户本机偏好 |
 | social.chunk | id, cid_number, body_hash, part_index, part_bytes, part_hash  | 摘要下的有序字节分块及范围读取哈希 |
 | social.cleanup | id, cid_number, draft_id, cleanup_kind, created_at, try_count, last_error  | 草稿删除后独立文件清理事实与重试状态 |
 | social.cursor | id, cid_number, post_id, published_at  | 本人发布内容完整回灌的远端检查点 |
@@ -2176,11 +2231,9 @@ entry以账户/准确tx_hash或账户/block_hash/event_index在原事务定位�
 
 资料图片准备使用upload_kind/content_type/byte_size/content_hash，授权读取http_method；请求摘要不再回抄为返回模型字段。PUT 保留真实 MIME 头并核对授权原对象键；资料更新只传图片哈希。资料图片由字节识别类型和长度，临时文件可再生；显式安全擦除覆盖原媒体目录，普通读取不迁移或清理旧结构。
 
-通知只持有真实事件、未读状态和notice_rev；scope仍为cidNumber/accountId/bindRev及原generation。独立已读进度、持久意图、同版本补存和推送端点apns_env保持。ResourceUsage由会员用量模块定义，MLS请求证明归App 的用户鉴权原生接口与 CitizenServe 公开合同。
+通知只持有真实事件、未读状态和notice_rev；scope仍为cidNumber/accountId/bindRev及原generation。独立已读进度、持久意图、同版本补存和推送端点apns_env保持。ResourceUsage归现有Proto，MLS请求证明归App自有chat/mls和CitizenServe公开合同。
 
-设备签名状态保存在平台保护根的 `device` 目录，按 CID 的 UTF-8 十六进制编码定位。全量擦除标记保存在同一保护根的 `wipe/pending` 和 `wipe/complete`。标记原子写入后同步目录，启动时按标记续跑未完成的擦除。
-
-MLS认证证明统一归用户鉴权原生接口：user_id/device_id/public_key/account_id/bind_rev/service_origin/nonce_id/expires_at/http_method/request_target/body_hash/token_purpose/signature，request额外包含session_hash。Dart严格核对唯一字段集、身份和实际请求上下文；应用域为CitizenRequestV2。
+MLS认证证明统一归chat/mls原生Serde：user_id/device_id/public_key/account_id/bind_rev/service_origin/nonce_id/expires_at/http_method/request_target/body_hash/token_purpose/signature，request额外包含session_hash。Dart严格核对唯一字段集、身份和实际请求上下文；应用域为CitizenRequestV2。
 
 
 ## 关注、评论、创作者与订单合同
@@ -2223,11 +2276,11 @@ SDK补传同次job实际产生的固定内部原因时，App按同一白名单�
 
 ## 本机编译资源与版本来源
 
-本机安装只准备对应平台编译产物，跳过 Dart 宿主测试目录和 macOS 宿主设备签名库。本机compile不查询GitHub正式版本或Run，不传--build-name或--build-number，由Flutter直接使用本轮工程中原pubspec.yaml的版本声明。控制台任务号不作为产品版本输入。CitizenSDK 使用本机当前工作区源码与版本声明并调用其公开构建入口，包含未提交改动，HEAD仅记录基线；设备签名直接使用 user/native 原锁；Pub与npm按原锁装配。npm使用缓存优先模式，本机默认使用本仓target/cache/npm，调用方显式缓存配置优先，缺件按锁获取。塔塔自动化沿用其缓存环境。随后正常build由Flutter按Release刷新原生插件注册；不使用build --no-pub跳过该步骤。Git仅放行本地file与正式源码HTTPS，Cargo沿原锁和已声明的来源执行。塔塔自动化继续使用所属Workflow提供的Run构建号和正式SDK选择。
+本机安装只准备对应平台编译产物，跳过 Dart 宿主测试目录和 macOS 宿主 MLS。本机compile不查询GitHub正式版本或Run，不传--build-name或--build-number，由Flutter直接使用本轮工程中原pubspec.yaml的版本声明。控制台任务号不作为产品版本输入。CitizenSDK 使用本机当前工作区源码与版本声明并调用其公开构建入口，包含未提交改动，HEAD仅记录基线；chat 直接使用 App 本轮源码与 chat/mls 原锁，不解析外部聊天产品来源；Pub与npm按原锁装配。npm使用缓存优先模式，本机默认使用本仓target/cache/npm，调用方显式缓存配置优先，缺件按锁获取。塔塔自动化沿用其缓存环境。随后正常build由Flutter按Release刷新原生插件注册；不使用build --no-pub跳过该步骤。Git仅放行本地file与正式源码HTTPS，Cargo沿原锁和已声明的来源执行。塔塔自动化继续使用所属Workflow提供的Run构建号和正式SDK选择。
 
 ## 包与测试归属重构
 
-根App只拥有启动、导航、跨包装配与lib/test测试。user、wallet、onchain、multisig、personal、offchain、topup、citizen、8964、network、scanner、storage、system、widgets分别拥有pubspec.yaml、lib和唯一test。assets拥有资源声明与资源test；testing提供仅供开发依赖的公共SDK测试桥与隔离设施。Dart包使用官方workspace统一解析和根锁，不复制依赖库存。iOS与Android分别使用既有平台工程声明，各自拥有唯一tests；Android原三个真实测试类分文件归位。充值HTML、JS和npm原锁属于topup/web，生成bundle只写临时工程。
+根App只拥有启动、导航、跨包装配与lib/test测试。user、wallet、onchain、multisig、personal、offchain、topup、citizen、8964、chat、network、scanner、storage、system、widgets分别拥有pubspec.yaml、lib和唯一test。assets拥有资源声明与资源test；testing提供仅供开发依赖的公共SDK测试桥与隔离设施。Dart包使用官方workspace统一解析和根锁，不复制依赖库存。iOS与Android分别使用既有平台工程声明，各自拥有唯一tests；Android原三个真实测试类分文件归位。充值HTML、JS和npm原锁属于topup/web，生成bundle只写临时工程。
 
 通过塔塔控制台分别执行静态与适用回归，未执行的原生或真机场景不得计为通过。
 
@@ -2237,7 +2290,7 @@ SDK补传同次job实际产生的固定内部原因时，App按同一白名单�
 
 scanner只负责采集、QR界面与结果，联系人导入由user提供回调，扫码后跨业务跳转通过ScanDispatch公开端口交给根App。原异常类型归system唯一实现，原文案、状态和签名流程保持。
 
-联系人转账经 UserNavigation 交给根 App 装配，用户包不导入链上支付页面。
+用户页面的私聊与联系人转账动作经UserNavigation公开回调交给根App，用户包不导入聊天页面或链上支付页面；聊天实现直接使用本地 chat 的会话页面。
 
 编译与测试通过build.mjs的packageRoots读取同一workspace声明。冻结 CitizenSDK 后，mapSdkSource同步映射根与所有实际消费者的SDK来源，不能只改根声明而让成员继续使用Git来源；其它上游版本和锁保持。
 
@@ -2276,7 +2329,7 @@ AssetClass.Pegged为保留协议位，可解码不代表允许发行。当前链
 
 设备验收单列：`native|e2e|performance ios --device <id> --artifact <已编译.xctestrun>`；Android对应 `--device <id> --component <已安装测试包/runner>`。运行入口不编译或签名；Android要求已安装测试组件。iOS test-without-building仍会由Xcode部署测试runner及所选测试宿主，因此执行时须另具对应隔离设备和测试宿主安装授权。iOS按每个 `-only-testing` 坐标选择，Android按精确class#method选择，禁止整类执行历史注册、发送或付款用例。两个设备结果分别核对实际用例、唯一结束和运行器终态；失败、跳过、零用例及漏跑均不通过。
 
-端到端闭集覆盖启动门禁/重启（Android为Activity重建）、已有交易付款源选择及返回空表单、扫码返回、创作者页读取。付款源选择不是SDK默认身份切换。真实服务、默认身份认证、注册和交易留在独立隔离设备验收中。测试不创建账户、输入金额或提交业务。
+端到端闭集覆盖启动门禁/重启（Android为Activity重建）、已有交易付款源选择及返回空表单、扫码返回、创作者页读取与聊天前后台界面恢复。付款源选择不是SDK默认身份切换；聊天界面恢复不是服务端重连或消息送达证明。真实服务、默认身份认证、注册、消息和交易留在独立隔离设备验收中。测试不创建账户、输入金额或提交业务。
 
 性能测试记录真实启动、创作者页、已有至少20账户的长列表滚动、原生硬件HEVC媒体转码及内存。Android每项5次采样，记录目标进程PSS与纳秒耗时；媒体要求显式 `--fixture <缓存内合成.mp4>`，不自动读取用户媒体。iOS使用XCTest指标，媒体由现有原生写入器生成合成视频，页面内存明确指向被测App。缺既有数据/硬件能力按跳过报告，不能通过；缺指标也失败。只保留既有创作者首帧1秒要求，其余采样 `assessment:unassessed`，待固定设备建立基线后再判性能达标。
 
@@ -2286,7 +2339,7 @@ AssetClass.Pegged为保留协议位，可解码不代表允许发行。当前链
 
 设备标识与Android媒体夹具名在调用工具前校验；夹具只接受缓存内合成MP4的文件名，不能作为adb shell表达式。合成视频准备超时/失败清理本测试文件；准备超时不是性能阈值。
 
-编译输入未准备标记为 `not_ready`，工具实际执行失败标记为 `failed`；两者均不是编译通过。
+编译输入未准备标记为 `not_ready`，工具实际执行失败标记为 `failed`；两者均不是编译通过。聊天恢复须等真实列表“新建”结构出现，再核对读取/错误状态；列表采样只观察可见语义。
 
 Android页面匹配遵循锁定Flutter官方Accessibility桥：普通控件读contentDescription，输入框读text/hintText，Tab提示按官方逗号合并边界匹配；列表只收集与窗口相交的实际语义节点，并按公开账户序号去重。空交易表单通过实际编辑控件空值核对，不依赖旧Android缺失的hintText。
 
@@ -2318,14 +2371,13 @@ UserIsar吸收原公共目录、用户及钱包业务实体，唯一物理文件
 
 机构目录导入同时检查清单count、全库实存数量及现有province成功记录；只有分片所属省、版本、数量和自然键合法且完成对账后，才写入该省成功记录与同步游标。行政区在对单省执行任何增删前必须完整读取并解析省、市、镇分片，空数组表示合法空数据，缺失或损坏分片则失败并保留该省原记录及游标。全局完成标记仅在最终实存数量与清单相符后写入。恢复原版本资源后可重试；旧实现误推进的游标利用现有计数或省级成功记录重新对账，不增加数据库、版本后缀或迁移标记。
 
-独立创建的默认目录仓储共享同一进行中的机构导入任务；失败后清除进行中状态，页面现有重试入口可再次导入。统一用户库27表、广场10表的表名、主键及物理列名由所属存储测试逐字面量断言。钱包页面退出必须等待统一用户库的实际I/O及watcher取消完成，不把帧稳定当成原生操作结束。
+独立创建的默认目录仓储共享同一进行中的机构导入任务；失败后清除进行中状态，页面现有重试入口可再次导入。统一用户库27表、广场10表和聊天10表的表名、主键及物理列名由所属存储测试逐字面量断言。钱包页面退出必须等待统一用户库的实际I/O及watcher取消完成，不把帧稳定当成原生操作结束。
 
 Android本地及自动化构建共用scripts/build.mjs；Release APK生成后、复制交付前，使用既有Android SDK的apkanalyzer检查实际DEX类kotlin.Unit及其INSTANCE字段。该检查与SDK已有精确keep规则配合，缺类、缺字段或检查工具失败都会终止交付，不扩大保留整个Kotlin包。
 
 ### 充值弹窗与链图标
 
-选择套餐内网络后显示钱包底部弹窗；点击可用品牌先保存本地订单，再连接和唤起对应钱包。弹窗内保留同次会话与nonce；关闭不恢复原单。处理结束关闭付款及套餐弹窗，返回原账户详情；不会自动跳结果页。
-Base名称统一显示Base/贝斯链。两档固定价格为10 USDC或10 USDT购买10,000公民币、1000 USDC或1000 USDT购买1,000,000公民币；package_id为pkg_10、pkg_1000，展示保留实际币种名称。链币映射、不可用与重复点击门禁保持原合同。
+输入合法充值金额后点击网络，先公民账户签名保存本地订单，再连接和唤起固定MetaMask。弹窗内保留同次会话与nonce；关闭不恢复原单。处理结束关闭充值弹窗，返回原账户详情；不会自动跳结果页。
 
 业务读取服务通过可选的精确类型函数接收其实际使用的链读取能力；正常调用继续从传入CitizenSdk取得同一方法。测试提供明确的只读数据函数，SDK协议、签名和资源生命周期仍使用真实Core；不恢复CitizenChain等已删除SDK接口，不允许未配置能力默认为成功。
 
@@ -2353,8 +2405,9 @@ Base名称统一显示Base/贝斯链。两档固定价格为10 USDC或10 USDT购
 
 ### 通讯录同步与安全诊断
 
+聊天初始化将本地身份及 KeyPackage 准备与认证、连接、发布分开。网络等待在绑定文件屏障外执行，返回后重新核对绑定、失效代次及 token 一致性。
 
-通讯录通过既有设备鉴权和请求证明保护的逐条接口备份到私有R2。账户快照和备注进入请求；派生地址和本地待发标记不进入请求。日志不记录CID、账户、备注、URL或原始异常正文。所有异步回执重核属主，旧回执不得清除较新的本地修改。
+通讯录通过既有设备鉴权和请求证明保护的逐条接口备份到私有R2，与聊天群同步独立。账户快照和备注进入请求；派生地址和本地待发标记不进入请求。日志不记录CID、账户、备注、URL或原始异常正文。所有异步回执重核属主，旧回执不得清除较新的本地修改。
 
 通用关注使用CID关系，任意用户均可关注/取关自己。本人识别不再禁用关注；一次操作完成前不重复提交。操作成功后复用现有refreshProfile读取完整关系和三个计数并写入原缓存，不在客户端手算计数。写入失败恢复原关系；写入已成功而资料回读失败则保留成功关系并提示主动刷新，不伪造或清零计数。
 
@@ -2377,11 +2430,11 @@ TopupStore保存与更新在一个用户库事务内完成一次定位查询和�
 
 ### 充值信息签名、原付款绑定与三状态
 
-业务订单仅pending（待支付）、paid（已支付）、completed（已完成）。点击链之前只选择套餐；点击链后先内存准备冻结充值信息及随机恢复凭据，由页面指定的公民账户走现有signCitizenPayload/SDK beginSigning，热账户热签、冷账户QR冷签，显式CitizenSigningTransform.raw()、opaqueAction=权威topup动作18。签名失败/取消/离页不保存订单或恢复凭据、不连接MetaMask。成功后才派生短order_id并以实际Unix毫秒正式保存待支付订单，然后连接并唤起MetaMask。连接、构造、广播只是本次流程和事实字段，不另作订单业务状态；取消/失败/付款未知均保存现有fail_reason；明确取消和失败在交易记录显示“取消支付”“支付失败”，未知仍为待支付并注明待核实，不自动续付。
+业务订单仅pending（待支付）、paid（已支付）、completed（已完成）。点击链之前只输入购买数量；点击链后先内存准备冻结充值信息及随机恢复凭据，由页面指定的公民账户走现有signCitizenPayload/SDK beginSigning，热账户热签、冷账户QR冷签，显式CitizenSigningTransform.raw()、opaqueAction=权威topup动作18。签名失败/取消/离页不保存订单或恢复凭据、不连接MetaMask。成功后才派生短order_id并以实际Unix毫秒正式保存待支付订单，然后连接并唤起MetaMask。连接、构造、广播只是本次流程和事实字段，不另作订单业务状态；取消/失败/付款未知均保存现有fail_reason；取消、失败和授权失效在交易记录统一显示“待支付”，原因仅在详情说明，未知仍注明待核实，不自动续付。
 
 授权消费CitizenServe.md公开16字段合同：13行UTF8/LF原文末尾LF，首行CitizenServe Topup，其后service_origin、chain_genesis_hash、account_id、package_id、token、network、asset、recv_address、pay_amount、coin_fen、config_hash、recovery_hash。签前不含order_id/created_at/payer_address/payment_txid。recovery_hash为恢复凭据文本SHA256；公民签名是原始64B sr25519/substrate签名，不预hash，不套用其他动作。H=SHA256(原文UTF8字节||原始签名字节)，签后order_id=top_加H小写hex前32位。短ID仅定位，真实付款必须绑定完整32B H；不增加order_hash/sign_text请求字段。account_signature为0x加128小写hex，随原单保存并在已支付后请求发币。
 
-套餐面额和各币轨精度由 App 决定，报价生成和配置校验共用 SDK 的整数最小单位换算。SDK 编码 ERC-20 transfer 的标准 68 字节，App 交付完整 32 字节 H，冻结后的付款输入共 100 字节。附加数据可能增加费用，由钱包确认。
+金额规则及币轨精度由CitizenServe公开合同定义，App离线交付可信快照，报价生成和配置校验共用 SDK 的整数最小单位换算。SDK 编码 ERC-20 transfer 的标准 68 字节，App 交付完整 32 字节 H，冻结后的付款输入共 100 字节。附加数据可能增加费用，由钱包确认。
 
 App 按原订单选择 RPC、交付完整绑定和按秒向下取整的订单时间下限。SDK 一轮通过六次 RPC 核对交易成功、完整输入、区块归属、最终高度和唯一 Transfer 日志，复查区块后返回链上事实。App 用原订单和这些事实生成现有 TopupProof。
 
@@ -2393,9 +2446,9 @@ App根层在外部付款回执保存后立即验款1轮，未验真则按20、40
 
 ### 当前EVM充值界面与付款接入
 
-钱包/账户详情的USDT、USDC入口各自固定币种，复用同一个两行弹窗。顶部增加与身份更换面板同款36×4主题灰色圆角横杠，位于“使用 [MetaMask真实图标] MetaMask 钱包支付”正上方，官方SVG随包绘制，不请求远程图片；弹窗最小高度320，短屏可滚动；第一行“充值金额”显示10,000.00 元/1,000,000.00 元默认前者，选中勾号与金额同为绿色，按钮行右下显示付款金额，随选中套餐显示10.00美元/1000.00美元，不再显示公民币标志或文字。第二行“支付网络”以太坊/币安/贝斯恢复圆形外框，图标下显示中英文名称，默认全部不选。没有钱包选择行或额外付款按钮。注册余额不足面板提供两个明确币种入口，复用该弹窗。点击链即冻结当前套餐与链并发起公民账户签名，当前弹窗只显示本次点击的处理状态，关闭后不占用其他订单。签名失败不建单、不启动外部钱包；成功后签名原文、原始签名与完整付款请求在同一次本地保存中建立待支付订单。签名建单归当前点击的调用方，成功落库后才交付连接宿主；不存在跨订单占用或等待其他订单结束的准入。
+钱包/账户详情USDT、USDC入口各自固定币种，共用唯一充值弹窗。顶部36×4灰色圆角横杠及MetaMask官方图标保留；金额输入、提示和39/25/17图标尺寸按下文固定汇率规范。点击链冻结本次数量、币种和主网，先原公民账户签名并正式落库，成功才交付根层连接宿主。输入与链在本次处理中不可修改，付款结束回原账户详情。
 
-资产共六轨：USDC/USDT各Ethereum、Base、BNB。BNB USDC为0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d、18位；Base USDT为0xfde4c96c8593536e31f229ea8f37b2ada2699bb2、6位。配置指纹为固定21行，原文13行、发币请求16字段、完整100B付款input及H绑定保持。
+资产共六轨：USDC/USDT各Ethereum、Base、BNB。BNB USDC为0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d、18位；Base USDT为0xfde4c96c8593536e31f229ea8f37b2ada2699bb2、6位。配置指纹为固定12行，原文13行、发币请求16字段、完整100B付款input及H绑定保持。
 
 公民 App 每笔订单只打开一次 MetaMask。已签订单才交给根层持有的随包 WebView，原生桥校验随包文档、本次会话与消息序号。付款客户端使用 MetaMask Connect Multichain 1.2.0 的 MWP 会话。SDK 首次申请以太坊、BNB Chain 和 Base 的授权，从对应链的授权范围读取付款账户。收到授权后继续处理原单，无需等待 App 回前台。已有有效授权的订单直接付款。付款按原单链调用一次 `invokeMethod`，交付 `eth_sendTransaction`、已授权账户和原始 100 字节付款数据。
 
@@ -2414,14 +2467,19 @@ onchain、multisig、personal、offchain、topup 是独立 workspace 包。钱�
 钱包模块归属：core提供WalletNavigation、WalletGate与WalletOnchainBalanceCard，余额直接使用SDK；onboarding承载创建、导入及助记词/密码输入；account承载原钱包账户页面、追加账户、操作/身份卡和账户码；history提供业务流水的存储、同步、列表与详情。现有文件整体归位，不拆类、不改UI与交互，不保留旧根路径转发。数据库实体与用户数据继续由storage原件拥有。
 
 
+## chat当前实现
+
+chat 是 App 普通本地包。HTTP 路径为 /api/chat，实时连接使用 /api/chat/realtime 和 WebSocket 子协议 chat。MLS 实现归 chat/mls；Android为libmls.so，iOS为MLS.framework，C接口为mls_*。应用认证域为CitizenRequestV2。聊天数据库保持独立，直接使用当前目录布局；目录保护、关闭和擦除按本域生命周期执行。
+
 ## 直接请求证明与按需链读取
 
-SquareApiClient不申请普通MLS挑战。每个真实设备/会话/业务请求安全随机生成32字节nonce和30秒期限，由用户鉴权原生接口签署真实方法、含查询的目标、正文摘要及token_purpose；业务request另绑定实际会话令牌SHA256。标签为MLS 1.0 CitizenRequestV2，没有另一套认证域或回退。服务端验签/鉴权后条件创建已用nonce；注销钱包意图和只读恢复挑战独立保留。
+SquareApiClient不申请普通MLS挑战。每个真实设备/会话/业务请求安全随机生成32字节nonce和30秒期限，由chat/mls签署真实方法、含查询的目标、正文摘要及token_purpose；业务request另绑定实际会话令牌SHA256。标签为MLS 1.0 CitizenRequestV2，没有另一套认证域或回退。服务端验签/鉴权后条件创建已用nonce；注销钱包意图和只读恢复挑战独立保留。
 
 ChainDataReader按关注范围取键：普通头像不取CreatorPlans；只有创作者消费者取档位和本人对应订阅；只有会员价格消费者取三档PlatformPrice。未请求的tiers为null，pricesLoaded明确覆盖状态，不能把未知当无记录。统一快照schema为2，仍按创世链和账户隔离，contentKey排除仅高度/时间变化，实际业务不变不写库。
 
+普通聊天使用注册门禁的既有登录会话。聊天页、服务授权和发件预检均读取本机已核验的绑定；本机缺少绑定时提示在身份页刷新。用户发起附件动作时，由会员服务通过既有会员门禁入口准备限时授权，聊天预检使用同一会话的许可与单件额度。服务端绑定公民号、账户、绑定代次、设备及当前会话，许可过期或撤销时拒绝附件。
 
-云端普通工程沿用Flutter官方模板的flutter_lints配置并以fatal infos/warnings分析；本机验证必须装配同一模板，不能以缺省分析配置替代。所有跨异步间隔的页面context访问先确认mounted。
+云端普通工程沿用Flutter官方模板的flutter_lints配置并以fatal infos/warnings分析；本机验证必须装配同一模板，不能以缺省分析配置替代。所有跨异步间隔的页面context访问先确认mounted。聊天包从用户模块消费登录和会员授权。
 
 宿主检查在任何工具执行前要求普通工程具备启用官方flutter_lints的analysis_options.yaml，缺失或空配置立即失败。测试工程必须由本产品完整装配入口生成，消费用于发布验收的冻结SDK正式来源；不能以仅搬移测试目录的工程代替。收尾保留同平台最近成功1条、失败1条和活动任务，原删除顺序不变；既有删除回查只对短暂200最多读三次，最终必须取得实际404。403、500、网络失败与持续存在均失败并报告实际HTTP状态，不输出凭据或响应正文。
 
@@ -2457,8 +2515,33 @@ ChainDataReader按关注范围取键：普通头像不取CreatorPlans；只有�
 
 重新授权取消、缺少所选链/方法/合法账户时保留标记，下次用户操作重新清理；公开断开失败时禁止付款，下次用户操作可重试，不自动循环。并发新单只共享一次真实授权，各自保留唯一付款请求和原单回执。
 
-MWP会话缓存只供有效授权复用，不能证明钱包重置后仍有权限。明确rpcCode/code=4100记录wallet_unauthorized，保留固定原始码；原签订单收尾显示“授权失效”，不自动重发。受保护存储mwp/reauthorize仅记录下一单需要重授权，不保存另一份权限或写SDK内部缓存键。
+MWP会话缓存只供有效授权复用，不能证明钱包重置后仍有权限。明确rpcCode/code=4100记录wallet_unauthorized，保留固定原始码；原签订单收尾状态显示“待支付”，详情说明“授权失效”，不自动重发。受保护存储mwp/reauthorize仅记录下一单需要重授权，不保存另一份权限或写SDK内部缓存键。
 
 仅在真实SDK请求全部结束后调用官方公开disconnect，等待公开存储适配器的缓存写入完成。界面超时不释放仍未结束的SDK请求，迟到哈希仍归原订单。下一次用户签名建新单后沿原connect和一次唤起重新授权，严格核对所选链账户和eth_sendTransaction权限后才删除标记并发起该新单唯一付款。新授权取消保留标记；未知错误、超时和断网不当作授权失效。存储失败禁止使用旧授权继续付款。Pixel短时前台服务握手、MWP1.2.0、手动切回和三种业务订单状态保持。
 
 铸块奖励流水使用FullnodeIssuance.FullnodeIssuanceIssued的接收账户、金额和事件身份；奖励无普通交易索引或哈希。App保存正向reward流水，旧事件处理版本游标一次性回退至原startBlock之前并按原32块窗口断点补扫，保留创建/导入时间过滤和既有流水，按账户/区块哈希/事件序号幂等写入。
+
+
+### 充值固定汇率整数金额
+购买数量最低1000公民币且为1000整数倍。USD=GMB/1000；coin_fen为整数分，pay_amount按6或18位最小单位换算，保持u64分额/u128付款量边界，签名前拒绝溢出。package_id由正整数美元份数N唯一派生pkg_N；coin_fen=N×100000，pay_amount=N×10^decimals。原13行签名、16字段confirm与100B付款input/H绑定结构保持。
+GET /api/topup/config以pricing替代固定packages：min_coin_fen="100000"、step_coin_fen="100000"、coin_per_usd="1000"。指纹固定12行：原首行/服务源/创世三行，接上述三个key=value行，最后按USDC/USDT各ethereum/base/bnb顺序六条rail行；UTF8/LF末行LF。服务端拥有业务合同，App和冷钱包随产品交付离线可信快照，控制台不另建报价配置。
+输入初始为空，占位“请输入充值金额”，下方“充值1美元获得1000元公民币，充值仅限1000的整数倍。”，不再单独显示顶部汇率提示。充值金额标题与输入框中心对齐，说明独立下一行并相对输入框右移一个12号汉字（随文字缩放）；支付网络标题与链图标加链名称的整体中心对齐，保留112高触控区。MetaMask标志24×24。付款仅显示两位小数与所选币种（如1.00USDT或1.00USDC），空值或非法值显示0.00USDT或0.00USDC，无“付款金额：”前缀；网络仅中文，圆框39、以太坊/币安内图25、贝斯内图17，原触控区保留。
+不实现旧数据迁移、兼容或旧单改签。原签名建单后连接、一次外部付款、手动切回、4100在途归零后公开disconnect及下一单connect保持。
+
+
+### 充值订单三态显示
+App状态仅待支付、已支付、已完成；付款取消、失败、授权失效仍显示待支付，原因保留在详情，不解除原单防重付。服务端异常不撤销App已支付事实；有效最终成功结果才完成。付款/签名、11轮验款与单次发币请求合同保持。
+
+## 旧聊天恢复（2026-11-19）
+
+旧聊天按本地Git的25fca3f恢复：chat/、平台通道、协议、Isar、MLS认证、推送及页面入口复用原实现。聊天与前台会话重新共用ChatRuntime的MLS身份，构建入口使用chat/mls；保留并行任务的充值、平台装配及Android目录同步修复。
+
+Android公共记录目录在同步前从实际文件句柄复核目录类型、当前进程属主及0700权限；构建回归完整沿用删除前的根包依赖禁止项，保留已有平台隔离检查。
+
+本次仅恢复本地源码及接线，不调整Git提交历史，不推送、不安装、不部署；塔塔聊天和塔塔服务保持原状。
+
+## Android本机编译缓存隔离
+
+scripts/build.mjs 的 compile android 在本轮独占现场创建 GRADLE_USER_HOME。只复用本机已安装的官方 Gradle 9.1.0 发行工具；不下载或替换工具版本。依赖下载缓存 modules-2 按官方布局复制，排除锁和 gc.properties；缺失或复制失败继续交给原 Gradle 解析。旧 kotlin-dsl、transforms、daemon、构建缓存和配置缓存不进入本轮，也不继承 GRADLE_RO_DEP_CACHE。关闭本轮复用构建/配置缓存及常驻守护进程，Kotlin 编译在进程内执行；现场随原编译消费结束清理，不删除共享资源。真实工具缺失、依赖解析或源码编译失败仍准确报告。回归覆盖旧脚本缓存损坏、依赖缓存缺失/不可读、并发现场隔离和真实工具缺失；签名、安装、iOS及任务保留逻辑不变。
+
+本机先创建独占编译现场，Flutter需要暂存或复制时也只写本轮目录。已安装同版Flutter直接执行官方precache，不先领取自建共享缓存锁；旧锁不删除、不等待，不再阻塞已有工具执行。正式Flutter源码和原版本核对仍保留。

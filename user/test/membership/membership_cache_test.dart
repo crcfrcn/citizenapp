@@ -430,7 +430,7 @@ void main() {
     await dispose(tester);
   });
 
-  testWidgets('主动刷新重新核价，云端失败不覆盖会员和价格', (tester) async {
+  testWidgets('主动刷新重新核价，云端失败不显示提示且保留会员和价格', (tester) async {
     await warm();
     await tester.pumpWidget(app());
     await tester.pumpAndSettle();
@@ -441,9 +441,54 @@ void main() {
     expect(reader.priceCalls.length, before + 1);
     expect(find.text('当前会员'), findsOneWidget);
     expect(source.pricesReady, isTrue);
-    expect(find.text('云端用量暂不可用'), findsOneWidget);
+    expect(find.text('1.00 元'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('membership-load-failure-banner')),
+      findsNothing,
+    );
+    expect(find.text('重试'), findsNothing);
     await dispose(tester);
   });
+
+  for (final failure in ['会话缺失', '会话身份不符', '会话异常', '云端请求异常']) {
+    testWidgets('$failure时首次进入和重新进入均不显示提示，保留会员和价格', (tester) async {
+      await warm();
+      if (failure == '会话缺失') {
+        sessions.resolve = () async => const SquareSessionResolution(
+          SquareSessionStatus.serviceUnavailable,
+        );
+      } else if (failure == '会话身份不符') {
+        final other = CreatorTestUser()..cidNumber = f.cidB;
+        sessions.resolve = () async => SquareSessionResolution(
+          SquareSessionStatus.ready,
+          session: sessionFor(other),
+        );
+      } else if (failure == '会话异常') {
+        sessions.resolve = () async => throw StateError('session offline');
+      } else {
+        resources.response = (_) async =>
+            throw const SquareApiException('cloud offline', statusCode: 503);
+      }
+      await tester.pumpWidget(app(route: true));
+      for (var visit = 0; visit < 2; visit++) {
+        await tester.tap(find.text('打开会员'));
+        await tester.pumpAndSettle();
+        expect(find.text('当前会员'), findsOneWidget);
+        expect(find.text('1.00 元'), findsOneWidget);
+        expect(source.pricesReady, isTrue);
+        expect(tester.widget<FilledButton>(frontButton()).onPressed, isNotNull);
+        expect(
+          find.byKey(const ValueKey('membership-load-failure-banner')),
+          findsNothing,
+        );
+        expect(find.text('重试'), findsNothing);
+        await tester.pageBack();
+        await tester.pumpAndSettle();
+      }
+      expect(resources.calls, failure == '云端请求异常' ? 2 : 0);
+      await dispose(tester);
+    });
+  }
 
   testWidgets('命中有效规则用量缓存时重复进入不建会话、不查链、不请求云端', (tester) async {
     await warm();

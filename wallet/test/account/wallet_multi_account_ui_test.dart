@@ -86,7 +86,7 @@ class _Security implements AccountSecurityService {
   ) async => binding;
 }
 
-// 只替身现有服务公开结果，不复制身份规则或建立广场运行态。
+// 只替身现有服务公开结果，不复制身份规则或建立聊天/广场运行态。
 class _CurrentUser extends Fake implements CurrentUserContext {
   @override
   Future<CurrentUser?> resolve() async => null;

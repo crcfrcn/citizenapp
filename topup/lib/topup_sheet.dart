@@ -1,5 +1,5 @@
 import 'package:citizen_sdk/citizen_sdk.dart'
-    show CitizenSdk, CitizenSigningTransform, CitizenSdkException, formatFen;
+    show CitizenSdk, CitizenSigningTransform, CitizenSdkException;
 import 'package:citizen_scanner/qr_sign_session_page.dart'
     show signCitizenPayload;
 import 'package:citizen_system/app_log.dart';
@@ -13,7 +13,7 @@ import 'package:citizen_topup/topup_models.dart';
 import 'package:citizen_topup/topup_webview_page.dart';
 import 'package:citizen_topup/store.dart';
 
-/// 币种由充值入口确定；充值金额默认10000、支付网络默认不选，点击链才开始签名建单并打开MetaMask。
+/// 币种由充值入口确定；充值金额由用户输入、支付网络默认不选，点击链才开始签名建单并打开MetaMask。
 Future<bool?> showTopup(
   BuildContext context, {
   required String accountId,
@@ -34,12 +34,15 @@ Future<bool?> showTopup(
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
-    builder: (_) => TopupSheet(
-      accountId: accountId,
-      token: token,
-      api: api,
-      store: store,
-      paymentOpener: paymentOpener,
+    builder: (context) => Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: TopupSheet(
+        accountId: accountId,
+        token: token,
+        api: api,
+        store: store,
+        paymentOpener: paymentOpener,
+      ),
     ),
   );
 }
@@ -63,7 +66,21 @@ class TopupSheet extends StatefulWidget {
 
 class _TopupSheetState extends State<TopupSheet> {
   late final TopupStore _store = widget.store ?? TopupStore.shared;
-  int _package = 0;
+  final _amount = TextEditingController();
+  final _amountFocus = FocusNode();
+  void _normalizeAmount() {
+    if (!_amountFocus.hasFocus && _quote != null)
+      _amount.text = _quote!.coinDisplay;
+  }
+
+  TopupPackage? get _quote {
+    try {
+      return TopupPackage.input(_amount.text);
+    } on FormatException {
+      return null;
+    }
+  }
+
   bool _busy = false;
   TopupSelection? _selection;
   String? _error;
@@ -72,6 +89,7 @@ class _TopupSheetState extends State<TopupSheet> {
   @override
   void initState() {
     super.initState();
+    _amountFocus.addListener(_normalizeAmount);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && widget.paymentOpener == null) {
         _wallet = context.read<TopupWalletSession?>();
@@ -83,13 +101,19 @@ class _TopupSheetState extends State<TopupSheet> {
   @override
   void dispose() {
     if (_orderId != null) _wallet?.leave(_orderId!);
+    _amountFocus.removeListener(_normalizeAmount);
+    _amountFocus.dispose();
+    _amount.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final catalog = TopupConfig.local();
-    final limit = MediaQuery.sizeOf(context).height * .85;
+    final limit =
+        (MediaQuery.sizeOf(context).height -
+            MediaQuery.viewInsetsOf(context).bottom) *
+        .85;
+    final quote = _quote;
     return ConstrainedBox(
       constraints: BoxConstraints(
         minHeight: limit < 320 ? limit : 320,
@@ -125,61 +149,59 @@ class _TopupSheetState extends State<TopupSheet> {
                   SvgPicture.string(
                     TopupWallet.logo,
                     key: const ValueKey('topup-metamask-logo'),
-                    width: 28,
-                    height: 28,
+                    width: 24,
+                    height: 24,
                     semanticsLabel: 'MetaMask',
                   ),
                   const Flexible(child: Text(' MetaMask 钱包支付')),
                 ],
               ),
-              const SizedBox(height: 8),
-              const Text(
-                '授权后请留在 MetaMask 完成付款。确认或取消后，请切回公民 App。',
-                textAlign: TextAlign.center,
-              ),
               const SizedBox(height: 12),
+              // 说明独立放在下一行，让左侧标题只与输入框本身水平居中对齐。
               _row(
                 '充值金额',
-                Row(
-                  children: [
-                    for (
-                      var index = 0;
-                      index < catalog.packages.length;
-                      index++
-                    ) ...[
-                      if (index > 0) const SizedBox(width: 8),
-                      Expanded(
-                        child: ChoiceChip(
-                          key: ValueKey('topup-package-$index'),
-                          label: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: Text(
-                              '${formatFen(BigInt.parse(catalog.packages[index].coinFen))} 元',
-                            ),
-                          ),
-                          labelStyle: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: _package == index
-                                ? AppTheme.primary
-                                : AppTheme.textPrimary,
-                          ),
-                          checkmarkColor: AppTheme.primary,
-                          selectedColor: AppTheme.primary.withAlpha(24),
-                          selected: _package == index,
-                          onSelected: _busy
-                              ? null
-                              : (_) => setState(() => _package = index),
-                        ),
-                      ),
-                    ],
-                  ],
+                TextField(
+                  key: const ValueKey('topup-amount'),
+                  controller: _amount,
+                  focusNode: _amountFocus,
+                  enabled: !_busy,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: const InputDecoration(hintText: '请输入充值金额'),
+                  onChanged: (_) => setState(() => _error = null),
+                  onEditingComplete: () {
+                    final quote = _quote;
+                    if (quote != null) _amount.text = quote.coinDisplay;
+                    FocusScope.of(context).unfocus();
+                    setState(() {});
+                  },
+                ),
+                bottom: 4,
+              ),
+              Padding(
+                // 与输入框左边缘相比右移一个12号汉字，跟随系统文字缩放。
+                padding: EdgeInsets.only(
+                  left: 80 + MediaQuery.textScalerOf(context).scale(12),
+                  bottom: 8,
+                ),
+                child: const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '充值1美元获得1000元公民币，充值仅限1000的整数倍。',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppTheme.textTertiary,
+                    ),
+                  ),
                 ),
               ),
               Align(
                 alignment: Alignment.centerRight,
                 child: Text(
-                  '付款金额：${catalog.packages[_package].payDisplay}.00美元',
+                  quote == null
+                      ? '0.00${widget.token}'
+                      : '${quote.payDisplay}.00${widget.token}',
                   key: const ValueKey('topup-pay-amount'),
                   style: const TextStyle(color: AppTheme.primary, fontSize: 12),
                 ),
@@ -196,16 +218,18 @@ class _TopupSheetState extends State<TopupSheet> {
                       Expanded(
                         child: _icon(
                           key: ValueKey('topup-network-${network.wire}'),
-                          label: network.label,
+                          label: network.label.split('/').last,
                           selected: _selection?.network == network,
-                          onTap: _busy ? null : () => _pay(catalog, network),
+                          onTap: _busy || quote == null
+                              ? null
+                              : () => _pay(network),
                           child: ExcludeSemantics(
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Container(
-                                  width: 56,
-                                  height: 56,
+                                  width: 39,
+                                  height: 39,
                                   alignment: Alignment.center,
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
@@ -224,18 +248,18 @@ class _TopupSheetState extends State<TopupSheet> {
                                   child: SvgPicture.asset(
                                     'packages/citizen_assets/icons/${network.wire}.svg',
                                     width: network == TopupNetwork.base
-                                        ? 24
-                                        : 36,
+                                        ? 17
+                                        : 25,
                                     height: network == TopupNetwork.base
-                                        ? 24
-                                        : 36,
+                                        ? 17
+                                        : 25,
                                   ),
                                 ),
                                 const SizedBox(height: 6),
                                 FittedBox(
                                   fit: BoxFit.scaleDown,
                                   child: Text(
-                                    '${network.label.split('/').last}\n${network.label.split('/').first}',
+                                    network.label.split('/').last,
                                     textAlign: TextAlign.center,
                                     style: const TextStyle(
                                       fontSize: 12,
@@ -260,14 +284,17 @@ class _TopupSheetState extends State<TopupSheet> {
     );
   }
 
-  Widget _row(String title, Widget value) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 8),
+  Widget _row(String title, Widget value, {double bottom = 8}) => Padding(
+    padding: EdgeInsets.fromLTRB(0, 8, 0, bottom),
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         SizedBox(
           width: 80,
-          child: Text(title, style: const TextStyle(fontSize: 14)),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(title, style: const TextStyle(fontSize: 14)),
+          ),
         ),
         Expanded(child: value),
       ],
@@ -309,13 +336,16 @@ class _TopupSheetState extends State<TopupSheet> {
     ),
   );
 
-  Future<void> _pay(TopupConfig config, TopupNetwork network) async {
-    if (_busy) return;
+  Future<void> _pay(TopupNetwork network) async {
+    if (_busy || _quote == null) return;
+    final quote = _quote!;
+    _amount.text = quote.coinDisplay;
+    FocusScope.of(context).unfocus();
     final route = ModalRoute.of(context);
     final accountId = widget.accountId;
     final selection = TopupSelection(
       token: widget.token,
-      package: config.packages[_package],
+      package: quote,
       network: network,
     );
     setState(() {

@@ -403,14 +403,19 @@ void main() {
         .readAsStringSync();
     expect(source, isNot(contains('HttpServer')));
     expect(source, contains('VideoPlayerController.file(source.file)'));
-    expect(
-      File('ios/source/Info.plist').readAsStringSync(),
-      isNot(contains('NSExceptionAllowsInsecureHTTPLoads')),
-    );
-    expect(
-      platformInput('android/app/src/main/res/xml/network_security_config.xml'),
-      isNot(contains('cleartextTrafficPermitted="true"')),
-    );
+    final platform = Platform.environment['PLATFORM'];
+    if (platform != 'android') {
+      expect(
+        File('ios/source/Info.plist').readAsStringSync(),
+        isNot(contains('NSExceptionAllowsInsecureHTTPLoads')),
+      );
+    }
+    if (platform != 'ios') {
+      expect(
+        platformInput('android/app/src/main/res/xml/network_security_config.xml'),
+        isNot(contains('cleartextTrafficPermitted="true"')),
+      );
+    }
   });
 
   testWidgets('本人帖子头部从UserIsar读取公开昵称，不使用远端头像', (tester) async {

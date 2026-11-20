@@ -2,13 +2,12 @@ import 'package:citizen_user/profile/citizen_profile_cache.dart';
 import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_square/post/square_post_store.dart';
 import 'package:citizen_user/identity/identity_binding.dart';
-import 'package:citizen_user/identity/mls_authentication.dart';
 
 /// 注销用户编排：签名提交或恢复查询 → 云端真实完成 → 逐项清理本地。
 ///
 /// 顺序钉死：**先取得服务端完成回执**（op_tag 0x1D 主钥签名；失败即上抛、绝不清本地，
 /// 保证「服务端没删就别动本地」的一致性），**成功后再清本地**（资料缓存 / 会话缓存 /
-/// 本人广场副本与检查点）。
+/// 本人广场副本与检查点 / SDK所属MLS身份与私信历史）。
 /// 钱包与链上身份不受影响。
 class SquareAccountLocalCleanupException implements Exception {
   const SquareAccountLocalCleanupException(this.failures);
@@ -21,23 +20,30 @@ class SquareAccountLocalCleanupException implements Exception {
 
 class SquareAccountDeletionService {
   SquareAccountDeletionService({
+    required Future<void> Function({
+      required String userId,
+      required String accountId,
+    })
+    clearChatHistory,
     SquareApiClient? apiClient,
     CitizenProfileCache? profileCache,
     CitizenProfileMediaCache? profileMediaCache,
     SquareLocalPostBulkDeletionStore? localPostStore,
-    Future<void> Function(String cidNumber)? eraseDeviceIdentity,
   }) : _api = apiClient ?? SquareApiClient(),
        _profileCache = profileCache ?? const CitizenProfileCache(),
        _profileMediaCache = profileMediaCache ?? CitizenProfileMediaCache(),
-       _eraseDeviceIdentity =
-           eraseDeviceIdentity ?? MlsAuthentication.eraseDeviceIdentity,
+       _clearChatHistory = clearChatHistory,
        _localPostStore = localPostStore ?? const SquarePostStore();
 
   final SquareApiClient _api;
   final CitizenProfileCache _profileCache;
   final CitizenProfileMediaCache _profileMediaCache;
+  final Future<void> Function({
+    required String userId,
+    required String accountId,
+  })
+  _clearChatHistory;
   final SquareLocalPostBulkDeletionStore _localPostStore;
-  final Future<void> Function(String cidNumber) _eraseDeviceIdentity;
 
   /// [signAction] 对 signing_message(0x1D) 摘要用 sr25519 主钥签名（弹生物识别）。
   Future<void> deleteAccount({
@@ -66,11 +72,15 @@ class SquareAccountDeletionService {
     await attempt('广场本人副本', () async {
       await _localPostStore.deleteAllByCid(cidNumber);
     });
-    // 资料缓存的唯一键是 cid_number；account_id 只清理账户级会话。
+    // 资料缓存的唯一键是 cid_number；account_id 只清理账户级会话与 Chat 数据。
     await attempt('资料缓存', () => _profileCache.clear(cidNumber));
     await attempt('资料图片缓存', () => _profileMediaCache.clearCid(cidNumber));
     await attempt('会话缓存', () async => _api.clearSession(accountId));
-    await attempt('设备身份', () => _eraseDeviceIdentity(cidNumber));
+    await attempt(
+      '私信历史',
+      () => _clearChatHistory(userId: cidNumber, accountId: accountId),
+    );
+
     if (failures.isNotEmpty) {
       throw SquareAccountLocalCleanupException(
         List<String>.unmodifiable(failures),

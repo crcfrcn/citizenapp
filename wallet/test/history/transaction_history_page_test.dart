@@ -59,7 +59,7 @@ void main() {
     TopupDraft.create(
       TopupSelection(
         token: 'USDC',
-        package: TopupConfig.local().packages.first,
+        package: TopupConfig.local().packageById('pkg_10'),
         network: TopupNetwork.base,
       ),
       '0x${'04' * 32}',
@@ -402,15 +402,10 @@ void main() {
         'wallet_unauthorized' => '钱包授权已失效，请重新发起充值并完成 MetaMask 授权',
         _ => '付款验证失败，未上传服务端',
       };
-      expect(
-        find.text(switch (code) {
-          'payment_cancelled' => '取消支付',
-          'wallet_unauthorized' => '授权失效',
-          _ => '支付失败',
-        }),
-        findsOneWidget,
-      );
-      expect(find.text('待支付'), findsNothing);
+      expect(find.text('待支付'), findsOneWidget);
+      for (final status in ['取消支付', '支付失败', '授权失效']) {
+        expect(find.text(status), findsNothing);
+      }
       await tester.ensureVisible(find.text(reason));
       expect(find.text(reason), findsOneWidget);
       expect(find.text('付款结果尚未核实，请保留原交易'), findsNothing);

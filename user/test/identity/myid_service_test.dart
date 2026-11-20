@@ -1,3 +1,4 @@
+import 'package:citizen_testing/chat_runtime_fixture.dart';
 import 'package:flutter/widgets.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
 
@@ -9,6 +10,7 @@ import 'package:citizen_user/square_api_client.dart';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_sdk/test/platform/fixture.dart';
+import 'package:chat/chat.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_user/identity/cid_generator.dart';
 import 'package:citizen_citizen/public/admin_division_store.dart';
@@ -112,11 +114,21 @@ void main() {
         divisionStore: _FakeDivisionStore(),
         badgeSnapshotStore: _FakeBadgeStore(),
         nowProvider: () => now ?? DateTime.utc(2026, 6, 1),
+        onChatBindingChanged: (binding, {required existingOnly}) async {
+          final ChatRuntime? runtime = existingOnly
+              ? null
+              : (() => _BindingRuntime())();
+          await runtime?.convergeFinalizedBinding(
+            ChatBinding.fromIdentity(binding),
+          );
+        },
       );
     })();
   }
 
   MyIdService testService({
+    CitizenSdk? signing,
+    bool useDefaultSigner = false,
     _FakeWalletManager? wallet,
     TestChainReads? chain,
     FinalizedIdentityResolver? identityResolver,
@@ -124,16 +136,19 @@ void main() {
     CurrentUserContext? currentUserContext,
     int Function()? cidYearProvider,
     IdentityBadgeSnapshotStore? badgeSnapshotStore,
+    ChatRuntime? runtime,
     SquareSessionProvider? sessionProvider,
   }) {
     final actualWallet = wallet ?? _FakeWalletManager(_aliceWallet);
     final actualChain = chain ?? _FakeChain();
+    final actualRuntime = runtime ?? _BindingRuntime();
+    addTearDown(actualRuntime.close);
     return (() {
       final reads0 = TestTransactionCalls();
       return MyIdService(
         getWalletState: actualWallet.getWalletState,
-        signing: core.sdk,
-        payloadSigner: actualWallet.signPayload,
+        signing: signing ?? core.sdk,
+        payloadSigner: useDefaultSigner ? null : actualWallet.signPayload,
         accountSecurity: actualWallet,
         currentUserContext:
             currentUserContext ?? _InvalidationCountingIdentityCache(),
@@ -156,6 +171,14 @@ void main() {
         badgeSnapshotStore: badgeSnapshotStore ?? _FakeBadgeStore(),
         identityTransaction: identityTransaction,
         cidYearProvider: cidYearProvider,
+        onChatBindingChanged: (binding, {required existingOnly}) async {
+          final ChatRuntime? runtime = existingOnly
+              ? null
+              : (() => actualRuntime)();
+          await runtime?.convergeFinalizedBinding(
+            ChatBinding.fromIdentity(binding),
+          );
+        },
       );
     })();
   }
@@ -604,6 +627,17 @@ void main() {
     expect(state.errorMessage, '请先创建钱包');
   });
 
+  test('MyId 身份只读不构造 ChatRuntime', () async {
+    final liveChatRuntimeCount = ChatRuntime.debugLiveInstanceCount;
+    final service = buildService(noWallet: true);
+    await service.refreshState();
+    expect(
+      ChatRuntime.debugLiveInstanceCount,
+      lessThanOrEqualTo(liveChatRuntimeCount),
+      reason: 'Wallet/MyId 普通读取不得惰性之外构造 ChatRuntime',
+    );
+  });
+
   test('默认账户链上无投票身份时为访客轻节点', () async {
     final state = await buildService(voting: null).refreshState();
     expect(state.tier, MyIdTier.visitor);
@@ -784,6 +818,110 @@ void main() {
     expect(fakeWallet.identityNotifications, 1);
   });
 
+  test('MyIdService默认签名入口签完整授权的0x11摘要，真实SDK外部会话验签通过', () async {
+    final hot = await openTestSdk(
+      modules:
+          CitizenSdkModules.wallet |
+          CitizenSdkModules.signing |
+          CitizenSdkModules.qr,
+      vaultMode: 1,
+    );
+    const mnemonic =
+        'bottom drive obey lake curtain smoke basket hold race lonely fit walk';
+    await hot.sdk.importWallet(mnemonic: mnemonic).result;
+    final profile = await hot.sdk
+        .addAccounts(
+          mnemonic: mnemonic,
+          derivation: CitizenAccountDerivation.sr25519,
+          indices: [1, 2],
+        )
+        .result;
+    final old = profile.accounts.firstWhere((a) => a.index == 1).accountId;
+    final target = profile.accounts.firstWhere((a) => a.index == 2).accountId;
+    final wallet = _FakeWalletManager(
+      _testAccount(
+        accountId: old,
+        accountAddress: citizenSs58FromAccountId(old),
+        accountIndex: 0,
+        name: '原账户',
+      ),
+      accounts: [
+        _testAccount(
+          accountId: target,
+          accountAddress: citizenSs58FromAccountId(target),
+          accountIndex: 2,
+          name: '目标账户',
+        ),
+      ],
+    );
+    final transaction = _FakeIdentityTransaction(currentAccountId: old);
+    final service = testService(
+      signing: hot.sdk,
+      useDefaultSigner: true,
+      wallet: wallet,
+      identityTransaction: transaction,
+      identityResolver: _SequenceResolver([
+        _registeredIdentity(old),
+        _registeredIdentity(target, bindRev: 2),
+      ]),
+    );
+    await service.rebindCidTo(
+      buildContext: null,
+      cidNumber: 'GD-CTZN1-8F3A2B',
+      newAccountId: target,
+    );
+    expect(wallet.signCalls, 0, reason: '必须走生产默认签名入口');
+    final authorization = CitizenIdentityTransaction.buildRebindAuthorization(
+      genesisHash: Uint8List.fromList(List.filled(32, 0x42)),
+      cidNumber: 'GD-CTZN1-8F3A2B',
+      currentAccountId: old,
+      newAccountId: target,
+      expectedBindingRevision: BigInt.one,
+    );
+    final verifier = await openTestSdk(
+      modules:
+          CitizenSdkModules.wallet |
+          CitizenSdkModules.signing |
+          CitizenSdkModules.qr,
+      vaultMode: 1,
+    );
+    await verifier.sdk.importColdAccount(old).result;
+    final pending =
+        await verifier.sdk
+                .beginSigning(
+                  CitizenSigningIntent(
+                    accountId: old,
+                    payload: authorization,
+                    opaqueAction: CitizenQrActions.cidRebind,
+                    externalSignerTransport:
+                        CitizenExternalSignerTransport.qrV1,
+                    transform: CitizenSigningTransform.blake2Domain(
+                      await CitizenSdk.encodePayload(
+                        CitizenSigningPayload.binaryPrefix(kOpSignCidRebind),
+                      ),
+                    ),
+                  ),
+                )
+                .result
+            as CitizenExternalSigningPending;
+    final response = await verifier.sdk.encodeDocument(
+      CitizenQrContent.signResponse(
+        requestId: pending.sessionId,
+        expiresAt: pending.expiresAt,
+        signerAccountId: old,
+        signature: transaction.reboundSignature!,
+      ),
+    );
+    final verified = await verifier.sdk
+        .consumeExternalSignature(
+          sessionId: pending.sessionId,
+          response: response.canonicalText,
+        )
+        .result;
+    expect(verified.signature, transaction.reboundSignature);
+    expect(wallet.bindings.single.accountId, target);
+  });
+
   test('自主换绑保留当前账户授权；finalized 后仅由新账户接管', () async {
     final newAccount = _testAccount(
       accountIndex: 5,
@@ -797,7 +935,9 @@ void main() {
       _registeredIdentity(_validAccountId),
       _registeredIdentity(newAccount.accountId, bindRev: 2),
     ]);
+    final metadataRuntime = _BindingRuntime();
     final service = testService(
+      runtime: metadataRuntime,
       wallet: fakeWallet,
       chain: _FakeChain(),
       identityTransaction: fakeRpc,
@@ -810,6 +950,22 @@ void main() {
       newAccountId: newAccount.accountId,
     );
 
+    // 原账户交付完整授权，动作19与签名域0x11保持独立。
+    expect(fakeWallet.signedAction, CitizenQrActions.cidRebind);
+    expect(fakeWallet.signedAction, 19);
+    expect(fakeWallet.signedAccount, _validAccountId);
+    expect(
+      fakeWallet.signedPayload,
+      CitizenIdentityTransaction.buildRebindAuthorization(
+        genesisHash: Uint8List.fromList(List<int>.filled(32, 0x42)),
+        cidNumber: 'GD-CTZN1-8F3A2B',
+        currentAccountId: _validAccountId,
+        newAccountId: newAccount.accountId,
+        expectedBindingRevision: BigInt.one,
+      ),
+    );
+    expect(fakeWallet.signedPayload!.length, greaterThan(32));
+
     // 链上换绑参数传对。
     expect(fakeRpc.reboundCid, 'GD-CTZN1-8F3A2B');
     expect(fakeRpc.reboundOld, _validAccountId);
@@ -820,6 +976,9 @@ void main() {
     expect(fakeWallet.bindings.single.accountId, newAccount.accountId);
     expect(fakeWallet.bindings.single.bindingRevision, 2);
     expect(fakeWallet.mlsDeviceRegistrationCalls, 0);
+    expect(metadataRuntime.observed!.userId, 'GD-CTZN1-8F3A2B');
+    expect(metadataRuntime.observed!.accountId, newAccount.accountId);
+    expect(metadataRuntime.observed!.bindingRevision, 2);
     expect(fakeRpc.occupiedCid, isNull, reason: '已有公民号换绑收敛不得再次占号');
   });
 
@@ -1087,6 +1246,9 @@ class _FakeWalletManager extends TestWalletReads
   bindings = [];
   final List<String> events = <String>[];
   int signCalls = 0;
+  Uint8List? signedPayload;
+  int? signedAction;
+  String? signedAccount;
   int identityNotifications = 0;
   IdentityBinding? activeBinding;
 
@@ -1116,6 +1278,9 @@ class _FakeWalletManager extends TestWalletReads
     BuildContext? context,
   ) async {
     signCalls++;
+    signedPayload = Uint8List.fromList(payload);
+    signedAction = action;
+    signedAccount = accountId;
     return Uint8List(64);
   }
 
@@ -1183,6 +1348,11 @@ class _NotifyingWalletManager extends _FakeWalletManager {
     );
     if (notify) notifyIdentityBindingChanged();
   }
+}
+
+class _UnusedChatHost implements ChatRuntimeFixture {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _UnusedSessionProvider implements SquareSessionProvider {
@@ -1278,7 +1448,14 @@ FinalizedIdentity _registeredIdentity(
 
 /// 记录占号 / 换绑调用参数的假 RPC(不上链),验证 service 编排把账户与 CID 传对。
 class _FakeIdentityTransaction extends CitizenIdentityTransaction {
-  _FakeIdentityTransaction({this.rebindError, this.onRebound}) : super();
+  _FakeIdentityTransaction({
+    this.rebindError,
+    this.onRebound,
+    this.currentAccountId = _validAccountId,
+  }) : super();
+
+  final String currentAccountId;
+  Uint8List? reboundSignature;
 
   final Object? rebindError;
   final void Function()? onRebound;
@@ -1321,6 +1498,7 @@ class _FakeIdentityTransaction extends CitizenIdentityTransaction {
     reboundCid = cidNumber;
     reboundNew = newAccountId;
     reboundOld = currentAccountId;
+    reboundSignature = Uint8List.fromList(currentAccountSignature);
     onRebound?.call();
     return (txHash: '0xtx', usedNonce: 0, blockHash: '0xblk');
   }
@@ -1332,9 +1510,8 @@ class _FakeIdentityTransaction extends CitizenIdentityTransaction {
     fetchRebindContextCalls++;
     return SelfRebindAuthorizationContext(
       genesisHash: Uint8List.fromList(List<int>.filled(32, 0x42)),
-      currentAccountId: _validAccountId,
+      currentAccountId: currentAccountId,
       expectedBindingRevision: BigInt.one,
-      expiresAt: BigInt.from(1900000000),
     );
   }
 }
@@ -1509,6 +1686,15 @@ class _LocalCurrentUser implements CurrentUserContext {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _BindingRuntime extends TestChatRuntime {
+  _BindingRuntime() : super(host: _UnusedChatHost());
+  ChatBinding? observed;
+  @override
+  Future<void> convergeFinalizedBinding(ChatBinding current) async {
+    observed = current;
+  }
 }
 
 /// 公开同步用例仍核对每次本机代际；错误不会触发第二次链读取。

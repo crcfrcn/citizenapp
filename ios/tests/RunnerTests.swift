@@ -7,6 +7,27 @@ import XCTest
 @testable import Runner
 
 class RunnerTests: XCTestCase {
+
+
+  func testChatStorageRequiresVerifiedFileProtection() throws {
+    let manager = FileManager.default
+    let root = manager.temporaryDirectory.appendingPathComponent("chat-protection-" + UUID().uuidString, isDirectory: true)
+    try manager.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? manager.removeItem(at: root) }
+    #if targetEnvironment(simulator)
+    // 模拟器不提供设备文件保护；生产校验必须拒绝放行。
+    XCTAssertThrowsError(try ChatStorageChannel.protectOwnedData(root))
+    XCTAssertNil(try manager.attributesOfItem(atPath: root.path)[.protectionKey])
+    #else
+    try ChatStorageChannel.protectOwnedData(root)
+    XCTAssertEqual(try manager.attributesOfItem(atPath: root.path)[.protectionKey] as? FileProtectionType, .completeUntilFirstUserAuthentication)
+    #endif
+    XCTAssertEqual((try manager.attributesOfItem(atPath: root.path)[.posixPermissions] as? NSNumber)?.intValue, 0o700)
+    XCTAssertEqual(try root.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup, true)
+  }
+
+
+
   func testStoreRegistrationAndCountryUseOfficialIdentifiers() {
     XCTAssertEqual(AppDelegate.appStoreId(["AppStoreId":"6800953222"]), "6800953222")
     XCTAssertNil(AppDelegate.appStoreId([:]))

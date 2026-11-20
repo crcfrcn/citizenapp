@@ -225,7 +225,7 @@ int _asInt(Object? value) {
   return int.tryParse(value?.toString() ?? '') ?? 0;
 }
 
-/// 公民名片模型，不代表完整主页，也不能写入完整主页缓存。
+/// 聊天显示模型，不代表完整主页，也不能写入完整主页缓存。
 final class CitizenProfileCard extends CitizenProfile {
   CitizenProfileCard(Map<String, dynamic> card)
     : super(

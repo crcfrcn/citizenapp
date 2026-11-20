@@ -51,6 +51,14 @@ class AppFlowInstrumentedTest {
         main(); creator()
     }
 
+    @Test fun chatResumesWithoutSending() {
+        main(); tab("聊天"); chatReady()
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_HOME)
+        val intent = context.packageManager.getLaunchIntentForPackage(packageName)!!
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+        await { node("聊天") != null }; chatReady()
+    }
 
     companion object {
         internal val instrumentation get() = InstrumentationRegistry.getInstrumentation()
@@ -107,9 +115,9 @@ class AppFlowInstrumentedTest {
         internal fun tab(label: String) { tap(label) }
         internal fun back() { instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK) }
         internal fun ready(): Boolean {
-            await(30000) { node("创建钱包") != null || node("广场") != null || node("稍后再说") != null }
+            await(30000) { node("创建钱包") != null || node("聊天") != null || node("稍后再说") != null }
             node("稍后再说")?.let { click(it) }
-            await(30000) { node("创建钱包") != null || node("广场") != null }
+            await(30000) { node("创建钱包") != null || node("聊天") != null }
             return node("创建钱包") != null
         }
         internal fun main() { launch(); assumeTrue("须预置已解锁隔离账户", !ready()) }
@@ -124,6 +132,12 @@ class AppFlowInstrumentedTest {
             click(node("创作者")!!)
             await(1000) { nodes().any { n -> listOf(n.text,n.contentDescription).any { t -> t?.contains("我的创作者会员") == true } } }
             assertTrue("点击至创作者内容就绪须在1秒内", SystemClock.elapsedRealtime() - started <= 1000)
+        }
+        internal fun chatReady() {
+            await(30000) { node("新建") != null }
+            await(30000) { node("正在读取本地会话") == null }
+            assertNull(node("聊天暂时无法使用，请稍后重试"))
+            assertNull(node("验证并准备聊天与通讯录密钥"))
         }
         internal fun scroll() {
             val scroll = nodes().firstOrNull { it.isScrollable }

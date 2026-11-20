@@ -57,9 +57,8 @@ class _MembershipPageState extends State<MembershipPage>
   SquareResourceAuthorization? _resources;
   Timer? _priceTimer;
   int _generation = 0;
-  String? _chainFailure, _resourceFailure;
+  String? _chainFailure;
   bool get _refreshing => _chainLoading || _resourceLoading;
-  String? get _loadFailure => _chainFailure ?? _resourceFailure;
   SquareSessionStatus? _sessionStatus;
   late final AnimationController _snapController;
   Animation<double>? _snapAnim;
@@ -277,10 +276,8 @@ class _MembershipPageState extends State<MembershipPage>
       );
       if (!_current(generation)) return;
       _resources = resources;
-      _resourceFailure = null;
     } on Object {
-      if (!_current(generation)) return;
-      _resourceFailure = '云端用量暂不可用';
+      // 云端规则及用量读取失败静默结束，不向会员页添加提示。
     } finally {
       if (_current(generation)) {
         _resourceLoading = false;
@@ -296,7 +293,6 @@ class _MembershipPageState extends State<MembershipPage>
       _chainLoading = false;
       _resourceLoading = false;
       _chainFailure = null;
-      _resourceFailure = null;
     });
     try {
       if (_currentUser == null || _chainData == null)
@@ -569,10 +565,10 @@ class _MembershipPageState extends State<MembershipPage>
               child: const Text('注册'),
             ),
           ),
-        if (_loadFailure != null)
+        if (_chainFailure != null)
           _LoadFailureBanner(
             key: const ValueKey('membership-load-failure-banner'),
-            message: _loadFailure!,
+            message: _chainFailure!,
             onRetry: _retryLoad,
           ),
         if (state.cleanupAfter case final deadline?)
@@ -730,7 +726,7 @@ class _MembershipViewData {
 }
 
 /// 单张会员档卡（ADR-037）：一张卡 = 一个订阅档（自由/民主/薪火）。档色顶带 + 大字档名
-/// + 会员权益（公文 / 文章 / 视频）+ 公民币月价 + 订阅按钮。无任何身份字段。
+/// + 会员权益（完整聊天矩阵 / 公文 / 文章 / 视频）+ 公民币月价 + 订阅按钮。无任何身份字段。
 class _MembershipTierCard extends StatelessWidget {
   const _MembershipTierCard({
     required this.memberLevel,
@@ -823,6 +819,25 @@ class _MembershipTierCard extends StatelessWidget {
                             color: tierColor,
                           ),
                           SizedBox(height: AppLayout.scaled(context, 10)),
+                          // 原七行顺序、图标和排版保持；只更新文案，完整权益见详情。
+                          _ParamLine(
+                            icon: Icons.chat_bubble_outline,
+                            color: tierColor,
+                            text: '聊天 文字/表情/贴纸/图片',
+                          ),
+                          SizedBox(height: AppLayout.scaled(context, 8)),
+                          _ParamLine(
+                            icon: Icons.mic_none_outlined,
+                            color: tierColor,
+                            text: '语音/视频消息 ${benefits.voice} · 语音/视频通话',
+                          ),
+                          SizedBox(height: AppLayout.scaled(context, 8)),
+                          _ParamLine(
+                            icon: Icons.attach_file_outlined,
+                            color: tierColor,
+                            text: '聊天附件 每个 ${benefits.file}',
+                          ),
+                          SizedBox(height: AppLayout.scaled(context, 8)),
                           _ParamLine(
                             icon: Icons.videocam_outlined,
                             color: tierColor,

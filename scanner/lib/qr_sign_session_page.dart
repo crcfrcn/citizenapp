@@ -71,7 +71,7 @@ Future<Uint8List> signCitizenPayload({
           transform: signingTransform,
           externalSignerTransport: CitizenExternalSignerTransport.qrV1,
           opaqueAction: action,
-          ttlSeconds: 120,
+          ttlSeconds: 300,
         ),
       )
       .result;
@@ -440,8 +440,9 @@ class _SimpleScannerState extends State<_SimpleScanner> {
     final message = failure.kind == ScannerFailureKind.noQrCode
         ? '未识别到二维码'
         : failure.message;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override

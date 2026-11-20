@@ -41,7 +41,9 @@ void main() {
   TestCitizenSdkHarness();
   late CitizenRuntimeContext runtime;
   setUpAll(() async {
-    runtime = await CitizenSdkTestFixture.runtimeContext(_finalized('0x${'01' * 32}'));
+    runtime = await CitizenSdkTestFixture.runtimeContext(
+      _finalized('0x${'01' * 32}'),
+    );
   });
 
   // 采用链端 CTZN 金标号做样本(26 字节 ASCII)。
@@ -52,7 +54,10 @@ void main() {
 
   group('self_occupy_cid call data', () {
     test('布局 [10,5, compact(len), ...cid.utf8]', () async {
-      final call = CitizenIdentityTransaction.buildSelfOccupyCidCall(cid, runtime: runtime);
+      final call = CitizenIdentityTransaction.buildSelfOccupyCidCall(
+        cid,
+        runtime: runtime,
+      );
       expect(call[0], 10);
       expect(call[1], 5);
       expect(call[2], compactCid);
@@ -62,11 +67,17 @@ void main() {
 
     test('空 / 超 32 字节 cid 被拒', () async {
       expect(
-        () => CitizenIdentityTransaction.buildSelfOccupyCidCall('', runtime: runtime),
+        () => CitizenIdentityTransaction.buildSelfOccupyCidCall(
+          '',
+          runtime: runtime,
+        ),
         throwsArgumentError,
       );
       expect(
-        () => CitizenIdentityTransaction.buildSelfOccupyCidCall('X' * 33, runtime: runtime),
+        () => CitizenIdentityTransaction.buildSelfOccupyCidCall(
+          'X' * 33,
+          runtime: runtime,
+        ),
         throwsArgumentError,
       );
     });
@@ -75,14 +86,13 @@ void main() {
   group('self_rebind_cid_account_id call data', () {
     final sig = Uint8List(64)..fillRange(0, 64, 0xAB);
     final revision = BigInt.from(0x01020304);
-    final expiresAt = BigInt.from(0x11121314);
 
     test('布局 [10,9,cid,revision:u64LE,expires:u64LE,sig]', () async {
       final call = CitizenIdentityTransaction.buildSelfRebindCidAccountCall(
         runtime: runtime,
         cidNumber: cid,
         expectedBindingRevision: revision,
-        expiresAt: expiresAt,
+
         currentAccountSignature: sig,
       );
       expect(call.sublist(0, 2), <int>[10, 9]);
@@ -99,19 +109,7 @@ void main() {
         0,
         0,
       ]);
-      const expiresStart = revisionStart + 8;
-      expect(call.sublist(expiresStart, expiresStart + 8), <int>[
-        0x14,
-        0x13,
-        0x12,
-        0x11,
-        0,
-        0,
-        0,
-        0,
-      ]);
-      // sig 段:BoundedVec<u8> ⇒ compact(64) 两字节 [0x01,0x01] ++ 64 字节。
-      const sigStart = expiresStart + 8;
+      const sigStart = revisionStart + 8;
       expect(call.sublist(sigStart, sigStart + 2), <int>[0x01, 0x01]);
       expect(call.sublist(sigStart + 2), sig);
       expect(call.length, sigStart + 2 + 64); // 111
@@ -123,7 +121,7 @@ void main() {
           runtime: runtime,
           cidNumber: cid,
           expectedBindingRevision: revision,
-          expiresAt: expiresAt,
+
           currentAccountSignature: Uint8List(63),
         ),
         throwsArgumentError,
@@ -133,7 +131,7 @@ void main() {
           runtime: runtime,
           cidNumber: cid,
           expectedBindingRevision: BigInt.one << 64,
-          expiresAt: expiresAt,
+
           currentAccountSignature: sig,
         ),
         throwsArgumentError,
@@ -141,7 +139,7 @@ void main() {
     });
   });
 
-  group('rebind 当前账户授权摘要', () {
+  group('rebind 完整授权与原摘要', () {
     final genesisHash = Uint8List.fromList(List<int>.filled(32, 0x22));
     const currentAccount =
         '0x3333333333333333333333333333333333333333333333333333333333333333';
@@ -150,19 +148,17 @@ void main() {
     final currentAccountBytes = Uint8List.fromList(List<int>.filled(32, 0x33));
     final newAccountBytes = Uint8List.fromList(List<int>.filled(32, 0x11));
     final revision = BigInt.from(0x01020304);
-    final expiresAt = BigInt.from(0x11121314);
 
     test('op=0x11 且字段逐字节对齐 CidRebindAuthorization SCALE', () async {
-      final digest = await CitizenIdentityTransaction.buildRebindSigningDigest(
+      final authorization = CitizenIdentityTransaction.buildRebindAuthorization(
         genesisHash: genesisHash,
         cidNumber: cid,
         currentAccountId: currentAccount,
         newAccountId: newAccount,
         expectedBindingRevision: revision,
-        expiresAt: expiresAt,
       );
       expect(kOpSignCidRebind, 0x11);
-      expect(digest.length, 32);
+      expect(authorization.length, 131);
 
       final payload = <int>[
         ...genesisHash,
@@ -178,14 +174,6 @@ void main() {
         0,
         0,
         0,
-        0x14,
-        0x13,
-        0x12,
-        0x11,
-        0,
-        0,
-        0,
-        0,
       ];
       final expected = (await CitizenSdk.encodePayload(
         CitizenSigningPayload.message(
@@ -193,68 +181,68 @@ void main() {
           scalePayload: Uint8List.fromList(payload),
         ),
       ));
+      expect(authorization, payload);
+      final digest = await CitizenSdk.encodePayload(
+        CitizenSigningPayload.message(
+          opTag: kOpSignCidRebind,
+          scalePayload: authorization,
+        ),
+      );
       expect(digest, expected);
       expect(
         digest.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join(),
-        '15c430a70f07e25fee7b6023f6a24759994360cf07138da8f87a5aa5365cbf32',
+        '648df90f231b32d1e0665fd54a9dca94381a739689a665a69d83857941520d4d',
       );
     });
 
-    test('创世/当前账户/revision/expiry 任一变化都不能重放此前摘要', () async {
-      Future<Uint8List> digest({
+    test('创世/当前账户/revision 任一变化均改变完整授权', () async {
+      Uint8List authorization({
         Uint8List? genesis,
         String? old,
         BigInt? revisionValue,
-        BigInt? expiresValue,
-      }) => CitizenIdentityTransaction.buildRebindSigningDigest(
+      }) => CitizenIdentityTransaction.buildRebindAuthorization(
         genesisHash: genesis ?? genesisHash,
         cidNumber: cid,
         currentAccountId: old ?? currentAccount,
         newAccountId: newAccount,
         expectedBindingRevision: revisionValue ?? revision,
-        expiresAt: expiresValue ?? expiresAt,
       );
 
-      final baseline = await digest();
-      expect(await digest(genesis: Uint8List(32)..[0] = 1), isNot(baseline));
-      expect(await digest(old: '0x${'44' * 32}'), isNot(baseline));
+      final baseline = authorization();
+      expect(authorization(genesis: Uint8List(32)..[0] = 1), isNot(baseline));
+      expect(authorization(old: '0x${'44' * 32}'), isNot(baseline));
       expect(
-        await digest(revisionValue: revision + BigInt.one),
-        isNot(baseline),
-      );
-      expect(
-        await digest(expiresValue: expiresAt + BigInt.one),
+        authorization(revisionValue: revision + BigInt.one),
         isNot(baseline),
       );
     });
 
     test('非法 newAccountId 文本被拒', () {
-      // 账户边界在返回编码Future前同步拒绝；闭包捕获该原始异常，不改变生产时序。
+      // 完整授权在交付签名端前同步拒绝非法账户。
       expect(
-        () => CitizenIdentityTransaction.buildRebindSigningDigest(
+        () => CitizenIdentityTransaction.buildRebindAuthorization(
           genesisHash: genesisHash,
           cidNumber: cid,
           currentAccountId: currentAccount,
           newAccountId: 'not-hex',
           expectedBindingRevision: revision,
-          expiresAt: expiresAt,
         ),
         throwsArgumentError,
       );
     });
   });
 
-  test('换绑上下文在同一 finalized 块读取当前账户/revision/链上时间', () async {
+  test('换绑上下文同块读取当前账户与revision，不读取区块时间', () async {
     final rpc = _RebindContextChain();
-    final context = await _transaction(rpc)
-        .fetchSelfRebindAuthorizationContext(cid);
+    final context = await _transaction(
+      rpc,
+    ).fetchSelfRebindAuthorizationContext(cid);
 
     expect(context.genesisHash, Uint8List.fromList(List<int>.filled(32, 0x22)));
     expect(context.currentAccountId, '0x${'33' * 32}');
     expect(context.expectedBindingRevision, BigInt.from(7));
-    expect(context.expiresAt, BigInt.from(1700000300));
-    expect(rpc.readBlockHashes, List<String>.filled(3, '0x${'55' * 32}'));
-    expect(rpc.storageKeys.toSet().length, 3);
+    expect(rpc.readBlockHashes, List<String>.filled(2, '0x${'55' * 32}'));
+    expect(rpc.storageKeys.toSet().length, 2);
     expect(rpc.batchCalls, 1);
   });
 
@@ -364,7 +352,6 @@ class _RebindContextChain extends TestChainReads {
     return switch (_readIndex++) {
       0 => Uint8List.fromList(List<int>.filled(32, 0x33)),
       1 => _u64(revision),
-      2 => _u64(BigInt.from(1700000000000)),
       _ => throw StateError('unexpected storage read'),
     };
   }

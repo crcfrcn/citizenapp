@@ -1,15 +1,9 @@
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:convert';
-import 'dart:ffi';
-import 'dart:io';
 
 import 'package:crypto/crypto.dart';
-import 'package:ffi/ffi.dart';
-import 'package:flutter/services.dart';
-import 'package:path/path.dart' as path;
 import 'package:citizen_network/mls_authentication.dart' as mls;
-import 'package:citizen_system/security/system_protected_storage.dart';
 
 typedef MlsAccountBinding = ({String cidNumber, String accountId, int bindRev});
 
@@ -62,10 +56,10 @@ abstract interface class MlsAuthenticationSource {
   });
 }
 
-/// 设备认证只使用当前绑定和受保护的签名存储。
+/// 前台会话与聊天复用唯一运行实例；认证不访问权益、网络或钱包。
 class MlsAuthentication implements MlsAuthenticationSource {
   MlsAuthentication({
-    required Future<mls.DeviceIdentity> Function() readLocalIdentity,
+    required Future<mls.ChatDevice> Function() readLocalIdentity,
     required Future<mls.MlsAuthenticationProof> Function(
       mls.MlsAuthenticationRequest request,
     )
@@ -74,67 +68,12 @@ class MlsAuthentication implements MlsAuthenticationSource {
   }) : _readLocalIdentity = readLocalIdentity,
        _createProof = createProof,
        _currentBinding = currentBinding;
-  factory MlsAuthentication.native({
-    required Future<MlsAccountBinding> Function() currentBinding,
-  }) {
-    return MlsAuthentication(
-      currentBinding: currentBinding,
-      readLocalIdentity: () async {
-        final binding = await currentBinding();
-        final response = await _DeviceStore.call(binding.cidNumber, 'prepare');
-        return mls.DeviceIdentity(
-          userId: response['user_id'] as String,
-          deviceId: response['device_id'] as String,
-          publicKey: response['public_key'] as String,
-        );
-      },
-      createProof: (request) async {
-        request.validate();
-        final binding = await currentBinding();
-        final response =
-            await _DeviceStore.call(binding.cidNumber, 'sign_authentication', {
-              'account_id': binding.accountId,
-              'bind_rev': binding.bindRev,
-              'request': request.toJson(),
-            });
-        return mls.MlsAuthenticationProof.fromJson(
-          response.cast<String, Object>(),
-        );
-      },
-    );
-  }
-
-  final Future<mls.DeviceIdentity> Function() _readLocalIdentity;
+  final Future<mls.ChatDevice> Function() _readLocalIdentity;
   final Future<mls.MlsAuthenticationProof> Function(
     mls.MlsAuthenticationRequest request,
   )
   _createProof;
   final Future<MlsAccountBinding> Function() _currentBinding;
-  static bool _deviceAccessBlocked = false;
-
-  /// 全量擦除进程禁止再生成或交付设备认证。
-  static void blockDeviceAccess() => _deviceAccessBlocked = true;
-
-  static final _deviceGenerations = <String, int>{};
-  static final _retiring = <String>{};
-
-  /// 注销完成后只擦除该 CID 的设备身份，不打开钱包存储。
-  static Future<void> eraseDeviceIdentity(String cidNumber) async {
-    if (!_retiring.add(cidNumber)) {
-      throw StateError('设备身份正在擦除');
-    }
-    _deviceGenerations.update(
-      cidNumber,
-      (value) => value + 1,
-      ifAbsent: () => 1,
-    );
-    try {
-      await SystemProtectedStorage.eraseDeviceStorage(cidNumber: cidNumber);
-    } finally {
-      _retiring.remove(cidNumber);
-    }
-  }
-
   bool _closed = false;
 
   /// SDK关闭与业务释放之前同步封住新认证和晚返回。
@@ -144,7 +83,7 @@ class MlsAuthentication implements MlsAuthenticationSource {
 
   @override
   Future<MlsAuthenticationIdentity> readIdentity() async {
-    if (_closed || _deviceAccessBlocked) {
+    if (_closed) {
       throw const MlsAuthenticationException(
         'MLS认证已关闭',
         code: 'identityChanged',
@@ -175,7 +114,6 @@ class MlsAuthentication implements MlsAuthenticationSource {
     identity.validate();
     final binding = await _currentBinding();
     if (_closed ||
-        _deviceAccessBlocked ||
         binding.cidNumber != identity.cidNumber ||
         binding.accountId != identity.accountId ||
         binding.bindRev != identity.bindRev) {
@@ -231,144 +169,5 @@ void validateMlsProofMatches(
       !RegExp(r'^0x[0-9a-f]{128}$').hasMatch(signature) ||
       !expected.entries.every((entry) => fields[entry.key] == entry.value)) {
     throw const MlsAuthenticationException('MLS证明与准确请求不一致');
-  }
-}
-
-typedef MlsJsonNative =
-    Pointer<Utf8> Function(
-      Pointer<Utf8> requestJson,
-      Pointer<Pointer<Utf8>> errorOut,
-    );
-typedef MlsJsonDart =
-    Pointer<Utf8> Function(
-      Pointer<Utf8> requestJson,
-      Pointer<Pointer<Utf8>> errorOut,
-    );
-typedef MlsFreeStringNative = Void Function(Pointer<Utf8> ptr);
-typedef MlsFreeStringDart = void Function(Pointer<Utf8> ptr);
-
-final class _DeviceStore {
-  _DeviceStore(DynamicLibrary library)
-    : _identity = library.lookupFunction<MlsJsonNative, MlsJsonDart>(
-        'mls_identity_json',
-      ),
-      _freeString = library
-          .lookupFunction<MlsFreeStringNative, MlsFreeStringDart>(
-            'mls_free_string',
-          );
-
-  static const _channel = MethodChannel('citizenapp/system_protected_data');
-  static final _DeviceStore _native = _DeviceStore(_loadMlsLibrary());
-
-  final MlsJsonDart _identity;
-  final MlsFreeStringDart _freeString;
-
-  static Future<Map<String, dynamic>> call(
-    String owner,
-    String action, [
-    Map<String, Object?> fields = const {},
-  ]) async {
-    final generation = MlsAuthentication._deviceGenerations[owner];
-    if (MlsAuthentication._deviceAccessBlocked ||
-        MlsAuthentication._retiring.contains(owner)) {
-      throw const MlsAuthenticationException('设备签名已停止');
-    }
-    final storage = await _channel.invokeMethod<String>(
-      'prepareDeviceStorage',
-      {'user_id': owner},
-    );
-    if (storage == null || !path.isAbsolute(storage)) {
-      throw const MlsAuthenticationException('设备签名存储不可用');
-    }
-    if (MlsAuthentication._deviceAccessBlocked ||
-        MlsAuthentication._retiring.contains(owner) ||
-        MlsAuthentication._deviceGenerations[owner] != generation) {
-      throw const MlsAuthenticationException('设备签名已停止');
-    }
-    return _native.callJson({
-      'state_store_dir': storage,
-      'user_id': owner,
-      'action': action,
-      ...fields,
-    });
-  }
-
-  Map<String, dynamic> callJson(Map<String, Object?> request) {
-    const operation = mls.MlsOperation.identity;
-    final requestPtr = jsonEncode(request).toNativeUtf8();
-    final errorOut = calloc<Pointer<Utf8>>();
-    Pointer<Utf8> resultPtr = nullptr;
-    try {
-      resultPtr = _identity(requestPtr, errorOut);
-      if (resultPtr == nullptr) {
-        final errorPtr = errorOut.value;
-        final message = errorPtr == nullptr
-            ? 'OpenMLS native 调用失败'
-            : errorPtr.toDartString();
-        if (errorPtr != nullptr) {
-          _freeString(errorPtr);
-        }
-        throw mls.MlsException.fromTechnicalMessage(
-          message,
-          operation: operation,
-        );
-      }
-      try {
-        final json = jsonDecode(resultPtr.toDartString());
-        if (json is! Map<String, dynamic>) throw const FormatException();
-        return json;
-      } on FormatException {
-        throw mls.MlsException(
-          mls.MlsErrorCode.invalidResponse,
-          'OpenMLS native响应JSON结构无效',
-          operation: operation,
-        );
-      }
-    } finally {
-      calloc.free(requestPtr);
-      calloc.free(errorOut);
-      if (resultPtr != nullptr) {
-        _freeString(resultPtr);
-      }
-    }
-  }
-}
-
-DynamicLibrary _loadMlsLibrary() {
-  // iOS由App直接嵌入MLS.framework，Dart读取同一进程的C接口。
-  // 原生设备签名随 App 交付。
-  if (Platform.isIOS) return DynamicLibrary.process();
-  if (Platform.environment.containsKey('FLUTTER_TEST')) {
-    final work = Platform.environment['CITIZENAPP_TEST_WORK_DIR'];
-    final library = Platform.environment['MLS_TEST_LIBRARY'];
-    if (work == null ||
-        library == null ||
-        !path.isAbsolute(work) ||
-        !path.isAbsolute(library) ||
-        path.normalize(work) != work ||
-        path.normalize(library) != library ||
-        FileSystemEntity.typeSync(work, followLinks: false) !=
-            FileSystemEntityType.directory ||
-        Directory(work).resolveSymbolicLinksSync() != work ||
-        FileSystemEntity.typeSync(library, followLinks: false) !=
-            FileSystemEntityType.file ||
-        File(library).resolveSymbolicLinksSync() != library ||
-        !path.isWithin(work, library)) {
-      throw mls.MlsException(
-        mls.MlsErrorCode.libraryUnavailable,
-        '测试MLS动态库必须显式属于本轮验证任务',
-      );
-    }
-    return DynamicLibrary.open(library);
-  }
-  if (!Platform.isAndroid) throw UnsupportedError('设备签名仅支持Android与iOS');
-  const library = 'libmls.so';
-  try {
-    return DynamicLibrary.open(library);
-  } on Object {
-    throw mls.MlsException(
-      mls.MlsErrorCode.libraryUnavailable,
-      '无法加载公民设备签名动态库',
-    );
   }
 }

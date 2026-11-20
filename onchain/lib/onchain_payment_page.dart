@@ -40,7 +40,7 @@ final class TransactionNavigation {
 /// 交易 Tab 页面。
 ///
 /// 本页只负责交易页入口编排；链上支付主体仍由 onchain 模块渲染。
-/// 扫码收在收款地址输入框内（只填地址）；签名请求统一走「钱包账户详情 → 扫一扫」。
+/// 扫码收在收款地址输入框内（只填地址）；签名请求统一走「聊天 → 扫一扫」。
 class TransactionTabPage extends StatelessWidget {
   const TransactionTabPage({
     super.key,

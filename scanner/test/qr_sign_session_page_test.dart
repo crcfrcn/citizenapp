@@ -36,7 +36,7 @@ CitizenQrDocument _request({int? expiresAt}) => CitizenQrDocument(
   canonicalText: 'synthetic-request',
   scanPurposeMask: 80,
   requestId: _requestId,
-  expiresAt: expiresAt ?? DateTime.now().millisecondsSinceEpoch ~/ 1000 + 120,
+  expiresAt: expiresAt ?? DateTime.now().millisecondsSinceEpoch ~/ 1000 + 300,
   action: 0x0400,
   signerAccountId: _account,
   reviewPayload: Uint8List.fromList([4, 0, 1]),
@@ -50,7 +50,7 @@ void main() {
       CitizenQrContent.signResponse(
         requestId: _requestId,
         expiresAt: BigInt.from(
-          DateTime.now().millisecondsSinceEpoch ~/ 1000 + 120,
+          DateTime.now().millisecondsSinceEpoch ~/ 1000 + 300,
         ),
         signerAccountId: _account,
         signature: Uint8List(64),
@@ -99,6 +99,13 @@ void main() {
     await tester.tap(find.text('打开原冷签页'));
     await tester.pumpAndSettle();
   }
+
+  testWidgets('扫码页面显示SDK的300秒设备时间会话', (tester) async {
+    final validator = _Validation();
+    await open(tester, validator, completed: (_) {});
+    expect(find.textContaining('300'), findsWidgets);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 
   testWidgets('原标题、倒计时图标、提示文字和双按钮保留，错签名留页重扫', (tester) async {
     final qr = _Validation();

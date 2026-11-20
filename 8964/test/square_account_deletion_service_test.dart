@@ -1,3 +1,4 @@
+import 'package:citizen_testing/chat_runtime_fixture.dart';
 import 'dart:typed_data';
 
 import 'package:citizen_user/identity/identity_binding.dart';
@@ -65,6 +66,30 @@ class _FakeMediaCache extends CitizenProfileMediaCache {
   }
 }
 
+class _FakeChatRuntime extends TestChatRuntime {
+  _FakeChatRuntime() : super(host: _UnusedChatHost());
+
+  bool cleared = false;
+  String? erasedCid;
+  String? erasedAccount;
+  int eraseCalls = 0;
+  @override
+  Future<void> clearAllForUserId({
+    required String userId,
+    required String accountId,
+  }) async {
+    cleared = true;
+    erasedCid = userId;
+    erasedAccount = accountId;
+    eraseCalls++;
+  }
+}
+
+class _UnusedChatHost implements ChatRuntimeFixture {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 class _FakeLocalPostStore implements SquareLocalPostBulkDeletionStore {
   _FakeLocalPostStore({this.fail = false});
 
@@ -86,13 +111,14 @@ void main() {
     final api = _FakeApi();
     final cache = _FakeCache();
     final mediaCache = _FakeMediaCache();
+    final chatRuntime = _FakeChatRuntime();
     final localPostStore = _FakeLocalPostStore();
     final service = SquareAccountDeletionService(
       apiClient: api,
       profileCache: cache,
       profileMediaCache: mediaCache,
       localPostStore: localPostStore,
-      eraseDeviceIdentity: (cid) async => expect(cid, _cidNumber),
+      clearChatHistory: (chatRuntime).clearAllForUserId,
     );
 
     await service.deleteAccount(
@@ -106,6 +132,10 @@ void main() {
     expect(cache.clearedCidNumber, isNot(_owner));
     expect(mediaCache.clearedCidNumber, _cidNumber);
     expect(api.sessionCleared, isTrue);
+    expect(chatRuntime.cleared, isTrue);
+    expect(chatRuntime.eraseCalls, 1);
+    expect(chatRuntime.erasedCid, _cidNumber);
+    expect(chatRuntime.erasedAccount, _owner);
     expect(localPostStore.cleared, isTrue);
     expect(localPostStore.deletedCidNumber, _cidNumber);
   });
@@ -114,13 +144,14 @@ void main() {
     final api = _FakeApi(fail: true);
     final cache = _FakeCache();
     final mediaCache = _FakeMediaCache();
+    final chatRuntime = _FakeChatRuntime();
     final localPostStore = _FakeLocalPostStore();
     final service = SquareAccountDeletionService(
       apiClient: api,
       profileCache: cache,
       profileMediaCache: mediaCache,
       localPostStore: localPostStore,
-      eraseDeviceIdentity: (cid) async => expect(cid, _cidNumber),
+      clearChatHistory: (chatRuntime).clearAllForUserId,
     );
 
     await expectLater(
@@ -134,6 +165,7 @@ void main() {
     expect(cache.clearedCidNumber, isNull);
     expect(mediaCache.clearedCidNumber, isNull);
     expect(api.sessionCleared, isFalse);
+    expect(chatRuntime.cleared, isFalse);
     expect(localPostStore.cleared, isFalse);
   });
 
@@ -141,13 +173,14 @@ void main() {
     final api = _FakeApi();
     final cache = _FakeCache();
     final mediaCache = _FakeMediaCache();
+    final chatRuntime = _FakeChatRuntime();
     final localPostStore = _FakeLocalPostStore(fail: true);
     final service = SquareAccountDeletionService(
       apiClient: api,
       profileCache: cache,
       profileMediaCache: mediaCache,
       localPostStore: localPostStore,
-      eraseDeviceIdentity: (cid) async => expect(cid, _cidNumber),
+      clearChatHistory: (chatRuntime).clearAllForUserId,
     );
 
     await expectLater(
@@ -162,29 +195,39 @@ void main() {
     expect(cache.clearedCidNumber, _cidNumber);
     expect(mediaCache.clearedCidNumber, _cidNumber);
     expect(api.sessionCleared, isTrue);
+    expect(chatRuntime.cleared, isTrue);
+    expect(chatRuntime.eraseCalls, 1);
+    expect(chatRuntime.erasedCid, _cidNumber);
+    expect(chatRuntime.erasedAccount, _owner);
   });
 
-  test('pending receipt keeps all local data intact', () async {
-    final api = _FakeApi(pending: true);
-    final cache = _FakeCache();
-    final media = _FakeMediaCache();
-    final posts = _FakeLocalPostStore();
-    final service = SquareAccountDeletionService(
-      apiClient: api,
-      profileCache: cache,
-      profileMediaCache: media,
-      localPostStore: posts,
-    );
-    await expectLater(
-      service.deleteAccount(
-        binding: _binding,
-        signAction: (_) async => '0xSIG',
-      ),
-      throwsA(isA<SquareAccountDeletionPendingException>()),
-    );
-    expect(cache.clearedCidNumber, isNull);
-    expect(media.clearedCidNumber, isNull);
-    expect(api.sessionCleared, isFalse);
-    expect(posts.cleared, isFalse);
-  });
+  test(
+    'pending receipt keeps all local data and the chat runtime intact',
+    () async {
+      final api = _FakeApi(pending: true);
+      final cache = _FakeCache();
+      final media = _FakeMediaCache();
+      final chat = _FakeChatRuntime();
+      final posts = _FakeLocalPostStore();
+      final service = SquareAccountDeletionService(
+        apiClient: api,
+        profileCache: cache,
+        profileMediaCache: media,
+        localPostStore: posts,
+        clearChatHistory: (chat).clearAllForUserId,
+      );
+      await expectLater(
+        service.deleteAccount(
+          binding: _binding,
+          signAction: (_) async => '0xSIG',
+        ),
+        throwsA(isA<SquareAccountDeletionPendingException>()),
+      );
+      expect(cache.clearedCidNumber, isNull);
+      expect(media.clearedCidNumber, isNull);
+      expect(api.sessionCleared, isFalse);
+      expect(chat.eraseCalls, 0);
+      expect(posts.cleared, isFalse);
+    },
+  );
 }

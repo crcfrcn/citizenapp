@@ -69,7 +69,7 @@ void main() {
       TopupDraft.create(
         TopupSelection(
           token: 'USDC',
-          package: catalog.packages.first,
+          package: catalog.packageById('pkg_10'),
           network: TopupNetwork.base,
         ),
         '0x${'04' * 32}',
@@ -84,7 +84,7 @@ void main() {
     TopupDraft draft() => TopupDraft.create(
       TopupSelection(
         token: 'USDC',
-        package: catalog.packages.first,
+        package: catalog.packageById('pkg_10'),
         network: TopupNetwork.base,
       ),
       '0x${'04' * 32}',
@@ -441,7 +441,7 @@ void main() {
     final config = TopupConfig.local();
     final selection = TopupSelection(
       token: 'USDC',
-      package: config.packages.first,
+      package: config.packageById('pkg_10'),
       network: TopupNetwork.base,
     );
     final pair = await Keyring().fromUri('//Alice');
@@ -878,7 +878,7 @@ void main() {
         TopupDraft.create(
           TopupSelection(
             token: 'USDC',
-            package: catalog.packages.first,
+            package: catalog.packageById('pkg_10'),
             network: TopupNetwork.base,
           ),
           record.payment.accountId,

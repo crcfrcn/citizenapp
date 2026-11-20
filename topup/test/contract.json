@@ -45,87 +45,14 @@
         "recv_address": "0x0202020202020202020202020202020202020202"
       }
     ],
-    "packages": [
-      {
-        "package_id": "pkg_10",
-        "pay_display": "10",
-        "coin_display": "10,000.00",
-        "coin_fen": "1000000",
-        "payments": [
-          {
-            "token": "USDC",
-            "network": "ethereum",
-            "pay_amount": "10000000"
-          },
-          {
-            "token": "USDC",
-            "network": "base",
-            "pay_amount": "10000000"
-          },
-          {
-            "token": "USDC",
-            "network": "bnb",
-            "pay_amount": "10000000000000000000"
-          },
-          {
-            "token": "USDT",
-            "network": "ethereum",
-            "pay_amount": "10000000"
-          },
-          {
-            "token": "USDT",
-            "network": "base",
-            "pay_amount": "10000000"
-          },
-          {
-            "token": "USDT",
-            "network": "bnb",
-            "pay_amount": "10000000000000000000"
-          }
-        ]
-      },
-      {
-        "package_id": "pkg_1000",
-        "pay_display": "1000",
-        "coin_display": "1,000,000.00",
-        "coin_fen": "100000000",
-        "payments": [
-          {
-            "token": "USDC",
-            "network": "ethereum",
-            "pay_amount": "1000000000"
-          },
-          {
-            "token": "USDC",
-            "network": "base",
-            "pay_amount": "1000000000"
-          },
-          {
-            "token": "USDC",
-            "network": "bnb",
-            "pay_amount": "1000000000000000000000"
-          },
-          {
-            "token": "USDT",
-            "network": "ethereum",
-            "pay_amount": "1000000000"
-          },
-          {
-            "token": "USDT",
-            "network": "base",
-            "pay_amount": "1000000000"
-          },
-          {
-            "token": "USDT",
-            "network": "bnb",
-            "pay_amount": "1000000000000000000000"
-          }
-        ]
-      }
-    ],
-    "ready": true
+    "ready": true,
+    "pricing": {
+      "min_coin_fen": "100000",
+      "step_coin_fen": "100000",
+      "coin_per_usd": "1000"
+    }
   },
-  "config_hash": "4028962098c6538f7eab5fd59eb64237631cf0f08cec825f5052c1c8601010a0",
+  "config_hash": "122a6e1a62b7f337ffcb07ebf1f5fbaa4100a248d1f52041eaf4e1589c016ab0",
   "payment_checks": {
     "max_rounds": 11,
     "intervals_seconds": [

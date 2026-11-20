@@ -15187,18 +15187,23 @@ const SettingSchema = CollectionSchema(
       name: r'bank_order',
       type: IsarType.stringList,
     ),
-    r'council_order': PropertySchema(
+    r'chat_home': PropertySchema(
       id: 1,
+      name: r'chat_home',
+      type: IsarType.bool,
+    ),
+    r'council_order': PropertySchema(
+      id: 2,
       name: r'council_order',
       type: IsarType.stringList,
     ),
     r'guide_seen': PropertySchema(
-      id: 2,
+      id: 3,
       name: r'guide_seen',
       type: IsarType.bool,
     ),
     r'square_tab_order': PropertySchema(
-      id: 3,
+      id: 4,
       name: r'square_tab_order',
       type: IsarType.stringList,
     ),
@@ -15256,9 +15261,10 @@ void _settingSerialize(
   Map<Type, List<int>> allOffsets,
 ) {
   writer.writeStringList(offsets[0], object.bankOrder);
-  writer.writeStringList(offsets[1], object.councilOrder);
-  writer.writeBool(offsets[2], object.guideSeen);
-  writer.writeStringList(offsets[3], object.squareTabOrder);
+  writer.writeBool(offsets[1], object.chatHome);
+  writer.writeStringList(offsets[2], object.councilOrder);
+  writer.writeBool(offsets[3], object.guideSeen);
+  writer.writeStringList(offsets[4], object.squareTabOrder);
 }
 
 Setting _settingDeserialize(
@@ -15269,10 +15275,11 @@ Setting _settingDeserialize(
 ) {
   final object = Setting();
   object.bankOrder = reader.readStringList(offsets[0]) ?? [];
-  object.councilOrder = reader.readStringList(offsets[1]) ?? [];
-  object.guideSeen = reader.readBool(offsets[2]);
+  object.chatHome = reader.readBool(offsets[1]);
+  object.councilOrder = reader.readStringList(offsets[2]) ?? [];
+  object.guideSeen = reader.readBool(offsets[3]);
   object.rowId = id;
-  object.squareTabOrder = reader.readStringList(offsets[3]) ?? [];
+  object.squareTabOrder = reader.readStringList(offsets[4]) ?? [];
   return object;
 }
 
@@ -15286,10 +15293,12 @@ P _settingDeserializeProp<P>(
     case 0:
       return (reader.readStringList(offset) ?? []) as P;
     case 1:
-      return (reader.readStringList(offset) ?? []) as P;
-    case 2:
       return (reader.readBool(offset)) as P;
+    case 2:
+      return (reader.readStringList(offset) ?? []) as P;
     case 3:
+      return (reader.readBool(offset)) as P;
+    case 4:
       return (reader.readStringList(offset) ?? []) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -15583,6 +15592,16 @@ extension SettingQueryFilter
         includeLower,
         upper,
         includeUpper,
+      );
+    });
+  }
+
+  QueryBuilder<Setting, Setting, QAfterFilterCondition> chatHomeEqualTo(
+    bool value,
+  ) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'chat_home', value: value),
       );
     });
   }
@@ -16055,6 +16074,18 @@ extension SettingQueryLinks
     on QueryBuilder<Setting, Setting, QFilterCondition> {}
 
 extension SettingQuerySortBy on QueryBuilder<Setting, Setting, QSortBy> {
+  QueryBuilder<Setting, Setting, QAfterSortBy> sortByChatHome() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'chat_home', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Setting, Setting, QAfterSortBy> sortByChatHomeDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'chat_home', Sort.desc);
+    });
+  }
+
   QueryBuilder<Setting, Setting, QAfterSortBy> sortByGuideSeen() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'guide_seen', Sort.asc);
@@ -16070,6 +16101,18 @@ extension SettingQuerySortBy on QueryBuilder<Setting, Setting, QSortBy> {
 
 extension SettingQuerySortThenBy
     on QueryBuilder<Setting, Setting, QSortThenBy> {
+  QueryBuilder<Setting, Setting, QAfterSortBy> thenByChatHome() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'chat_home', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Setting, Setting, QAfterSortBy> thenByChatHomeDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'chat_home', Sort.desc);
+    });
+  }
+
   QueryBuilder<Setting, Setting, QAfterSortBy> thenByGuideSeen() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'guide_seen', Sort.asc);
@@ -16103,6 +16146,12 @@ extension SettingQueryWhereDistinct
     });
   }
 
+  QueryBuilder<Setting, Setting, QDistinct> distinctByChatHome() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'chat_home');
+    });
+  }
+
   QueryBuilder<Setting, Setting, QDistinct> distinctByCouncilOrder() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'council_order');
@@ -16133,6 +16182,12 @@ extension SettingQueryProperty
   QueryBuilder<Setting, List<String>, QQueryOperations> bankOrderProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'bank_order');
+    });
+  }
+
+  QueryBuilder<Setting, bool, QQueryOperations> chatHomeProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'chat_home');
     });
   }
 

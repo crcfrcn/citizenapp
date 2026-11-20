@@ -10,6 +10,7 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:chat/chat.dart';
 
 import 'package:citizen_user/identity/finalized_identity_resolver.dart';
 import 'package:citizen_user/identity/square_session_provider.dart';
@@ -44,6 +45,14 @@ Future<bool> startCidRegistrationFlow(
           currentUserContext: context.read<CurrentUserContext>(),
           identityResolver: context.read<FinalizedIdentityResolver>(),
           sessionProvider: context.read<SquareSessionProvider>(),
+          onChatBindingChanged: (binding, {required existingOnly}) async {
+            final ChatRuntime? runtime = existingOnly
+                ? null
+                : (() => context.read<ChatRuntime>())();
+            await runtime?.convergeFinalizedBinding(
+              ChatBinding.fromIdentity(binding),
+            );
+          },
         );
   }
   // 已有公民号先恢复公开绑定与服务准备，绝不打开注册面板或Turnstile。
@@ -128,7 +137,7 @@ Future<bool> startCidRegistrationFlow(
   return registered == true;
 }
 
-/// 动作级统一拦截:动作(发布/加好友/订阅/看资料…)要求已注册 CID 时,
+/// 动作级统一拦截:动作(发布/私信/加好友/订阅/看资料…)要求已注册 CID 时,
 /// 在动作入口调用本函数。
 ///
 /// - 已注册 → 返回 true,动作继续;

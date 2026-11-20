@@ -32,7 +32,7 @@ typedef CurrentUserBindingReader = Future<IdentityBinding?> Function(
   String accountId,
 );
 
-/// 通讯录、主页和动态共用的本机当前用户入口。
+/// Chat、通讯录、主页和动态共用的本机当前用户入口。
 ///
 /// 默认账户来自 CitizenSDK 全局顺序第一项；绑定是 CitizenApp 自己的 finalized 业务缓存。
 interface class CurrentUserContext {

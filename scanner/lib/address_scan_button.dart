@@ -10,7 +10,7 @@ import 'package:citizen_system/theme/app_layout.dart';
 /// 守卫全部收在此处。此前多签转账页与安全基金转账页各抄了一份逐字节相同的写法。
 ///
 /// 扫码固定走 [QrScanMode.transfer]：只认 QR_V1 用户码 / 账户码 / 收款码，
-/// 并只取其中的收款地址，**永远不进签名分支** —— 签名请求统一在「钱包账户详情 → 扫一扫」处理。
+/// 并只取其中的收款地址，**永远不进签名分支** —— 签名请求统一在「聊天 → 扫一扫」处理。
 class AddressScanButton extends StatelessWidget {
   const AddressScanButton({super.key, required this.onAddressScanned});
 

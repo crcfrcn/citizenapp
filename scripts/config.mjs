@@ -83,6 +83,7 @@ export function describeAction({flow,platform,inputs={}}){
 
 // 用例坐标只在此声明；设备入口永不执行整类中未列明的历史业务操作。
 const iosNative = [
+ 'ChatStorageRequiresVerifiedFileProtection',
  'StoreRegistrationAndCountryUseOfficialIdentifiers',
  'NativeRangeUsesBoundedLengthAndExactTail','NativeResourceLoaderReadsValidatedVideo',
  'PackageInfoUsesInstalledBundleVersion','TopupCallbackMatchesOnlyOwnedSchemeAndHost','TopupNativeLogAcceptsOnlyFixedPhases',
@@ -100,18 +101,19 @@ export const testSuites=Object.freeze({
  ios:Object.freeze({
   native:Object.freeze(iosNative),
   e2e:Object.freeze(['StartupGateSurvivesRelaunch','TradeWalletSelectionReturnsToEmptyForm',
-   'ScannerReturnsToEmptyForm','CreatorPageDisplaysImmediatelyFromMyTab']
+   'ScannerReturnsToEmptyForm','ChatResumesWithoutSending','CreatorPageDisplaysImmediatelyFromMyTab']
    .map(name=>'RunnerUITests/RunnerUITests/test'+name)),
   performance:Object.freeze(['Launch','CreatorEntry','WalletScroll'].map(name=>'RunnerUITests/RunnerUITests/testPerformance'+name)
    .concat('RunnerTests/RunnerTests/testPerformanceMediaTranscode')),
  }),
  android:Object.freeze({
   native:Object.freeze([
+   ...androidCase('ChatStorageInstrumentedTest',['chatDirectoryProtectionPreservesBytesAndPermissions','chatDirectoryProtectionRejectsLinks']),
    ...androidCase('MlsTransportSecurityInstrumentedTest',['applicationPolicyRejectsCleartextForPublicAndLocalHosts']),
    ...androidCase('RegistrationRecordSecurityInstrumentedTest',['nativeRecordWhitelistSeparatesMainAndAuxiliaryFiles','productionCasRejectsStaleWritesLinksAndTraversal']),
    ...androidCase('SquareMediaChannelInstrumentedTest',['rangeSourceBoundsEveryReadAndStopsAfterClose','rangeSourceRejectsShortBlocksAndHonorsSeek','requestAcceptsOnlyThePublishedCodecEnvelope','capabilitiesAlwaysReportBothFailClosedFlags','fastStartMovesMoovAndPatchesChunkOffset']),
   ]),
-  e2e:Object.freeze(androidCase('AppFlowInstrumentedTest',['startupGateSurvivesRelaunch','tradeWalletSelectionReturnsToEmptyForm','scannerReturnsToEmptyForm','creatorEntryDisplaysImmediately'])),
+  e2e:Object.freeze(androidCase('AppFlowInstrumentedTest',['startupGateSurvivesRelaunch','tradeWalletSelectionReturnsToEmptyForm','scannerReturnsToEmptyForm','creatorEntryDisplaysImmediately','chatResumesWithoutSending'])),
   performance:Object.freeze(androidCase('PerformanceInstrumentedTest',['launch','creatorEntry','walletScroll','mediaTranscode'])),
  }),
 });

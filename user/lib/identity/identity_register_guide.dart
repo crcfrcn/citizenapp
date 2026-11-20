@@ -9,12 +9,12 @@ import 'package:citizen_system/theme/app_layout.dart';
 
 /// 「尚未注册」统一引导 —— 全 App 唯一的未注册页面态组件。
 ///
-/// 「已有钱包、未注册 CID」是合法用户状态,需要 CID 的页面(广场、创作者…)
+/// 「已有钱包、未注册 CID」是合法用户状态,需要 CID 的页面(广场、聊天、创作者…)
 /// 在主体区显示本组件,而不是把 fail-closed 的正确拦截包装成报错文案。
 /// 点「注册」**就地**弹出统一注册面板([startCidRegistrationFlow],与身份页
 /// 右上角「注册」同一条链路),不跳转身份页。
 ///
-/// [description] 由调用方传一句该页专属说明(如「注册后即可使用通讯录。」);
+/// [description] 由调用方传一句该页专属说明(如「注册后即可使用聊天与通讯录。」);
 /// [onRegistered] 在占号提交成功后回调,调用方借此就地回刷(占号不改钱包列表,
 /// 不改变账户目录时仍需靠 finalized 身份 revision 或本回调驱动刷新。
 class IdentityRegisterGuide extends StatefulWidget {

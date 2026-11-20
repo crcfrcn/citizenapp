@@ -47,7 +47,7 @@ void main() {
         child: MaterialApp(
           home: AppShell(
             openedPushData: const Stream<Map<String, dynamic>>.empty(),
-            tabBuilder: (index) => Center(child: Text('page:$index')),
+            tabBuilder: (index, _) => Center(child: Text('page:$index')),
           ),
         ),
       ),

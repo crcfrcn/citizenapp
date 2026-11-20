@@ -1,0 +1,41 @@
+import 'dart:io';
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:citizen_system/security/system_protected_storage.dart';
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  const channel = MethodChannel('citizenapp/chat/storage');
+  final messenger =
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+  tearDown(() => messenger.setMockMethodCallHandler(channel, null));
+  test('系统保护失败不返回可用聊天路径', () async {
+    messenger.setMockMethodCallHandler(
+      channel,
+      (_) async => throw PlatformException(code: 'data_storage_unavailable'),
+    );
+    await expectLater(
+      SystemProtectedStorage.prepareChatDataDirectory(),
+      throwsA(isA<PlatformException>()),
+    );
+  });
+  test('SDK所属路径之外和链接子目录均拒绝', () async {
+    final temporary = await Directory.systemTemp.createTemp('chat_policy_');
+    final root = Directory(await temporary.resolveSymbolicLinks());
+    addTearDown(() => root.delete(recursive: true));
+    messenger.setMockMethodCallHandler(channel, (_) async => root.path);
+    final child = await Directory('${root.path}/child').create();
+    await SystemProtectedStorage.verifyChatDirectory(child);
+    await expectLater(
+      SystemProtectedStorage.verifyChatDirectory(root.parent),
+      throwsStateError,
+    );
+    await Link('${root.path}/link').create(child.path);
+    await expectLater(
+      SystemProtectedStorage.verifyChatDirectory(
+        Directory('${root.path}/link'),
+      ),
+      throwsStateError,
+    );
+  });
+}

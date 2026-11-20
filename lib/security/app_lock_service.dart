@@ -16,7 +16,7 @@ import 'package:citizen_square/draft/compose_draft_media.dart';
 import 'package:citizen_user/profile/citizen_profile_cache.dart';
 import 'package:citizen_storage/social_isar.dart';
 
-import 'package:citizen_user/identity/mls_authentication.dart';
+import 'package:chat/chat.dart';
 
 import 'package:citizen_storage/user_isar.dart';
 
@@ -368,139 +368,105 @@ class AppLockService {
   /// 当前累计锁定次数。
   static Future<int> getLockCount() async => _readInt(_keyLockCount);
 
-  /// 启动时仅判定持久擦除状态。不能读取状态时关闭业务入口。
+  /// 新进程只有在无 marker，或上一进程已完整擦除后才允许启动。
+  ///
+  /// pending 会无 PIN 重试全量擦除；无论重试成功还是失败，当前
+  /// 进程都只能显示擦除终态并退出，不得继续构造 ChatRuntime。
   static Future<AppDataWipeStartupResult> recoverPersistentWipeAtStartup({
     required CitizenSdk? wallet,
     required AccountSecurityService? accountSecurity,
     Future<void> Function()? debugDeleteCitizenSdkWallet,
     Future<void> Function()? debugDeleteProtectedRecords,
     Future<void> Function()? debugClearSharedPreferences,
-    Future<Directory> Function()? debugWipeDirectoryProvider,
+    Future<Directory> Function()? debugChatDocumentsDirectoryProvider,
   }) async {
     if (debugDeleteProtectedRecords != null ||
         debugClearSharedPreferences != null ||
-        debugWipeDirectoryProvider != null) {
+        debugChatDocumentsDirectoryProvider != null) {
       _requireFlutterTest();
     }
     try {
-      final root = await _wipeDirectory(debugWipeDirectoryProvider);
-      final marker = File('${root.path}/$_wipeMarker');
-      final complete = File('${root.path}/$_wipeComplete');
-      final markerType = await FileSystemEntity.type(
-        marker.path,
-        followLinks: false,
+      // 普通启动只验证擦除门闩；没有 marker 时不得等待正常 Chat 后台收件，
+      // 否则 FCM/APNs 唤醒与用户冷启动重叠会被误判成数据安全故障。
+      final initialState = await ChatRuntime.readPersistentAppDataWipeState(
+        documentsDirectoryProvider: debugChatDocumentsDirectoryProvider,
       );
-      final completeType = await FileSystemEntity.type(
-        complete.path,
-        followLinks: false,
-      );
-      if (markerType == FileSystemEntityType.notFound &&
-          completeType == FileSystemEntityType.notFound) {
+      if (initialState == ChatPersistentWipeState.none) {
         return AppDataWipeStartupResult.ready;
       }
-      if (markerType != FileSystemEntityType.file ||
-          (completeType != FileSystemEntityType.file &&
-              completeType != FileSystemEntityType.notFound)) {
-        return AppDataWipeStartupResult.preflightBlocked;
-      }
-      if (completeType == FileSystemEntityType.file &&
-          await complete.readAsString() == 'complete\n') {
-        // 中途退出仍会留下待恢复标记。
-        await complete.delete();
-        if (debugWipeDirectoryProvider == null) {
-          await SystemProtectedStorage.syncWipeLayout();
-        }
-        await marker.delete();
-        if (debugWipeDirectoryProvider == null) {
-          await SystemProtectedStorage.syncWipeLayout();
-        }
-        return AppDataWipeStartupResult.ready;
-      }
-      try {
-        await wipeAllData(
-          wallet: wallet,
-          accountSecurity: accountSecurity,
-          debugDeleteCitizenSdkWallet: debugDeleteCitizenSdkWallet,
-          debugDeleteProtectedRecords: debugDeleteProtectedRecords,
-          debugClearSharedPreferences: debugClearSharedPreferences,
-          debugWipeDirectoryProvider: debugWipeDirectoryProvider,
-        );
-        return AppDataWipeStartupResult.dataWiped;
-      } catch (_) {
-        return AppDataWipeStartupResult.retryRequired;
-      }
+      return await ChatRuntime.runStartupPreflight(
+        // barrier 覆盖 CID artifact 清理、wipe marker 判定与完整恢复，不能在
+        // 中间释放后让后台 isolate 插入新 lease。
+        operation: () async {
+          final state = await ChatRuntime.readPersistentAppDataWipeState(
+            documentsDirectoryProvider: debugChatDocumentsDirectoryProvider,
+          );
+          switch (state) {
+            case ChatPersistentWipeState.none:
+              return AppDataWipeStartupResult.ready;
+            case ChatPersistentWipeState.complete:
+              try {
+                await ChatRuntime.clearCompletedPersistentAppDataWipe(
+                  documentsDirectoryProvider:
+                      debugChatDocumentsDirectoryProvider,
+                );
+                return AppDataWipeStartupResult.ready;
+              } catch (_) {
+                debugPrint('wipe_preflight:complete_cleanup_failed');
+                return AppDataWipeStartupResult.preflightBlocked;
+              }
+            case ChatPersistentWipeState.pending:
+              try {
+                await wipeAllData(
+                  wallet: wallet,
+                  accountSecurity: accountSecurity,
+                  debugDeleteCitizenSdkWallet: debugDeleteCitizenSdkWallet,
+                  debugDeleteProtectedRecords: debugDeleteProtectedRecords,
+                  debugClearSharedPreferences: debugClearSharedPreferences,
+                  debugChatDocumentsDirectoryProvider:
+                      debugChatDocumentsDirectoryProvider,
+                );
+                return AppDataWipeStartupResult.dataWiped;
+              } catch (_) {
+                return AppDataWipeStartupResult.retryRequired;
+              }
+          }
+        },
+        documentsDirectoryProvider: debugChatDocumentsDirectoryProvider,
+      );
     } catch (error) {
+      // 无法读取 marker 不等于已经开始过 wipe：普通启动绝不得
+      // 因路径/文件系统故障擅自删数据，只能 fail-closed 并退出重试。
       debugPrint('wipe_preflight:blocked:${error.runtimeType}');
       return AppDataWipeStartupResult.preflightBlocked;
     }
   }
 
-  static const _wipeMarker = SystemProtectedStorage.wipePending;
-  static const _wipeComplete = SystemProtectedStorage.wipeComplete;
-
-  static Future<Directory> _wipeDirectory(
-    Future<Directory> Function()? provider,
-  ) async {
-    final directory =
-        await (provider ?? SystemProtectedStorage.wipeDirectory)();
-    if (!directory.isAbsolute ||
-        await FileSystemEntity.type(directory.path, followLinks: false) !=
-            FileSystemEntityType.directory) {
-      throw StateError('全量擦除记录目录不可用');
-    }
-    return Directory(await directory.resolveSymbolicLinks());
-  }
-
-  static Future<void> _writeWipeMarker(
-    Future<Directory> Function()? provider,
-    String name,
-    String value,
-  ) async {
-    final root = await _wipeDirectory(provider);
-    final target = File('${root.path}/$name');
-    final type = await FileSystemEntity.type(target.path, followLinks: false);
-    if (type == FileSystemEntityType.file &&
-        await target.readAsString() == value) {
-      return;
-    }
-    if (type != FileSystemEntityType.notFound &&
-        type != FileSystemEntityType.file) {
-      throw StateError('全量擦除标记路径异常');
-    }
-    final stage = await root.createTemp('wipe-');
-    try {
-      final file = File('${stage.path}/state');
-      await file.writeAsString(value, flush: true);
-      await file.rename(target.path);
-      if (provider == null) await SystemProtectedStorage.syncWipeLayout();
-    } finally {
-      await stage.delete(recursive: true);
-    }
-  }
-
   /// 在退出前先把跨重启擦除意图落盘；未成功落盘时调用方不得退出。
   static Future<void> latchPersistentWipe({
-    Future<Directory> Function()? debugWipeDirectoryProvider,
+    Future<Directory> Function()? debugChatDocumentsDirectoryProvider,
   }) {
     final debugLatch = _debugLatchPersistentWipeForTest;
     if (debugLatch != null) {
       _requireFlutterTest();
-      if (debugWipeDirectoryProvider != null) {
+      if (debugChatDocumentsDirectoryProvider != null) {
         throw StateError('禁止同时使用两组 AppLock 测试注入');
       }
       return debugLatch();
     }
-    if (debugWipeDirectoryProvider != null) _requireFlutterTest();
-    MlsAuthentication.blockDeviceAccess();
-    return _writeWipeMarker(
-      debugWipeDirectoryProvider,
-      _wipeMarker,
-      'pending\n',
+    if (debugChatDocumentsDirectoryProvider != null) _requireFlutterTest();
+    return ChatRuntime.beginPersistentAppDataWipe(
+      documentsDirectoryProvider: debugChatDocumentsDirectoryProvider,
     ).timeout(_wipeStepTimeout);
   }
 
   // 数据清空
-  /// 先封住设备签名，再逐域清理；任何失败均保留持久恢复状态。
+  /// 清空全部应用数据：各业务 Isar DB、Chat 文件树、系统保护记录与偏好设置。
+  ///
+  /// 第一阶段先同步终止 ChatRuntime 与各业务 Isar 生产者，并有界等待其收口；
+  /// 第二阶段才最终清理系统保护记录与 SharedPreferences。任一域失败
+  /// 也不会阻止后续域尝试，但绝不返回成功。Chat 文件域只允许删除
+  /// SDK系统保护域内的 `chat/` 子树，跨 isolate marker 保留到进程退出。
   /// 全部尝试结束后通过 [AppDataWipeException] 聚合暴露失败。
   static Future<void> wipeAllData({
     required CitizenSdk? wallet,
@@ -508,21 +474,21 @@ class AppLockService {
     Future<void> Function()? debugDeleteCitizenSdkWallet,
     Future<void> Function()? debugDeleteProtectedRecords,
     Future<void> Function()? debugClearSharedPreferences,
-    Future<Directory> Function()? debugWipeDirectoryProvider,
+    Future<Directory> Function()? debugChatDocumentsDirectoryProvider,
   }) async {
     final debugWipe = _debugWipeAllDataForTest;
     if (debugWipe != null) {
       _requireFlutterTest();
       if (debugDeleteProtectedRecords != null ||
           debugClearSharedPreferences != null ||
-          debugWipeDirectoryProvider != null) {
+          debugChatDocumentsDirectoryProvider != null) {
         throw StateError('禁止同时使用两组 AppLock 测试注入');
       }
       return debugWipe();
     }
     if (debugDeleteProtectedRecords != null ||
         debugClearSharedPreferences != null ||
-        debugWipeDirectoryProvider != null) {
+        debugChatDocumentsDirectoryProvider != null) {
       _requireFlutterTest();
     }
     final failures = <String>[];
@@ -534,21 +500,24 @@ class AppLockService {
     var persistentGateReady = false;
     Object? persistentGateError;
     try {
-      await latchPersistentWipe(
-        debugWipeDirectoryProvider: debugWipeDirectoryProvider,
-      );
+      await ChatRuntime.beginPersistentAppDataWipe(
+        documentsDirectoryProvider: debugChatDocumentsDirectoryProvider,
+      ).timeout(_wipeStepTimeout);
       persistentGateReady = true;
     } catch (error) {
       persistentGateError = error;
     }
 
-    if (debugWipeDirectoryProvider == null) {
-      await _attemptWipe(
-        'DeviceIdentity',
-        SystemProtectedStorage.eraseDeviceStorage,
-        failures,
-      );
-    }
+    // 先关闭可能继续写入秘密的 Chat 生产者，再按“硬件密钥 -> 通用安全存储 ->
+    // 数据库和文件”执行。libmdbx 的进程级实例注册表不保证多个不同 schema 同时
+    // cold-open/delete，因此各业务域仍逐项处理并准确归因失败。
+    await _attemptWipe(
+      'ChatFiles',
+      () => ChatRuntime.closeAndDeleteLocalFiles(
+        documentsDirectoryProvider: debugChatDocumentsDirectoryProvider,
+      ),
+      failures,
+    );
     var walletSecretsDeleted = _walletHardwareSecretsDeletedInProcess;
     if (!walletSecretsDeleted) {
       final walletFailureCountBefore = failures.length;
@@ -575,15 +544,10 @@ class AppLockService {
     // 删除平台安全存储，避免把一次迟到的成功错误降级成跳过密钥清理。
     if (!persistentGateReady) {
       try {
-        final root = await _wipeDirectory(
-          debugWipeDirectoryProvider,
+        final state = await ChatRuntime.readPersistentAppDataWipeState(
+          documentsDirectoryProvider: debugChatDocumentsDirectoryProvider,
         ).timeout(_wipeStepTimeout);
-        persistentGateReady =
-            await FileSystemEntity.type(
-              '${root.path}/$_wipeMarker',
-              followLinks: false,
-            ) ==
-            FileSystemEntityType.file;
+        persistentGateReady = state != ChatPersistentWipeState.none;
       } catch (error) {
         persistentGateError ??= error;
       }
@@ -597,13 +561,22 @@ class AppLockService {
       failures.add('ProtectedRecords：硬件密钥未全部确认删除，已安全保留重试索引');
     }
     if (walletSecretsDeleted) {
-      await _attemptWipe('UserIsar', () {
-        ClearingBalances.instance.invalidateAll();
-        return UserIsar.instance.closeAndDeleteFromDisk();
-      }, failures);
+      await _attemptWipe(
+        'UserIsar',
+        () {
+          ClearingBalances.instance.invalidateAll();
+          return UserIsar.instance.closeAndDeleteFromDisk();
+        },
+        failures,
+      );
     } else {
       failures.add('UserIsar：硬件密钥未全部确认删除，已安全保留重试索引');
     }
+    await _attemptWipe(
+      'ChatIsar',
+      ChatIsar.instance.closeAndDeleteFromDisk,
+      failures,
+    );
     await _attemptWipe(
       'SocialIsar',
       SocialIsar.instance.closeAndDeleteFromDisk,
@@ -614,14 +587,14 @@ class AppLockService {
       CitizenProfileMediaCache(
         // 测试复用同一临时根目录，避免调用未注册的平台 path_provider；生产为 null
         // 时分别清理旧 Application Support/user/profile_media 与临时展示目录；字节已由 UserIsar 擦除。
-        supportDirectoryProvider: debugWipeDirectoryProvider,
+        supportDirectoryProvider: debugChatDocumentsDirectoryProvider,
       ).closeAndDeleteAll,
       failures,
     );
     await _attemptWipe(
       'SocialFiles',
       () => ComposeDraftMedia.closeAndDeleteAll(
-        documentsDirectoryProvider: debugWipeDirectoryProvider,
+        documentsDirectoryProvider: debugChatDocumentsDirectoryProvider,
       ),
       failures,
     );
@@ -635,10 +608,8 @@ class AppLockService {
     if (failures.isEmpty) {
       await _attemptWipe(
         '持久擦除完成态',
-        () => _writeWipeMarker(
-          debugWipeDirectoryProvider,
-          _wipeComplete,
-          'complete\n',
+        () => ChatRuntime.markPersistentAppDataWipeComplete(
+          documentsDirectoryProvider: debugChatDocumentsDirectoryProvider,
         ),
         failures,
       );
