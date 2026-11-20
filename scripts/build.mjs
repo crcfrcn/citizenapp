@@ -10,6 +10,31 @@ import {chainRepository} from './config.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const controller = new AbortController();
+// 仅修正本轮工程中锁定SDK的付款超时；界面180秒结束等待不能删除真实付款回执关联。
+export function prepareWallet(assets) {
+    if (resolve(assets) === resolve(root, 'topup/web')) throw Error('付款补丁只能写入隔离工程');
+    const sdk = join(assets, 'node_modules/@metamask/connect-multichain');
+    if (JSON.parse(readFileSync(join(sdk, 'package.json'), 'utf8')).version !== '1.2.0') {
+        throw Error('付款补丁仅支持锁定Connect 1.2.0');
+    }
+    const file = join(sdk, 'dist/browser/es/connect-multichain.mjs');
+    const source = readFileSync(file, 'utf8');
+    const start = '      request(payload, options) {';
+    const end = '      onNotification(callback) {';
+    const timeout = '              this.rejectRequest(request.id, new TransportTimeoutError());';
+    const first = source.indexOf(start), last = source.indexOf(end, first);
+    if (first < 0 || last < first || source.indexOf(start, first + start.length) !== -1) {
+        throw Error('付款补丁目标不唯一或已变化');
+    }
+    const method = source.slice(first, last);
+    if (method.split(timeout).length !== 2 || method.includes('request.params?.request?.method')) {
+        throw Error('付款补丁超时目标不唯一、已变化或已应用');
+    }
+    const fixed = method.replace(timeout,
+        '              // 付款仍可能广播；超时只结束App等待，原回执继续归原请求。\n' +
+        '              if (request.method === "wallet_invokeMethod" && request.params?.request?.method === "eth_sendTransaction") return;\n' + timeout);
+    writeFileSync(file, source.slice(0, first) + fixed + source.slice(last));
+}
 // Apple嵌套代码及权限由本产品交付，不让安装器猜测产品结构。
 export function appleSigning(app, entitlements = null) {
  const targets=[];
@@ -474,6 +499,7 @@ const assets = join(project, 'topup/web');
 const resourceEnvironment = {...environment, npm_config_ignore_scripts: 'true',
     ...(environment.GITHUB_ACTIONS === 'true' ? {} : {npm_config_cache: environment.npm_config_cache ?? environment.NPM_CONFIG_CACHE ?? join(root, 'target/cache/npm')})};
 await run('npm', ['ci', '--prefer-offline', '--ignore-scripts', '--no-audit', '--no-fund'], assets, false, resourceEnvironment, 'App资源准备');
+prepareWallet(assets);
 await run(environment.ESBUILD_BIN || 'esbuild', ['metamask.js', '--bundle', '--format=iife',
     '--global-name=CitizenTopup', '--platform=browser', '--target=safari15,chrome100', '--minify',
     '--outfile=metamask.bundle.js', '--define:process.env.NODE_ENV="production"'], assets, false, resourceEnvironment, 'App资源准备');

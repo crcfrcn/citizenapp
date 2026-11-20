@@ -4814,7 +4814,8 @@ class ChatRuntime {
       onConnectionChanged: onConnectionChanged,
     );
     hub.listeners.add(listener);
-    await onConnectionChanged?.call(hub.stopPhysical != null);
+    // 未开始握手不等于失败；已有连接可立即交付就绪，初次连接保持静默。
+    if (hub.stopPhysical != null) await onConnectionChanged?.call(true);
     try {
       if (!await _ensureRealtimeHubConnected(hub)) {
         // 初次网络失败也保留前台订阅，由同一Hub退避重连；禁止依赖下一次页面进入。
@@ -4863,12 +4864,22 @@ class ChatRuntime {
     }
     late final Future<bool> created;
     created = _connectRealtimeHub(hub)
-        .then((ready) {
-          if (ready) {
-            hub.diagnosticCode = null;
-          }
-          return ready;
-        })
+        .then<bool>(
+          (ready) {
+            if (ready) {
+              hub.diagnosticCode = null;
+            }
+            return ready;
+          },
+          onError: (Object error, StackTrace stackTrace) async {
+            // 初始化及资源回收结束后通知真实失败，旧Hub不得影响新身份。
+            if (!hub.closed &&
+                identical(_realtimeHubs[hub.account.accountId], hub)) {
+              await _notifyConnection(hub, false);
+            }
+            Error.throwWithStackTrace(error, stackTrace);
+          },
+        )
         .whenComplete(() {
           if (identical(hub.connecting, created)) {
             hub.connecting = null;
@@ -4964,7 +4975,7 @@ class ChatRuntime {
         // 旧 socket 已经断开；清理失败由 Runtime 终态的 session 集合再次兜底。
       }
     }
-    await _notifyConnection(hub, false);
+    // 刚断开先沿原退避重连，只有真实连接尝试失败才通知列表。
     _scheduleRealtimeHubReconnect(hub);
   }
 

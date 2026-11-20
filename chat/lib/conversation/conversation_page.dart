@@ -99,6 +99,117 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
   String? _pageError;
   late final bool Function() _attachmentContextCurrent;
 
+  /// 头像只消费现有资料入口；FutureBuilder隔离迟到结果，公开缓存事件负责刷新。
+  Widget _buildAvatar(BuildContext context, String sender) {
+    final initial =
+        sender == widget.peerUserId &&
+            widget.initialProfile?.cidNumber == sender
+        ? widget.initialProfile
+        : null;
+    final initialMedia = initial == null
+        ? const CitizenProfileMediaSnapshot()
+        : widget.initialProfileMedia ?? const CitizenProfileMediaSnapshot();
+    return ValueListenableBuilder<CitizenProfileRevisionEvent?>(
+      key: ValueKey((
+        'chat-message-avatar',
+        widget.currentUserId,
+        widget.accountId,
+        widget.conversationId,
+        sender,
+      )),
+      valueListenable: CitizenProfileCache.revision,
+      builder: (context, _, _) => FutureBuilder(
+        future: _readAvatar(sender),
+        initialData: (profile: initial, media: initialMedia),
+        builder: (context, snapshot) {
+          final profile = snapshot.data?.profile;
+          return ProfileAvatar(
+            seed: sender,
+            size: AppLayout.scaled(context, 32),
+            imagePath: snapshot.data?.media.avatarPath,
+            userImageSet: profile == null
+                ? true
+                : profile.avatarKey?.trim().isNotEmpty == true,
+            cidLevel: profile?.cidLevel,
+            memberLevel: profile?.memberLevel,
+            membergateActive: profile?.membergateActive ?? false,
+            showBadge: profile != null,
+          );
+        },
+      ),
+    );
+  }
+
+  Future<({CitizenProfile? profile, CitizenProfileMediaSnapshot media})>
+  _readAvatar(String sender) async {
+    final profiles = widget.profileCache ?? const CitizenProfileCache();
+    final mediaCache = widget.profileMediaCache ?? CitizenProfileMediaCache();
+    final userContext = context.read<CurrentUserContext?>();
+    final sessions =
+        widget.sessionProvider ?? context.read<SquareSessionProvider?>();
+    final origin = (
+      widget.currentUserId,
+      widget.accountId,
+      widget.conversationId,
+      widget.runtime,
+    );
+    bool current() =>
+        mounted &&
+        origin ==
+            (
+              widget.currentUserId,
+              widget.accountId,
+              widget.conversationId,
+              widget.runtime,
+            );
+    CitizenProfile? profile =
+        sender == widget.peerUserId &&
+            widget.initialProfile?.cidNumber == sender
+        ? widget.initialProfile
+        : null;
+    var media = profile == null
+        ? const CitizenProfileMediaSnapshot()
+        : widget.initialProfileMedia ?? const CitizenProfileMediaSnapshot();
+    try {
+      final cached = await profiles.read(sender);
+      if (cached?.cidNumber == sender &&
+          cached!.profileAt >= (profile?.profileAt ?? -1))
+        profile = cached;
+      if (profile != null) media = await mediaCache.read(profile);
+      if (!current())
+        return (profile: null, media: const CitizenProfileMediaSnapshot());
+      if (profile == null ||
+          profile.avatarKey?.trim().isNotEmpty == true &&
+              (media.avatarPath == null ||
+                  !File(media.avatarPath!).existsSync())) {
+        final user = await userContext?.resolve();
+        final binding = user?.binding;
+        if (current() &&
+            binding != null &&
+            sessions != null &&
+            binding.cidNumber == widget.currentUserId &&
+            binding.accountId == widget.accountId) {
+          final result = await (widget.profileApi ?? CitizenProfileApi())
+              .refreshOnEntry(
+                sender,
+                binding: binding,
+                sessions: sessions,
+                cache: profiles,
+                mediaCache: mediaCache,
+                isCurrentIdentity: current,
+              );
+          if (current() && result?.profile.profile.cidNumber == sender) {
+            profile = result!.profile.profile;
+            media = await mediaCache.read(profile);
+          }
+        }
+      }
+    } on Object {
+      // 缺失或读取失败保持本地头像/中性占位，不增加界面提示。
+    }
+    return (profile: profile, media: media);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -742,6 +853,7 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
         ],
       ),
       body: ChatMessageListView(
+        avatarBuilder: _buildAvatar,
         currentUserId: widget.currentUserId,
         chatController: _conversationController.chatController,
         onMessageSend: _sendText,

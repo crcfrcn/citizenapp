@@ -1,13 +1,15 @@
 // 执行真实随包JS；合成SDK端口不连接钱包、不签名或广播资金。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
+import {readFileSync,mkdtempSync,writeFileSync,rmSync} from 'node:fs';
 import {join} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {EventEmitter} from 'node:events';
 import vm from 'node:vm';
 import {webcrypto} from 'node:crypto';
 const work=process.env.WORK;if(!work?.startsWith('/'))throw Error('须由本产品装配隔离工程');
 const source=readFileSync(join(work,'project/topup/web/metamask.bundle.js'),'utf8');
-const box={Uint8Array,Uint16Array,Uint32Array,ArrayBuffer,DataView,TextEncoder,TextDecoder,URL,URLSearchParams,crypto:webcrypto,Buffer,AbortSignal,setTimeout,clearTimeout,setInterval,clearInterval,atob,btoa,console:{log(){},warn(){},error(){}}};
+const box={Uint8Array,Uint16Array,Uint32Array,ArrayBuffer,DataView,TextEncoder,TextDecoder,URL,URLSearchParams,crypto:webcrypto,Buffer,AbortSignal,setTimeout:(...args)=>setTimeout(...args),clearTimeout:(...args)=>clearTimeout(...args),setInterval,clearInterval,atob,btoa,console:{log(){},warn(){},error(){}}};
 box.self=box;vm.createContext(box);vm.runInContext(source,box);const api=box.CitizenTopup;
 const hash='0x'+'09'.repeat(32),payer='0x'+'03'.repeat(20),asset='0x'+'02'.repeat(20),data='0xa9059cbb'+'00'.repeat(96);
 const chosen={token:'USDC',network:'base',package_id:'pkg_10'};
@@ -64,6 +66,56 @@ function scenario({session={sessionScopes:{}},connected=grant(base),send=async()
  return {wallet,ask,createSdk,storage,stored,calls,links,submitted,get count(){return count;}};
 }
 const pay=(scenario,options={})=>api.paymentFlow({...scenario,transaction,selection:chosen,...options});
+
+// 仅在独占测试目录暴露已装配SDK的MWP类；执行真实request/handleMessage，不复制上游实现。
+async function mwpFixture(t){
+ const modules=join(work,'project/topup/web/node_modules');
+ // 放在原包的临时子目录，Node沿上游嵌套node_modules解析各自原锁版本。
+ const directory=mkdtempSync(join(modules,'@metamask/connect-multichain/dist/browser/es/mwp-'));
+ t.after(()=>rmSync(directory,{recursive:true,force:true}));
+ const file=join(directory,'mwp.mjs');
+ writeFileSync(file,readFileSync(join(modules,'@metamask/connect-multichain/dist/browser/es/connect-multichain.mjs'),'utf8')+'\ninit_mwp(); export {MWPTransport};\n');
+ const {MWPTransport}=await import(pathToFileURL(file).href);
+ const client=new EventEmitter(),sent=[],values=new Map();client.state='CONNECTED';
+ client.sendRequest=async message=>{sent.push(message);};
+ const transport=new MWPTransport(client,{get:async key=>values.get(key)??null,set:async(key,value)=>{values.set(key,value);},delete:async key=>{values.delete(key);}});
+ const p=scenario({session:grant(base),send:request=>transport.request({method:'wallet_invokeMethod',params:request}).then(response=>response.result)});
+ return {...p,transport,client,sent,respond:(result,error)=>client.emit('message',{name:'metamask-multichain-provider',data:{id:sent[0].data.id,jsonrpc:'2.0',...error?{error}:{result}}})};
+}
+const settle=async()=>{for(let index=0;index<30;index++)await Promise.resolve();};
+
+test('真实MWP付款超过60秒仍接收哈希并只发送一次',async t=>{
+ const p=await mwpFixture(t);t.mock.timers.enable({apis:['setTimeout']});
+ const result=pay(p);await settle();assert.equal(p.sent.length,1);
+ t.mock.timers.tick(60001);await settle();assert.equal(p.transport.pendingRequests.size,1);
+ p.respond(hash);assert.equal(await result,hash);
+ assert.equal(p.submitted.length,1);assert.equal(p.transport.pendingRequests.size,0);assert.equal(p.sent.length,1);
+});
+test('真实MWP付款超过180秒后迟到哈希仍归原订单，重复回执不重复交付',async t=>{
+ const p=await mwpFixture(t);t.mock.timers.enable({apis:['setTimeout']});
+ const result=pay(p,{orderId:'top_'+'01'.repeat(16)});const expired=assert.rejects(result,/待核实/);
+ await settle();t.mock.timers.tick(180001);await expired;
+ assert.equal(p.transport.pendingRequests.size,1);assert.equal(p.submitted.length,0);
+ p.respond(hash);await settle();assert.equal(p.submitted.length,1);
+ p.respond(hash);await settle();assert.equal(p.submitted.length,1);
+ assert.equal(p.transport.pendingRequests.size,0);assert.equal(p.sent.length,1);
+});
+test('真实MWP付款超过60秒后的钱包拒绝仍返回原错误并清理请求',async t=>{
+ const p=await mwpFixture(t);t.mock.timers.enable({apis:['setTimeout']});
+ const result=pay(p);const rejected=assert.rejects(result,error=>error.code===4001);
+ await settle();t.mock.timers.tick(60001);await settle();
+ p.respond(undefined,{code:4001,message:'User rejected'});await rejected;
+ assert.equal(p.transport.pendingRequests.size,0);assert.equal(p.submitted.length,0);assert.equal(p.sent.length,1);
+});
+test('真实MWP授权、查询、签消息及其它请求仍在原60秒超时',async t=>{
+ const p=await mwpFixture(t);t.mock.timers.enable({apis:['setTimeout']});
+ for(const request of [{method:'wallet_createSession',params:{}},{method:'eth_blockNumber'},
+  {method:'wallet_invokeMethod',params:{scope:base,request:{method:'personal_sign',params:[]}}},
+  {method:'wallet_invokeMethod',params:{} }]){
+  const result=p.transport.request(request);const expired=assert.rejects(result,/timed out|timeout/i);
+  await settle();t.mock.timers.tick(60001);await expired;assert.equal(p.transport.pendingRequests.size,0);
+ }
+});
 
 test('首连授权直接续付，配对与后续唤起只打开钱包一次',async()=>{
  const p=scenario();

@@ -2,6 +2,7 @@ import 'package:citizen_testing/membergate_fixture.dart';
 import 'package:flutter/services.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:citizen_testing/mls_authentication_fixture.dart';
 
@@ -559,7 +560,118 @@ void main() {
     }
   }
 
-  testWidgets('列表和聊天标题缺少资料缓存时不获取会话或名片', (tester) async {
+  Future<_RestoredChatMedia> avatarMedia(WidgetTester tester) async {
+    final bytes = await rootBundle.load(
+      'packages/citizen_assets/stickers/grinning_face.png',
+    );
+    final directory = await tester.runAsync(
+      () => Directory.systemTemp.createTemp('chat-avatar-'),
+    );
+    addTearDown(() async {
+      if (await directory!.exists()) await directory.delete(recursive: true);
+    });
+    return _RestoredChatMedia(
+      path: '${directory!.path}/avatar.png',
+      bytes: bytes.buffer.asUint8List(),
+    );
+  }
+
+  testWidgets('完整会话从各自CID读取左右头像，资料更新后刷新且拒绝串用头像', (tester) async {
+    const record = MethodChannel('com.llfbandit.record/messages');
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      record,
+      (_) async => null,
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        record,
+        null,
+      ),
+    );
+    final own = await avatarMedia(tester),
+        peer = await avatarMedia(tester),
+        updated = await avatarMedia(tester);
+    own.available = peer.available = updated.available = true;
+    final ownProfile = CitizenProfile.fromJson({
+      ..._peerProfile.toJson(),
+      'cid_number': _ownerUserId,
+      'account_id': testMlsAccountId,
+      'display_name': '自己',
+      'avatar_key': 'profile/$_ownerUserId/avatar',
+    });
+    final profiles = _SenderProfiles({
+      _ownerUserId: ownProfile,
+      _peerUserId: _peerProfile,
+    });
+    final media = _SenderMedia({_ownerUserId: own, _peerUserId: peer});
+    final store = _FakeChatStore(
+      messages: [
+        for (final mine in [false, true])
+          ChatStoredMessage(
+            messageId: mine ? 'own-avatar' : 'peer-avatar',
+            conversationId: _directConversationId,
+            direction: mine ? 'outgoing' : 'incoming',
+            senderUserId: mine ? _ownerUserId : _peerUserId,
+            recipientUserId: mine ? _peerUserId : _ownerUserId,
+            messageKind: ChatMessageKind.text,
+            deliveryState: ChatMessageDeliveryState.receivedByDevice,
+            createdAtMillis: mine ? 2 : 1,
+            plaintext: ChatPayloadCodec.encode(
+              ChatContent.text(mine ? '自己的消息' : '对方的消息'),
+            ),
+          ),
+      ],
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ChatConversationPage(
+          runtime: _AvatarRuntime(store),
+          conversationId: _directConversationId,
+          currentUserId: _ownerUserId,
+          accountId: testMlsAccountId,
+          peerUserId: _peerUserId,
+          title: '对方',
+          profileCache: profiles,
+          profileMediaCache: media,
+        ),
+      ),
+    );
+    await settleLocal(tester);
+    ProfileAvatar avatar(String message) => tester.widget<ProfileAvatar>(
+      find.descendant(
+        of: find.byKey(ValueKey('chat-message-row-$message')),
+        matching: find.byType(ProfileAvatar),
+      ),
+    );
+    expect(avatar('own-avatar').seed, _ownerUserId);
+    expect(avatar('own-avatar').imagePath, own.path);
+    expect(avatar('peer-avatar').seed, _peerUserId);
+    expect(avatar('peer-avatar').imagePath, peer.path);
+    media.values[_ownerUserId] = updated;
+    CitizenProfileCache.revision.value = const CitizenProfileRevisionEvent(
+      cidNumber: _ownerUserId,
+      revision: 10001,
+    );
+    await settleLocal(tester);
+    expect(avatar('own-avatar').imagePath, updated.path);
+    expect(avatar('peer-avatar').imagePath, peer.path);
+    profiles.values[_ownerUserId] = _peerProfile;
+    CitizenProfileCache.revision.value = const CitizenProfileRevisionEvent(
+      cidNumber: _ownerUserId,
+      revision: 10002,
+    );
+    await settleLocal(tester);
+    expect(avatar('own-avatar').imagePath, isNull);
+    expect(avatar('own-avatar').userImageSet, isTrue);
+    expect(avatar('peer-avatar').imagePath, peer.path);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+    await settleLocal(tester);
+    // 原消息列表的首次滚动包含250ms延迟，卸载后推进它完成自身收尾。
+    await tester.pump(const Duration(seconds: 1));
+  });
+
+  testWidgets('未提供当前身份时列表和聊天标题只读本地，不获取会话或名片', (tester) async {
     const record = MethodChannel('com.llfbandit.record/messages');
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
       record,
@@ -619,7 +731,7 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await settleLocal(tester);
   });
-  testWidgets('已有名片但本机头像缺失，浏览列表不会回退请求远端图片', (tester) async {
+  testWidgets('缺少本机头像不绕过原资料入口直接请求图片', (tester) async {
     final api = _FakeProfileApi(_peerProfile), network = _ChatNetworkCounter();
     await HttpOverrides.runZoned(() async {
       await tester.pumpWidget(
@@ -653,6 +765,162 @@ void main() {
       await settleLocal(tester);
     }, createHttpClient: (_) => network);
   });
+
+  testWidgets('头像后台补齐不阻塞本地首屏，重进复用原十分钟限速', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    CitizenProfileApi.resetEntryRefreshMemory();
+    final pending = Completer<void>();
+    final profiles = _MutableChatProfiles();
+    final media = await avatarMedia(tester);
+    final api = _ChatEntryProfileApi(
+      onRead: (_) async {
+        await pending.future;
+        media.available = true;
+        return _peerProfile;
+      },
+    );
+    final selected = ValueNotifier<int>(2);
+    await tester.pumpWidget(
+      Provider<CurrentUserContext>.value(
+        value: _LocalChatIdentity(registered: true),
+        child: MaterialApp(
+          home: Scaffold(
+            body: ChatTab(
+              runtime: _FakeRuntime(address: testMlsAccountId),
+              store: _FakeChatStore(
+                conversations: [preview(_directConversationId, '本机标题')],
+              ),
+              cidNumber: _ownerUserId,
+              accountId: testMlsAccountId,
+              selectedTab: selected,
+              profileApi: api,
+              profileCache: profiles,
+              profileMediaCache: media,
+              sessionProvider: _FakeProfileSessionProvider(),
+            ),
+          ),
+        ),
+      ),
+    );
+    await settleLocal(tester);
+    expect(find.text('本机标题'), findsOneWidget);
+    expect(find.text('正在读取本地会话'), findsNothing);
+    expect(api.calls, 1);
+    expect(
+      tester.widget<ProfileAvatar>(find.byType(ProfileAvatar)).imagePath,
+      isNull,
+    );
+    pending.complete();
+    await settleLocal(tester);
+    expect(find.text(_peerProfile.displayName), findsOneWidget);
+    expect(
+      tester.widget<ProfileAvatar>(find.byType(ProfileAvatar)).imagePath,
+      media.path,
+    );
+    expect(
+      find.byWidgetPredicate((w) => w is Image && w.image is FileImage),
+      findsOneWidget,
+    );
+    selected.value = 0;
+    await tester.pump();
+    selected.value = 2;
+    await settleLocal(tester);
+    expect(api.calls, 1);
+    await tester.pumpWidget(const SizedBox());
+    selected.dispose();
+    await settleLocal(tester);
+  });
+
+  testWidgets('已解析头像临时文件失效时仍重读原媒体缓存', (tester) async {
+    final media = await avatarMedia(tester);
+    media.available = true;
+    final runtime = _FakeRuntime(address: testMlsAccountId);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ChatTab(
+            runtime: runtime,
+            store: _FakeChatStore(
+              conversations: [preview(_directConversationId, '本机标题')],
+            ),
+            cidNumber: _ownerUserId,
+            accountId: testMlsAccountId,
+            profileCache: const _MemoryProfileCache(_peerProfile),
+            profileMediaCache: media,
+          ),
+        ),
+      ),
+    );
+    await settleLocal(tester);
+    final reads = media.reads;
+    expect(File(media.path).existsSync(), isTrue);
+    await tester.runAsync(() => File(media.path).delete());
+    expect(File(media.path).existsSync(), isFalse);
+    await runtime.realtimeNotice!();
+    await settleLocal(tester);
+    expect(media.reads, greaterThan(reads));
+    expect(File(media.path).existsSync(), isTrue);
+    expect(
+      tester.widget<ProfileAvatar>(find.byType(ProfileAvatar)).imagePath,
+      media.path,
+    );
+    await tester.pumpWidget(const SizedBox());
+    await settleLocal(tester);
+  });
+
+  for (final fail in [false, true]) {
+    testWidgets('头像恢复${fail ? '失败保留旧资料' : '迟到结果不覆盖新身份'}且不显示提示', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      CitizenProfileApi.resetEntryRefreshMemory();
+      final pending = Completer<void>();
+      final profiles = _MutableChatProfiles();
+      if (fail) profiles.value = _peerProfile;
+      final api = _ChatEntryProfileApi(
+        onRead: (_) async {
+          await pending.future;
+          if (fail) throw StateError('synthetic avatar failure');
+          return _peerProfile;
+        },
+      );
+      Widget page(String cid) => Provider<CurrentUserContext>.value(
+        value: _LocalChatIdentity(registered: true),
+        child: MaterialApp(
+          home: Scaffold(
+            body: ChatTab(
+              key: const ValueKey('avatar-identity'),
+              runtime: _FakeRuntime(address: testMlsAccountId),
+              store: _FakeChatStore(
+                conversations: [preview(_directConversationId, '本机标题')],
+              ),
+              cidNumber: cid,
+              accountId: testMlsAccountId,
+              profileApi: api,
+              profileCache: profiles,
+              profileMediaCache: _RestoredChatMedia(),
+              sessionProvider: _FakeProfileSessionProvider(),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpWidget(page(_ownerUserId));
+      await settleLocal(tester);
+      expect(api.calls, 1);
+      if (!fail) {
+        await tester.pumpWidget(page(_carolCidNumber));
+        await settleLocal(tester);
+      }
+      pending.complete();
+      await settleLocal(tester);
+      expect(
+        find.text(fail ? _peerProfile.displayName : '本机标题'),
+        findsOneWidget,
+      );
+      expect(find.text('聊天操作失败，请稍后重试'), findsNothing);
+      expect(find.byType(AlertDialog), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+      await settleLocal(tester);
+    });
+  }
   for (final error in [false, true]) {
     testWidgets('切CID不等待旧本机列表，迟到${error ? '错误' : '结果'}不影响新CID', (tester) async {
       final old = Completer<List<ChatConversationPreview>>(),
@@ -1240,6 +1508,8 @@ void main() {
     expect(find.text('正在读取本地会话'), findsNothing);
     expect(find.byKey(const ValueKey('chat-sync-progress')), findsNothing);
     expect(find.textContaining('正在连接'), findsNothing);
+    expect(find.text('连接中'), findsNothing);
+    expect(find.text('聊天连接暂不可用，正在自动重试'), findsNothing);
 
     store.replaceConversations([
       ChatConversationPreview(
@@ -1264,7 +1534,7 @@ void main() {
     await tester.pump();
   });
 
-  testWidgets('连接失败保留本地会话并显示真实连接提示', (tester) async {
+  testWidgets('连接失败保留本地会话并仅在列表顶部显示连接中', (tester) async {
     final runtime = _FakeRuntime(
       address:
           '0x1111111111111111111111111111111111111111111111111111111111111111',
@@ -1300,7 +1570,22 @@ void main() {
 
     expect(find.text('Bob'), findsOneWidget);
     expect(find.text('本地会话必须保留'), findsOneWidget);
-    expect(find.text('聊天连接暂不可用，正在自动重试'), findsOneWidget);
+    expect(find.text('连接中'), findsOneWidget);
+    expect(
+      tester.widget<Text>(find.text('连接中')).style?.color,
+      AppTheme.textSecondary,
+    );
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byType(SnackBar), findsNothing);
+    expect(find.text('聊天连接暂不可用，正在自动重试'), findsNothing);
+    expect(
+      tester
+          .widget<ChatConversationOverview>(
+            find.byType(ChatConversationOverview),
+          )
+          .errorMessage,
+      isNull,
+    );
     expect(find.text('正在读取本地会话'), findsNothing);
     expect(find.textContaining('正在连接'), findsNothing);
 
@@ -1590,6 +1875,32 @@ class _FakeProfileApi extends CitizenProfileApi {
   }
 }
 
+class _AvatarRuntime extends _FakeRuntime {
+  _AvatarRuntime(ChatStore store)
+    : super(address: testMlsAccountId, store: store);
+  @override
+  Future<void> markConversationRead({
+    required String conversationId,
+    required int readThroughMillis,
+  }) async {}
+}
+
+class _SenderProfiles extends CitizenProfileCache {
+  _SenderProfiles(this.values);
+  final Map<String, CitizenProfile> values;
+  @override
+  Future<CitizenProfile?> read(String cidNumber) async => values[cidNumber];
+}
+
+class _SenderMedia extends CitizenProfileMediaCache {
+  _SenderMedia(this.values);
+  final Map<String, _RestoredChatMedia> values;
+  @override
+  Future<CitizenProfileMediaSnapshot> read(CitizenProfile profile) async =>
+      await values[profile.cidNumber]?.read(profile) ??
+      const CitizenProfileMediaSnapshot();
+}
+
 class _FakeContactService implements UserContactService {
   _FakeContactService(this.contacts);
 
@@ -1612,6 +1923,55 @@ class _MemoryProfileCache extends CitizenProfileCache {
 
   @override
   Future<void> write(CitizenProfile profile) async {}
+}
+
+class _MutableChatProfiles extends CitizenProfileCache {
+  CitizenProfile? value;
+  @override
+  Future<CitizenProfile?> read(String cidNumber) async => value;
+  @override
+  Future<void> write(CitizenProfile profile) async {
+    value = profile;
+  }
+}
+
+class _RestoredChatMedia extends CitizenProfileMediaCache {
+  _RestoredChatMedia({this.path = '/synthetic/chat-avatar.webp', this.bytes});
+  bool available = false;
+  int reads = 0;
+  final String path;
+  final List<int>? bytes;
+  @override
+  Future<CitizenProfileMediaSnapshot> read(CitizenProfile profile) async {
+    reads++;
+    if (available && bytes != null && !await File(path).exists()) {
+      await File(path).writeAsBytes(bytes!, flush: true);
+    }
+    return CitizenProfileMediaSnapshot(avatarPath: available ? path : null);
+  }
+}
+
+/// 只替换公开资料读取，进入页限速、身份校验仍运行真实refreshOnEntry。
+class _ChatEntryProfileApi extends CitizenProfileApi {
+  _ChatEntryProfileApi({required this.onRead});
+  final Future<CitizenProfile> Function(String cid) onRead;
+  int calls = 0;
+  @override
+  Future<CitizenProfileLoadResult> refreshProfile(
+    String cidNumber, {
+    required SquareSession session,
+    required bool userInitiated,
+    bool Function()? isCurrent,
+    CitizenProfileCache? cache,
+    CitizenProfileMediaCache? mediaCache,
+  }) async {
+    calls++;
+    final profile = await onRead(cidNumber);
+    if (isCurrent?.call() == false)
+      throw StateError('synthetic identity changed');
+    await cache!.write(profile);
+    return CitizenProfileLoadResult(profile, CitizenProfileLoadStatus.updated);
+  }
 }
 
 class _MemoryProfileMediaCache extends CitizenProfileMediaCache {

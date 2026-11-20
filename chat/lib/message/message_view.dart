@@ -17,6 +17,8 @@ import '../media/voice_message_player.dart';
 
 typedef ChatGroupSenderBuilder =
     Widget Function(BuildContext context, String userId);
+typedef ChatAvatarBuilder =
+    Widget Function(BuildContext context, String userId);
 
 /// Reusable direct/group message viewport, including all message categories.
 class ChatMessageListView extends StatelessWidget {
@@ -34,6 +36,7 @@ class ChatMessageListView extends StatelessWidget {
     this.loading = false,
     this.error,
     this.groupSenderBuilder,
+    this.avatarBuilder,
   });
 
   final String currentUserId;
@@ -48,6 +51,7 @@ class ChatMessageListView extends StatelessWidget {
   final bool loading;
   final String? error;
   final ChatGroupSenderBuilder? groupSenderBuilder;
+  final ChatAvatarBuilder? avatarBuilder;
 
   @override
   Widget build(BuildContext context) {
@@ -101,6 +105,7 @@ class ChatMessageListView extends StatelessWidget {
             onMessageSend: (text) => unawaited(onMessageSend(text)),
             backgroundColor: AppTheme.scaffoldBg,
             builders: Builders(
+              chatMessageBuilder: _buildMessage,
               textMessageBuilder: isGroup ? _buildGroupTextMessage : null,
               imageMessageBuilder: _buildImageMessage,
               videoMessageBuilder: _buildVideoMessage,
@@ -120,6 +125,47 @@ class ChatMessageListView extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+
+  /// 六类消息只在原ChatMessage外壳接头像，内容、动画和交互保持原组件。
+  Widget _buildMessage(
+    BuildContext context,
+    Message message,
+    int index,
+    Animation<double> animation,
+    Widget child, {
+    bool? isRemoved,
+    required bool isSentByMe,
+    MessageGroupStatus? groupStatus,
+  }) {
+    final avatar = avatarBuilder?.call(context, message.authorId);
+    final gap = AppLayout.scaled(context, 8);
+    return ChatMessage(
+      key: ValueKey('chat-message-row-${message.id}'),
+      message: message,
+      index: index,
+      animation: animation,
+      isRemoved: isRemoved,
+      groupStatus: groupStatus,
+      sentMessageRowAlignment: CrossAxisAlignment.start,
+      receivedMessageRowAlignment: CrossAxisAlignment.start,
+      leadingWidget: !isSentByMe && avatar != null
+          ? Padding(
+              padding: EdgeInsets.only(right: gap),
+              child: avatar,
+            )
+          : null,
+      trailingWidget: isSentByMe && avatar != null
+          ? Padding(
+              padding: EdgeInsets.only(left: gap),
+              child: avatar,
+            )
+          : null,
+      child: KeyedSubtree(
+        key: ValueKey('chat-message-content-${message.id}'),
+        child: child,
+      ),
     );
   }
 
@@ -177,7 +223,7 @@ class ChatMessageListView extends StatelessWidget {
               key: const ValueKey('chat-image-blurhash'),
             ),
           );
-    return _mediaAligned(
+    return _mediaContent(
       context,
       isSentByMe,
       ClipRRect(
@@ -204,7 +250,7 @@ class ChatMessageListView extends StatelessWidget {
     final control =
         message.metadata?['attachment_control_plaintext']?.toString() ?? '';
     final hash = message.metadata?['blurhash']?.toString();
-    return _mediaAligned(
+    return _mediaContent(
       context,
       isSentByMe,
       GestureDetector(
@@ -271,7 +317,7 @@ class ChatMessageListView extends StatelessWidget {
   }) {
     final control =
         message.metadata?['attachment_control_plaintext']?.toString() ?? '';
-    return _mediaAligned(
+    return _mediaContent(
       context,
       isSentByMe,
       GestureDetector(
@@ -342,7 +388,7 @@ class ChatMessageListView extends StatelessWidget {
   }) {
     final control =
         message.metadata?['attachment_control_plaintext']?.toString() ?? '';
-    return _mediaAligned(
+    return _mediaContent(
       context,
       isSentByMe,
       VoiceMessagePlayer(
@@ -372,7 +418,7 @@ class ChatMessageListView extends StatelessWidget {
             errorBuilder: (_, _, _) => _stickerFallback(context),
           )
         : _stickerFallback(context);
-    return _mediaAligned(
+    return _mediaContent(
       context,
       isSentByMe,
       SizedBox(
@@ -386,32 +432,23 @@ class ChatMessageListView extends StatelessWidget {
     );
   }
 
-  Widget _mediaAligned(
+  Widget _mediaContent(
     BuildContext context,
     bool isSentByMe,
     Widget child, {
     String? senderId,
     MessageGroupStatus? groupStatus,
   }) {
-    final aligned = Padding(
-      padding: EdgeInsets.symmetric(
-        horizontal: AppLayout.scaled(context, 12),
-        vertical: AppLayout.scaled(context, 4),
-      ),
-      child: Align(
-        alignment: isSentByMe ? Alignment.centerRight : Alignment.centerLeft,
-        child: child,
-      ),
-    );
     final showSender =
         isGroup &&
         !isSentByMe &&
         senderId != null &&
         (groupStatus?.isFirst ?? true);
     if (!showSender) {
-      return aligned;
+      return child;
     }
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
@@ -421,7 +458,7 @@ class ChatMessageListView extends StatelessWidget {
           ),
           child: _sender(context, senderId),
         ),
-        aligned,
+        child,
       ],
     );
   }

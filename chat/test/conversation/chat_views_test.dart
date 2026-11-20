@@ -8,10 +8,121 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';
+import 'package:flutter_chat_ui/flutter_chat_ui.dart' as flyer;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/chat.dart';
 
 void main() {
+  final messages = <String, Message Function(String)>{
+    '文字': (author) => Message.text(
+      id: 'row',
+      authorId: author,
+      text: '一条需要换行的消息，用于核对头像与消息卡片共同布局。',
+    ),
+    '图片': (author) => Message.image(
+      id: 'row',
+      authorId: author,
+      source: '',
+      width: 300,
+      height: 200,
+    ),
+    '视频': (author) => Message.video(
+      id: 'row',
+      authorId: author,
+      source: '',
+      width: 300,
+      height: 200,
+    ),
+    '文件': (author) => Message.file(
+      id: 'row',
+      authorId: author,
+      source: '',
+      name: '较长的文件名称用于检查窄屏.txt',
+      size: 1024,
+    ),
+    '语音': (author) => Message.audio(
+      id: 'row',
+      authorId: author,
+      source: '',
+      duration: const Duration(seconds: 12),
+    ),
+    '贴纸': (author) => Message.custom(
+      id: 'row',
+      authorId: author,
+      metadata: {'pack_id': 'fluent3d', 'sticker_id': 'grinning_face'},
+    ),
+  };
+  for (final scale in [1.0, 2.0]) {
+    for (final mine in [false, true]) {
+      for (final entry in messages.entries) {
+        testWidgets(
+          '${entry.key}共用消息外壳，${mine ? '右侧自己' : '左侧对方'}头像顶部对齐，大字$scale',
+          (tester) async {
+            tester.view.physicalSize = const Size(320, 900);
+            tester.view.devicePixelRatio = 1;
+            addTearDown(tester.view.resetPhysicalSize);
+            addTearDown(tester.view.resetDevicePixelRatio);
+            final author = mine ? 'me' : 'peer';
+            final controller = InMemoryChatController(
+              messages: [entry.value(author)],
+            );
+            await tester.pumpWidget(
+              MaterialApp(
+                builder: (context, child) => MediaQuery(
+                  data: MediaQuery.of(
+                    context,
+                  ).copyWith(textScaler: TextScaler.linear(scale)),
+                  child: child!,
+                ),
+                home: Scaffold(
+                  body: ChatMessageListView(
+                    currentUserId: 'me',
+                    chatController: controller,
+                    onMessageSend: (_) async {},
+                    resolveUser: (id) async => User(id: id),
+                    composerBuilder: (_) => const SizedBox(),
+                    onDownloadAttachment: (_) async {},
+                    onMessagesChanged: () async {},
+                    avatarBuilder: (_, id) => SizedBox(
+                      key: ValueKey('avatar-$id'),
+                      width: 32,
+                      height: 32,
+                      child: const ColoredBox(color: Colors.teal),
+                    ),
+                  ),
+                ),
+              ),
+            );
+            await tester.pump();
+            await tester.pump(const Duration(milliseconds: 400));
+            final row = find.byKey(const ValueKey('chat-message-row-row'));
+            expect(tester.widget(row), isA<flyer.ChatMessage>());
+            final avatar = tester.getRect(
+              find.byKey(ValueKey('avatar-$author')),
+            );
+            final content = tester.getRect(
+              find.byKey(const ValueKey('chat-message-content-row')),
+            );
+            expect(avatar.top, closeTo(content.top, 0.1));
+            final gap = AppLayout.scaled(tester.element(row), 8);
+            expect(
+              mine ? avatar.left - content.right : content.left - avatar.right,
+              closeTo(gap, 0.1),
+            );
+            expect(avatar.left, greaterThanOrEqualTo(0));
+            expect(content.left, greaterThanOrEqualTo(0));
+            expect(avatar.right, lessThanOrEqualTo(320));
+            expect(content.right, lessThanOrEqualTo(320));
+            expect(tester.takeException(), isNull);
+            await tester.pumpWidget(const SizedBox());
+            controller.dispose();
+            await tester.pump();
+          },
+        );
+      }
+    }
+  }
+
   testWidgets('真实贴纸消息气泡从assets包读取PNG，不依赖宿主同名资产', (tester) async {
     final controller = InMemoryChatController(
       messages: [
@@ -180,7 +291,103 @@ void main() {
     },
   );
 
-  testWidgets('连接失败不会被本地刷新清除且页面不发周期网络补发', (tester) async {
+  testWidgets('列表首次握手静默，真实失败后显示连接中并在恢复后清除', (tester) async {
+    final attempt = Completer<void>();
+    late Future<void> Function(bool) connection;
+    var starts = 0;
+    final runtime = _Runtime(
+      onStart: ({required onNotice, onConnectionChanged}) async {
+        starts++;
+        connection = onConnectionChanged!;
+        await attempt.future;
+        return () async {};
+      },
+    );
+    final c = ChatConversationListController(
+      runtime: runtime,
+      onCoordinate: () async {},
+      onRefresh: (_) async => true,
+    );
+    c.start(visible: true);
+    c.configureScope('account-a');
+    c.configureScope('account-a');
+    await tester.pump();
+    expect(starts, 1);
+    expect(c.connectionLabel, isNull);
+    await connection(false);
+    expect(c.connectionLabel, '连接中');
+    attempt.complete();
+    await tester.pump();
+    expect(c.connectionLabel, '连接中');
+    await connection(true);
+    expect(c.connectionLabel, isNull);
+    await connection(false);
+    expect(c.connectionLabel, '连接中');
+    c.dispose();
+  });
+
+  testWidgets('订阅等待后台重连但没有失败通知时列表保持静默', (tester) async {
+    late Future<void> Function(bool) connection;
+    final runtime = _Runtime(
+      onStart: ({required onNotice, onConnectionChanged}) async {
+        connection = onConnectionChanged!;
+        return () async {};
+      },
+    );
+    final c = ChatConversationListController(
+      runtime: runtime,
+      onCoordinate: () async {},
+      onRefresh: (_) async => true,
+    );
+    c.start(visible: true);
+    c.configureScope('account-a');
+    await tester.pump();
+    expect(c.connectionLabel, isNull);
+    await connection(false);
+    expect(c.connectionLabel, '连接中');
+    await connection(true);
+    expect(c.connectionLabel, isNull);
+    c.dispose();
+  });
+
+  testWidgets('列表连接异常归连接中，切换身份后忽略旧连接的迟到状态', (tester) async {
+    final first = Completer<void>();
+    Future<void> Function(bool)? oldConnection;
+    var starts = 0, oldStops = 0;
+    final runtime = _Runtime(
+      onStart: ({required onNotice, onConnectionChanged}) async {
+        if (++starts == 1) {
+          oldConnection = onConnectionChanged;
+          await first.future;
+          return () async {
+            oldStops++;
+          };
+        }
+        throw StateError('synthetic connection failure');
+      },
+    );
+    final c = ChatConversationListController(
+      runtime: runtime,
+      onCoordinate: () async {},
+      onRefresh: (_) async => true,
+    );
+    c.start(visible: true);
+    c.configureScope('account-a');
+    await tester.pump();
+    c.configureScope('account-b');
+    await tester.pump();
+    expect(c.connectionLabel, '连接中');
+    await oldConnection!(true);
+    first.complete();
+    await tester.pump();
+    expect(c.connectionLabel, '连接中');
+    expect(oldStops, 1);
+    c.setVisible(false);
+    expect(c.connectionLabel, isNull);
+    c.dispose();
+  });
+
+  testWidgets('会话页连接失败静默且页面不发周期网络补发', (tester) async {
     Future<void> Function(bool)? connection;
     var syncs = 0;
     final c = ChatConversationController(
@@ -207,10 +414,10 @@ void main() {
     );
     c.start();
     await tester.pump();
-    expect(c.error, isNotNull);
+    expect(c.error, isNull);
     await c.reloadMessages();
     await tester.pump(const Duration(seconds: 60));
-    expect(c.error, isNotNull);
+    expect(c.error, isNull);
     expect(syncs, 0);
     await connection!.call(true);
     expect(c.error, isNull);

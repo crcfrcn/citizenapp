@@ -85,6 +85,9 @@ class _ChatTabState extends State<ChatTab> {
       widget.profileCache ?? const CitizenProfileCache();
   late final CitizenProfileMediaCache _profileMediaCache =
       widget.profileMediaCache ?? CitizenProfileMediaCache();
+  late final CitizenProfileApi _profileApi =
+      widget.profileApi ?? CitizenProfileApi();
+  Future<void> _profileRestore = Future<void>.value();
   SquareSessionProvider? _sessionProvider;
   UserContactService? _contactService;
   CitizenSdk? _wallet;
@@ -171,6 +174,7 @@ class _ChatTabState extends State<ChatTab> {
     }
     if (widget.cidNumber != null && widget.accountId != null) {
       _wallet = widget.wallet;
+      _currentUserContext = context.read<CurrentUserContext?>();
       _sessionProvider = widget.sessionProvider;
       _contactService = widget.contactService;
       _dependenciesReady = true;
@@ -369,7 +373,7 @@ class _ChatTabState extends State<ChatTab> {
       setState(() {
         _conversations = visible;
       });
-      unawaited(_hydratePeerProfiles(visible));
+      unawaited(_hydratePeerProfiles(visible, refreshRemote: syncFirst));
       if (activeWallet.isNotEmpty) {
         serviceAccountId = activeWallet;
         serviceCidNumber = ownerUserId;
@@ -432,7 +436,11 @@ class _ChatTabState extends State<ChatTab> {
     await Future.wait(
       _directPeerCidNumbers(conversations).map((peer) async {
         if (!force && _resolvedPeerCidNumbers.contains(peer)) {
-          return;
+          final profile = _peerProfiles[peer];
+          final path = _peerProfileMedia[peer]?.avatarPath;
+          if (profile?.avatarKey?.trim().isNotEmpty != true ||
+              path != null && File(path).existsSync())
+            return;
         }
         final request = ++_cacheSequence;
         _profileRequests[peer] = request;
@@ -467,22 +475,81 @@ class _ChatTabState extends State<ChatTab> {
   }
 
   /// 会话标题先用 ChatIsar 已有预览立即显示；公开资料缓存随后把中性头像替换为真实
-  /// 头像。缓存读取失败不能阻塞聊天列表，也不触发远端补取。
+  /// 头像。进入页的远端补齐在本地结果之后执行，沿用资料模块的限速及持久存储。
   Future<void> _hydratePeerProfiles(
-    List<ChatConversationPreview> conversations,
-  ) async {
+    List<ChatConversationPreview> conversations, {
+    bool refreshRemote = false,
+  }) async {
     final generation = _reloadGeneration,
         owner = _cidNumber,
         account = _accountId;
     unawaited(_hydrateContactRemarks(conversations));
     try {
-      await _readCachedPeerProfiles(conversations);
+      await _readCachedPeerProfiles(conversations, force: refreshRemote);
       if (_displayCurrent(generation, owner, account)) {
         setState(() {});
+        if (refreshRemote && _isActive) {
+          _restorePeerProfiles(conversations, generation, owner, account);
+        }
       }
     } on Exception {
       // 公开资料是 Chat UI 的联合展示数据；失败不影响加密会话本身。
     }
+  }
+
+  /// 同一页面批次排队、最多两个读取；迟到结果不得跨CID或账户回填。
+  void _restorePeerProfiles(
+    List<ChatConversationPreview> conversations,
+    int generation,
+    String owner,
+    String account,
+  ) {
+    final entries = <String, ChatConversationPreview>{
+      for (final preview in conversations)
+        if (!preview.isGroup && preview.peerUserId.trim().isNotEmpty)
+          preview.peerUserId: preview,
+    }.values.toList(growable: false);
+    bool current() => _displayCurrent(generation, owner, account) && _isActive;
+    _profileRestore = _profileRestore.then((_) async {
+      try {
+        if (!current() || entries.isEmpty) return;
+        final user = await _currentUserContext?.resolve();
+        final binding = user?.binding;
+        final sessions = _sessionProvider;
+        if (!current() ||
+            binding == null ||
+            sessions == null ||
+            binding.cidNumber != owner ||
+            binding.accountId != account)
+          return;
+        var next = 0;
+        Future<void> read() async {
+          while (current() && next < entries.length) {
+            final preview = entries[next++];
+            try {
+              final result = await _profileApi.refreshOnEntry(
+                preview.peerUserId,
+                binding: binding,
+                sessions: sessions,
+                cache: widget.profileCache ?? _profileCache,
+                mediaCache: widget.profileMediaCache ?? _profileMediaCache,
+                isCurrentIdentity: current,
+              );
+              if (!current()) return;
+              if (result != null) {
+                await _readCachedPeerProfiles([preview], force: true);
+              }
+            } on Object {
+              // 单个头像恢复失败保持原本地展示，不显示连接或资料提示。
+            }
+          }
+        }
+
+        await Future.wait([read(), read()]);
+      } on Object {
+        // 当前身份尚未就绪时保持本地列表，下次进入沿原资料入口恢复。
+      }
+    });
   }
 
   /// 通讯录备注是本机私人数据，只与当前 CID 下的直接会话联合展示。读取失败不阻塞
@@ -543,10 +610,13 @@ class _ChatTabState extends State<ChatTab> {
       return false;
     }
     final visible = _withoutDeletingConversations(conversations);
+    final refreshProfiles = _directPeerCidNumbers(
+      visible,
+    ).any((peer) => !_resolvedPeerCidNumbers.contains(peer));
     setState(() {
       _conversations = visible;
     });
-    unawaited(_hydratePeerProfiles(visible));
+    unawaited(_hydratePeerProfiles(visible, refreshRemote: refreshProfiles));
     return true;
   }
 
@@ -1006,6 +1076,17 @@ class _ChatTabState extends State<ChatTab> {
                 ),
             ],
           ),
+          if (_listController.connectionLabel case final label?)
+            Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: AppLayout.scaled(context, 16),
+                vertical: AppLayout.scaled(context, 6),
+              ),
+              child: Text(
+                label,
+                style: const TextStyle(color: AppTheme.textSecondary),
+              ),
+            ),
         ],
       ),
       onRefresh: () => _reload(syncFirst: true),
@@ -1016,7 +1097,7 @@ class _ChatTabState extends State<ChatTab> {
           _conversationItem(context, preview),
       ],
       loading: _loading || _checkingIdentity,
-      errorMessage: _error ?? _listController.connectionError,
+      errorMessage: _error,
       unavailable: unavailable,
     );
   }

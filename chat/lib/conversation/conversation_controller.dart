@@ -93,14 +93,13 @@ class ChatConversationController extends ChangeNotifier
   bool _loading = true;
   bool _attachmentBusy = false;
   String? _error;
-  String? _connectionError;
   int _messageReloadGeneration = 0;
   int? _renderedMessageFingerprint;
   int _optimisticMessageSequence = 0;
 
   bool get loading => _loading;
   bool get attachmentBusy => _attachmentBusy;
-  String? get error => _error ?? _connectionError;
+  String? get error => _error;
   int get optimisticMessageCount => _optimisticMessages.length;
 
   /// 启动一次控制器。重复调用不会重复注册生命周期或建立实时订阅。
@@ -314,8 +313,6 @@ class ChatConversationController extends ChangeNotifier
             return;
           }
           _realtimeConnected = ready;
-          _connectionError = ready ? null : '聊天连接暂不可用，正在自动重试';
-          notifyListeners();
         },
       );
       if (_disposed || !_appResumed) {
@@ -324,11 +321,8 @@ class ChatConversationController extends ChangeNotifier
       }
       _stopRealtime = stop;
       return stop != null;
-    } catch (error) {
-      _connectionError = errorMessage(error);
-      if (!_disposed) {
-        notifyListeners();
-      }
+    } catch (_) {
+      // 实时连接由Runtime静默恢复；连接状态只在聊天列表展示。
       return false;
     } finally {
       _realtimeConnecting = false;
@@ -651,9 +645,12 @@ class ChatConversationListController extends ChangeNotifier
   bool _appResumed = false;
   bool _realtimeConnecting = false;
   bool _realtimeConnected = false;
+  int _realtimeGeneration = 0;
+  bool _realtimeFailed = false;
 
-  String? get connectionError =>
-      _scope == null || _realtimeConnected ? null : '聊天连接暂不可用，正在自动重试';
+  /// 初次握手和正常重连静默；实际尝试失败后只交付列表顶部的中性状态文字。
+  String? get connectionLabel =>
+      isActive && _scope != null && _realtimeFailed ? '连接中' : null;
 
   bool get isActive => !_disposed && _visible && _appResumed;
 
@@ -740,29 +737,40 @@ class ChatConversationListController extends ChangeNotifier
       return _realtimeConnected;
     }
     _realtimeConnecting = true;
+    final generation = _realtimeGeneration;
+    bool current() =>
+        isActive && _scope == scope && generation == _realtimeGeneration;
     try {
       final stop = await _runtime.startRealtimeSync(
         onNotice: () async {
           await _refresh(scope);
         },
         onConnectionChanged: (ready) async {
-          if (!isActive || _scope != scope) {
+          if (!current()) {
             return;
           }
           _realtimeConnected = ready;
+          _realtimeFailed = !ready;
           notifyListeners();
         },
       );
-      if (!isActive || _scope != scope) {
+      if (!current()) {
         await stop?.call();
         return false;
       }
       _stopRealtime = stop;
       return _realtimeConnected;
     } catch (_) {
+      if (current()) {
+        _realtimeConnected = false;
+        _realtimeFailed = true;
+      }
       return false;
     } finally {
-      _realtimeConnecting = false;
+      if (current()) {
+        _realtimeConnecting = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -778,7 +786,10 @@ class ChatConversationListController extends ChangeNotifier
   }
 
   void _stopSync({required bool clearScope}) {
+    _realtimeGeneration++;
+    _realtimeConnecting = false;
     _realtimeConnected = false;
+    _realtimeFailed = false;
     final stop = _stopRealtime;
     _stopRealtime = null;
     if (clearScope) {
