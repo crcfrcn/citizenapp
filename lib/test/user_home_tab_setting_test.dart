@@ -53,6 +53,10 @@ void main() {
       );
       await tester.pump();
     }
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('home-tab-setting-tile')),
+    );
+    await tester.pumpAndSettle();
   }
 
   test('UserIsar 首页偏好缺省为广场并可原子往返', () async {
@@ -64,6 +68,12 @@ void main() {
   });
 
   testWidgets('首页设置位于安全和关于之间并同行显示广场与同款 Switch', (tester) async {
+    // 新增隐私分组后使用足够长的视口，继续同时核对三个分组的实际几何顺序。
+    tester.view.physicalSize = const Size(411, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     await tester.pumpWidget(
       MaterialApp(
         home: SettingsPage(

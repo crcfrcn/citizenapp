@@ -375,7 +375,7 @@ class _LegislationVotePageState extends State<LegislationVotePage> {
               ),
             ),
             Text(
-              '赞成 ${t.yes}　反对 ${t.no}',
+              '赞成 ${t.yes} 票　反对 ${t.no} 票',
               style: TextStyle(
                 fontSize: AppLayout.scaledValue(14),
                 fontWeight: FontWeight.w600,

@@ -7,6 +7,8 @@ import 'package:citizen_square/post/square_local_post_presenter.dart';
 import 'package:citizen_square/post/square_post_sync_service.dart';
 
 import 'dart:async';
+import 'package:citizen_user/identity/account_security_service.dart';
+import 'package:citizen_user/identity/current_user_context.dart';
 
 import 'package:flutter/material.dart';
 import 'package:citizen_user/membership/subscription_service.dart';
@@ -33,13 +35,13 @@ class SquareArticleDetailPage extends StatefulWidget {
     this.api,
     this.sessionProvider,
     this.deletionCoordinator,
-    this.initialDetailLoaded = false,
+    this.initialRead,
     this.initialCommentId,
     this.notificationThrough,
   });
 
   final SquarePost post;
-  final bool initialDetailLoaded;
+  final SquareDetailRead? initialRead;
   final String? initialCommentId;
   final int? notificationThrough;
   final SquareApiClient? api;
@@ -62,6 +64,14 @@ class _SquareArticleDetailPageState extends State<SquareArticleDetailPage> {
   Object? _loadError;
   bool _deleting = false;
   bool _dependenciesReady = false;
+  AccountSecurityService? _security;
+  CurrentUserContext? _currentUser;
+  int _loadGeneration = 0;
+  String? _viewerCid;
+  String? _viewerAccount;
+  int? _viewerBindRev;
+  bool _verifiedLocal = false;
+  bool _hasContent = false;
 
   SquarePost get post => _post;
 
@@ -82,10 +92,38 @@ class _SquareArticleDetailPageState extends State<SquareArticleDetailPage> {
     _sessionProvider =
         widget.sessionProvider ?? context.read<SquareSessionProvider>();
     _dependenciesReady = true;
+    _security = context.read<AccountSecurityService?>();
+    _currentUser = context.read<CurrentUserContext?>();
+    _security?.revision.addListener(_onIdentityChanged);
     unawaited(_loadDetail());
   }
 
+  @override
+  void dispose() {
+    _loadGeneration++;
+    _security?.revision.removeListener(_onIdentityChanged);
+    super.dispose();
+  }
+
+  void _onIdentityChanged() {
+    // 立即卸载旧正文与媒体，不等待新会话或云端响应。
+    _loadGeneration++;
+    if (!mounted) return;
+    setState(() {
+      _verifiedLocal = false;
+      _hasContent = false;
+      _loading = false;
+      _loadError = StateError('当前身份已变化，请重新打开内容');
+    });
+  }
+
   Future<void> _loadDetail({bool refresh = false}) async {
+    final generation = ++_loadGeneration;
+    final revision = _security?.revision.value;
+    bool current() =>
+        mounted &&
+        generation == _loadGeneration &&
+        revision == _security?.revision.value;
     if (mounted) {
       setState(() {
         _loading = true;
@@ -93,17 +131,50 @@ class _SquareArticleDetailPageState extends State<SquareArticleDetailPage> {
       });
     }
     try {
+      // 本人离线副本先核对本机身份，不以isLocal标志或作者CID代替当前用户。
+      final localUser = await _currentUser?.resolve();
+      final cidNumber =
+          localUser?.cidNumber ?? await _sessionProvider.currentCitizenId();
+      if (!current()) return;
+      if (cidNumber == null ||
+          cidNumber.isEmpty ||
+          _viewerCid != null && _viewerCid != cidNumber ||
+          localUser != null &&
+              _viewerAccount != null &&
+              (_viewerAccount != localUser.accountId ||
+                  _viewerBindRev != localUser.bindRev)) {
+        _hasContent = false;
+        _verifiedLocal = false;
+        throw StateError('当前身份已变化，请重新打开内容');
+      }
+      _viewerCid = cidNumber;
+      if (localUser != null) {
+        _viewerAccount = localUser.accountId;
+        _viewerBindRev = localUser.bindRev;
+      }
       if (_post.isLocal) {
         final cid = _post.author.cidNumber!;
+        if (cidNumber != cid) {
+          _hasContent = false;
+          _verifiedLocal = false;
+          throw StateError('只能读取当前用户的本地内容');
+        }
         if (refresh) {
           final session = await _sessionProvider.ensureSession();
-          if (session == null || session.cidNumber != cid) {
+          if (!current()) return;
+          if (session == null) throw StateError('当前无法建立服务会话');
+          if (session.cidNumber != cid ||
+              _viewerAccount != null &&
+                  (session.accountId != _viewerAccount ||
+                      session.bindRev != _viewerBindRev)) {
+            _hasContent = false;
+            _verifiedLocal = false;
             throw StateError('当前用户已变化');
           }
           await SquarePostSyncService().sync(
             session,
             userInitiated: true,
-            isCurrent: () => mounted,
+            isCurrent: current,
           );
         }
         final local = await const SquarePostStore().read(
@@ -112,8 +183,10 @@ class _SquareArticleDetailPageState extends State<SquareArticleDetailPage> {
         );
         if (local == null) throw StateError('本地尚未保存内容');
         final presentation = const SquareLocalPostPresenter().present(local);
-        if (mounted) {
+        if (current()) {
           setState(() {
+            _verifiedLocal = true;
+            _hasContent = true;
             _post = presentation.post;
             _loading = false;
           });
@@ -121,7 +194,18 @@ class _SquareArticleDetailPageState extends State<SquareArticleDetailPage> {
         return;
       }
       final session = await _sessionProvider.ensureSession();
+      if (!current()) return;
       if (session == null) throw const SquareApiException('请先选择默认钱包账户');
+      if (session.cidNumber != cidNumber ||
+          _viewerAccount != null &&
+              (session.accountId != _viewerAccount ||
+                  session.bindRev != _viewerBindRev)) {
+        _hasContent = false;
+        _verifiedLocal = false;
+        throw StateError('当前身份已变化，请重新打开内容');
+      }
+      _viewerAccount = session.accountId;
+      _viewerBindRev = session.bindRev;
       await SubscriptionService.requireSquareSession(session, client: _api);
       await Notifications.instance.restore();
       final notificationOwner = Notifications.instance.scope;
@@ -130,24 +214,30 @@ class _SquareArticleDetailPageState extends State<SquareArticleDetailPage> {
           (notificationOwner.cidNumber != session.cidNumber ||
               notificationOwner.bindRev != session.bindRev ||
               notificationOwner.accountId != session.accountId)) {
+        _hasContent = false;
+        _verifiedLocal = false;
         throw StateError('内容详情身份已变化');
       }
       final readThrough = Notifications.instance.through;
-      final detail = widget.initialDetailLoaded && !refresh
+      final detail =
+          !refresh &&
+              widget.initialRead?.matches(session, revision, _post.postId) ==
+                  true
           ? _post
           : await _api.fetchPostDetail(session: session, summary: _post);
-      if (!mounted ||
+      await session.validateCurrent();
+      if (!current() ||
           (notificationOwner != null &&
               !Notifications.instance.isCurrent(notificationOwner))) {
         return;
       }
       setState(() {
         _post = detail;
-
+        _hasContent = true;
         _loading = false;
       });
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && ModalRoute.of(context)?.isCurrent == true) {
+        if (current() && ModalRoute.of(context)?.isCurrent == true) {
           unawaited(
             SquareInteractionService.instance.viewed(
               post.postId,
@@ -163,13 +253,26 @@ class _SquareArticleDetailPageState extends State<SquareArticleDetailPage> {
         }
       });
     } catch (error) {
-      if (!mounted) return;
-      if (refresh) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('刷新失败，已保留本地内容')));
+      if (!mounted || !current()) return;
+      // 明确拒绝远端内容时关闭旧正文；本人已核对的离线副本不因云端故障丢失。
+      if (SquareSessionResolution.fromError(error).status ==
+          SquareSessionStatus.identityChanged) {
+        _hasContent = false;
+        _verifiedLocal = false;
+      }
+      final denied =
+          !_verifiedLocal &&
+          error is SquareApiException &&
+          const [401, 403, 404].contains(error.statusCode);
+      if (denied) _hasContent = false;
+      final keepContent = refresh && _hasContent && !denied;
+      if (keepContent) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('刷新失败，已保留本地内容')));
       }
       setState(() {
-        _loadError = refresh ? null : error;
+        _loadError = keepContent ? null : error;
         _loading = false;
       });
     }
@@ -181,102 +284,104 @@ class _SquareArticleDetailPageState extends State<SquareArticleDetailPage> {
     final cover = media.isNotEmpty ? media.first : null;
     final title = post.title?.trim();
 
-    return MembershipBusinessGate(
-      localContent: post.isLocal,
-      sessionProvider: _sessionProvider,
-      client: _api,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('文章'),
-          centerTitle: true,
-          actions: [
-            IconButton(
-              tooltip: '刷新',
-              icon: const Icon(Icons.refresh),
-              onPressed: _loading ? null : () => _loadDetail(refresh: true),
-            ),
-            PopupMenuButton<_ArticleDetailAction>(
-              enabled: !_deleting,
-              onSelected: _handleAction,
-              itemBuilder: (context) => const [
-                PopupMenuItem(
-                  value: _ArticleDetailAction.edit,
-                  child: ListTile(
-                    leading: Icon(Icons.edit_outlined),
-                    title: Text('修改'),
-                  ),
+    final content = Scaffold(
+      appBar: AppBar(
+        title: const Text('文章'),
+        centerTitle: true,
+        actions: [
+          IconButton(
+            tooltip: '刷新',
+            icon: const Icon(Icons.refresh),
+            onPressed: _loading ? null : () => _loadDetail(refresh: true),
+          ),
+          PopupMenuButton<_ArticleDetailAction>(
+            enabled: !_deleting && !_loading && _loadError == null,
+            onSelected: _handleAction,
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: _ArticleDetailAction.edit,
+                child: ListTile(
+                  leading: Icon(Icons.edit_outlined),
+                  title: Text('修改'),
                 ),
-                PopupMenuItem(
-                  value: _ArticleDetailAction.delete,
-                  child: ListTile(
-                    leading: Icon(Icons.delete_outline),
-                    title: Text('删除'),
+              ),
+              PopupMenuItem(
+                value: _ArticleDetailAction.delete,
+                child: ListTile(
+                  leading: Icon(Icons.delete_outline),
+                  title: Text('删除'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _loadError != null
+          ? _DetailLoadError(
+              error: _loadError!,
+              onRetry: () => _loadDetail(refresh: true),
+            )
+          : ListView(
+              children: [
+                if (cover != null && (cover.isLocal || cover.url.isNotEmpty))
+                  SquareMediaImage(item: cover),
+                Padding(
+                  padding: EdgeInsets.all(AppLayout.scaled(context, 16)),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (title != null && title.isNotEmpty)
+                        Text(
+                          title,
+                          style: TextStyle(
+                            color: AppTheme.textPrimary,
+                            fontSize: AppLayout.scaled(context, 22),
+                            fontWeight: FontWeight.w700,
+                            height: 1.35,
+                          ),
+                        ),
+                      SizedBox(height: AppLayout.scaled(context, 8)),
+                      Text(
+                        post.author.title,
+                        style: TextStyle(
+                          color: AppTheme.textTertiary,
+                          fontSize: AppLayout.scaled(context, 13),
+                        ),
+                      ),
+                      SizedBox(height: AppLayout.scaled(context, 16)),
+                      ..._buildBody(media),
+                      if (!post.isLocal || post.chainBlock != null)
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            SquareLikesStrip(
+                              postId: post.postId,
+                              api: _api,
+                              sessions: _sessionProvider,
+                            ),
+                            Comments(
+                              postId: post.postId,
+                              api: _api,
+                              sessionProvider: _sessionProvider,
+                              initialCommentId: widget.initialCommentId,
+                              notificationThrough: widget.notificationThrough,
+                            ),
+                          ],
+                        ),
+                    ],
                   ),
                 ),
               ],
             ),
-          ],
-        ),
-        body: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : _loadError != null
-            ? _DetailLoadError(
-                error: _loadError!,
-                onRetry: () => _loadDetail(refresh: true),
-              )
-            : ListView(
-                children: [
-                  if (cover != null && (cover.isLocal || cover.url.isNotEmpty))
-                    SquareMediaImage(item: cover),
-                  Padding(
-                    padding: EdgeInsets.all(AppLayout.scaled(context, 16)),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (title != null && title.isNotEmpty)
-                          Text(
-                            title,
-                            style: TextStyle(
-                              color: AppTheme.textPrimary,
-                              fontSize: AppLayout.scaled(context, 22),
-                              fontWeight: FontWeight.w700,
-                              height: 1.35,
-                            ),
-                          ),
-                        SizedBox(height: AppLayout.scaled(context, 8)),
-                        Text(
-                          post.author.title,
-                          style: TextStyle(
-                            color: AppTheme.textTertiary,
-                            fontSize: AppLayout.scaled(context, 13),
-                          ),
-                        ),
-                        SizedBox(height: AppLayout.scaled(context, 16)),
-                        ..._buildBody(media),
-                        if (!post.isLocal || post.chainBlock != null)
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              SquareLikesStrip(
-                                postId: post.postId,
-                                api: _api,
-                                sessions: _sessionProvider,
-                              ),
-                              Comments(
-                                postId: post.postId,
-                                api: _api,
-                                sessionProvider: _sessionProvider,
-                                initialCommentId: widget.initialCommentId,
-                                notificationThrough: widget.notificationThrough,
-                              ),
-                            ],
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-      ),
+    );
+    if (_loading || _loadError != null) return content;
+    return MembershipBusinessGate(
+      localContent: _verifiedLocal,
+      sessionProvider: _sessionProvider,
+      client: _api,
+      child: content,
     );
   }
 
@@ -336,6 +441,7 @@ class _SquareArticleDetailPageState extends State<SquareArticleDetailPage> {
   );
 
   Future<void> _handleAction(_ArticleDetailAction action) async {
+    if (_loading || _loadError != null) return;
     switch (action) {
       case _ArticleDetailAction.edit:
         await _editArticle();
@@ -357,6 +463,7 @@ class _SquareArticleDetailPageState extends State<SquareArticleDetailPage> {
             initialTitle: post.title,
             initialText: post.text,
             replaceId: post.postId,
+            initialVisibility: post.postVisibility,
           ),
         ),
       ),

@@ -1,3 +1,6 @@
+import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_scanner/qr_sign_session_page.dart'
+    show signCitizenPayload;
 import 'contact_scan.dart';
 import 'package:provider/provider.dart';
 
@@ -42,10 +45,16 @@ class ContactBookPage extends StatefulWidget {
     this.transferOpener,
     this.currentUserContext,
     this.identityRevision,
+    this.onSelectionChanged,
+    this.selectionEnabled = true,
   });
 
-  /// 页面模式:浏览 / 选收款人 / 选私信对象;不改变通讯录所属身份账户。
+  /// 页面模式:浏览 / 选收款人 / 聊天多选;不改变通讯录所属身份账户。
   final ContactPickMode mode;
+
+  /// 聊天多选模式只嵌入原列表，公开资料、搜索和缓存仍由本页统一管理。
+  final ValueChanged<List<UserContact>>? onSelectionChanged;
+  final bool selectionEnabled;
   final UserContactService? service;
   final CitizenProfileApi? profileApi;
   final CitizenProfileCache? profileCache;
@@ -94,13 +103,18 @@ class _ContactBookPageState extends State<ContactBookPage> {
   );
   bool _loading = true;
   bool _retrying = false;
+  Future<void>? _localRead;
+  bool _localReadAgain = false;
 
   /// 当前钱包未注册 CID(合法状态,非故障)。置真时整页显示统一注册引导,
   /// 且**不读通讯录**——通讯录属主就是 CID,没有 CID 连读都不该读。
   bool _unregistered = false;
   String _query = '';
+  final Set<String> _selected = {};
+  String _ownerCid = '';
   int _loadGeneration = 0;
   Future<void> _profileRestore = Future<void>.value();
+  Future<void> _cacheReads = Future<void>.value();
 
   @override
   void initState() {
@@ -163,7 +177,58 @@ class _ContactBookPageState extends State<ContactBookPage> {
   }
 
   void _onSyncStateChanged() {
-    if (mounted) setState(() => _syncState = _service.syncState.value);
+    if (!mounted) return;
+    final state = _service.syncState.value;
+    setState(() => _syncState = state);
+    if (!_retrying &&
+        [
+          ContactSyncPhase.synced,
+          ContactSyncPhase.failed,
+          ContactSyncPhase.offline,
+        ].contains(state.phase))
+      unawaited(_reloadLocalContacts());
+  }
+
+  Future<void> _reloadLocalContacts() async {
+    if (_localRead != null) {
+      _localReadAgain = true;
+      return _localRead;
+    }
+    late final Future<void> task;
+    task =
+        () async {
+          do {
+            _localReadAgain = false;
+            final generation = ++_loadGeneration;
+            try {
+              final contacts = _filterContacts(await _service.getContacts());
+              if (!mounted || generation != _loadGeneration) return;
+              await _loadCachedProfiles(contacts, generation: generation);
+              if (!mounted || generation != _loadGeneration) return;
+              setState(() {
+                _contacts = contacts;
+                _loading = false;
+              });
+              _reconcileSelection();
+            } on Object catch (error) {
+              if (!mounted || generation != _loadGeneration) return;
+              final failure = SquareSessionResolution.fromError(error);
+              setState(() {
+                _loading = false;
+                _syncState = ContactSyncState(
+                  phase: ContactSyncPhase.failed,
+                  message: failure.message,
+                  errorCode: failure.errorCode,
+                  stage: failure.stage,
+                );
+              });
+            }
+          } while (_localReadAgain && mounted);
+        }().whenComplete(() {
+          if (identical(_localRead, task)) _localRead = null;
+        });
+    _localRead = task;
+    await task;
   }
 
   /// CID finalized 后即使绑定账户没变也要退出“尚未注册”态；当前用户快照已在广播前
@@ -174,8 +239,49 @@ class _ContactBookPageState extends State<ContactBookPage> {
         _contacts = const [];
         _loading = true;
       });
+      _clearSelection();
       unawaited(_load());
     }
+  }
+
+  void _notifySelection() {
+    widget.onSelectionChanged?.call([
+      for (final contact in _contacts)
+        if (_selected.contains(contact.cidNumber)) contact,
+    ]);
+  }
+
+  void _clearSelection() {
+    if (_selected.isEmpty) return;
+    _selected.clear();
+    // 身份广播可能发生于父级构建，延至帧末撤下父页的旧选择。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _notifySelection();
+    });
+  }
+
+  void _toggleContact(UserContact contact) {
+    if (!widget.selectionEnabled || _loading || contact.cidNumber == _ownerCid)
+      return;
+    setState(() {
+      if (!_selected.add(contact.cidNumber))
+        _selected.remove(contact.cidNumber);
+    });
+    _notifySelection();
+  }
+
+  List<UserContact> _filterContacts(List<UserContact> contacts) =>
+      widget.mode == ContactPickMode.pickForChat
+      ? contacts
+            .where((contact) => contact.cidNumber != _ownerCid)
+            .toList(growable: false)
+      : contacts;
+
+  void _reconcileSelection() {
+    final available = _contacts.map((contact) => contact.cidNumber).toSet()
+      ..remove(_ownerCid);
+    _selected.removeWhere((cid) => !available.contains(cid));
+    if (widget.mode == ContactPickMode.pickForChat) _notifySelection();
   }
 
   /// 只刷新通讯录中与事件 CID 匹配的公开资料，避免会员变化触发整本通讯录同步。
@@ -259,7 +365,7 @@ class _ContactBookPageState extends State<ContactBookPage> {
     final generation = ++_loadGeneration;
     try {
       // 未注册 CID 必须在此短路:通讯录属主 = CID,`getContacts()` 第一步
-      // `_requireIdentityOwner()` 对身份未知或未注册返回精确门禁错误，catch 后
+      // 身份未知或未注册返回精确门禁错误，catch 后
       // `_contacts` 保持空,渲染会落到「空通讯录」——把"你没注册"显示成"你没有联系人",
       // 与广场当初把权限态伪装成"加载失败"是同一类错误。
       // 公开同步独立完成；页面只消费已核实状态，不借会话入口查链或登记设备。
@@ -288,8 +394,9 @@ class _ContactBookPageState extends State<ContactBookPage> {
           stage: SquareApiStage.identity,
         );
       }
+      _ownerCid = identity.cidNumber;
       if (_unregistered) setState(() => _unregistered = false);
-      final contacts = await _service.getContacts();
+      final contacts = _filterContacts(await _service.getContacts());
       final syncState = await _service.readSyncState();
       if (!mounted || generation != _loadGeneration) return;
       await _loadCachedProfiles(contacts, generation: generation);
@@ -299,6 +406,7 @@ class _ContactBookPageState extends State<ContactBookPage> {
         _syncState = syncState;
         _loading = false;
       });
+      _reconcileSelection();
       _restoreProfiles(contacts, identity.binding!, generation);
     } on Object catch (error) {
       if (!mounted || generation != _loadGeneration) return;
@@ -320,7 +428,7 @@ class _ContactBookPageState extends State<ContactBookPage> {
     _retrying = true;
     final generation = ++_loadGeneration;
     try {
-      final contacts = await _service.sync();
+      final contacts = _filterContacts(await _service.sync());
       final syncState = await _service.readSyncState();
       if (!mounted || generation != _loadGeneration) return;
       await _loadCachedProfiles(contacts, generation: generation);
@@ -329,6 +437,7 @@ class _ContactBookPageState extends State<ContactBookPage> {
         _contacts = contacts;
         _syncState = syncState;
       });
+      _reconcileSelection();
       final identity = await _currentUserContext.resolve();
       if (mounted &&
           generation == _loadGeneration &&
@@ -362,29 +471,39 @@ class _ContactBookPageState extends State<ContactBookPage> {
   Future<void> _loadCachedProfiles(
     List<UserContact> contacts, {
     required int generation,
-  }) async {
-    await Future.wait(
-      contacts.map((contact) async {
-        final cidNumber = contact.cidNumber;
-        try {
-          final profile =
-              _profiles[cidNumber] ?? await _profileCache.read(cidNumber);
-          if (profile == null || !mounted || generation != _loadGeneration)
-            return;
-          _profiles[cidNumber] = profile;
-          _resolvedProfileCidNumbers.add(cidNumber);
+  }) {
+    final flight = _cacheReads.then((_) async {
+      var next = 0;
+      Future<void> read() async {
+        while (mounted &&
+            generation == _loadGeneration &&
+            next < contacts.length) {
+          final contact = contacts[next++];
+          final cidNumber = contact.cidNumber;
           try {
-            final media = await _profileMediaCache.read(profile);
-            if (!mounted || generation != _loadGeneration) return;
-            _profileMedia[cidNumber] = media;
+            final profile =
+                _profiles[cidNumber] ?? await _profileCache.read(cidNumber);
+            if (profile == null || !mounted || generation != _loadGeneration)
+              continue;
+            _profiles[cidNumber] = profile;
+            _resolvedProfileCidNumbers.add(cidNumber);
+            try {
+              final media = await _profileMediaCache.read(profile);
+              if (!mounted || generation != _loadGeneration) continue;
+              _profileMedia[cidNumber] = media;
+            } on Object {
+              // 资料 JSON 已解析时仍可显示真实昵称和徽章；单个媒体文件故障不阻塞联系人。
+            }
           } on Object {
-            // 资料 JSON 已解析时仍可显示真实昵称和徽章；单个媒体文件故障不阻塞联系人。
+            // 单个公开资料缓存故障保持中性占位，不能阻塞整本本地通讯录。
           }
-        } on Object {
-          // 单个公开资料缓存故障保持中性占位，不能阻塞整本本地通讯录。
         }
-      }),
-    );
+      }
+
+      await Future.wait([read(), read()]);
+    });
+    _cacheReads = flight;
+    return flight;
   }
 
   Future<void> _scanContactQr() async {
@@ -467,38 +586,80 @@ class _ContactBookPageState extends State<ContactBookPage> {
 
   Future<void> _delete(UserContact contact) async {
     final generation = _loadGeneration;
-    final confirmed = await showDialog<bool>(
+    final selected = <String>{contact.cidNumber};
+    final confirmed = await showDialog<Set<String>>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('删除联系人'),
-        content: Text('确定从通讯录删除“${_contactDisplayName(contact)}”？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('取消'),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, update) => AlertDialog(
+          title: const Text('删除联系人'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('确定从通讯录删除“${_contactDisplayName(contact)}”？'),
+              if (_contacts.length > 1)
+                SizedBox(
+                  height: 240,
+                  width: double.maxFinite,
+                  child: ListView.builder(
+                    itemCount: _contacts.length,
+                    itemBuilder: (context, index) {
+                      final item = _contacts[index];
+                      return CheckboxListTile(
+                        value: selected.contains(item.cidNumber),
+                        title: Text(_contactDisplayName(item)),
+                        subtitle: Text(item.cidNumber),
+                        onChanged: (value) => update(() {
+                          if (value == true) {
+                            selected.add(item.cidNumber);
+                          } else {
+                            selected.remove(item.cidNumber);
+                          }
+                        }),
+                      );
+                    },
+                  ),
+                ),
+            ],
           ),
-          TextButton(
-            style: TextButton.styleFrom(foregroundColor: AppTheme.danger),
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('删除'),
-          ),
-        ],
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: AppTheme.danger),
+              onPressed: selected.isEmpty
+                  ? null
+                  : () => Navigator.of(
+                      dialogContext,
+                    ).pop(Set<String>.of(selected)),
+              child: const Text('删除'),
+            ),
+          ],
+        ),
       ),
     );
-    if (confirmed != true || !mounted || generation != _loadGeneration) return;
+    if (confirmed == null || !mounted || generation != _loadGeneration) return;
     try {
-      final contacts = await _service.deleteContact(contact.cidNumber);
-      if (mounted && generation == _loadGeneration) {
+      final contacts = await _service.deleteContacts(
+        confirmed.toList(),
+        signer: (accountId, payload) => signCitizenPayload(
+          signing: context.read<CitizenSdk>(),
+          context: context,
+          accountId: accountId,
+          payload: payload,
+          action: UserContactService.deleteAction,
+        ),
+      );
+      if (mounted && generation == _loadGeneration)
         setState(() => _contacts = contacts);
-      }
     } catch (error) {
-      if (mounted && generation == _loadGeneration) {
+      if (mounted && generation == _loadGeneration)
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(SquareSessionResolution.fromError(error).message),
           ),
         );
-      }
     }
   }
 
@@ -507,9 +668,8 @@ class _ContactBookPageState extends State<ContactBookPage> {
       case ContactPickMode.pickForTransfer:
         // 交易发起:把选中的联系人返回给收款栏。
         await _transfer(contact);
-      case ContactPickMode.pickForMessage:
-        // 发私信:点联系人直接打开与其的一对一聊天(复用统一私信收口)。
-        await _message(contact);
+      case ContactPickMode.pickForChat:
+        _toggleContact(contact);
       case ContactPickMode.browse:
         // 资料页按通讯录关系主键 cid_number 直接寻址。
         await _openProfile(contact);
@@ -519,18 +679,17 @@ class _ContactBookPageState extends State<ContactBookPage> {
   /// 打开联系人主页：通讯录只接受已经完成双向绑定解析的永久 CID。
   Future<void> _openProfile(UserContact contact) async {
     final cidNumber = contact.cidNumber;
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
-        builder: (_) => UserProfilePage(
-          cidNumber: cidNumber,
-          isSelf: false,
-          initialProfile: _profiles[cidNumber],
-          initialProfileMedia: _profileMedia[cidNumber],
-          api: _profileApi,
-          cache: _profileCache,
-          mediaCache: _profileMediaCache,
-          sessionProvider: _sessionProvider,
-        ),
+    await UserProfilePage.open(
+      context,
+      UserProfilePage(
+        cidNumber: cidNumber,
+        isSelf: false,
+        initialProfile: _profiles[cidNumber],
+        initialProfileMedia: _profileMedia[cidNumber],
+        api: _profileApi,
+        cache: _profileCache,
+        mediaCache: _profileMediaCache,
+        sessionProvider: _sessionProvider,
       ),
     );
   }
@@ -565,16 +724,20 @@ class _ContactBookPageState extends State<ContactBookPage> {
   @override
   Widget build(BuildContext context) {
     final visible = _visibleContacts;
+    final body = _unregistered
+        ? IdentityRegisterGuide(
+            description: '注册后即可使用通讯录。',
+            onRegistered: () => unawaited(_load()),
+          )
+        : _buildContactList(visible);
+    if (widget.mode == ContactPickMode.pickForChat) return body;
     return Scaffold(
       backgroundColor: AppTheme.scaffoldBg,
       appBar: AppBar(
-        title: Text(
-          widget.mode == ContactPickMode.pickForMessage ? '选择联系人' : '我的通讯录',
-        ),
+        title: const Text('我的通讯录'),
         centerTitle: true,
         actions: [
-          // 纯选人(发私信)模式只保留选择,不提供扫码加联系人入口。
-          if (!_unregistered && widget.mode != ContactPickMode.pickForMessage)
+          if (!_unregistered)
             IconButton(
               tooltip: '扫码添加联系人',
               onPressed: _scanContactQr,
@@ -588,12 +751,7 @@ class _ContactBookPageState extends State<ContactBookPage> {
       ),
       // 未注册 = 合法状态,整页给统一注册引导(与广场/聊天/创作者同规),
       // 不显示搜索框和假的「空通讯录」。
-      body: _unregistered
-          ? IdentityRegisterGuide(
-              description: '注册后即可使用通讯录。',
-              onRegistered: () => unawaited(_load()),
-            )
-          : _buildContactList(visible),
+      body: body,
     );
   }
 
@@ -660,9 +818,15 @@ class _ContactBookPageState extends State<ContactBookPage> {
                 avatarPath: _profileMedia[contact.cidNumber]?.avatarPath,
                 avatarUrl: _avatarUrl(_profileOf(contact)),
 
-                // 纯选私信模式只允许点选,不显示逐项操作菜单。
-                showActions: widget.mode != ContactPickMode.pickForMessage,
-                onTap: () => _open(contact),
+                showActions: widget.mode != ContactPickMode.pickForChat,
+                selected: widget.mode == ContactPickMode.pickForChat
+                    ? _selected.contains(contact.cidNumber)
+                    : null,
+                onTap:
+                    widget.mode == ContactPickMode.pickForChat &&
+                        !widget.selectionEnabled
+                    ? null
+                    : () => _open(contact),
                 onTransfer: () => _transfer(contact),
                 onMessage: () => _message(contact),
                 onRename: () => _rename(contact),
@@ -704,6 +868,7 @@ class _ContactCard extends StatelessWidget {
     required this.onMessage,
     required this.onRename,
     required this.onDelete,
+    this.selected,
   });
 
   final UserContact contact;
@@ -714,7 +879,8 @@ class _ContactCard extends StatelessWidget {
 
   /// 是否显示逐项操作菜单(转账/私信/改名/删除);纯选人模式为 false。
   final bool showActions;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
+  final bool? selected;
   final VoidCallback onTransfer;
   final VoidCallback onMessage;
   final VoidCallback onRename;
@@ -739,6 +905,16 @@ class _ContactCard extends StatelessWidget {
             padding: EdgeInsets.all(AppLayout.scaled(context, 12)),
             child: Row(
               children: [
+                if (selected != null) ...[
+                  Checkbox(
+                    value: selected,
+                    shape: const CircleBorder(),
+                    onChanged: onTap == null ? null : (_) => onTap!(),
+                    semanticLabel:
+                        '选择${contact.contactRemark.isEmpty ? publicName : contact.contactRemark}',
+                  ),
+                  SizedBox(width: AppLayout.scaled(context, 8)),
+                ],
                 ProfileAvatar(
                   seed: contact.cidNumber,
                   size: AppLayout.scaled(context, 52),

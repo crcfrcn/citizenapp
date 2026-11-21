@@ -707,7 +707,8 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
       return;
     }
     final toAddress = recipient.address;
-    final feeFen = fees.feeFen;
+    final feeFen =
+        fees.feeFen + (remark.isNotEmpty ? fees.FLAT_FEE : BigInt.zero);
 
     // 余额校验：转账金额 + 手续费 ≤ 可用余额（余额 - ED）
     final availableBalance = balanceFen - fees.existentialDepositFen;

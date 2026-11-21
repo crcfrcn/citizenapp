@@ -142,6 +142,55 @@ const _physicalColumns = <String, Set<String>>{
 
 void main() {
   useIsolatedChatIsar();
+  test('私信拒绝终止本条队列但保留失败消息', () async {
+    final store = ChatStore();
+    final token = await store.activateBindingFence(_testBinding);
+    final message =
+        const MlsWireMessage(
+          wireBytes: [1, 2],
+          conversationId: 'dm:local:peer',
+          messageKind: MlsMessageKind.application,
+        ).toEncryptedMessage(
+          messageId: 'denied-message',
+          senderUserId: _ownerUserId,
+          recipientUserId: _bobUserId,
+          senderDeviceId: 'sender',
+          recipientDeviceId: 'receiver',
+          createdAtMillis: 10,
+        );
+    await store.saveOutgoingMessage(
+      bindingToken: token,
+      ownerUserId: _ownerUserId,
+      currentAccountId: _aliceAccountId,
+      message: message,
+      messageBytes: message.writeToBuffer(),
+      recipientUserId: _bobUserId,
+      messageKind: ChatMessageKind.text,
+      deliveryState: ChatMessageDeliveryState.queued,
+      plaintext: _payload('拒绝测试'),
+    );
+    await store.markOutgoingDelivery(
+      bindingToken: token,
+      ownerUserId: _ownerUserId,
+      messageId: message.messageId,
+      state: ChatMessageDeliveryState.failed,
+      errorMessage: 'dm_forbidden',
+    );
+    expect(
+      await store.readQueuedMessages(
+        bindingToken: token,
+        ownerUserId: _ownerUserId,
+      ),
+      isEmpty,
+    );
+    final saved = await store.readMessages(
+      ownerUserId: _ownerUserId,
+      currentAccountId: _aliceAccountId,
+      conversationId: 'dm:local:peer',
+    );
+    expect(saved.single.deliveryState, ChatMessageDeliveryState.failed);
+    expect(ChatPayloadCodec.decode(saved.single.plaintext!).text, '拒绝测试');
+  });
 
   test('实际开库及关闭重开只使用最终聊天文件名', () async {
     final first = await ChatIsar.instance.db();

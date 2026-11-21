@@ -3,6 +3,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:citizen_user/square_api_client.dart';
 
 import 'dart:async';
+import 'package:citizen_square/post/square_models.dart';
+import 'package:citizen_user/profile/profile_action_icons.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:citizen_user/identity/square_session_provider.dart';
@@ -192,7 +194,222 @@ CitizenProfile _missingProfile() => CitizenProfile.fromJson({
   },
 });
 
+class _UnfollowProfile extends FakeProfileApi {
+  _UnfollowProfile({this.denyHome = false})
+    : super(sampleProfile(following: true, followedBy: true));
+  final bool denyHome;
+  bool unfollowed = false;
+  @override
+  Future<void> unfollowUser({
+    required SquareSession session,
+    required String peerCid,
+  }) async {
+    unfollowCalls++;
+    unfollowed = true;
+  }
+
+  @override
+  Future<CitizenProfile> fetchProfile(
+    String cidNumber, {
+    SquareSession? session,
+  }) async {
+    if (unfollowed) throw const SquareApiException('network', statusCode: 503);
+    return result;
+  }
+
+  @override
+  Future<({List<SquarePost> posts, String? nextCursor})> fetchAuthorPosts(
+    String cidNumber, {
+    SquarePostCategory? category,
+    SquarePostType? postType,
+    int limit = 20,
+    String? cursor,
+    SquareSession? session,
+  }) async {
+    authorPostCalls++;
+    if (unfollowed && denyHome) {
+      throw const SquareApiException(
+        'private',
+        statusCode: 403,
+        errorCode: 'profile_mutual_required',
+      );
+    }
+    return (
+      posts: unfollowed
+          ? <SquarePost>[]
+          : [
+              SquarePost(
+                postId: 'circle-unfollow',
+                author: samplePost().author,
+                postCategory: SquarePostCategory.normal,
+                postType: SquarePostType.document,
+                postVisibility: SquarePostVisibility.circle,
+                text: '取关前的圈内正文',
+                publishedAt: DateTime.fromMillisecondsSinceEpoch(1000),
+              ),
+            ],
+      nextCursor: null,
+    );
+  }
+}
+
 void main() {
+  for (final denyHome in [false, true]) {
+    testWidgets('取关成功资料503立即失效旧列表，主页拒绝=$denyHome', (tester) async {
+      final api = _UnfollowProfile(denyHome: denyHome);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: UserProfilePage(
+            cidNumber: api.result.cidNumber!,
+            isSelf: false,
+            api: api,
+            cache: FakeProfileCache(api.result),
+            sessionProvider: FakeSessionProvider(fakeSession()),
+            subscriptionService: _NullMembershipSnapshotService(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('取关前的圈内正文'), findsOneWidget);
+      final before = api.authorPostCalls;
+      final actions = tester.widget<ProfileActionIcons>(
+        find.byType(ProfileActionIcons),
+      );
+      expect(actions.enabled, isTrue);
+      expect(actions.isFollowing, isTrue);
+      actions.onToggleFollow!();
+      await tester.pumpAndSettle();
+      expect(api.unfollowCalls, 1);
+      expect(api.authorPostCalls, before + 1);
+      expect(find.text('取关前的圈内正文'), findsNothing);
+      if (denyHome) {
+        expect(find.text('仅互相关注的用户可见'), findsWidgets);
+        expect(find.byType(ProfileHeaderCard), findsNothing);
+      } else {
+        expect(find.byType(ProfileHeaderCard), findsOneWidget);
+      }
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
+  testWidgets('统一主页入口只检查一次，重新进入重新检查', (tester) async {
+    final api = FakeProfileApi(sampleProfile());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => UserProfilePage.open(
+                context,
+                UserProfilePage(
+                  cidNumber: api.result.cidNumber!,
+                  isSelf: false,
+                  api: api,
+                  cache: FakeProfileCache(api.result),
+                  sessionProvider: FakeSessionProvider(fakeSession()),
+                  subscriptionService: _NullMembershipSnapshotService(),
+                ),
+              ),
+              child: const Text('打开主页'),
+            ),
+          ),
+        ),
+      ),
+    );
+    for (var count = 1; count <= 2; count++) {
+      await tester.tap(find.text('打开主页'));
+      await tester.pumpAndSettle();
+      expect(api.accessCalls, count);
+      expect(find.byType(ProfileHeaderCard), findsOneWidget);
+      Navigator.of(tester.element(find.byType(UserProfilePage))).pop();
+      await tester.pumpAndSettle();
+    }
+  });
+
+  testWidgets('他人主页权限未返回时不展示注入或磁盘缓存', (tester) async {
+    final api = FakeProfileApi(sampleProfile())
+      ..accessPending = Completer<void>();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: UserProfilePage(
+          cidNumber: sampleProfile().cidNumber!,
+          isSelf: false,
+          initialProfile: sampleProfile(displayName: '受保护的缓存'),
+          api: api,
+          cache: FakeProfileCache(sampleProfile(displayName: '受保护的缓存')),
+          sessionProvider: FakeSessionProvider(fakeSession()),
+          subscriptionService: _NullMembershipSnapshotService(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(api.accessCalls, 1);
+    expect(api.calls, 0);
+    expect(find.text('受保护的缓存'), findsNothing);
+    api.accessPending!.complete();
+    await tester.pumpAndSettle();
+    expect(find.byType(ProfileHeaderCard), findsOneWidget);
+  });
+
+  testWidgets('主页仅自己可见时不展示缓存且显示准确拒绝文案', (tester) async {
+    final api = FakeProfileApi(sampleProfile())
+      ..accessError = const SquareApiException(
+        'private',
+        statusCode: 403,
+        errorCode: 'profile_private',
+      );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: UserProfilePage(
+          cidNumber: sampleProfile().cidNumber!,
+          isSelf: false,
+          initialProfile: sampleProfile(displayName: '不能泄露的缓存'),
+          api: api,
+          cache: FakeProfileCache(sampleProfile(displayName: '不能泄露的缓存')),
+          sessionProvider: FakeSessionProvider(fakeSession()),
+          subscriptionService: _NullMembershipSnapshotService(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('不能泄露的缓存'), findsNothing);
+    expect(find.text('仅用户可见'), findsWidgets);
+    expect(api.calls, 0);
+  });
+
+  testWidgets('统一主页入口拒绝时保留原路由，只弹窗', (tester) async {
+    final api = FakeProfileApi(sampleProfile())
+      ..accessError = const SquareApiException(
+        'private',
+        statusCode: 403,
+        errorCode: 'profile_private',
+      );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => UserProfilePage.open(
+                context,
+                UserProfilePage(
+                  cidNumber: sampleProfile().cidNumber!,
+                  isSelf: false,
+                  api: api,
+                  sessionProvider: FakeSessionProvider(fakeSession()),
+                ),
+              ),
+              child: const Text('主页入口'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('主页入口'));
+    await tester.pumpAndSettle();
+    expect(find.byType(UserProfilePage), findsNothing);
+    expect(find.text('仅用户可见'), findsOneWidget);
+    expect(api.accessCalls, 1);
+  });
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     CitizenProfileApi.resetEntryRefreshMemory();

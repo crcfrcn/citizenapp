@@ -102,6 +102,60 @@ void main() {
       initialText: initial,
     ),
   );
+  for (final type in SquarePostType.values) {
+    testWidgets('${type.label}头像右侧默认公开，选择只提供三档', (tester) async {
+      await tester.pumpWidget(page(type: type));
+      await drain(tester);
+      final control = find.byKey(const ValueKey('compose-visibility'));
+      final avatar = find.byKey(const ValueKey('compose-user-avatar'));
+      expect(
+        tester.getTopLeft(control).dx,
+        greaterThan(tester.getTopRight(avatar).dx),
+      );
+      expect(
+        find.descendant(of: control, matching: find.text('公开可见')),
+        findsOneWidget,
+      );
+      await tester.tap(control);
+      await tester.pumpAndSettle();
+      expect(
+        find.byType(RadioListTile<SquarePostVisibility>),
+        findsNWidgets(3),
+      );
+      expect(find.text('关注我的可见'), findsNothing);
+      await tester.tap(find.text('公民圈可见'));
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(of: control, matching: find.text('公民圈可见')),
+        findsOneWidget,
+      );
+      await tester.pumpWidget(const SizedBox());
+      await drain(tester);
+    });
+  }
+
+  testWidgets('范围随草稿保存，切换身份不沿用原范围', (tester) async {
+    await tester.pumpWidget(page(initial: '已输入正文'));
+    await drain(tester);
+    await tester.tap(find.byKey(const ValueKey('compose-visibility')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('仅主页可见'));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 850));
+    await drain(tester);
+    expect(drafts.writes.last.postVisibility, SquarePostVisibility.profile);
+    local.current = identity(cidB);
+    revision.value++;
+    await drain(tester);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('compose-visibility')),
+        matching: find.text('公开可见'),
+      ),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('切CID保存原内容到原CID，编辑器清空且新内容归属新CID', (tester) async {
     await tester.pumpWidget(page(initial: '初始内容'));
     await drain(tester);

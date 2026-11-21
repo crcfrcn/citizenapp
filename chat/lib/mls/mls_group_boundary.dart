@@ -8,7 +8,7 @@ import 'mls_boundary.dart';
 // 私密小群(MLS 群)的 Dart 侧边界模型与接口。
 //
 // 只定义可测的数据边界与注入点;真正的 OpenMLS 群加解密由 Rust native
-// (native/src/mls.rs 的 6 个 group FFI)实现,这里禁止自研密码学。
+// (chat/mls/src/mls.rs 的群接口)实现,这里禁止自研密码学。
 // 行为由本边界测试和 Rust FFI 接口共同固定。
 
 /// MLS BasicCredential 中的标准 公民聊天 设备身份。

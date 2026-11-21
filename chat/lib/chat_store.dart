@@ -1357,6 +1357,7 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
     return _chatIsar.writeTxn((isar) async {
       await _requireBindingTokenInTxn(isar, bindingToken);
       final terminalMessageFailure =
+          errorMessage == 'dm_forbidden' ||
           errorMessage == 'chat_message_expired' ||
           errorMessage == 'chat_message_invalid' ||
           errorMessage == 'commit_required';
@@ -2040,6 +2041,9 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
       ownerUserId,
       groupId,
     );
+    if (group == null || group.leftLocally) {
+      throw StateError('群消息没有当前有效的群记录');
+    }
     final entity = existing ?? ChatConversationEntity();
     final replacesLatest =
         existing == null || updatedAtMillis >= existing.updatedAtMillis;

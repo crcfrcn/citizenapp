@@ -858,13 +858,24 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         ?.networkAvailability
         .listen((available) {
           if (available && mounted) {
-            unawaited(context.read<UserContactService?>()?.flushPending());
+            _syncContacts();
           }
         });
     _preparationSecurity = context.read<AccountSecurityService?>();
     _preparationSecurity?.revision.addListener(_onPreparationIdentityChanged);
     WidgetsBinding.instance.addObserver(this);
     _schedulePreparation();
+  }
+
+  void _syncContacts() {
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    if (!mounted || lifecycle != null && lifecycle != AppLifecycleState.resumed)
+      return;
+    final contacts = context.read<UserContactService?>();
+    if (contacts == null) return;
+    unawaited(
+      contacts.sync().then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+    );
   }
 
   void _onPreparationIdentityChanged() {
@@ -879,7 +890,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       if (mounted) {
         unawaited(context.read<SquareSessionProvider?>()?.resolveSession());
         unawaited(Notifications.instance.calibrate());
-        unawaited(context.read<UserContactService?>()?.flushPending());
+        _syncContacts();
       }
     });
   }
@@ -887,6 +898,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     Notifications.instance.setForeground(state == AppLifecycleState.resumed);
+    context.read<UserContactService?>()?.setForeground(
+      state == AppLifecycleState.resumed,
+    );
     if (state == AppLifecycleState.resumed) {
       _schedulePreparation();
       unawaited(Notifications.instance.calibrate(force: true));

@@ -399,6 +399,7 @@ const _responseDeadline = Duration(seconds: 12);
 const _maximumFrameBytes = 2 * 1024 * 1024;
 const _maximumQueuedCommands = 128;
 const _serverFailureCodes = <String>{
+  'dm_forbidden',
   'invalid_request',
   'forbidden',
   'not_found',

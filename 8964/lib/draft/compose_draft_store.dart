@@ -297,6 +297,7 @@ class SquareComposeDraftStore implements SquareComposeDraftRepository {
       ..cidNumber = draft.cidNumber
       ..draftId = draft.draftId
       ..postType = draft.postType.workerValue
+      ..postVisibility = draft.postVisibility.name
       ..title = draft.title
       ..text = draft.text
       ..mediaData = jsonEncode(json['media'])
@@ -337,6 +338,7 @@ class SquareComposeDraftStore implements SquareComposeDraftRepository {
         'draft_id': entity.draftId,
         'cid_number': entity.cidNumber,
         'post_type': entity.postType,
+        'post_visibility': entity.postVisibility,
         if (entity.title != null) 'title': entity.title,
         'text': entity.text,
         'media': media,
@@ -356,6 +358,7 @@ class SquareComposeDraftStore implements SquareComposeDraftRepository {
         ..cidNumber = source.cidNumber
         ..draftId = source.draftId
         ..postType = source.postType
+        ..postVisibility = source.postVisibility
         ..title = source.title
         ..text = source.text
         ..mediaData = source.mediaData

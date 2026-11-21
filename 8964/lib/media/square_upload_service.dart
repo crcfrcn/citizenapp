@@ -26,6 +26,7 @@ class SquareUploadedContent {
 
 class SquarePreparedContent {
   SquarePreparedContent({
+    this.postVisibility = SquarePostVisibility.public,
     required this.session,
     required this.postId,
     required this.contentHash,
@@ -36,6 +37,7 @@ class SquarePreparedContent {
     this.mediaReferences = const [],
   }) : mediaDrafts = List.unmodifiable(mediaDrafts);
 
+  final SquarePostVisibility postVisibility;
   final SquareSession session;
   final String postId;
   final String contentHash;
@@ -62,6 +64,7 @@ abstract class SquareContentUploader {
   Future<SquarePreparedContent> preparePostContent({
     required String accountId,
     required SquarePostType postType,
+    SquarePostVisibility postVisibility = SquarePostVisibility.public,
     required String text,
     required List<SquareLocalMediaDraft> mediaDrafts,
     required SquareSessionResolver sessionForAccount,
@@ -75,6 +78,7 @@ abstract class SquareContentUploader {
     String postId,
     String contentHash,
     Uint8List manifest,
+    SquarePostVisibility postVisibility,
   );
   Future<SquareUploadedContent> uploadPreparedContent(
     SquarePreparedContent prepared, {
@@ -115,6 +119,7 @@ class SquareUploadService
   Future<SquarePreparedContent> preparePostContent({
     required String accountId,
     required SquarePostType postType,
+    SquarePostVisibility postVisibility = SquarePostVisibility.public,
     required String text,
     required List<SquareLocalMediaDraft> mediaDrafts,
     required SquareSessionResolver sessionForAccount,
@@ -240,6 +245,7 @@ class SquareUploadService
         contentHash: contentHash,
         receiptId: postId,
         manifestBytes: manifestBytes,
+        postVisibility: postVisibility,
         mediaDrafts: finalMediaDrafts,
         processedMedia: processedMedia,
         mediaReferences: [
@@ -276,12 +282,14 @@ class SquareUploadService
     String postId,
     String contentHash,
     Uint8List manifest,
+    SquarePostVisibility postVisibility,
   ) async => SquarePreparedContent(
     session: session,
     postId: postId,
     contentHash: contentHash,
     receiptId: postId,
     manifestBytes: manifest,
+    postVisibility: postVisibility,
     mediaDrafts: const [],
     mediaReferences: await const SquareMediaStore().referencesForContent(
       cidNumber: session.cidNumber,
@@ -305,6 +313,7 @@ class SquareUploadService
         postId: prepared.postId,
         txHash: txHash,
         manifest: prepared.manifestBytes,
+        postVisibility: prepared.postVisibility,
       );
       final slots = {
         for (final ref in prepared.mediaReferences)

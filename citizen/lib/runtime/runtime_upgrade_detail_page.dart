@@ -895,7 +895,7 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  '赞成 ${_jointTally.yes} / 通过阈值 $jointVotePassThreshold',
+                  '赞成 ${_jointTally.yes} 票 / 通过阈值 $jointVotePassThreshold',
                   style: TextStyle(
                     fontSize: AppLayout.scaledValue(14),
                     fontWeight: FontWeight.w600,
@@ -903,7 +903,7 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
                   ),
                 ),
                 Text(
-                  '反对 ${_jointTally.no}',
+                  '反对 ${_jointTally.no} 票',
                   style: TextStyle(
                     fontSize: AppLayout.scaledValue(13),
                     color: AppTheme.danger,
@@ -956,7 +956,7 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
             _buildInfoRow('投票状态', _institutionVoteLabel()),
             Divider(height: AppLayout.scaledValue(20)),
             Text(
-              '岗位选民赞成 ${_institutionAdminTally.yes} / $_requiredAdminThreshold',
+              '岗位选民赞成 ${_institutionAdminTally.yes} 票 / $_requiredAdminThreshold',
               style: TextStyle(
                 fontSize: AppLayout.scaledValue(14),
                 fontWeight: FontWeight.w600,
@@ -981,7 +981,7 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  '岗位选民反对 ${_institutionAdminTally.no}',
+                  '岗位选民反对 ${_institutionAdminTally.no} 票',
                   style: TextStyle(
                     fontSize: AppLayout.scaledValue(13),
                     color: AppTheme.danger,
@@ -1148,7 +1148,7 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  '赞成 ${_referendumTally.yes}',
+                  '赞成 ${_referendumTally.yes} 票',
                   style: TextStyle(
                     fontSize: AppLayout.scaledValue(14),
                     fontWeight: FontWeight.w600,
@@ -1156,7 +1156,7 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
                   ),
                 ),
                 Text(
-                  '反对 ${_referendumTally.no}',
+                  '反对 ${_referendumTally.no} 票',
                   style: TextStyle(
                     fontSize: AppLayout.scaledValue(13),
                     color: AppTheme.danger,

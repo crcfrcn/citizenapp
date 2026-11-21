@@ -1,6 +1,6 @@
 part of '../chat.dart';
 
-/// 聊天页加号菜单 5 个动作的可注入入口。
+/// 聊天页加号菜单 4 个动作的可注入入口。
 ///
 /// 默认全为 null，各动作走真实实现；测试整体替换后即可断言路由，
 /// 而不会真的拉起相机、建群页或通讯录（它们会触发 Isar / ChatRuntime / 相机）。
@@ -8,8 +8,7 @@ class ChatEntryOpeners {
   const ChatEntryOpeners({
     this.openScan,
     this.openReceivePay,
-    this.openSendMessage,
-    this.openCreateGroup,
+    this.openChat,
     this.openAddFriend,
   });
 
@@ -19,11 +18,8 @@ class ChatEntryOpeners {
   /// 收付款 = 展示本账户账户码（收款码 `k=4` 生成方待实现）。
   final ChatEntryOpener? openReceivePay;
 
-  /// 发私信 = 通讯录单选后直开私聊。
-  final ChatEntryOpener? openSendMessage;
-
-  /// 发群聊 = 通讯录多选（≥2 人）建群。
-  final ChatEntryOpener? openCreateGroup;
+  /// 发起聊天 = 同一通讯录多选页，单人私聊、多人建群。
+  final ChatEntryOpener? openChat;
 
   /// 加好友 = 扫对方二维码写入本人通讯录。
   final ChatEntryOpener? openAddFriend;
@@ -35,8 +31,8 @@ typedef ChatEntryOpener = Future<void> Function(BuildContext context);
 
 /// 公民“聊天”Tab。
 ///
-/// 顶部为搜索框（进入 [ChatSearchPage]），右上角加号弹出 5 个入口：
-/// 扫一扫 / 收付款 / 发私信 / 发群聊 / 加好友。会话列表在其下方。
+/// 顶部为搜索框（进入 [ChatSearchPage]），右上角加号弹出 4 个入口：
+/// 扫一扫 / 收付款 / 发起聊天 / 加好友。会话列表在其下方。
 class ChatTab extends StatefulWidget {
   ChatTab({
     super.key,
@@ -767,20 +763,6 @@ class _ChatTabState extends State<ChatTab> {
     _openDirectConversation(preview);
   }
 
-  void _openCreateGroup() {
-    if (!_requireChatIdentity()) {
-      return;
-    }
-    final opener = widget.openers?.openCreateGroup;
-    if (opener != null) {
-      unawaited(opener(context));
-      return;
-    }
-    Navigator.of(context)
-        .push(MaterialPageRoute<void>(builder: (_) => const GroupCreatePage()))
-        .then((_) => _reload());
-  }
-
   /// 没有默认钱包账户时统一提示并拦截；冷热钱包均可作为当前账户。
   bool _requireAccount() {
     if (_checkingIdentity) {
@@ -814,10 +796,8 @@ class _ChatTabState extends State<ChatTab> {
         await _openScan();
       case _ChatEntryAction.receivePay:
         await _openReceivePay();
-      case _ChatEntryAction.sendMessage:
-        await _openSendMessage();
-      case _ChatEntryAction.createGroup:
-        _openCreateGroup();
+      case _ChatEntryAction.startChat:
+        await _openChat();
       case _ChatEntryAction.addFriend:
         await _openAddFriend();
     }
@@ -878,26 +858,39 @@ class _ChatTabState extends State<ChatTab> {
     );
   }
 
-  /// 发私信 = 通讯录单选，点联系人直接开私聊。
-  Future<void> _openSendMessage() async {
-    if (!_requireChatIdentity()) {
-      return;
-    }
-    final opener = widget.openers?.openSendMessage;
+  /// 统一选择联系人；选择页退出后以当前有效上下文打开原聊天页面。
+  Future<void> _openChat() async {
+    if (!_requireChatIdentity()) return;
+    final opener = widget.openers?.openChat;
     if (opener != null) {
       await opener(context);
       return;
     }
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
-        builder: (_) =>
-            const ContactBookPage(mode: ContactPickMode.pickForMessage),
+    final result = await Navigator.of(context).push<ChatCreateResult>(
+      MaterialPageRoute<ChatCreateResult>(
+        builder: (_) => ChatCreatePage(
+          runtime: widget.runtime,
+          contactService: _contactService,
+        ),
       ),
     );
-    if (!mounted) {
-      return;
+    if (!mounted || result == null) return;
+    if (result.isGroup) {
+      await openGroupChat(
+        context,
+        groupId: result.targetId,
+        title: result.title,
+        expectedOwner: result.owner,
+      );
+    } else {
+      await openDirectChat(
+        context,
+        peerUserId: result.targetId,
+        title: result.title,
+        expectedOwner: result.owner,
+      );
     }
-    await _reload();
+    if (mounted) await _reload();
   }
 
   /// 加好友 = 扫对方二维码写入本人密文通讯录。
@@ -1103,8 +1096,8 @@ class _ChatTabState extends State<ChatTab> {
   }
 }
 
-/// 加号菜单的 5 个动作。
-enum _ChatEntryAction { scan, receivePay, sendMessage, createGroup, addFriend }
+/// 加号菜单的 4 个动作。
+enum _ChatEntryAction { scan, receivePay, startChat, addFriend }
 
 /// 加号菜单的一项：图标 + 文案。
 ///
@@ -1132,14 +1125,9 @@ const List<_ChatEntryItem> _chatEntryItems = [
   ),
   // 与底部导航「聊天」tab 同一个图标，保持同一语义同一形。
   _ChatEntryItem(
-    _ChatEntryAction.sendMessage,
-    '发私信',
+    _ChatEntryAction.startChat,
+    '发起聊天',
     icon: Icons.textsms_outlined,
-  ),
-  _ChatEntryItem(
-    _ChatEntryAction.createGroup,
-    '发群聊',
-    icon: Icons.group_outlined,
   ),
   _ChatEntryItem(
     _ChatEntryAction.addFriend,

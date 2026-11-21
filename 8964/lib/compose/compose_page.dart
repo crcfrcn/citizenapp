@@ -44,6 +44,7 @@ class SquareComposePage extends StatefulWidget {
     this.initialText,
     this.initialTitle,
     this.replaceId,
+    this.initialVisibility = SquarePostVisibility.public,
   });
 
   final SquareIdentityService? identityService;
@@ -58,6 +59,7 @@ class SquareComposePage extends StatefulWidget {
   final String? initialText;
   final String? initialTitle;
   final String? replaceId;
+  final SquarePostVisibility initialVisibility;
 
   @override
   State<SquareComposePage> createState() => _SquareComposePageState();
@@ -72,11 +74,13 @@ class _DraftEditor {
     this.initialText,
     this.initialTitle,
     this.replaceId,
+    this.visibility = SquarePostVisibility.public,
   });
   final String id;
   final SquarePostType type;
   final SquareComposeDraftRepository store;
   final String? initialText, initialTitle, replaceId;
+  SquarePostVisibility visibility;
   SquareIdentityState? identity;
   ComposeSnapshot? snapshot;
   bool saved = false,
@@ -156,6 +160,7 @@ class _SquareComposePageState extends State<SquareComposePage>
     initialText: seed ? widget.initialText : null,
     initialTitle: seed ? widget.initialTitle : null,
     replaceId: seed ? widget.replaceId : null,
+    visibility: seed ? widget.initialVisibility : SquarePostVisibility.public,
   );
   bool _current(_DraftEditor draft) => identical(draft, _draft);
   void _resetEditor({bool seed = false}) {
@@ -394,6 +399,7 @@ class _SquareComposePageState extends State<SquareComposePage>
       return;
     }
     final cid = draft.cid, snapshot = draft.snapshot;
+    final visibility = draft.visibility;
     if (cid == null || cid.isEmpty) {
       draft.pendingIdentity = snapshot != null && !snapshot.isEmpty;
       return;
@@ -402,7 +408,7 @@ class _SquareComposePageState extends State<SquareComposePage>
     draft.pendingIdentity = false;
     _saveChain = _saveChain
         .catchError((_) {})
-        .then((_) => _writeSnapshot(draft, cid, snapshot));
+        .then((_) => _writeSnapshot(draft, cid, snapshot, visibility));
     await _saveChain;
   }
 
@@ -410,6 +416,7 @@ class _SquareComposePageState extends State<SquareComposePage>
     _DraftEditor draft,
     String cid,
     ComposeSnapshot snapshot,
+    SquarePostVisibility visibility,
   ) async {
     if (snapshot.isEmpty) {
       if (draft.saved) {
@@ -423,6 +430,7 @@ class _SquareComposePageState extends State<SquareComposePage>
         draftId: draft.id,
         cidNumber: cid,
         postType: draft.type,
+        postVisibility: visibility,
         title: snapshot.title,
         text: snapshot.text,
         media: snapshot.media,
@@ -490,6 +498,11 @@ class _SquareComposePageState extends State<SquareComposePage>
                     identity: identity,
                     avatarPath: _avatarPath,
                     avatarSet: _avatarSet,
+                    visibility: _draft.visibility,
+                    onVisibility:
+                        _publishing || _draft.recovering || _changingIdentity
+                        ? null
+                        : _chooseVisibility,
                     mediaAction:
                         _publishing || _draft.recovering || _changingIdentity
                         ? null
@@ -588,6 +601,43 @@ class _SquareComposePageState extends State<SquareComposePage>
     ),
   };
 
+  Future<void> _chooseVisibility() async {
+    final owner = _draft;
+    final selected = await showDialog<SquarePostVisibility>(
+      context: context,
+      builder: (dialog) => SimpleDialog(
+        title: const Text('选择可见'),
+        children: [
+          RadioGroup<SquarePostVisibility>(
+            groupValue: owner.visibility,
+            onChanged: (value) {
+              if (value != null) Navigator.of(dialog).pop(value);
+            },
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final value in SquarePostVisibility.values)
+                  RadioListTile<SquarePostVisibility>(
+                    title: Text(value.label),
+                    value: value,
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    if (!mounted ||
+        !_current(owner) ||
+        _changingIdentity ||
+        _publishing ||
+        owner.recovering ||
+        selected == null)
+      return;
+    setState(() => owner.visibility = selected);
+    _handleBodyChanged(owner);
+  }
+
   Future<void> _openDrafts() async {
     final original = _draft;
     if (_changingIdentity || original.cid?.isNotEmpty != true || _publishing) {
@@ -646,6 +696,7 @@ class _SquareComposePageState extends State<SquareComposePage>
     if (!mounted || !_current(owner) || _changingIdentity) return;
     final draft =
         _DraftEditor(id: restored.draftId, type: owner.type, store: owner.store)
+          ..visibility = restored.postVisibility
           ..identity = owner.identity
           ..saved = true
           ..recovering = pending != null
@@ -722,7 +773,7 @@ class _SquareComposePageState extends State<SquareComposePage>
         draft.id,
       );
       if (pending == null && draft.snapshot != null) {
-        await _writeSnapshot(draft, cid, draft.snapshot!);
+        await _writeSnapshot(draft, cid, draft.snapshot!, draft.visibility);
       }
       if (!_current(draft) ||
           _changingIdentity ||
@@ -733,6 +784,7 @@ class _SquareComposePageState extends State<SquareComposePage>
         draftId: draft.id,
         identity: identity,
         postType: draft.type,
+        postVisibility: draft.visibility,
         text: payload.text,
         title: payload.title,
         contentSections: payload.contentSections,
@@ -915,12 +967,16 @@ class _IdentityBar extends StatelessWidget {
     required this.avatarPath,
     required this.avatarSet,
     required this.mediaAction,
+    required this.visibility,
+    required this.onVisibility,
   });
 
   final SquareIdentityState identity;
   final String? avatarPath;
   final bool avatarSet;
   final Widget? mediaAction;
+  final SquarePostVisibility visibility;
+  final VoidCallback? onVisibility;
 
   @override
   Widget build(BuildContext context) {
@@ -940,7 +996,32 @@ class _IdentityBar extends StatelessWidget {
               borderRadius: 17,
               showBadge: false,
             ),
-            if (mediaAction != null) ...[const Spacer(), mediaAction!],
+            const SizedBox(width: 6),
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  key: const ValueKey('compose-visibility'),
+                  onPressed: onVisibility,
+                  icon: Icon(
+                    visibility == SquarePostVisibility.public
+                        ? Icons.public
+                        : visibility == SquarePostVisibility.circle
+                        ? Icons.people_outline
+                        : Icons.person_outline,
+                    size: 18,
+                  ),
+                  label: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(child: Text(visibility.label)),
+                      const Icon(Icons.arrow_drop_down, size: 18),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            if (mediaAction != null) mediaAction!,
           ],
         ),
       ),

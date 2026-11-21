@@ -37,6 +37,24 @@ class _GuestUserContext implements CurrentUserContext {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+/// 用真实导航验证业务页的生命周期与本地交互状态，不触发链读。
+class _ProposalProbe extends StatefulWidget {
+  const _ProposalProbe();
+
+  @override
+  State<_ProposalProbe> createState() => _ProposalProbeState();
+}
+
+class _ProposalProbeState extends State<_ProposalProbe> {
+  int count = 0;
+
+  @override
+  Widget build(BuildContext context) => TextButton(
+    onPressed: () => setState(() => count++),
+    child: Text('已选提案 $count'),
+  );
+}
+
 /// 导航专用的目录失败夹具仍使用真实机构详情与生产路由，不开启另一套Isar。
 class _UnavailableDetailRepository extends InstitutionRepository {
   _UnavailableDetailRepository(InstitutionRepository source)
@@ -200,6 +218,38 @@ void main() {
     expect(tester.getTopLeft(find.text('提案')).dy, lessThan(45));
     expect(find.text('提案动态'), findsOneWidget);
     expect(find.text('待我投票 0'), findsOneWidget);
+  });
+
+  testWidgets('公民子页首次访问才创建，切回保留原状态且隐藏页不交互', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: CitizenTabPage(proposalContent: _ProposalProbe()),
+      ),
+    );
+    final original = tester.state(find.byType(_ProposalProbe));
+    expect(find.byType(LegislationTab, skipOffstage: false), findsNothing);
+    expect(find.byType(GovernanceTab, skipOffstage: false), findsNothing);
+    await tester.tap(find.text('已选提案 0'));
+    await tester.pump();
+    await tester.tap(find.text('选举'));
+    await tester.pumpAndSettle();
+    expect(find.text('已选提案 1'), findsNothing);
+    expect(find.text('已选提案 1', skipOffstage: false), findsOneWidget);
+    final election = tester.element(find.text('具体公权选举业务模块尚未接入，当前不开放选举入口'));
+    expect(find.byType(LegislationTab, skipOffstage: false), findsNothing);
+    expect(find.byType(GovernanceTab, skipOffstage: false), findsNothing);
+    await tester.tap(find.text('提案'));
+    await tester.pumpAndSettle();
+    expect(tester.state(find.byType(_ProposalProbe)), same(original));
+    expect(find.text('已选提案 1'), findsOneWidget);
+    await tester.tap(find.text('选举'));
+    await tester.pumpAndSettle();
+    expect(
+      tester.element(find.text('具体公权选举业务模块尚未接入，当前不开放选举入口')),
+      same(election),
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+    expect(original.mounted, isFalse);
   });
 
   test('reorderGovernanceInstitutions 按拖拽目标位置重排', () {

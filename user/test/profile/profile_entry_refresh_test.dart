@@ -51,6 +51,17 @@ class _Sessions extends Fake implements SquareSessionProvider {
 }
 
 class _Api extends CitizenProfileApi {
+  Completer<void>? accessPending;
+  int accessChecks = 0;
+  @override
+  Future<void> requireProfileAccess(
+    String targetCid,
+    SquareSession session,
+  ) async {
+    accessChecks++;
+    if (accessPending != null) await accessPending!.future;
+  }
+
   _Api(this.result, DateTime Function() now) : super(now: now);
   CitizenProfile result;
   int gets = 0;
@@ -269,9 +280,10 @@ void main() {
     expect(cache.seed!.displayName, '新身份结果');
     expect(fresh.gets, 1);
   });
-  testWidgets('本人首帧显示缓存，后台挂起不显示整页转圈，返回后只更新一次', (tester) async {
+  testWidgets('本人核对本机身份后显示缓存，后台挂起不显示整页转圈，返回后只更新一次', (tester) async {
     api.pending = Completer<CitizenProfile>();
     await tester.pumpWidget(page(initial: cache.seed));
+    await tester.pump();
     expect(find.text('本地资料'), findsWidgets);
     expect(find.byType(ProfileHeaderCard), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsNothing);
@@ -283,7 +295,7 @@ void main() {
     expect(api.gets, 1);
     await tester.pumpWidget(const SizedBox());
   });
-  testWidgets('他人主页与本人一样先显示本地，请求失败保留资料', (tester) async {
+  testWidgets('他人每次进入独立校验权限，通过后资料刷新失败保留缓存', (tester) async {
     user.cidNumber = f.cidB;
     user.ownerAccountId = f.account(2);
     sessions = _Sessions(
@@ -295,8 +307,12 @@ void main() {
       ),
     );
     api.fail = true;
+    api.accessPending = Completer<void>();
     await tester.pumpWidget(page(self: false, initial: cache.seed));
-    expect(find.text('本地资料'), findsWidgets);
+    expect(find.text('本地资料'), findsNothing);
+    await tester.pump();
+    expect(api.accessChecks, 1);
+    api.accessPending!.complete();
     await tester.pumpAndSettle();
     expect(find.text('本地资料'), findsWidgets);
     expect(find.byType(CircularProgressIndicator), findsNothing);
@@ -305,7 +321,8 @@ void main() {
     await tester.pumpWidget(page(self: false, initial: cache.seed));
     await tester.pumpAndSettle();
     expect(api.gets, 1);
-    expect(sessions.calls, 1);
+    expect(sessions.calls, 3);
+    expect(api.accessChecks, 2);
     await tester.pumpWidget(const SizedBox());
   });
   testWidgets('重新进入不足十分钟不准备会话，也不重复读取云端资料', (tester) async {

@@ -2,8 +2,6 @@
 
 part of 'social_isar.dart';
 
-// ignore_for_file: experimental_member_use
-
 // **************************************************************************
 // IsarCollectionGenerator
 // **************************************************************************
@@ -2400,17 +2398,22 @@ const PostSchema = CollectionSchema(
       name: r'post_type',
       type: IsarType.string,
     ),
-    r'published_at': PropertySchema(
+    r'post_visibility': PropertySchema(
       id: 8,
+      name: r'post_visibility',
+      type: IsarType.string,
+    ),
+    r'published_at': PropertySchema(
+      id: 9,
       name: r'published_at',
       type: IsarType.long,
     ),
     r'receipt_id': PropertySchema(
-      id: 9,
+      id: 10,
       name: r'receipt_id',
       type: IsarType.string,
     ),
-    r'state': PropertySchema(id: 10, name: r'state', type: IsarType.string),
+    r'state': PropertySchema(id: 11, name: r'state', type: IsarType.string),
   },
 
   estimateSize: _postEstimateSize,
@@ -2481,6 +2484,7 @@ int _postEstimateSize(
   bytesCount += 3 + object.postCategory.length * 3;
   bytesCount += 3 + object.postId.length * 3;
   bytesCount += 3 + object.postType.length * 3;
+  bytesCount += 3 + object.postVisibility.length * 3;
   bytesCount += 3 + object.receiptId.length * 3;
   bytesCount += 3 + object.postState.length * 3;
   return bytesCount;
@@ -2500,9 +2504,10 @@ void _postSerialize(
   writer.writeString(offsets[5], object.postCategory);
   writer.writeString(offsets[6], object.postId);
   writer.writeString(offsets[7], object.postType);
-  writer.writeLong(offsets[8], object.publishedAt);
-  writer.writeString(offsets[9], object.receiptId);
-  writer.writeString(offsets[10], object.postState);
+  writer.writeString(offsets[8], object.postVisibility);
+  writer.writeLong(offsets[9], object.publishedAt);
+  writer.writeString(offsets[10], object.receiptId);
+  writer.writeString(offsets[11], object.postState);
 }
 
 Post _postDeserialize(
@@ -2521,9 +2526,10 @@ Post _postDeserialize(
   object.postCategory = reader.readString(offsets[5]);
   object.postId = reader.readString(offsets[6]);
   object.postType = reader.readString(offsets[7]);
-  object.publishedAt = reader.readLong(offsets[8]);
-  object.receiptId = reader.readString(offsets[9]);
-  object.postState = reader.readString(offsets[10]);
+  object.postVisibility = reader.readString(offsets[8]);
+  object.publishedAt = reader.readLong(offsets[9]);
+  object.receiptId = reader.readString(offsets[10]);
+  object.postState = reader.readString(offsets[11]);
   return object;
 }
 
@@ -2551,10 +2557,12 @@ P _postDeserializeProp<P>(
     case 7:
       return (reader.readString(offset)) as P;
     case 8:
-      return (reader.readLong(offset)) as P;
-    case 9:
       return (reader.readString(offset)) as P;
+    case 9:
+      return (reader.readLong(offset)) as P;
     case 10:
+      return (reader.readString(offset)) as P;
+    case 11:
       return (reader.readString(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -4046,6 +4054,152 @@ extension PostQueryFilter on QueryBuilder<Post, Post, QFilterCondition> {
     });
   }
 
+  QueryBuilder<Post, Post, QAfterFilterCondition> postVisibilityEqualTo(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'post_visibility',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Post, Post, QAfterFilterCondition> postVisibilityGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'post_visibility',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Post, Post, QAfterFilterCondition> postVisibilityLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'post_visibility',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Post, Post, QAfterFilterCondition> postVisibilityBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'post_visibility',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Post, Post, QAfterFilterCondition> postVisibilityStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'post_visibility',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Post, Post, QAfterFilterCondition> postVisibilityEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'post_visibility',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Post, Post, QAfterFilterCondition> postVisibilityContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'post_visibility',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Post, Post, QAfterFilterCondition> postVisibilityMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'post_visibility',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Post, Post, QAfterFilterCondition> postVisibilityIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'post_visibility', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Post, Post, QAfterFilterCondition> postVisibilityIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'post_visibility', value: ''),
+      );
+    });
+  }
+
   QueryBuilder<Post, Post, QAfterFilterCondition> publishedAtEqualTo(
     int value,
   ) {
@@ -4487,6 +4641,18 @@ extension PostQuerySortBy on QueryBuilder<Post, Post, QSortBy> {
     });
   }
 
+  QueryBuilder<Post, Post, QAfterSortBy> sortByPostVisibility() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'post_visibility', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Post, Post, QAfterSortBy> sortByPostVisibilityDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'post_visibility', Sort.desc);
+    });
+  }
+
   QueryBuilder<Post, Post, QAfterSortBy> sortByPublishedAt() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'published_at', Sort.asc);
@@ -4621,6 +4787,18 @@ extension PostQuerySortThenBy on QueryBuilder<Post, Post, QSortThenBy> {
     });
   }
 
+  QueryBuilder<Post, Post, QAfterSortBy> thenByPostVisibility() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'post_visibility', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Post, Post, QAfterSortBy> thenByPostVisibilityDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'post_visibility', Sort.desc);
+    });
+  }
+
   QueryBuilder<Post, Post, QAfterSortBy> thenByPublishedAt() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'published_at', Sort.asc);
@@ -4722,6 +4900,17 @@ extension PostQueryWhereDistinct on QueryBuilder<Post, Post, QDistinct> {
     });
   }
 
+  QueryBuilder<Post, Post, QDistinct> distinctByPostVisibility({
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(
+        r'post_visibility',
+        caseSensitive: caseSensitive,
+      );
+    });
+  }
+
   QueryBuilder<Post, Post, QDistinct> distinctByPublishedAt() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'published_at');
@@ -4800,6 +4989,12 @@ extension PostQueryProperty on QueryBuilder<Post, Post, QQueryProperty> {
     });
   }
 
+  QueryBuilder<Post, String, QQueryOperations> postVisibilityProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'post_visibility');
+    });
+  }
+
   QueryBuilder<Post, int, QQueryOperations> publishedAtProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'published_at');
@@ -4860,13 +5055,18 @@ const DraftSchema = CollectionSchema(
       name: r'post_type',
       type: IsarType.string,
     ),
-    r'section_data': PropertySchema(
+    r'post_visibility': PropertySchema(
       id: 6,
+      name: r'post_visibility',
+      type: IsarType.string,
+    ),
+    r'section_data': PropertySchema(
+      id: 7,
       name: r'section_data',
       type: IsarType.string,
     ),
     r'updated_at': PropertySchema(
-      id: 7,
+      id: 8,
       name: r'updated_at',
       type: IsarType.long,
     ),
@@ -4936,6 +5136,7 @@ int _draftEstimateSize(
     }
   }
   bytesCount += 3 + object.postType.length * 3;
+  bytesCount += 3 + object.postVisibility.length * 3;
   {
     final value = object.sectionData;
     if (value != null) {
@@ -4957,8 +5158,9 @@ void _draftSerialize(
   writer.writeString(offsets[3], object.text);
   writer.writeString(offsets[4], object.title);
   writer.writeString(offsets[5], object.postType);
-  writer.writeString(offsets[6], object.sectionData);
-  writer.writeLong(offsets[7], object.updatedAt);
+  writer.writeString(offsets[6], object.postVisibility);
+  writer.writeString(offsets[7], object.sectionData);
+  writer.writeLong(offsets[8], object.updatedAt);
 }
 
 Draft _draftDeserialize(
@@ -4975,8 +5177,9 @@ Draft _draftDeserialize(
   object.text = reader.readString(offsets[3]);
   object.title = reader.readStringOrNull(offsets[4]);
   object.postType = reader.readString(offsets[5]);
-  object.sectionData = reader.readStringOrNull(offsets[6]);
-  object.updatedAt = reader.readLong(offsets[7]);
+  object.postVisibility = reader.readString(offsets[6]);
+  object.sectionData = reader.readStringOrNull(offsets[7]);
+  object.updatedAt = reader.readLong(offsets[8]);
   return object;
 }
 
@@ -5000,8 +5203,10 @@ P _draftDeserializeProp<P>(
     case 5:
       return (reader.readString(offset)) as P;
     case 6:
-      return (reader.readStringOrNull(offset)) as P;
+      return (reader.readString(offset)) as P;
     case 7:
+      return (reader.readStringOrNull(offset)) as P;
+    case 8:
       return (reader.readLong(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -6386,6 +6591,152 @@ extension DraftQueryFilter on QueryBuilder<Draft, Draft, QFilterCondition> {
     });
   }
 
+  QueryBuilder<Draft, Draft, QAfterFilterCondition> postVisibilityEqualTo(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'post_visibility',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Draft, Draft, QAfterFilterCondition> postVisibilityGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'post_visibility',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Draft, Draft, QAfterFilterCondition> postVisibilityLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'post_visibility',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Draft, Draft, QAfterFilterCondition> postVisibilityBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'post_visibility',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Draft, Draft, QAfterFilterCondition> postVisibilityStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'post_visibility',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Draft, Draft, QAfterFilterCondition> postVisibilityEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'post_visibility',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Draft, Draft, QAfterFilterCondition> postVisibilityContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'post_visibility',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Draft, Draft, QAfterFilterCondition> postVisibilityMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'post_visibility',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Draft, Draft, QAfterFilterCondition> postVisibilityIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'post_visibility', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Draft, Draft, QAfterFilterCondition> postVisibilityIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'post_visibility', value: ''),
+      );
+    });
+  }
+
   QueryBuilder<Draft, Draft, QAfterFilterCondition> sectionDataIsNull() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
@@ -6685,6 +7036,18 @@ extension DraftQuerySortBy on QueryBuilder<Draft, Draft, QSortBy> {
     });
   }
 
+  QueryBuilder<Draft, Draft, QAfterSortBy> sortByPostVisibility() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'post_visibility', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Draft, Draft, QAfterSortBy> sortByPostVisibilityDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'post_visibility', Sort.desc);
+    });
+  }
+
   QueryBuilder<Draft, Draft, QAfterSortBy> sortBySectionData() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'section_data', Sort.asc);
@@ -6795,6 +7158,18 @@ extension DraftQuerySortThenBy on QueryBuilder<Draft, Draft, QSortThenBy> {
     });
   }
 
+  QueryBuilder<Draft, Draft, QAfterSortBy> thenByPostVisibility() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'post_visibility', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Draft, Draft, QAfterSortBy> thenByPostVisibilityDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'post_visibility', Sort.desc);
+    });
+  }
+
   QueryBuilder<Draft, Draft, QAfterSortBy> thenBySectionData() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'section_data', Sort.asc);
@@ -6869,6 +7244,17 @@ extension DraftQueryWhereDistinct on QueryBuilder<Draft, Draft, QDistinct> {
     });
   }
 
+  QueryBuilder<Draft, Draft, QDistinct> distinctByPostVisibility({
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(
+        r'post_visibility',
+        caseSensitive: caseSensitive,
+      );
+    });
+  }
+
   QueryBuilder<Draft, Draft, QDistinct> distinctBySectionData({
     bool caseSensitive = true,
   }) {
@@ -6924,6 +7310,12 @@ extension DraftQueryProperty on QueryBuilder<Draft, Draft, QQueryProperty> {
   QueryBuilder<Draft, String, QQueryOperations> postTypeProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'post_type');
+    });
+  }
+
+  QueryBuilder<Draft, String, QQueryOperations> postVisibilityProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'post_visibility');
     });
   }
 
@@ -13976,25 +14368,30 @@ const PublishSchema = CollectionSchema(
       name: r'post_type',
       type: IsarType.string,
     ),
-    r'published_at': PropertySchema(
+    r'post_visibility': PropertySchema(
       id: 10,
+      name: r'post_visibility',
+      type: IsarType.string,
+    ),
+    r'published_at': PropertySchema(
+      id: 11,
       name: r'published_at',
       type: IsarType.long,
     ),
     r'receipt_id': PropertySchema(
-      id: 11,
+      id: 12,
       name: r'receipt_id',
       type: IsarType.string,
     ),
     r'replace_id': PropertySchema(
-      id: 12,
+      id: 13,
       name: r'replace_id',
       type: IsarType.string,
     ),
-    r'state': PropertySchema(id: 13, name: r'state', type: IsarType.string),
-    r'tx_hash': PropertySchema(id: 14, name: r'tx_hash', type: IsarType.string),
+    r'state': PropertySchema(id: 14, name: r'state', type: IsarType.string),
+    r'tx_hash': PropertySchema(id: 15, name: r'tx_hash', type: IsarType.string),
     r'upload_id': PropertySchema(
-      id: 15,
+      id: 16,
       name: r'upload_id',
       type: IsarType.string,
     ),
@@ -14059,6 +14456,7 @@ int _publishEstimateSize(
   }
   bytesCount += 3 + object.postId.length * 3;
   bytesCount += 3 + object.postType.length * 3;
+  bytesCount += 3 + object.postVisibility.length * 3;
   bytesCount += 3 + object.receiptId.length * 3;
   {
     final value = object.replaceId;
@@ -14093,12 +14491,13 @@ void _publishSerialize(
   writer.writeString(offsets[7], object.postCategory);
   writer.writeString(offsets[8], object.postId);
   writer.writeString(offsets[9], object.postType);
-  writer.writeLong(offsets[10], object.publishedAt);
-  writer.writeString(offsets[11], object.receiptId);
-  writer.writeString(offsets[12], object.replaceId);
-  writer.writeString(offsets[13], object.jobState);
-  writer.writeString(offsets[14], object.txHash);
-  writer.writeString(offsets[15], object.uploadId);
+  writer.writeString(offsets[10], object.postVisibility);
+  writer.writeLong(offsets[11], object.publishedAt);
+  writer.writeString(offsets[12], object.receiptId);
+  writer.writeString(offsets[13], object.replaceId);
+  writer.writeString(offsets[14], object.jobState);
+  writer.writeString(offsets[15], object.txHash);
+  writer.writeString(offsets[16], object.uploadId);
 }
 
 Publish _publishDeserialize(
@@ -14119,12 +14518,13 @@ Publish _publishDeserialize(
   object.postCategory = reader.readStringOrNull(offsets[7]);
   object.postId = reader.readString(offsets[8]);
   object.postType = reader.readString(offsets[9]);
-  object.publishedAt = reader.readLongOrNull(offsets[10]);
-  object.receiptId = reader.readString(offsets[11]);
-  object.replaceId = reader.readStringOrNull(offsets[12]);
-  object.jobState = reader.readString(offsets[13]);
-  object.txHash = reader.readStringOrNull(offsets[14]);
-  object.uploadId = reader.readString(offsets[15]);
+  object.postVisibility = reader.readString(offsets[10]);
+  object.publishedAt = reader.readLongOrNull(offsets[11]);
+  object.receiptId = reader.readString(offsets[12]);
+  object.replaceId = reader.readStringOrNull(offsets[13]);
+  object.jobState = reader.readString(offsets[14]);
+  object.txHash = reader.readStringOrNull(offsets[15]);
+  object.uploadId = reader.readString(offsets[16]);
   return object;
 }
 
@@ -14156,16 +14556,18 @@ P _publishDeserializeProp<P>(
     case 9:
       return (reader.readString(offset)) as P;
     case 10:
-      return (reader.readLongOrNull(offset)) as P;
+      return (reader.readString(offset)) as P;
     case 11:
-      return (reader.readString(offset)) as P;
+      return (reader.readLongOrNull(offset)) as P;
     case 12:
-      return (reader.readStringOrNull(offset)) as P;
-    case 13:
       return (reader.readString(offset)) as P;
-    case 14:
+    case 13:
       return (reader.readStringOrNull(offset)) as P;
+    case 14:
+      return (reader.readString(offset)) as P;
     case 15:
+      return (reader.readStringOrNull(offset)) as P;
+    case 16:
       return (reader.readString(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -15930,6 +16332,153 @@ extension PublishQueryFilter
     });
   }
 
+  QueryBuilder<Publish, Publish, QAfterFilterCondition> postVisibilityEqualTo(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'post_visibility',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Publish, Publish, QAfterFilterCondition>
+  postVisibilityGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'post_visibility',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Publish, Publish, QAfterFilterCondition> postVisibilityLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'post_visibility',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Publish, Publish, QAfterFilterCondition> postVisibilityBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'post_visibility',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Publish, Publish, QAfterFilterCondition>
+  postVisibilityStartsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'post_visibility',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Publish, Publish, QAfterFilterCondition> postVisibilityEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'post_visibility',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Publish, Publish, QAfterFilterCondition> postVisibilityContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'post_visibility',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Publish, Publish, QAfterFilterCondition> postVisibilityMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'post_visibility',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Publish, Publish, QAfterFilterCondition>
+  postVisibilityIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'post_visibility', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Publish, Publish, QAfterFilterCondition>
+  postVisibilityIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'post_visibility', value: ''),
+      );
+    });
+  }
+
   QueryBuilder<Publish, Publish, QAfterFilterCondition> publishedAtIsNull() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
@@ -16883,6 +17432,18 @@ extension PublishQuerySortBy on QueryBuilder<Publish, Publish, QSortBy> {
     });
   }
 
+  QueryBuilder<Publish, Publish, QAfterSortBy> sortByPostVisibility() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'post_visibility', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Publish, Publish, QAfterSortBy> sortByPostVisibilityDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'post_visibility', Sort.desc);
+    });
+  }
+
   QueryBuilder<Publish, Publish, QAfterSortBy> sortByPublishedAt() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'published_at', Sort.asc);
@@ -17078,6 +17639,18 @@ extension PublishQuerySortThenBy
     });
   }
 
+  QueryBuilder<Publish, Publish, QAfterSortBy> thenByPostVisibility() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'post_visibility', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Publish, Publish, QAfterSortBy> thenByPostVisibilityDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'post_visibility', Sort.desc);
+    });
+  }
+
   QueryBuilder<Publish, Publish, QAfterSortBy> thenByPublishedAt() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'published_at', Sort.asc);
@@ -17232,6 +17805,17 @@ extension PublishQueryWhereDistinct
     });
   }
 
+  QueryBuilder<Publish, Publish, QDistinct> distinctByPostVisibility({
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(
+        r'post_visibility',
+        caseSensitive: caseSensitive,
+      );
+    });
+  }
+
   QueryBuilder<Publish, Publish, QDistinct> distinctByPublishedAt() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'published_at');
@@ -17344,6 +17928,12 @@ extension PublishQueryProperty
   QueryBuilder<Publish, String, QQueryOperations> postTypeProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'post_type');
+    });
+  }
+
+  QueryBuilder<Publish, String, QQueryOperations> postVisibilityProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'post_visibility');
     });
   }
 

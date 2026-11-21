@@ -40,6 +40,7 @@ void main() {
           {
             "is_ok": true,
             "feed_kind": "recommended",
+            "next_cursor": null,
             "items": [
               {
                 "post_id": "sqp_001",
@@ -55,6 +56,7 @@ void main() {
                 "chain_block": 88,
                 "published_at": 1800000000000,
                 "post_state": "published",
+                "post_visibility": "public",
                 "media_items": [
                   {
                     "media_kind": "image",
@@ -80,36 +82,40 @@ void main() {
       session: _session(),
     );
 
-    expect(posts, hasLength(1));
-    expect(posts.first.postCategory, SquarePostCategory.campaign);
-    expect(posts.first.text, '竞选公文摘要');
-    expect(posts.first.author.cidNumber, 'CN001-CTZN-000000001-2026');
+    expect(posts.posts, hasLength(1));
+    expect(posts.posts.first.postCategory, SquarePostCategory.campaign);
+    expect(posts.posts.first.text, '竞选公文摘要');
+    expect(posts.posts.first.author.cidNumber, 'CN001-CTZN-000000001-2026');
     // 真数据：作者展示名与头像键随 feed 回传并解析。
-    expect(posts.first.author.displayName, '林正华');
+    expect(posts.posts.first.author.displayName, '林正华');
     expect(
-      posts.first.author.avatarKey,
+      posts.posts.first.author.avatarKey,
       'profile/1111111111111111111111111111111111111111111111111111111111111111/avatar',
     );
-    expect(posts.first.chainBlock, 88);
-    expect(posts.first.mediaItems.single.mediaKind, SquareMediaKind.image);
+    expect(posts.posts.first.chainBlock, 88);
     expect(
-      posts.first.mediaItems.single.url,
+      posts.posts.first.mediaItems.single.mediaKind,
+      SquareMediaKind.image,
+    );
+    expect(
+      posts.posts.first.mediaItems.single.url,
       'https://media.crcfrcn.com/square/cid/posts/sqp_001/media/0/source.webp',
     );
     expect(
-      posts.first.mediaItems.single.previewUrl,
+      posts.posts.first.mediaItems.single.previewUrl,
       'https://media.crcfrcn.com/square/cid/posts/sqp_001/media/0/thumbnail.webp',
     );
-    expect(posts.first.mediaItems.single.byteSize, 1024);
+    expect(posts.posts.first.mediaItems.single.byteSize, 1024);
     // 横竖屏所需宽高解析：高>宽 → 竖屏。
-    expect(posts.first.mediaItems.single.isPortrait, isTrue);
+    expect(posts.posts.first.mediaItems.single.isPortrait, isTrue);
   });
 
   test('SquareApiClient 详情接口读取全文并保留 Feed 作者资料', () async {
     final summary = SquarePost(
       postId: 'sqp_detail',
       author: const SquareAuthor(
-        accountId: '0x0101010101010101010101010101010101010101010101010101010101010101',
+        accountId:
+            '0x0101010101010101010101010101010101010101010101010101010101010101',
         cidNumber: 'CN001-CTZN-000000001-2026',
         displayName: '林正华',
       ),
@@ -137,6 +143,7 @@ void main() {
               'chain_block': 88,
               'published_at': 1800000000000,
               'post_state': 'published',
+              'post_visibility': 'public',
               'media_items': [
                 {
                   'media_kind': 'image',
@@ -190,7 +197,8 @@ void main() {
             'items': [
               {
                 'post_id': 'article_without_cover',
-                'account_id': '0x0101010101010101010101010101010101010101010101010101010101010101',
+                'account_id':
+                    '0x0101010101010101010101010101010101010101010101010101010101010101',
                 'post_category': 'normal',
                 'post_type': 'article',
                 'post_title': '缺少首图的非法文章',
@@ -255,7 +263,10 @@ void main() {
       httpClient: MockClient((request) async {
         expect(request.method, 'PUT');
         expect(request.url.path, '/api/8964/uploads/sqp_test/manifest');
-        expect(request.url.queryParameters, {'tx_hash': tx});
+        expect(request.url.queryParameters, {
+          'tx_hash': tx,
+          'post_visibility': 'public',
+        });
         expect(request.bodyBytes, raw);
         return http.Response(
           jsonEncode({
@@ -281,6 +292,7 @@ void main() {
     );
     addTearDown(client.close);
     final targets = await client.beginUpload(
+      postVisibility: SquarePostVisibility.public,
       session: _session(),
       postId: 'sqp_test',
       txHash: tx,
@@ -386,6 +398,7 @@ void main() {
                 'chain_block': 88,
                 'published_at': 1800000000000,
                 'post_state': 'published',
+                'post_visibility': 'public',
               },
             ],
             'next_cursor': null,
@@ -423,6 +436,7 @@ void main() {
                 'chain_block': 88,
                 'published_at': 1800000000000,
                 'post_state': 'published',
+                'post_visibility': 'public',
               },
             ],
             'next_cursor': null,

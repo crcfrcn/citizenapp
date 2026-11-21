@@ -531,6 +531,9 @@ class ChatGroupFlow<TBindingToken> {
     bool replayPending = true,
   }) async {
     final message = EncryptedMessage.fromBuffer(messageBytes);
+    validateChatEnvelope(message);
+    if (!message.conversationId.startsWith('grp:'))
+      throw const FormatException('群流程只接受群聊信封');
     final wire = mlsWireMessageFromEncryptedMessage(message);
     final acceptedMessages = <EncryptedMessage>[];
     final messageIds = <String, String>{wire.wireHex: message.messageId};
@@ -569,6 +572,9 @@ class ChatGroupFlow<TBindingToken> {
           return current;
         },
         onProcessed: (processedMessage, result) async {
+          if (result.groupId != processedMessage.conversationId) {
+            throw const FormatException('MLS实际组与群聊信封不一致');
+          }
           if (result.status == GroupProcessStatus.applied) {
             await _applyInbound(
               processedMessage,

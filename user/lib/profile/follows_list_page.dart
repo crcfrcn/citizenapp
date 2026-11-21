@@ -164,9 +164,10 @@ class _FollowsListPageState extends State<FollowsListPage> {
   }
 
   void _openProfile(String cidNumber) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => UserProfilePage(
+    unawaited(
+      UserProfilePage.open(
+        context,
+        UserProfilePage(
           cidNumber: cidNumber,
           isSelf: false,
           initialProfile: _profiles[cidNumber],

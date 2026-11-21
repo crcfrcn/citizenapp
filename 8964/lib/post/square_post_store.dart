@@ -25,6 +25,7 @@ class SquareLocalPost {
     required this.accountId,
     required this.postCategory,
     required this.postType,
+    this.postVisibility = 'public',
     required Uint8List manifestBytes,
     required this.contentHash,
     required this.receiptId,
@@ -38,6 +39,7 @@ class SquareLocalPost {
   final String accountId;
   final String postCategory;
   final String postType;
+  final String postVisibility;
   final Uint8List manifestBytes;
   final String contentHash;
   final String receiptId;
@@ -138,6 +140,7 @@ class SquarePostStore
           pending.contentHash != post.contentHash ||
           pending.receiptId != post.receiptId ||
           pending.postCategory != post.postCategory ||
+          pending.postVisibility != post.postVisibility ||
           pending.publishedAt != post.publishedAt ||
           pending.chainBlock != post.chainBlock) {
         throw const SquarePostStoreException('发布恢复事实与帖子不一致');
@@ -249,6 +252,7 @@ class SquarePostStore
             current.postId != row.postId ||
             current.accountId != row.accountId ||
             current.contentHash != row.contentHash ||
+            current.postVisibility != row.postVisibility ||
             current.receiptId != row.receiptId ||
             current.uploadId != row.uploadId ||
             current.replaceId != row.replaceId ||
@@ -301,6 +305,8 @@ class SquarePostStore
   }
 
   static void _validatePublication(social_store.Publish row) {
+    if (!const ['public', 'circle', 'profile'].contains(row.postVisibility))
+      throw const SquarePostStoreException('post_visibility不合法');
     _validateCidNumber(row.cidNumber);
     _requireNonEmpty(row.draftId, 'draft_id');
     _requireNonEmpty(row.postId, 'post_id');
@@ -363,6 +369,7 @@ class SquarePostStore
         accountId: row.accountId,
         postCategory: row.postCategory!,
         postType: row.postType,
+        postVisibility: row.postVisibility,
         manifestBytes: Uint8List.fromList(row.manifestBytes),
         contentHash: row.contentHash,
         receiptId: row.receiptId,
@@ -436,6 +443,7 @@ class SquarePostStore
       ..accountId = post.accountId
       ..postCategory = post.postCategory
       ..postType = post.postType
+      ..postVisibility = post.postVisibility
       ..manifestBytes = post.manifestBytes
       ..contentHash = post.contentHash
       ..receiptId = post.receiptId
@@ -737,6 +745,8 @@ class SquarePostStore
   }
 
   static SquareLocalPost validate(SquareLocalPost post) {
+    if (!const ['public', 'circle', 'profile'].contains(post.postVisibility))
+      throw const SquarePostStoreException('post_visibility不合法');
     _requireNonEmpty(post.postId, 'post_id');
     _validateCidNumber(post.cidNumber);
     if (!isCitizenAccountId(post.accountId)) {
@@ -790,6 +800,7 @@ class SquarePostStore
       accountId: post.accountId,
       postCategory: post.postCategory,
       postType: post.postType,
+      postVisibility: post.postVisibility,
       manifestBytes: bytes,
       contentHash: post.contentHash,
       receiptId: post.receiptId,
@@ -820,6 +831,7 @@ class SquarePostStore
       accountId: entity.accountId,
       postCategory: entity.postCategory,
       postType: entity.postType,
+      postVisibility: entity.postVisibility,
       manifestBytes: Uint8List.fromList(entity.manifestBytes),
       contentHash: entity.contentHash,
       receiptId: entity.receiptId,
@@ -843,6 +855,7 @@ class SquarePostStore
         existing.accountId != incoming.accountId ||
         existing.postCategory != incoming.postCategory ||
         existing.postType != incoming.postType ||
+        existing.postVisibility != incoming.postVisibility ||
         !_bytesEqual(existing.manifestBytes, incoming.manifestBytes) ||
         existing.contentHash != incoming.contentHash ||
         existing.receiptId != incoming.receiptId ||

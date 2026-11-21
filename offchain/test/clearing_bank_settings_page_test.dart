@@ -420,7 +420,7 @@ void main() {
                 chain: chain,
                 readFees: () async => CitizenFeeSnapshot(
                   bestBlock: best, feeRateParts: 0, minimumFeeFen: BigInt.zero,
-                  existentialDepositFen: BigInt.zero, voteFeeFen: BigInt.zero,
+                  existentialDepositFen: BigInt.zero, FLAT_FEE: BigInt.zero,
                   feeFen: BigInt.zero, minimumSelfPayFen: BigInt.zero,
                 ),
               ),

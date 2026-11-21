@@ -248,7 +248,7 @@ class SquareSessionProvider {
   Future<mls.MlsAuthenticationProof> Function(mls.MlsAuthenticationRequest)?
   _createMlsProof;
   final CidBusinessGate? _cidBusinessGate;
-  final Map<(String, int), Future<SquareSession?>> _flights = {};
+  final Map<(String, int, bool), Future<SquareSession?>> _flights = {};
   final Set<(String, String, int)> _blockedAuthorization = {};
   MlsAuthenticationSource get authentication => _authentication;
   CurrentUserContext get _currentUser => _currentUserContext;
@@ -298,6 +298,9 @@ class SquareSessionProvider {
 
   Future<SquareSession?> ensureSession() => _ensureSession();
 
+  Future<SquareSession?> ensureContactSession() =>
+      _ensureSession(allowWalletAuthorization: false);
+
   /// 聊天消费本机已经核验的绑定，缺失时由身份页负责恢复。
   Future<SquareSession?> ensureChatSession() =>
       _ensureSession(recoverBinding: false);
@@ -309,6 +312,7 @@ class SquareSessionProvider {
   /// 所有消费者共用当前账户的 MLS 与服务会话准备任务。
   Future<SquareSession?> _ensureSession({
     bool userInitiated = false,
+    bool allowWalletAuthorization = true,
     bool recoverBinding = true,
     String? expectedAccountId,
   }) async {
@@ -349,13 +353,14 @@ class SquareSessionProvider {
         );
       }
       final revision = _accountSecurity.revision.value;
-      final key = (binding.accountId, revision);
+      final key = (binding.accountId, revision, allowWalletAuthorization);
       final existing = _flights[key];
       if (existing != null) return await existing;
       late final Future<SquareSession?> task;
       task =
           _prepareSession(
             userInitiated: userInitiated,
+            allowWalletAuthorization: allowWalletAuthorization,
             binding: binding,
             revision: revision,
           ).whenComplete(() {
@@ -389,6 +394,7 @@ class SquareSessionProvider {
 
   Future<SquareSession> _prepareSession({
     required bool userInitiated,
+    required bool allowWalletAuthorization,
     required IdentityBinding binding,
     required int revision,
   }) async {
@@ -420,6 +426,11 @@ class SquareSessionProvider {
             code: 'identityChanged',
           );
         }
+        if (!allowWalletAuthorization)
+          throw const AccountSecurityException(
+            '钱包授权尚未完成',
+            code: 'authenticationRequired',
+          );
         final owner = (binding.cidNumber, binding.accountId, binding.bindRev);
         if (userInitiated) _blockedAuthorization.remove(owner);
         if (_blockedAuthorization.contains(owner)) {

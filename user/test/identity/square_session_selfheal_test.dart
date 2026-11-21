@@ -29,6 +29,43 @@ import 'package:citizen_testing/mls_authentication_fixture.dart';
 
 /// 只有明确未登记才编排一次登记；签名失败绝不触发钱包或重建MLS身份。
 void main() {
+  test('通讯录自动补传遇未登记不再请求钱包签名', () async {
+    final security = _DiagnosticSecurity();
+    final source = FakeMlsAuthentication();
+    var requests = 0;
+    final client = SquareApiClient(
+      baseUrl: 'https://worker.test/api',
+      httpClient: MockClient((request) async {
+        requests++;
+        return http.Response(
+          jsonEncode({'error_code': 'device_not_registered'}),
+          403,
+        );
+      }),
+    );
+    addTearDown(client.close);
+    addTearDown(security.revision.dispose);
+    final provider = SquareSessionProvider(
+      accountSecurity: security,
+      currentUserContext: _DiagnosticCurrent(),
+      client: client,
+      authentication: source,
+    );
+    await expectLater(
+      provider.ensureContactSession(),
+      throwsA(
+        isA<AccountSecurityException>().having(
+          (e) => e.code,
+          'code',
+          'authenticationRequired',
+        ),
+      ),
+    );
+    expect(security.deviceRegistrations, 0);
+    expect(security.unexpected, isEmpty);
+    expect(requests, 1);
+  });
+
   test('服务端公共RPC限额是固定可重试分类，不显示原始正文', () {
     final result = SquareSessionResolution.fromError(
       const SquareApiException(

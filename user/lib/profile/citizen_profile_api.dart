@@ -30,6 +30,9 @@ class ProfileEntryRefreshResult {
 ///
 /// 网络细节（登录态、解析、Worker 地址）复用 [SquareApiClient]，本类只做语义聚合。
 class CitizenProfileApi {
+  /// 每次进入主页独立检查，不能使用资料刷新限速或缓存关系授予访问。
+  Future<void> requireProfileAccess(String targetCid, SquareSession session) =>
+      _client.requireProfileAccess(targetCid, session);
   CitizenProfileApi({
     SquareApiClient? client,
     SquarePostStore? localPostStore,
@@ -116,6 +119,7 @@ class CitizenProfileApi {
       session.cidNumber,
       session.accountId,
       session.bindRev,
+      CitizenProfileCache.readGeneration(cidNumber),
     ]);
     void check() {
       if (!session.isUsable || !(isCurrent?.call() ?? true)) {
@@ -161,14 +165,31 @@ class CitizenProfileApi {
     }
 
     check();
+    final order = CitizenProfileCache.beginRead(cidNumber);
     final remote = await fetchProfile(cidNumber, session: session);
     await session.validateCurrent();
     check();
-    final result = await (cache ?? const CitizenProfileCache()).receiveRemote(
-      remote,
-      expectedCid: cidNumber,
-      assertCurrent: check,
-    );
+    final target = cache ?? const CitizenProfileCache();
+    void checkRead() {
+      check();
+      if (!CitizenProfileCache.acceptsRead(cidNumber, order)) {
+        throw StateError('资料读取已被较新操作取代');
+      }
+    }
+    late CitizenProfileLoadResult result;
+    try {
+      checkRead();
+      result = await target.receiveRemote(remote, expectedCid: cidNumber, assertCurrent: checkRead);
+    } catch (_) {
+      check();
+      if (CitizenProfileCache.acceptsRead(cidNumber, order)) rethrow;
+      final local = await target.read(cidNumber);
+      await session.validateCurrent();
+      check();
+      if (local == null) rethrow;
+      // 迟到结果只返回当前本地快照，不落盘、不刷新旧图片或新增提示。
+      return CitizenProfileLoadResult(local, CitizenProfileLoadStatus.unchanged, usedLocal: true);
+    }
     await session.validateCurrent();
     check();
     final profile = result.profile;

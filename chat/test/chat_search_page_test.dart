@@ -39,7 +39,7 @@ final _groupPreview = ChatConversationPreview(
 const _contact = UserContact(
   cidNumber: _peerUserId,
   contactRemark: '张三',
-  updatedAt: 2,
+  changeVersion: 2,
 );
 
 final _message = ChatStoredMessage(

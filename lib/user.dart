@@ -1056,6 +1056,10 @@ class SettingsPage extends StatefulWidget {
     super.key,
     this.homeTabPreferenceReader,
     this.homeTabPreferenceWriter,
+    this.privacyApi,
+    this.privacySessionProvider,
+    this.privacyUserContext,
+    this.privacyRevision,
   });
 
   /// 测试只替换 UserIsar 读写；产品运行始终使用 UserIsar 唯一真源。
@@ -1064,6 +1068,11 @@ class SettingsPage extends StatefulWidget {
 
   @visibleForTesting
   final Future<void> Function(bool value)? homeTabPreferenceWriter;
+
+  final SquareApiClient? privacyApi;
+  final SquareSessionProvider? privacySessionProvider;
+  final CurrentUserContext? privacyUserContext;
+  final Listenable? privacyRevision;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -1079,6 +1088,308 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _openChatOnLaunch = false;
   bool _savingHomeTab = false;
   bool _loading = true;
+  late final SquareApiClient _privacyApi =
+      widget.privacyApi ?? SquareApiClient();
+  Listenable? _privacyRevision;
+  bool _privacyInitialized = false;
+  bool _privacyLoading = true;
+  bool _privacyFailed = false;
+  bool _privacySaving = false;
+  DmPolicy _dmPolicy = DmPolicy.none;
+  ProfileVisibility _profileVisibility = ProfileVisibility.public;
+  int _privacyGeneration = 0;
+  ({String cid, String account, int revision})? _privacyOwner;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_privacyInitialized) return;
+    _privacyInitialized = true;
+    _privacyRevision =
+        widget.privacyRevision ??
+        context.read<AccountSecurityService?>()?.revision;
+    _privacyRevision?.addListener(_loadPrivacy);
+    unawaited(_loadPrivacy());
+  }
+
+  Future<SquareSession> _privacySession() async {
+    final user =
+        await (widget.privacyUserContext ?? context.read<CurrentUserContext>())
+            .resolve();
+    if (user?.binding == null) throw StateError('没有当前公民身份');
+    final resolution =
+        await (widget.privacySessionProvider ??
+                context.read<SquareSessionProvider>())
+            .resolveSession();
+    final session = resolution.session;
+    if (session == null ||
+        session.cidNumber != user!.cidNumber ||
+        session.accountId != user.accountId ||
+        session.bindRev != user.bindRev) {
+      throw StateError('隐私会话与当前身份不一致');
+    }
+    return session;
+  }
+
+  Future<void> _loadPrivacy() async {
+    final generation = ++_privacyGeneration;
+    if (mounted)
+      setState(() {
+        _dmPolicy = DmPolicy.none;
+        _privacyOwner = null;
+        _privacyLoading = true;
+        _privacyFailed = false;
+        _privacySaving = false;
+      });
+    try {
+      final session = await _privacySession();
+      final privacy = await _privacyApi.fetchPrivacy(session);
+      if (!mounted || generation != _privacyGeneration) return;
+      final current = await _privacySession();
+      if (!mounted || generation != _privacyGeneration) return;
+      if (current.cidNumber != session.cidNumber ||
+          current.accountId != session.accountId ||
+          current.bindRev != session.bindRev)
+        throw StateError('隐私身份已变化');
+      setState(() {
+        _dmPolicy = privacy.dmPolicy;
+        _profileVisibility = privacy.profileVisibility;
+        _privacyOwner = (
+          cid: session.cidNumber,
+          account: session.accountId,
+          revision: session.bindRev,
+        );
+        _privacyLoading = false;
+      });
+    } on Object {
+      if (mounted && generation == _privacyGeneration)
+        setState(() {
+          _privacyFailed = true;
+          _privacyLoading = false;
+        });
+    }
+  }
+
+  Future<void> _chooseDmPolicy() async {
+    if (_privacyLoading || _privacySaving) return;
+    if (_privacyFailed) {
+      await _loadPrivacy();
+      return;
+    }
+    final generation = _privacyGeneration, owner = _privacyOwner;
+    final policy = await showDialog<DmPolicy>(
+      context: context,
+      builder: (dialog) => SimpleDialog(
+        title: const Text('私信权限'),
+        children: [
+          RadioGroup<DmPolicy>(
+            groupValue: _dmPolicy,
+            onChanged: (value) {
+              if (value != null) Navigator.of(dialog).pop(value);
+            },
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final value in DmPolicy.values)
+                  RadioListTile<DmPolicy>(
+                    title: Text(value.label),
+                    value: value,
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    if (!mounted ||
+        generation != _privacyGeneration ||
+        policy == null ||
+        policy == _dmPolicy)
+      return;
+    await _savePrivacy(generation, owner, dmPolicy: policy);
+  }
+
+  Future<void> _chooseProfileVisibility() async {
+    if (_privacyLoading || _privacySaving) return;
+    if (_privacyFailed) {
+      await _loadPrivacy();
+      return;
+    }
+    final generation = _privacyGeneration, owner = _privacyOwner;
+    final selected = await showDialog<ProfileVisibility>(
+      context: context,
+      builder: (dialog) => SimpleDialog(
+        title: const Text('主页可见'),
+        children: [
+          RadioGroup<ProfileVisibility>(
+            groupValue: _profileVisibility,
+            onChanged: (value) {
+              if (value != null) Navigator.of(dialog).pop(value);
+            },
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final value in ProfileVisibility.values)
+                  RadioListTile<ProfileVisibility>(
+                    title: Text(value.label),
+                    value: value,
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    if (!mounted ||
+        generation != _privacyGeneration ||
+        selected == null ||
+        selected == _profileVisibility)
+      return;
+    await _savePrivacy(generation, owner, profileVisibility: selected);
+  }
+
+  // 两项隐私共用身份校验；仅云端确认后更新，部分提交不覆盖另一项。
+  Future<void> _savePrivacy(
+    int generation,
+    ({String cid, String account, int revision})? owner, {
+    DmPolicy? dmPolicy,
+    ProfileVisibility? profileVisibility,
+  }) async {
+    setState(() => _privacySaving = true);
+    try {
+      final session = await _privacySession();
+      if (!mounted || generation != _privacyGeneration) return;
+      if (owner !=
+          (
+            cid: session.cidNumber,
+            account: session.accountId,
+            revision: session.bindRev,
+          )) {
+        throw StateError('隐私身份已变化');
+      }
+      final saved = await _privacyApi.savePrivacy(
+        session,
+        dmPolicy: dmPolicy,
+        profileVisibility: profileVisibility,
+      );
+      if (!mounted || generation != _privacyGeneration) return;
+      final current = await _privacySession();
+      if (!mounted || generation != _privacyGeneration) return;
+      if (owner !=
+          (
+            cid: current.cidNumber,
+            account: current.accountId,
+            revision: current.bindRev,
+          )) {
+        await _loadPrivacy();
+        return;
+      }
+      setState(() {
+        _dmPolicy = saved.dmPolicy;
+        _profileVisibility = saved.profileVisibility;
+      });
+    } on Object {
+      if (mounted && generation == _privacyGeneration) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              profileVisibility == null ? '私信权限保存失败，请重试' : '主页可见保存失败，请重试',
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted && generation == _privacyGeneration)
+        setState(() => _privacySaving = false);
+    }
+  }
+
+  Widget _buildPrivacy() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Padding(
+        padding: EdgeInsets.only(
+          left: AppLayout.scaled(context, 4),
+          bottom: AppLayout.scaled(context, 10),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.privacy_tip_outlined,
+              size: AppLayout.scaled(context, 16),
+              color: AppTheme.primary,
+            ),
+            SizedBox(width: AppLayout.scaled(context, 8)),
+            Text(
+              '隐私',
+              style: TextStyle(
+                fontSize: AppLayout.scaled(context, 13),
+                fontWeight: FontWeight.w600,
+                color: AppTheme.primary,
+              ),
+            ),
+          ],
+        ),
+      ),
+      Container(
+        decoration: AppTheme.cardDecoration(radius: AppTheme.radiusLg),
+        child: Material(
+          type: MaterialType.transparency,
+          child: Column(
+            children: [
+              ListTile(
+                key: const ValueKey('dm-policy-setting'),
+                leading: const Icon(Icons.textsms_outlined),
+                title: const Text('私信权限'),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _privacyLoading
+                          ? '读取中'
+                          : _privacySaving
+                          ? '保存中'
+                          : _privacyFailed
+                          ? '暂不可用'
+                          : _dmPolicy.label,
+                    ),
+                    const Icon(Icons.chevron_right),
+                  ],
+                ),
+                onTap: _privacyLoading || _privacySaving
+                    ? null
+                    : _chooseDmPolicy,
+              ),
+              const Divider(height: 1, indent: 56, endIndent: 16),
+              ListTile(
+                key: const ValueKey('profile-visibility-setting'),
+                leading: const Icon(Icons.public),
+                title: const Text('主页可见'),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _privacyLoading
+                          ? '读取中'
+                          : _privacySaving
+                          ? '保存中'
+                          : _privacyFailed
+                          ? '暂不可用'
+                          : _profileVisibility.label,
+                    ),
+                    const Icon(Icons.chevron_right),
+                  ],
+                ),
+                onTap: _privacyLoading || _privacySaving
+                    ? null
+                    : _chooseProfileVisibility,
+              ),
+            ],
+          ),
+        ),
+      ),
+    ],
+  );
 
   @override
   void initState() {
@@ -1090,6 +1401,9 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   void dispose() {
+    _privacyGeneration++;
+    _privacyRevision?.removeListener(_loadPrivacy);
+    if (widget.privacyApi == null) _privacyApi.close();
     _updateController.removeListener(_handleUpdateStateChanged);
     super.dispose();
   }
@@ -1314,6 +1628,8 @@ class _SettingsPageState extends State<SettingsPage> {
                     ],
                   ),
                 ),
+                SizedBox(height: AppLayout.scaled(context, 28)),
+                _buildPrivacy(),
                 SizedBox(height: AppLayout.scaled(context, 28)),
                 _buildHomeTabTile(),
                 SizedBox(height: AppLayout.scaled(context, 28)),

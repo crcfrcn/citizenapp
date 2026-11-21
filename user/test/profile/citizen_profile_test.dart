@@ -950,6 +950,74 @@ void main() {
     expect(await cache.readUpdate(a), isNull);
     expect(await cache.readUpdate(b), isNotNull);
   });
+  test('旧GET迟到不覆盖较新响应的SQL计数和关系', () async {
+    const cache = CitizenProfileCache();
+    await cache.write(CitizenProfile.fromJson(_profileJson()));
+    final gates = [Completer<http.Response>(), Completer<http.Response>()];
+    final entered = Completer<void>();
+    var calls = 0;
+    final client = _client(MockClient((_) {
+      final gate = gates[calls++];
+      if (calls == 2) entered.complete();
+      return gate.future;
+    }));
+    addTearDown(client.close);
+    final api = CitizenProfileApi(client: client);
+    final old = api.loadProfile(_profileCid, session: _session(), cache: cache);
+    final current = api.loadProfile(_profileCid, session: _session(), cache: cache);
+    await entered.future;
+    gates[1].complete(_ok({'profile': _profileJson(following: 9, followers: 90, mutualFollowing: 9, posts: 90, campaigns: 9, videos: 9, articles: 9, isFollowing: true)}));
+    await current;
+    gates[0].complete(_ok({'profile': _profileJson(following: 1)}));
+    final result = await old;
+    expect([result.profile.following,result.profile.followers,result.profile.mutualFollowing,result.profile.posts,result.profile.campaigns,result.profile.videos,result.profile.articles],[9,90,9,90,9,9,9]);
+    expect(result.profile.isFollowing, isTrue);
+    expect((await cache.read(_profileCid))!.following, 9);
+  });
+
+  test('写入后刷新不合并旧GET且迟到响应不能回退计数', () async {
+    const cache = CitizenProfileCache();
+    final session = _session(), cid = _session().cidNumber;
+    await cache.write(CitizenProfile.fromJson(_profileJson(cidNumber: cid)));
+    final firstEntered = Completer<void>(), secondEntered = Completer<void>();
+    final oldGate = Completer<http.Response>(), newGate = Completer<http.Response>();
+    var reads = 0;
+    final changed = _profileJson(cidNumber: cid, displayName: '新资料', following: 9)..['avatar_key'] = null;
+    final client = _client(MockClient((request) async {
+      if (request.method == 'PUT') return _ok({'is_ok': true, 'profile': changed});
+      if (++reads == 1) {firstEntered.complete();return oldGate.future;}
+      secondEntered.complete();return newGate.future;
+    }));
+    addTearDown(client.close);
+    final api = CitizenProfileApi(client: client);
+    final old = api.refreshProfile(cid, session: session, userInitiated: true, cache: cache);
+    await firstEntered.future;
+    final updated = await client.updateProfile(session: session, displayName: '新资料');
+    await cache.write(updated);
+    final current = api.refreshProfile(cid, session: session, userInitiated: true, cache: cache);
+    expect(identical(old, current), isFalse);
+    await secondEntered.future;
+    newGate.complete(_ok({'profile': changed}));await current;
+    oldGate.complete(_ok({'profile': _profileJson(cidNumber: cid, following: 1)..['avatar_key'] = null}));
+    final result = await old;
+    expect(reads, 2);
+    expect(result.profile.displayName, '新资料');expect(result.profile.following, 9);
+    expect((await cache.read(cid))!.following, 9);
+  });
+
+  test('明确清除资料后迟到GET不得重新创建记录', () async {
+    const cache = CitizenProfileCache();
+    await cache.write(CitizenProfile.fromJson(_profileJson()));
+    final entered = Completer<void>(), gate = Completer<http.Response>();
+    final client = _client(MockClient((_) {entered.complete();return gate.future;}));
+    addTearDown(client.close);
+    final pending = CitizenProfileApi(client: client).loadProfile(_profileCid, session: _session(), cache: cache);
+    await entered.future;await cache.clear(_profileCid);
+    final checked = expectLater(pending, throwsStateError);
+    gate.complete(_ok({'profile': _profileJson()}));await checked;
+    expect(await cache.read(_profileCid), isNull);
+  });
+
   group('CitizenProfile model', () {
     test('maps counts, certification and follow state from json', () {
       final profile = CitizenProfile.fromJson(
@@ -1088,7 +1156,51 @@ void main() {
       },
     });
 
-    test('远端版本0保留非空本机资料及原记录，只使用本次浏览者关系', () async {
+    test('SQL计数不受R2资料旧版本限制，七项均使用当前响应', () {
+      final local = CitizenProfile.fromJson(_profileJson()).copyWith(
+        profileAt: 200,
+        displayName: '本机较新资料',
+        following: 9,
+        followers: 9,
+        mutualFollowing: 9,
+        posts: 9,
+        campaigns: 9,
+        videos: 9,
+        articles: 9,
+      );
+      for (final version in [0, 100, 200]) {
+        final remote = local.copyWith(
+          profileAt: version,
+          displayName: '远端资料',
+          following: 1,
+          followers: 2,
+          mutualFollowing: 3,
+          posts: 4,
+          campaigns: 5,
+          videos: 6,
+          articles: 7,
+        );
+        final result = CitizenProfileCache.selectRemote(local, remote);
+        expect(
+          [
+            result.profile.following,
+            result.profile.followers,
+            result.profile.mutualFollowing,
+            result.profile.posts,
+            result.profile.campaigns,
+            result.profile.videos,
+            result.profile.articles,
+          ],
+          [1, 2, 3, 4, 5, 6, 7],
+        );
+        if (version < 200) {
+          expect(result.profile.profileAt, 200);
+          expect(result.profile.displayName, '本机较新资料');
+        }
+      }
+    });
+
+    test('远端版本0保留本机资料正文，使用本次SQL计数与浏览者关系', () async {
       const cache = CitizenProfileCache();
       final local = CitizenProfile.fromJson(
         _profileJson(displayName: 'Rhett本机资料', isFollowing: true),
@@ -1109,22 +1221,31 @@ void main() {
       expect(result.profile.profileBio, local.profileBio);
       expect(result.profile.avatarKey, local.avatarKey);
       expect(result.profile.profileAt, local.profileAt);
-      expect(result.profile.followers, local.followers);
+      expect(result.profile.followers, 0);
       expect(result.profile.isFollowing, isFalse);
       expect(result.profile.isFollowedBy, isTrue);
       expect(result.profile.isNotifying, isFalse);
       expect(result.refreshMessage, isNull);
       expect(result.hasWarning, isFalse);
-      expect(
-        await UserIsar.instance.read(
-          (db) async =>
-              (await db.collection<user_store.Profile>().getByCidNumber(
-                cid,
-              ))!.profileData,
-        ),
-        before,
+      final after = await UserIsar.instance.read(
+        (db) async => (await db.collection<user_store.Profile>().getByCidNumber(
+          cid,
+        ))!.profileData,
       );
-      expect(CitizenProfileCache.revision.value, same(revision));
+      final oldData = jsonDecode(before) as Map<String, dynamic>;
+      final newData = jsonDecode(after) as Map<String, dynamic>;
+      for (final field in [
+        'display_name',
+        'profile_bio',
+        'avatar_key',
+        'banner_key',
+        'profile_at',
+      ]) {
+        expect(newData[field], oldData[field]);
+      }
+      expect(newData['counts'], missingProfile().toJson()['counts']);
+      expect(newData['is_following'], false);
+      expect(CitizenProfileCache.revision.value, isNot(same(revision)));
     });
 
     test('无本机资料时版本0只返回默认展示，不创建占位持久记录', () async {
@@ -1736,6 +1857,7 @@ void main() {
               'items': [
                 {
                   'post_id': 'c1',
+                  'post_visibility': 'public',
                   'account_id': _owner,
                   'post_category': 'campaign',
                   'post_type': 'document',
@@ -1773,6 +1895,7 @@ void main() {
             'items': [
               {
                 'post_id': 'a1',
+                'post_visibility': 'public',
                 'account_id': _owner,
                 'post_category': 'normal',
                 'post_type': 'article',

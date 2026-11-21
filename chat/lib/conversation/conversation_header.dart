@@ -121,18 +121,17 @@ class _CitizenChatHeaderState extends State<_CitizenChatHeader> {
 
   Future<void> _openProfile() async {
     if (widget.isGroup || !mounted) return;
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
-        builder: (_) => UserProfilePage(
-          cidNumber: widget.peerUserId,
-          isSelf: false,
-          initialProfile: _profile,
-          initialProfileMedia: _media,
-          api: widget.profileApi ?? _profileApi,
-          cache: widget.profileCache ?? _profileCache,
-          mediaCache: widget.profileMediaCache ?? _profileMediaCache,
-          sessionProvider: widget.sessionProvider ?? _sessionProvider,
-        ),
+    await UserProfilePage.open(
+      context,
+      UserProfilePage(
+        cidNumber: widget.peerUserId,
+        isSelf: false,
+        initialProfile: _profile,
+        initialProfileMedia: _media,
+        api: widget.profileApi ?? _profileApi,
+        cache: widget.profileCache ?? _profileCache,
+        mediaCache: widget.profileMediaCache ?? _profileMediaCache,
+        sessionProvider: widget.sessionProvider ?? _sessionProvider,
       ),
     );
   }

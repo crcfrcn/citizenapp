@@ -264,12 +264,13 @@ class _FakeFeedSource implements SquareFeedSource {
   const _FakeFeedSource();
 
   @override
-  Future<List<SquarePost>> fetchFeed({
+  Future<SquareFeedPage> fetchFeed({
     required SquareFeedKind feedKind,
+    String? cursor,
     int limit = 20,
     SquareSession? session,
   }) async {
-    return const <SquarePost>[];
+    return const SquareFeedPage(posts: []);
   }
 }
 
@@ -325,12 +326,13 @@ class _FakeSquareApiClient extends SquareApiClient {
   });
   final List<SquarePost> posts;
   @override
-  Future<List<SquarePost>> fetchFeed({
+  Future<SquareFeedPage> fetchFeed({
     required SquareFeedKind feedKind,
+    String? cursor,
     int limit = 20,
     SquareSession? session,
   }) async {
-    return posts;
+    return SquareFeedPage(posts: posts);
   }
 }
 
@@ -383,14 +385,15 @@ class _RecordingFeedSource implements SquareFeedSource {
   int calls = 0;
 
   @override
-  Future<List<SquarePost>> fetchFeed({
+  Future<SquareFeedPage> fetchFeed({
     required SquareFeedKind feedKind,
+    String? cursor,
     int limit = 20,
     SquareSession? session,
   }) async {
     calls++;
     lastFeedKind = feedKind;
-    return const <SquarePost>[];
+    return const SquareFeedPage(posts: []);
   }
 }
 
@@ -400,13 +403,14 @@ class _PendingFeedSource implements SquareFeedSource {
   int calls = 0;
 
   @override
-  Future<List<SquarePost>> fetchFeed({
+  Future<SquareFeedPage> fetchFeed({
     required SquareFeedKind feedKind,
+    String? cursor,
     int limit = 20,
     SquareSession? session,
   }) {
     calls += 1;
-    return completer.future;
+    return completer.future.then((posts) => SquareFeedPage(posts: posts));
   }
 }
 
@@ -418,13 +422,15 @@ class _KindFeedSource implements SquareFeedSource {
   final List<SquarePost> following;
 
   @override
-  Future<List<SquarePost>> fetchFeed({
+  Future<SquareFeedPage> fetchFeed({
     required SquareFeedKind feedKind,
+    String? cursor,
     int limit = 20,
     SquareSession? session,
   }) async {
-    if (feedKind == SquareFeedKind.following) return following;
-    return const <SquarePost>[];
+    if (feedKind == SquareFeedKind.following)
+      return SquareFeedPage(posts: following);
+    return const SquareFeedPage(posts: []);
   }
 }
 
@@ -436,6 +442,7 @@ SquarePost _seedPost({
   required String text,
   String? title,
   SquarePostType postType = SquarePostType.document,
+  SquarePostVisibility visibility = SquarePostVisibility.public,
   List<SquareMediaItem> media = const [],
 }) {
   return SquarePost(
@@ -448,6 +455,7 @@ SquarePost _seedPost({
     ),
     postCategory: SquarePostCategory.normal,
     postType: postType,
+    postVisibility: visibility,
     text: text,
     title: title,
     publishedAt: DateTime.fromMillisecondsSinceEpoch(1000),
@@ -527,7 +535,81 @@ void _expectPublishPosition(WidgetTester tester, Rect initial) {
   expect(rect.size, initial.size);
 }
 
+class _PagedScopeFeedSource implements SquareFeedSource {
+  final cursors = <String?>[];
+  bool fail = true;
+  @override
+  Future<SquareFeedPage> fetchFeed({
+    required SquareFeedKind feedKind,
+    String? cursor,
+    int limit = 20,
+    SquareSession? session,
+  }) async {
+    cursors.add(cursor);
+    if (cursor == null)
+      return const SquareFeedPage(posts: [], nextCursor: 'next');
+    if (fail) {
+      fail = false;
+      throw const SquareApiException('合成分页失败');
+    }
+    return SquareFeedPage(
+      posts: [
+        _seedPost(
+          id: 'mutual-page',
+          text: '互关用户在推荐可见',
+          visibility: SquarePostVisibility.circle,
+        ),
+      ],
+    );
+  }
+}
+
 void main() {
+  testWidgets('空页保留游标按需续页，失败可重试且仅主页和旧身份圈内种子不进广场', (tester) async {
+    final source = _PagedScopeFeedSource();
+    await tester.pumpWidget(
+      _wrap(
+        SquareHomePage(
+          tabOrderStore: const _MemoryTabOrderStore(),
+          identityService: const _StaticComposeIdentityService(),
+          feedSource: source,
+          seedPosts: [
+            _seedPost(id: 'public-seed', text: '公开种子'),
+            _seedPost(
+              id: 'home-seed',
+              text: '只在主页的内容',
+              visibility: SquarePostVisibility.profile,
+            ),
+            _seedPost(
+              id: 'old-circle',
+              text: '旧身份圈内内容',
+              visibility: SquarePostVisibility.circle,
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(source.cursors, [null]);
+    expect(find.text('只在主页的内容'), findsNothing);
+    expect(find.text('旧身份圈内内容'), findsNothing);
+    final more = find.byKey(const ValueKey('square-feed-more'));
+    await tester.ensureVisible(more);
+    await tester.pumpAndSettle();
+    await tester.tap(more);
+    await tester.pumpAndSettle();
+    expect(source.cursors, [null, 'next']);
+    expect(find.text('公开种子'), findsOneWidget);
+    expect(find.text('加载失败，请重试'), findsOneWidget);
+    await tester.ensureVisible(more);
+    await tester.pumpAndSettle();
+    await tester.tap(more);
+    await tester.pumpAndSettle();
+    expect(source.cursors, [null, 'next', 'next']);
+    expect(find.text('互关用户在推荐可见'), findsOneWidget);
+    expect(more, findsNothing);
+  });
+
   _squareTabGateTests();
   _squareOrderPersistenceTests();
   testWidgets('广场RPC限额展示固定原因并沿用原下拉重试', (tester) async {
@@ -1807,13 +1889,17 @@ void main() {
 class _CirclePendingFeedSource implements SquareFeedSource {
   final pending = Completer<List<SquarePost>>();
   @override
-  Future<List<SquarePost>> fetchFeed({
+  Future<SquareFeedPage> fetchFeed({
     required SquareFeedKind feedKind,
+    String? cursor,
     int limit = 20,
     SquareSession? session,
   }) async {
-    if (feedKind == SquareFeedKind.circle) return pending.future;
-    return [_seedPost(id: 'stranger', text: '推荐陌生用户内容')];
+    if (feedKind == SquareFeedKind.circle)
+      return SquareFeedPage(posts: await pending.future);
+    return SquareFeedPage(
+      posts: [_seedPost(id: 'stranger', text: '推荐陌生用户内容')],
+    );
   }
 }
 

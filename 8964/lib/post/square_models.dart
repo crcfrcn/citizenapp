@@ -19,6 +19,28 @@ enum SquareFeedKind {
   final String workerValue;
 }
 
+/// 单条动态阅读范围；分类只决定候选内容，不替代权限。
+enum SquarePostVisibility {
+  public('公开可见'),
+  circle('公民圈可见'),
+  profile('仅主页可见');
+
+  const SquarePostVisibility(this.label);
+  final String label;
+  static SquarePostVisibility parse(Object? value) {
+    for (final v in values) {
+      if (v.name == value) return v;
+    }
+    throw const FormatException('post_visibility不合法');
+  }
+}
+
+class SquareFeedPage {
+  const SquareFeedPage({required this.posts, this.nextCursor});
+  final List<SquarePost> posts;
+  final String? nextCursor;
+}
+
 enum SquarePostCategory {
   normal('普通', 'normal'),
   campaign('竞选', 'campaign');
@@ -108,8 +130,9 @@ class SquareAuthor {
 
   String get title {
     // 默认昵称稳定种子按身份主键 cid_number（与资料页/头像一致）；cid 缺失回落账户。
-    return ProfilePresentation.forIdentityKey(cidNumber ?? accountId)
-        .resolveDisplayName(publicName: displayName);
+    return ProfilePresentation.forIdentityKey(
+      cidNumber ?? accountId,
+    ).resolveDisplayName(publicName: displayName);
   }
 }
 
@@ -291,6 +314,7 @@ class SquarePost {
     this.campaignInstitutionCid,
     this.campaignPosition,
     this.isLocal = false,
+    this.postVisibility = SquarePostVisibility.public,
   });
 
   final String postId;
@@ -299,6 +323,7 @@ class SquarePost {
   final bool isLocal;
   final SquareAuthor author;
   final SquarePostCategory postCategory;
+  final SquarePostVisibility postVisibility;
 
   /// 用户选择的发布类型；普通/竞选分类由 runtime 独立派生。
   final SquarePostType postType;

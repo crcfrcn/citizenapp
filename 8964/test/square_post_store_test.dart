@@ -41,7 +41,8 @@ Uint8List _manifest({
             'file_name': 'photo.jpg',
             'content_type': 'image/jpeg',
             'byte_size': 1234,
-            'body_hash': 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+            'body_hash':
+                'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
           },
         ],
       }),
@@ -55,6 +56,7 @@ SquareLocalPost _post({
   String accountId = _accountA,
   String postCategory = 'normal',
   String postType = 'document',
+  String postVisibility = 'public',
   Uint8List? manifestBytes,
   String? contentHash,
   String receiptId = 'sr_a',
@@ -70,6 +72,7 @@ SquareLocalPost _post({
     accountId: accountId,
     postCategory: postCategory,
     postType: postType,
+    postVisibility: postVisibility,
     manifestBytes: bytes,
     contentHash: contentHash ?? sha256.convert(bytes).toString(),
     receiptId: receiptId,
@@ -85,6 +88,29 @@ void main() {
 
   const store = SquarePostStore();
 
+  test('三档范围真实写入副本，展示不改变范围且禁止同ID改范围', () async {
+    for (final visibility in SquarePostVisibility.values) {
+      final post = _post(
+        postId: 'scope-${visibility.name}',
+        postVisibility: visibility.name,
+      );
+      await store.save(post);
+      final saved = await store.read(cidNumber: _cidA, postId: post.postId);
+      expect(saved!.postVisibility, visibility.name);
+      expect(
+        const SquareLocalPostPresenter().present(saved).post.postVisibility,
+        visibility,
+      );
+    }
+    await expectLater(
+      store.save(_post(postId: 'scope-circle', postVisibility: 'public')),
+      throwsA(isA<SquarePostStoreException>()),
+    );
+    await expectLater(
+      store.save(_post(postId: 'bad-scope', postVisibility: 'followers')),
+      throwsA(isA<SquarePostStoreException>()),
+    );
+  });
   test('持久写入、单条及用户删除后按CID通知，失败写入不通知', () async {
     final notices = <String>[];
     void listener() => notices.add(SquarePostStore.revision.value!.cidNumber);

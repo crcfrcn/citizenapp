@@ -174,7 +174,7 @@ void main() {
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
-      const labels = ['扫一扫', '收付款', '发私信', '发群聊', '加好友'];
+      const labels = ['扫一扫', '收付款', '发起聊天', '加好友'];
       int? selected;
       await tester.pumpWidget(
         MaterialApp(
@@ -224,7 +224,7 @@ void main() {
       expect(tester.takeException(), isNull);
       await tester.tap(find.text(labels.last));
       await tester.pumpAndSettle();
-      expect(selected, 4);
+      expect(selected, labels.length - 1);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
     });
@@ -757,31 +757,29 @@ void main() {
     expect(find.byKey(const ValueKey('result-1')), findsOneWidget);
   });
 
-  testWidgets('group creation reports generic user selection', (tester) async {
-    final controller = TextEditingController(text: 'Group');
+  testWidgets('发起聊天直接嵌入通讯录列表组件', (tester) async {
+    final controller = TextEditingController();
     addTearDown(controller.dispose);
-    String? selected;
+    var toggled = false;
+    final contacts = TextButton(
+      onPressed: () => toggled = true,
+      child: const Text('原通讯录行'),
+    );
     await tester.pumpWidget(
       MaterialApp(
-        home: ChatGroupCreateView(
+        home: ChatCreateView(
           nameController: controller,
-          users: const [
-            ChatSelectableUser(userId: 'alice', displayName: 'Alice'),
-          ],
-          selectedUserIds: const <String>{},
-          onSelectionChanged: (userId, value) {
-            if (value) {
-              selected = userId;
-            }
-          },
+          contacts: contacts,
+          selectedCount: 0,
           canCreate: false,
           onCreate: () {},
         ),
       ),
     );
-
-    await tester.tap(find.byType(CheckboxListTile));
-    expect(selected, 'alice');
+    expect(find.byWidget(contacts), findsOneWidget);
+    expect(find.byType(CheckboxListTile), findsNothing);
+    await tester.tap(find.text('原通讯录行'));
+    expect(toggled, isTrue);
   });
 
   // 中文注释：只有读取完成且没有错误时才能显示空态，加载或校验失败不得误导用户为暂无消息。

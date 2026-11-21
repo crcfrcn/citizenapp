@@ -39,6 +39,46 @@ void main() {
   useIsolatedIsar();
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('发布结果未知后恢复保留原圈内范围，不能被重试默认公开覆盖', () async {
+    final order = <String>[];
+    final confirmer = _FakePublicationConfirmer(order)
+      ..visibility = SquarePostVisibility.circle
+      ..throwOnConfirm = true;
+    final writer = _FakeLocalPostWriter();
+    final service = SquarePublishService(
+      identityResolver: _PublishIdentityResolver(),
+      uploadService: _FakeUploader(order),
+      chainService: _FakeChainPublisher(order),
+      publicationConfirmer: confirmer,
+      balanceReader: _FakeBalanceReader(order),
+      localPostWriter: writer,
+    );
+    Future<SquarePublishResult> publish(SquarePostVisibility visibility) =>
+        service.publish(
+          draftId: 'scope-recover',
+          identity: _identity(cidNumber: 'CN001-CTZN-000000001-2026'),
+          postType: SquarePostType.document,
+          postVisibility: visibility,
+          text: '圈内内容',
+          mediaDrafts: [],
+          sessionForAccount: (a) async => fakeSquareSession(a),
+          externalSigning: (_) async => 'QR_V1',
+        );
+    await expectLater(
+      publish(SquarePostVisibility.circle),
+      throwsA(isA<SquarePublishException>()),
+    );
+    final pending = await const SquarePostStore().readPublication(
+      'CN001-CTZN-000000001-2026',
+      'scope-recover',
+    );
+    expect(pending!.postVisibility, 'circle');
+    confirmer.throwOnConfirm = false;
+    final restored = await publish(SquarePostVisibility.public);
+    expect(restored.post.postVisibility, SquarePostVisibility.circle);
+    expect(writer.saved!.postVisibility, 'circle');
+  });
+
   test('远端确认失败后重开数据库，恢复只确认既有finalized交易', () async {
     final order = <String>[];
     final confirmer = _FakePublicationConfirmer(order)..throwOnConfirm = true;
@@ -462,7 +502,10 @@ void main() {
       throwsA(isA<SquarePublishException>()),
     );
     expect(order, ['prepare', 'balance', 'chain', 'upload', 'confirm']);
-    expect(await const SquarePostStore().readPublication(cid, 'failed-media'), isNull);
+    expect(
+      await const SquarePostStore().readPublication(cid, 'failed-media'),
+      isNull,
+    );
   });
 
   test('远端确认后本地失败保存恢复事实，重试不验真不上传不签名', () async {
@@ -603,6 +646,7 @@ class _FakeUploader implements SquareContentUploader {
   Future<SquarePreparedContent> preparePostContent({
     required String accountId,
     required SquarePostType postType,
+    SquarePostVisibility postVisibility = SquarePostVisibility.public,
     required String text,
     required List<SquareLocalMediaDraft> mediaDrafts,
     required SquareSessionResolver sessionForAccount,
@@ -623,7 +667,8 @@ class _FakeUploader implements SquareContentUploader {
         sessionToken: 'sqs_test',
         cidNumber: "CN001-CTZN-000000001-2026",
         bindRev: 1,
-        accountId: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        accountId:
+            '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         expiresAt: 1800000000000,
       ),
       postId: 'sqp_test',
@@ -631,6 +676,7 @@ class _FakeUploader implements SquareContentUploader {
       receiptId: 'sqr_test',
       manifestBytes: bytes,
       mediaDrafts: mediaDrafts,
+      postVisibility: postVisibility,
     );
   }
 
@@ -640,12 +686,14 @@ class _FakeUploader implements SquareContentUploader {
     String postId,
     String contentHash,
     Uint8List manifest,
+    SquarePostVisibility postVisibility,
   ) async => SquarePreparedContent(
     session: session,
     postId: postId,
     contentHash: contentHash,
     receiptId: 'sqr_test',
     manifestBytes: manifest,
+    postVisibility: postVisibility,
     mediaDrafts: [],
   );
 
@@ -682,6 +730,7 @@ class _FakePublicationConfirmer implements SquarePublicationConfirmer {
 
   final List<String>? order;
   final String contentHash;
+  SquarePostVisibility visibility = SquarePostVisibility.public;
   bool throwOnConfirm = false;
   bool finalizedFailure = false;
   bool proofAvailable = false;
@@ -702,6 +751,7 @@ class _FakePublicationConfirmer implements SquarePublicationConfirmer {
       ),
       postCategory: SquarePostCategory.normal,
       postType: SquarePostType.document,
+      postVisibility: visibility,
       text: '公文',
       publishedAt: DateTime.fromMillisecondsSinceEpoch(1800000000000),
       contentHash: contentHash,
@@ -743,6 +793,7 @@ class _FakePublicationConfirmer implements SquarePublicationConfirmer {
       ),
       postCategory: SquarePostCategory.normal,
       postType: SquarePostType.document,
+      postVisibility: visibility,
       text: '公文',
       publishedAt: DateTime.fromMillisecondsSinceEpoch(1800000000000),
       contentHash: contentHash,
@@ -800,6 +851,7 @@ class _FakeChainPublisher implements SquarePostChainPublisher {
     required String accountId,
     required String postId,
     required SquarePostType postType,
+    SquarePostVisibility postVisibility = SquarePostVisibility.public,
     required String contentHash,
     required String receiptId,
   }) async {
@@ -815,6 +867,7 @@ class _FakeChainPublisher implements SquarePostChainPublisher {
     required Uint8List signerPublicKey,
     required String postId,
     required SquarePostType postType,
+    SquarePostVisibility postVisibility = SquarePostVisibility.public,
     required String contentHashHex,
     required String receiptId,
     required Future<String?> Function(

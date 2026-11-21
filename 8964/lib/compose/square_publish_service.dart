@@ -150,6 +150,7 @@ class SquarePublishService {
     required SquareIdentityState identity,
     required String draftId,
     required SquarePostType postType,
+    SquarePostVisibility postVisibility = SquarePostVisibility.public,
     required String text,
     required List<SquareLocalMediaDraft> mediaDrafts,
     required SquareSessionResolver sessionForAccount,
@@ -250,6 +251,7 @@ class SquarePublishService {
         pending.postId,
         pending.contentHash,
         Uint8List.fromList(pending.manifestBytes),
+        SquarePostVisibility.parse(pending.postVisibility),
       );
       await _uploadService.uploadPreparedContent(
         prepared,
@@ -265,6 +267,7 @@ class SquarePublishService {
     final prepared = await _uploadService.preparePostContent(
       accountId: identity.accountId,
       postType: postType,
+      postVisibility: postVisibility,
       text: trimmedText,
       mediaDrafts: mediaDrafts,
       sessionForAccount: sessionForAccount,
@@ -276,8 +279,9 @@ class SquarePublishService {
     try {
       if (prepared.session.accountId != verified.accountId ||
           prepared.session.cidNumber != snapshot.cidNumber ||
-          prepared.session.bindRev != snapshot.bindRev) {
-        throw const SquarePublishException('发布会话与已验证身份不一致，请重新操作');
+          prepared.session.bindRev != snapshot.bindRev ||
+          prepared.postVisibility != postVisibility) {
+        throw const SquarePublishException('发布准备与当前身份或范围不一致，请重新操作');
       }
       onStage?.call(SquarePublishStage.checkingBalance);
       await _ensurePublishBalance(identity.accountId);
@@ -288,6 +292,7 @@ class SquarePublishService {
         ..accountId = identity.accountId
         ..postId = prepared.postId
         ..postType = postType.workerValue
+        ..postVisibility = postVisibility.name
         ..contentHash = prepared.contentHash
         ..receiptId = prepared.receiptId
         ..uploadId = prepared.postId
@@ -452,7 +457,8 @@ class SquarePublishService {
         post.author.accountId != row.accountId ||
         post.contentHash != row.contentHash ||
         post.receiptId != row.receiptId ||
-        post.postType.workerValue != row.postType) {
+        post.postType.workerValue != row.postType ||
+        post.postVisibility.name != row.postVisibility) {
       throw const SquarePublishException('远端确认与本机发布记录不一致');
     }
     row

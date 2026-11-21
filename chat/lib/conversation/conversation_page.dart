@@ -83,6 +83,7 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
     );
   }
 
+  StreamSubscription<ChatSendRejection>? _sendRejections;
   late final ChatConversationController _conversationController;
   late final VoiceRecorder _voiceRecorder;
   late final MediaCompressor _mediaCompressor;
@@ -320,6 +321,16 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
       mediaLimits: widget.runtime.mediaLimits,
       errorMessage: chatUserErrorMessage,
     );
+    _sendRejections = widget.runtime.sendRejections.listen((event) {
+      if (!mounted ||
+          widget.isGroup ||
+          !(ModalRoute.of(context)?.isCurrent ?? false) ||
+          event.accountId != widget.accountId ||
+          event.userId != widget.currentUserId ||
+          event.conversationId != widget.conversationId)
+        return;
+      _conversationController.showError(dmForbiddenMessage);
+    });
     _conversationController.addListener(_refresh);
     _conversationController.start();
   }
@@ -338,6 +349,7 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
 
   @override
   void dispose() {
+    unawaited(_sendRejections?.cancel());
     _conversationController.removeListener(_refresh);
     _conversationController.dispose();
     _composerController.dispose();

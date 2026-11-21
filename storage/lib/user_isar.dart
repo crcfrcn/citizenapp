@@ -221,7 +221,7 @@ class Identity {
   late int updatedAt;
 }
 
-/// 本机联系人及备注；同条记录保存尚未完成的备份动作与本地修改序号。
+/// CID 通讯录只有 changeVersion 一个版本；待发修改由 pendingAction 标记。
 @Name('contact')
 @collection
 class Contact {
@@ -234,12 +234,27 @@ class Contact {
   late String cidNumber;
   @Name('contact_remark')
   String contactRemark = '';
-  @Name('updated_at')
-  int updatedAt = 0;
   @Name('pending')
   String pendingAction = '';
   @Name('change_version')
   int changeVersion = 0;
+
+  /// null 只识别尚未升级的旧行，首次读取后统一为 false。
+  @Name('deleted')
+  bool? deleted;
+  @Name('delete_batch')
+  String deleteBatch = '';
+}
+
+/// 同批钱包授权只保存一份，与联系人待删状态在一个事务提交。
+@Name('contact_delete')
+@collection
+class ContactDeleteBatch {
+  Id id = Isar.autoIncrement;
+  @Index(composite: [CompositeIndex('batchId')], unique: true, replace: true)
+  late String ownerCid;
+  late String batchId;
+  late String data;
 }
 
 /// 当前CID的通知展示缓存；不承载会话凭据，不作为会员执行许可。
@@ -966,6 +981,7 @@ class UserIsar {
         IdentitySchema,
         ChainStateSchema,
         ContactSchema,
+        ContactDeleteBatchSchema,
         NoticeSchema,
         SettingSchema,
         FollowSchema,

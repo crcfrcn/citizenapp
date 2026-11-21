@@ -104,6 +104,7 @@ class SquareLocalPostPresenter {
         ),
         postCategory: postCategory,
         postType: postType,
+        postVisibility: SquarePostVisibility.parse(local.postVisibility),
         title: title as String?,
         text: text,
         contentSections: parseArticleContentSections(

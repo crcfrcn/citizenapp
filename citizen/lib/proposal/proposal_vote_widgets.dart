@@ -130,7 +130,7 @@ class ProposalVoteProgress extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  '赞成 $yesCount / 阈值 $threshold',
+                  '赞成 $yesCount 票 / 阈值 $threshold',
                   style: TextStyle(
                     fontSize: AppLayout.scaled(context, 14),
                     fontWeight: FontWeight.w600,
@@ -138,7 +138,7 @@ class ProposalVoteProgress extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  '反对 $noCount',
+                  '反对 $noCount 票',
                   style: TextStyle(
                     fontSize: AppLayout.scaled(context, 13),
                     color: AppTheme.danger,

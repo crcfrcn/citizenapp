@@ -1557,7 +1557,7 @@ class _FakeChain extends TestChainReads {
       feeRateParts: 1000000,
       minimumFeeFen: BigInt.from(10),
       existentialDepositFen: minSelfPayFen - BigInt.from(10),
-      voteFeeFen: BigInt.from(100),
+      FLAT_FEE: BigInt.from(100),
       feeFen: BigInt.from(10),
       minimumSelfPayFen: minSelfPayFen,
     );

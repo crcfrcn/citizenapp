@@ -1,3 +1,5 @@
+import 'package:chat/chat_error.dart';
+import 'package:chat/transport/attachment_transfer.dart';
 import 'package:citizen_testing/chat_runtime_fixture.dart';
 import 'dart:convert';
 
@@ -12,6 +14,36 @@ import 'package:chat/chat_store.dart';
 
 // 直接执行收件流程并记录持久化边界，源码文字位置不能证明异步顺序。
 void main() {
+  test('私聊MLS组不得放进群聊信封，空私聊组同样拒绝', () {
+    final packet =
+        const MlsWireMessage(
+          wireBytes: [1],
+          conversationId: 'dm:local:peer',
+          groupIdBytes: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        ).toEncryptedMessage(
+          messageId: 'route-test',
+          senderUserId: 'local',
+          recipientUserId: 'peer',
+          senderDeviceId: 'phone',
+          recipientDeviceId: 'tablet',
+          createdAtMillis: 1,
+        );
+    validateChatEnvelope(packet);
+    packet.conversationId = 'grp:local:fake';
+    expect(() => validateChatEnvelope(packet), throwsFormatException);
+    packet.groupId = [];
+    validateChatEnvelope(packet);
+    packet.conversationId = 'dm:local:peer';
+    expect(() => validateChatEnvelope(packet), throwsFormatException);
+  });
+
+  test('私信拒绝固定文案，不作为连接失败', () {
+    expect(
+      chatUserErrorMessage(const ChatConnectionException('dm_forbidden')),
+      '对方不接收你的私信',
+    );
+  });
+
   for (final fails in [false, true]) {
     test('业务落盘${fails ? '失败不确认' : '成功后才确认原生结果，重投不重复落盘'}', () async {
       final events = <String>[];

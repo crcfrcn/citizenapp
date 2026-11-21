@@ -46,10 +46,91 @@ import 'package:citizen_network/hex_codec.dart' show bytesToHex;
 /// 折叠虚化头部 + 圆角方形头像/背景 + 认证勾 + 展示名/地址/签名/计数 +
 /// 三图标（本人 通知/聊天/关注 · 他人 关注/消息）+ ⋮（用户码/编辑资料）+
 /// 公文/竞选/视频/文章四个互斥 Tab（“公文”底层仍为 posts）。身份主键 = CID 号
-/// （cid_number）；本人和他人资料先读本地，进入后台校准遵守十分钟限速。
+/// （cid_number）；本人可读本地，他人须先通过当前主页隐私检查。
+/// 资料后台校准遵守十分钟限速，访问检查不使用该窗口。
 /// 关注复用登录 session 静默签名；资料远端存储不上链。链上订阅/私信/
 /// 用户码与注销只消费本机已验证的当前公民号绑定。
 class UserProfilePage extends StatefulWidget {
+  /// 全部头像/联系人入口共用；拒绝时留在原页，不打开目标主页。
+  static Future<void> open(BuildContext context, UserProfilePage page) async {
+    try {
+      final security = context.read<AccountSecurityService?>();
+      final revision = security?.revision.value;
+      bool Function(SquareSession, int?)? consumeEntry;
+      final sessions =
+          page.sessionProvider ?? context.read<SquareSessionProvider>();
+      final identity =
+          await (page.currentUserContext ?? context.read<CurrentUserContext?>())
+              ?.resolve();
+      final viewer = identity?.cidNumber ?? await sessions.currentCitizenId();
+      if (viewer != page.cidNumber) {
+        final session = await sessions.ensureSession();
+        if (session == null) throw StateError('当前会话不可用');
+        if (viewer != null && session.cidNumber != viewer)
+          throw StateError('当前身份已变化');
+        await (page.api ?? CitizenProfileApi()).requireProfileAccess(
+          page.cidNumber,
+          session,
+        );
+        await session.validateCurrent();
+        if (revision != security?.revision.value) throw StateError('当前身份已变化');
+        var consumed = false;
+        consumeEntry = (current, currentRevision) {
+          final available = !consumed;
+          consumed = true;
+          return available &&
+              session.isUsable &&
+              currentRevision == revision &&
+              revision == security?.revision.value &&
+              current.cidNumber == session.cidNumber &&
+              current.accountId == session.accountId &&
+              current.bindRev == session.bindRev;
+        };
+      }
+      if (!context.mounted) return;
+      if (ModalRoute.of(context)?.isCurrent == false) return;
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (_) => consumeEntry == null
+              ? page
+              : _ProfileEntry(consume: consumeEntry, child: page),
+        ),
+      );
+    } on Object catch (error) {
+      if (context.mounted)
+        await _showAccessDialog(context, _accessMessage(error));
+    }
+  }
+
+  static String _accessMessage(Object error) => switch (error) {
+    SquareApiException(errorCode: 'profile_private') => '仅用户可见',
+    SquareApiException(errorCode: 'profile_followers_required') => '仅关注该用户的人可见',
+    SquareApiException(errorCode: 'profile_mutual_required') => '仅互相关注的用户可见',
+    SquareApiException(statusCode: 404) => '该用户不存在',
+    _ => '主页访问检查失败，请重试',
+  };
+
+  static bool _privacyDenied(Object error) =>
+      error is SquareApiException &&
+      const [
+        'profile_private',
+        'profile_followers_required',
+        'profile_mutual_required',
+      ].contains(error.errorCode);
+
+  static Future<void> _showAccessDialog(BuildContext context, String message) =>
+      showDialog<void>(
+        context: context,
+        builder: (dialog) => AlertDialog(
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialog).pop(),
+              child: const Text('确定'),
+            ),
+          ],
+        ),
+      );
   const UserProfilePage({
     super.key,
     required this.cidNumber,
@@ -100,7 +181,16 @@ class UserProfilePage extends StatefulWidget {
   State<UserProfilePage> createState() => _UserProfilePageState();
 }
 
-class _UserProfilePageState extends State<UserProfilePage> {
+/// 仅本次导航内部消费一次预检；不写入权限缓存，也不向页面公开放行参数。
+class _ProfileEntry extends InheritedWidget {
+  const _ProfileEntry({required this.consume, required super.child});
+  final bool Function(SquareSession, int?) consume;
+  @override
+  bool updateShouldNotify(_ProfileEntry oldWidget) => false;
+}
+
+class _UserProfilePageState extends State<UserProfilePage>
+    with WidgetsBindingObserver {
   /// 顶部头图高度（不含状态栏）。
   static const double _bannerHeight = 128;
 
@@ -131,7 +221,9 @@ class _UserProfilePageState extends State<UserProfilePage> {
   CurrentUserContext? _currentUser;
   bool _accessAllowed = false;
   bool _verifiedSelf = false;
-  bool get _isSelf => widget.isSelf || _verifiedSelf;
+  bool get _isSelf => _verifiedSelf;
+  String? _accessError;
+  bool _denyingAccess = false;
   String? _viewerCid;
   int _accessGeneration = 0;
   AccountSecurityService? _profileSecurity;
@@ -140,6 +232,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _api = widget.api ?? CitizenProfileApi();
     _cache = widget.cache ?? const CitizenProfileCache();
     _mediaCache = widget.mediaCache ?? CitizenProfileMediaCache();
@@ -211,6 +304,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
   Future<void> _resolvePageAccess({bool refreshOnEntry = true}) async {
     final generation = ++_accessGeneration;
     final revision = _profileSecurity?.revision.value;
+    final entry = context.getInheritedWidgetOfExactType<_ProfileEntry>();
     bool current() =>
         mounted &&
         generation == _accessGeneration &&
@@ -222,9 +316,28 @@ class _UserProfilePageState extends State<UserProfilePage> {
       if (!current()) return;
       if (citizen == null || citizen.isEmpty) throw StateError('当前公民身份尚未就绪');
       _viewerCid = citizen;
+      final isSelf = citizen == widget.cidNumber;
+      if (!isSelf) {
+        final session = await _ensureSession();
+        if (!current() ||
+            session == null ||
+            session.cidNumber != citizen ||
+            local != null &&
+                local.binding != null &&
+                (session.accountId != local.accountId ||
+                    session.bindRev != local.bindRev)) {
+          throw StateError('当前公民会话不可用');
+        }
+        if (entry?.consume(session, revision) != true) {
+          await _api.requireProfileAccess(widget.cidNumber, session);
+        }
+        await session.validateCurrent();
+        if (!current()) return;
+      }
       setState(() {
-        _verifiedSelf = citizen == widget.cidNumber;
+        _verifiedSelf = isSelf;
         _accessAllowed = true;
+        _accessError = null;
       });
       if (!refreshOnEntry) return;
       var binding = local?.binding;
@@ -267,6 +380,10 @@ class _UserProfilePageState extends State<UserProfilePage> {
       }
     } on Object catch (error, stackTrace) {
       if (!current()) return;
+      if (UserProfilePage._privacyDenied(error)) {
+        await _denyAccess(error);
+        return;
+      }
       AppLog.profileLoadFailure(
         stage: 'background',
         error: error,
@@ -275,6 +392,8 @@ class _UserProfilePageState extends State<UserProfilePage> {
       setState(() {
         _sessionResolved = true;
         _relationsReady = false;
+        if (!_accessAllowed)
+          _accessError = UserProfilePage._accessMessage(error);
       });
     }
   }
@@ -293,12 +412,43 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _accessGeneration++;
     _profileSecurity?.revision.removeListener(_invalidatePageAccess);
     _profileLoadGeneration++;
     MembershipRevision.instance.listenable.removeListener(_onMembershipChanged);
     CitizenProfileCache.revision.removeListener(_onProfileChanged);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed &&
+        !_verifiedSelf &&
+        !_denyingAccess) {
+      _invalidatePageAccess();
+    }
+  }
+
+  Future<void> _denyAccess(Object error) async {
+    if (!mounted || _denyingAccess) return;
+    _denyingAccess = true;
+    final message = UserProfilePage._accessMessage(error);
+    setState(() {
+      _accessAllowed = false;
+      _accessError = message;
+      _accessGeneration++;
+      _profileLoadGeneration++;
+      _mediaLoadGeneration++;
+    });
+    final navigator = Navigator.of(context);
+    if (ModalRoute.of(context)?.isCurrent == false) {
+      _denyingAccess = false;
+      return;
+    }
+    if (navigator.canPop()) navigator.pop();
+    await UserProfilePage._showAccessDialog(navigator.context, message);
+    if (mounted) setState(() => _denyingAccess = false);
   }
 
   /// 当前主页 CID 的会员镜像变化时重读资料，并重建当前内容 Tab 的作者徽章。
@@ -423,6 +573,18 @@ class _UserProfilePageState extends State<UserProfilePage> {
       if (session == null) {
         throw StateError('当前无法建立服务会话');
       }
+      if (!_verifiedSelf) {
+        try {
+          await _api.requireProfileAccess(widget.cidNumber, session);
+        } on Object catch (error) {
+          if (mounted)
+            setState(() {
+              _accessAllowed = false;
+              _accessError = UserProfilePage._accessMessage(error);
+            });
+          rethrow;
+        }
+      }
       if (_isSelf && session.cidNumber != widget.cidNumber) {
         throw StateError('当前用户已变化');
       }
@@ -476,6 +638,10 @@ class _UserProfilePageState extends State<UserProfilePage> {
       }
     } catch (error) {
       if (mounted) {
+        if (UserProfilePage._privacyDenied(error)) {
+          await _denyAccess(error);
+          return;
+        }
         setState(() {
           _contentRefreshFailed = true;
           _relationsReady = false;
@@ -613,6 +779,9 @@ class _UserProfilePageState extends State<UserProfilePage> {
         }
         return;
       }
+      // 写入成功立即废弃旧关系下的列表，不等待资料回读成功。
+      if (!current()) return;
+      setState(() => _postsRevision++);
       try {
         final fresh = await _api.refreshProfile(
           target,
@@ -629,8 +798,12 @@ class _UserProfilePageState extends State<UserProfilePage> {
           await _loadProfileMedia(fresh.profile);
           if (current() && fresh.hasWarning) _snack(fresh.refreshMessage!);
         }
-      } on Exception {
+      } on Exception catch (error) {
         // 写入已经成功，资料回读失败不能反向撤销用户的关注/取关。
+        if (UserProfilePage._privacyDenied(error)) {
+          await _denyAccess(error);
+          return;
+        }
         if (current()) {
           _snack('关注已更新，资料刷新失败，请下拉刷新');
         }
@@ -980,6 +1153,14 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
   Widget _tabBody(ProfileTab tab) {
     final session = _session;
+    final revision = _postsRevision;
+    void accessDenied(SquareApiException error) {
+      // 关系写入后旧列表的迟到拒绝不能关闭新关系下的主页。
+      if (revision == _postsRevision && UserProfilePage._privacyDenied(error)) {
+        unawaited(_denyAccess(error));
+      }
+    }
+
     switch (tab) {
       case ProfileTab.posts:
         return ProfilePostsTab(
@@ -992,6 +1173,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
           session: session,
           sessionReady: _sessionResolved,
           onSessionExpired: _refreshSessionAfterUnauthorized,
+          onAccessDenied: accessDenied,
           isSelf: _verifiedSelf,
           refreshFailed: _contentRefreshFailed,
           onOpenPost: _openPost,
@@ -1006,6 +1188,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
           session: session,
           sessionReady: _sessionResolved,
           onSessionExpired: _refreshSessionAfterUnauthorized,
+          onAccessDenied: accessDenied,
           isSelf: _verifiedSelf,
           refreshFailed: _contentRefreshFailed,
           onOpenPost: _openPost,
@@ -1022,6 +1205,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
           session: session,
           sessionReady: _sessionResolved,
           onSessionExpired: _refreshSessionAfterUnauthorized,
+          onAccessDenied: accessDenied,
           isSelf: _verifiedSelf,
           refreshFailed: _contentRefreshFailed,
           onOpenPost: _openPost,
@@ -1037,6 +1221,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
           session: session,
           sessionReady: _sessionResolved,
           onSessionExpired: _refreshSessionAfterUnauthorized,
+          onAccessDenied: accessDenied,
           isSelf: _verifiedSelf,
           refreshFailed: _contentRefreshFailed,
           onOpenPost: _openArticle,
@@ -1046,6 +1231,26 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
   @override
   Widget build(BuildContext context) {
+    // 他人缓存不能作为访问许可；直接构造页面也必须经过同一服务端检查。
+    if (!_accessAllowed) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('用户主页')),
+        body: Center(
+          child: _accessError == null
+              ? const CircularProgressIndicator()
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(_accessError!),
+                    TextButton(
+                      onPressed: () => _resolvePageAccess(),
+                      child: const Text('重试'),
+                    ),
+                  ],
+                ),
+        ),
+      );
+    }
     final expandedHeight =
         _bannerHeight +
         ProfileCategoryTabs.height +

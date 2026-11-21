@@ -14,6 +14,32 @@ SquareLocalMediaDraft _media(SquareMediaKind kind, String name) =>
     );
 
 void main() {
+  test('三种发布范围完整往返，缺失或非法字段不回退公开', () {
+    for (final visibility in SquarePostVisibility.values) {
+      final draft = SquareComposeDraft(
+        draftId: 'scope',
+        cidNumber: 'CN123',
+        postType: SquarePostType.document,
+        postVisibility: visibility,
+        text: '正文',
+        media: const [],
+        updatedAt: 1,
+      );
+      expect(
+        SquareComposeDraft.fromJson(draft.toJson()).postVisibility,
+        visibility,
+      );
+      final missing = draft.toJson()..remove('post_visibility');
+      expect(() => SquareComposeDraft.fromJson(missing), throwsFormatException);
+      expect(
+        () => SquareComposeDraft.fromJson({
+          ...draft.toJson(),
+          'post_visibility': 'followers',
+        }),
+        throwsFormatException,
+      );
+    }
+  });
   group('SquareComposeDraft JSON 往返', () {
     test('文章草稿含段落和媒体完整往返', () {
       final draft = SquareComposeDraft(

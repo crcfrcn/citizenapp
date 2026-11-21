@@ -59,10 +59,12 @@ const _userColumns = <String, Set<String>>{
     'owner_cid',
     'cid_number',
     'contact_remark',
-    'updated_at',
     'pending',
     'change_version',
+    'deleted',
+    'delete_batch',
   },
+  'contact_delete': {'id', 'ownerCid', 'batchId', 'data'},
   'notice': {'id', 'cid_number', 'data', 'pending', 'list_data'},
   'setting': {
     'id',
@@ -76,9 +78,15 @@ const _userColumns = <String, Set<String>>{
   'balance': {'id', 'account_id', 'data'},
   'group': {'id', 'account_id', 'state', 'synced_at', 'data'},
   'scan': {'id', 'wallet_hash'},
-  'summary': {'id', 'proposal_id', 'data'},
-  'list': {'id', 'cid_number', 'proposal_ids', 'synced_at'},
-  'proposal': {'id', 'kind', 'proposal_id', 'data'},
+  'summary': {'id', 'proposal_id', 'proposal_id_text', 'data'},
+  'list': {
+    'id',
+    'cid_number',
+    'proposal_ids',
+    'proposal_id_texts',
+    'synced_at',
+  },
+  'proposal': {'id', 'kind', 'proposal_id', 'data', 'proposal_id_text'},
   'law': {'id', 'state_key', 'state_hex'},
   'admin': {'id', 'data'},
   'member': {'id', 'cid_number', 'kind', 'data'},
@@ -103,6 +111,7 @@ const _userColumns = <String, Set<String>>{
     'created_at',
     'final_at',
     'data',
+    'proposal_id_text',
   },
   'cursor': {
     'id',
@@ -111,6 +120,7 @@ const _userColumns = <String, Set<String>>{
     'genesis_hash',
     'start_block',
     'cursor_block',
+    'event_version',
   },
   'entry': {
     'id',
@@ -239,6 +249,7 @@ void main() {
       user.ProfileMediaSchema,
       user.IdentitySchema,
       user.ContactSchema,
+      user.ContactDeleteBatchSchema,
       user.NoticeSchema,
       user.SettingSchema,
       user.FollowSchema,
@@ -284,7 +295,7 @@ void main() {
     }
   });
 
-  test('三个 Isar 文件交错并发打开，统一用户库包含全部 27 张表', () async {
+  test('三个 Isar 文件交错并发打开，统一用户库包含全部 28 张表', () async {
     final opened = await Future.wait([
       user.UserIsar.instance.db(),
       social.SocialIsar.instance.db(),
@@ -309,6 +320,7 @@ void main() {
       db.profileMedias,
       db.identitys,
       db.contacts,
+      db.contactDeleteBatchs,
       db.notices,
       db.settings,
       db.follows,
@@ -338,6 +350,7 @@ void main() {
       'media',
       'identity',
       'contact',
+      'contact_delete',
       'notice',
       'setting',
       'follow',
@@ -356,7 +369,7 @@ void main() {
       'cursor',
       'entry',
     });
-    expect(collections, hasLength(27));
+    expect(collections, hasLength(28));
     for (final collection in collections) {
       expect(collection.isar, same(db));
       expect(await collection.count(), 0);

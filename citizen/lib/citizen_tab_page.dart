@@ -27,6 +27,8 @@ class CitizenTabPage extends StatefulWidget {
 
 class _CitizenTabPageState extends State<CitizenTabPage> {
   int _selectedTab = 0;
+  // 首次进入才创建业务页；切换后保留列表、筛选与滚动状态。
+  final Set<int> _visitedTabs = {0};
   // 提案页回传待投票数，本页只负责同步展示，不复制投票资格或计票逻辑。
   int _pendingVoteCount = 0;
   static const List<String> _tabs = ['提案', '立法', '选举', '治理', '公权'];
@@ -42,6 +44,7 @@ class _CitizenTabPageState extends State<CitizenTabPage> {
             onSelected: (index) {
               setState(() {
                 _selectedTab = index;
+                _visitedTabs.add(index);
               });
             },
           ),
@@ -82,14 +85,27 @@ class _CitizenTabPageState extends State<CitizenTabPage> {
                 ],
               ),
             ),
-          Expanded(child: _buildTabContent()),
+          Expanded(
+            child: IndexedStack(
+              index: _selectedTab,
+              children: [
+                for (var index = 0; index < _tabs.length; index++)
+                  TickerMode(
+                    enabled: index == _selectedTab,
+                    child: _visitedTabs.contains(index)
+                        ? _buildTabContent(index)
+                        : const SizedBox.shrink(),
+                  ),
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildTabContent() {
-    switch (_selectedTab) {
+  Widget _buildTabContent(int index) {
+    switch (index) {
       case 0: // 提案:全局治理提案流。
         return widget.proposalContent ??
             ProposalTab(onPendingVoteCountChanged: _onPendingVoteCountChanged);

@@ -1,24 +1,81 @@
 part of '../chat.dart';
 
-class GroupCreatePage extends StatefulWidget {
-  const GroupCreatePage({super.key, this.runtime, this.contactService});
+/// 只传回已确定的聊天目标；原导航入口负责身份复核及打开会话。
+typedef ChatCreateResult = ({
+  String targetId,
+  String title,
+  bool isGroup,
+  ChatOwner owner,
+});
+
+class ChatCreatePage extends StatefulWidget {
+  const ChatCreatePage({super.key, this.runtime, this.contactService});
 
   final ChatRuntime? runtime;
   final UserContactService? contactService;
 
   @override
-  State<GroupCreatePage> createState() => _GroupCreatePageState();
+  State<ChatCreatePage> createState() => _ChatCreatePageState();
 }
 
-class _GroupCreatePageState extends State<GroupCreatePage> {
+class _ChatCreatePageState extends State<ChatCreatePage> {
   final TextEditingController _nameController = TextEditingController();
-  late final UserContactService _contactService;
-  ChatRuntime? _runtime;
-  bool _dependenciesReady = false;
+  List<UserContact> _selected = const [];
+  ChatOwner? _owner;
+  bool _ownerInitialized = false;
+  bool _ownerLoading = false;
+  bool _ownerInvalid = false;
+  Listenable? _ownerRevision;
 
-  List<UserContact> _contacts = const <UserContact>[];
-  final Set<String> _selected = <String>{};
-  bool _loading = true;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_ownerInitialized) return;
+    _ownerInitialized = true;
+    _ownerRevision = context.read<AccountSecurityService?>()?.revision;
+    _ownerRevision?.addListener(_invalidateOwner);
+    unawaited(_captureOwner());
+  }
+
+  Future<void> _captureOwner() async {
+    if (_ownerLoading || _ownerInvalid || !mounted) return;
+    _ownerLoading = true;
+    try {
+      final owner = _chatOwner(
+        await context.read<CurrentUserContext>().resolve(),
+      );
+      if (mounted && !_ownerInvalid)
+        setState(() {
+          _owner = owner;
+          _error = null;
+        });
+    } on Object catch (error) {
+      if (mounted && !_ownerInvalid)
+        setState(() => _error = chatUserErrorMessage(error));
+    } finally {
+      _ownerLoading = false;
+    }
+  }
+
+  void _invalidateOwner() {
+    if (_ownerInvalid) return;
+    _ownerInvalid = true;
+    // 先同步禁用提交；移除旧选择页延到帧末，不能误弹出其上的其它页面。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final route = ModalRoute.of(context);
+      if (route != null && route.isActive)
+        Navigator.of(context).removeRoute(route);
+    });
+  }
+
+  Future<bool> _sameOwner(ChatOwner owner) async {
+    final current = _chatOwner(
+      await context.read<CurrentUserContext>().resolve(),
+    );
+    return mounted && !_ownerInvalid && owner == current;
+  }
+
   bool _creating = false;
   String? _error;
 
@@ -29,44 +86,15 @@ class _GroupCreatePageState extends State<GroupCreatePage> {
   }
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (_dependenciesReady) return;
-    _contactService =
-        widget.contactService ?? _contactServiceFromContext(context);
-    _runtime = widget.runtime;
-    _dependenciesReady = true;
-    _load();
-  }
-
-  @override
   void dispose() {
+    _ownerRevision?.removeListener(_invalidateOwner);
     _nameController.dispose();
     super.dispose();
   }
 
-  Future<void> _load() async {
-    try {
-      final contacts = await _contactService.getContacts();
-      if (!mounted) return;
-      setState(() {
-        _contacts = contacts;
-        _loading = false;
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _error = chatUserErrorMessage(error, fallback: '加载通讯录失败，请稍后重试');
-        _loading = false;
-      });
-    }
-  }
-
-  /// 发群聊最少 2 人(1 人应走「发私信」),群名非空方可创建。
+  /// 选择只由原通讯录页面交付；群名不作为发起条件。
   bool get _canCreate =>
-      !_loading &&
-      _nameController.text.trim().isNotEmpty &&
-      _selected.length >= 2;
+      !_ownerInvalid && _owner != null && _selected.isNotEmpty;
 
   Future<void> _create() async {
     if (!_canCreate || _creating) return;
@@ -75,14 +103,43 @@ class _GroupCreatePageState extends State<GroupCreatePage> {
       _error = null;
     });
     try {
-      final runtime = _runtime ??= context.read<ChatRuntime>();
+      final owner = _owner!;
+      if (!await _sameOwner(owner)) {
+        _invalidateOwner();
+        return;
+      }
+      if (_selected.length == 1) {
+        final contact = _selected.single;
+        Navigator.of(context).pop<ChatCreateResult>((
+          targetId: contact.cidNumber,
+          title: contact.contactRemark.isEmpty
+              ? _shortCreateContact(contact.cidNumber)
+              : contact.contactRemark,
+          isGroup: false,
+          owner: owner,
+        ));
+        return;
+      }
+      final runtime = widget.runtime ?? context.read<ChatRuntime>();
       final group = await runtime.createGroup(
-        name: _nameController.text.trim(),
-        inviteeUserIds: _selected.toList(growable: false),
+        name: _nameController.text.trim().isEmpty
+            ? '群聊'
+            : _nameController.text.trim(),
+        inviteeUserIds: _selected
+            .map((contact) => contact.cidNumber)
+            .toList(growable: false),
       );
       if (!mounted) return;
-      Navigator.of(context).pop();
-      await openGroupChat(context, groupId: group.groupId, title: group.name);
+      if (!await _sameOwner(owner)) {
+        _invalidateOwner();
+        return;
+      }
+      Navigator.of(context).pop<ChatCreateResult>((
+        targetId: group.groupId,
+        title: group.name,
+        isGroup: true,
+        owner: owner,
+      ));
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -94,32 +151,27 @@ class _GroupCreatePageState extends State<GroupCreatePage> {
 
   @override
   Widget build(BuildContext context) {
-    return ChatGroupCreateView(
+    return ChatCreateView(
       nameController: _nameController,
-      users: [
-        for (final contact in _contacts)
-          ChatSelectableUser(
-            userId: contact.cidNumber,
-            displayName: contact.contactRemark.isEmpty
-                ? _shortCreateContact(contact.cidNumber)
-                : contact.contactRemark,
-            subtitle: _shortCreateContact(contact.cidNumber),
-          ),
-      ],
-      selectedUserIds: _selected,
-      onSelectionChanged: (userId, selected) => setState(() {
-        if (selected) {
-          _selected.add(userId);
-        } else {
-          _selected.remove(userId);
-        }
-      }),
+      selectedCount: _selected.length,
+      contacts: ContactBookPage(
+        mode: ContactPickMode.pickForChat,
+        service: widget.contactService ?? _contactServiceFromContext(context),
+        currentUserContext: context.read<CurrentUserContext>(),
+        sessionProvider: context.read<SquareSessionProvider>(),
+        identityRevision: context.read<AccountSecurityService?>()?.revision,
+        selectionEnabled: !_creating,
+        onSelectionChanged: (contacts) {
+          if (mounted && !_ownerInvalid) {
+            setState(() => _selected = contacts);
+            if (_owner == null) unawaited(_captureOwner());
+          }
+        },
+      ),
       canCreate: _canCreate,
       onCreate: _create,
-      loading: _loading,
       creating: _creating,
       error: _error,
-      emptyMessage: '通讯录为空,先在「我的 → 通讯录」添加联系人',
     );
   }
 }
@@ -128,5 +180,3 @@ String _shortCreateContact(String address) {
   if (address.length <= 14) return address;
   return '${address.substring(0, 8)}…${address.substring(address.length - 6)}';
 }
-
-/// 成员管理页:名册 + 加/删(仅 admin)+ 改群名(仅 admin)+ 退群(任何人)。

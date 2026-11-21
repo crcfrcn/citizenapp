@@ -78,3 +78,43 @@ MlsWireMessage mlsWireMessageFromEncryptedMessage(EncryptedMessage message) {
         : '${message.senderUserId}:${message.senderDeviceId}',
   );
 }
+
+/// 私聊和群聊信封形状的唯一App校验；必须在进入native或业务写入前调用。
+void validateChatEnvelope(EncryptedMessage message) {
+  final parts = message.conversationId.split(':');
+  bool cid(String value) =>
+      RegExp(r'^[A-Za-z0-9][A-Za-z0-9-]{0,31}$').hasMatch(value);
+  if (parts.length != 3 ||
+      message.conversationId.length > 256 ||
+      !cid(parts[1])) {
+    throw const FormatException('聊天会话标识无效');
+  }
+  if (!cid(message.senderUserId) ||
+      message.deliveries.isEmpty ||
+      message.deliveries.any(
+        (delivery) =>
+            !delivery.hasRecipient() || !cid(delivery.recipient.userId),
+      )) {
+    throw const FormatException('聊天信封身份无效');
+  }
+  if (parts[0] == 'dm') {
+    if (!cid(parts[2]) ||
+        parts[1].compareTo(parts[2]) >= 0 ||
+        message.groupId.length != 16 ||
+        !parts.skip(1).contains(message.senderUserId) ||
+        message.deliveries.any(
+          (delivery) =>
+              !delivery.hasRecipient() ||
+              !parts.skip(1).contains(delivery.recipient.userId),
+        )) {
+      throw const FormatException('私聊信封与双方或MLS组不一致');
+    }
+  } else if (parts[0] == 'grp') {
+    if (!RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(parts[2]) ||
+        message.groupId.isNotEmpty) {
+      throw const FormatException('群聊信封不得携带私聊MLS组');
+    }
+  } else {
+    throw const FormatException('聊天会话类型无效');
+  }
+}

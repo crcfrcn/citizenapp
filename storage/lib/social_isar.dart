@@ -45,6 +45,9 @@ class Erase {
 @Name('post')
 @collection
 class Post {
+  @Name('post_visibility')
+  String postVisibility = 'public';
+
   @Name('id')
   Id rowId = Isar.autoIncrement;
 
@@ -87,6 +90,9 @@ class Post {
 @Name('draft')
 @collection
 class Draft {
+  @Name('post_visibility')
+  String postVisibility = 'public';
+
   @Name('id')
   Id rowId = Isar.autoIncrement;
 
@@ -246,6 +252,9 @@ class MediaLink {
 @Name('publish')
 @collection
 class Publish {
+  @Name('post_visibility')
+  String postVisibility = 'public';
+
   @Name('id')
   Id rowId = Isar.autoIncrement;
 
@@ -456,8 +465,9 @@ class SocialIsar {
       return opened;
     }
     try {
-      final deleted = await _deleteInstance(opened)
-          .timeout(_forcedDeleteTimeout);
+      final deleted = await _deleteInstance(
+        opened,
+      ).timeout(_forcedDeleteTimeout);
       if (!deleted) throw StateError('Social 数据库仍被其它实例持有，未实际删除。');
       throw const _SocialOpeningCancelled();
     } catch (error) {
@@ -587,8 +597,9 @@ class SocialIsar {
       if (!candidate.isOpen) continue;
       deleteWasAttempted = true;
       try {
-        final deleted = await _deleteInstance(candidate)
-            .timeout(_forcedDeleteTimeout);
+        final deleted = await _deleteInstance(
+          candidate,
+        ).timeout(_forcedDeleteTimeout);
         if (!deleted) failures.add('Social 数据库仍被其它实例持有，未实际删除。');
       } catch (error) {
         failures.add('强制删除 Social 数据库失败：$error');

@@ -13,7 +13,7 @@ void main() {
       feeRateParts: 1000000,
       minimumFeeFen: BigInt.from(30),
       existentialDepositFen: BigInt.from(132),
-      voteFeeFen: BigInt.from(110),
+      FLAT_FEE: BigInt.from(110),
       feeFen: BigInt.from(51),
       minimumSelfPayFen: BigInt.from(162),
     );

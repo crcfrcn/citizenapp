@@ -383,6 +383,42 @@ void main() {
     hot.dispose();
   });
 
+  for (final type in [OrgType.nrc, OrgType.prc, OrgType.prb]) {
+    testWidgets('管理员标题仅显示一次机构简称，类型=$type保留人员与激活入口', (tester) async {
+      final label = OrgType.label(type);
+      final institution = InstitutionInfo(
+        fullName: label,
+        shortName: label,
+        cidFullNameEn: 'Test institution',
+        cidShortNameEn: 'Test',
+        cidNumber: _cid,
+        orgType: type,
+        accounts: const InstitutionAccounts(
+          mainAccountId: _adminAccountId,
+          feeAccountId: _adminAccountId,
+        ),
+      );
+      await tester.pumpWidget(
+        _wrap(
+          AdminListPage(
+            institution: institution,
+            accountIdentity: AdminAccountIdentity.fromInstitution(institution),
+            admins: _rows(1),
+            activatedAccountIds: const {},
+            badgeColor: Colors.purple,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(label), findsOneWidget);
+      expect(find.byIcon(Icons.people_outline), findsOneWidget);
+      expect(find.text('管理员账户'), findsOneWidget);
+      expect(find.text('激活'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
+
   for (final imported in [false, true]) {
     testWidgets('管理员激活始终显示，匹配钱包=$imported时语义和触摸启用状态正确', (tester) async {
       final identity = AdminAccountIdentity.institution(

@@ -12,6 +12,7 @@ class SquareComposeDraft {
     required this.draftId,
     required this.cidNumber,
     required this.postType,
+    this.postVisibility = SquarePostVisibility.public,
     this.title,
     required this.text,
     required this.media,
@@ -24,6 +25,7 @@ class SquareComposeDraft {
   /// 草稿永久属于 CID；发布时再读取该 CID 当前绑定账户完成签名与付款。
   final String cidNumber;
   final SquarePostType postType;
+  final SquarePostVisibility postVisibility;
   final String? title;
   final String text;
   final List<SquareLocalMediaDraft> media;
@@ -50,11 +52,13 @@ class SquareComposeDraft {
     List<SquareLocalMediaDraft>? media,
     List<Map<String, Object?>>? contentSections,
     int? updatedAt,
+    SquarePostVisibility? postVisibility,
   }) {
     return SquareComposeDraft(
       draftId: draftId,
       cidNumber: cidNumber,
       postType: postType,
+      postVisibility: postVisibility ?? this.postVisibility,
       title: title,
       text: text,
       media: media ?? this.media,
@@ -67,6 +71,7 @@ class SquareComposeDraft {
     'draft_id': draftId,
     'cid_number': cidNumber,
     'post_type': postType.workerValue,
+    'post_visibility': postVisibility.name,
     if (title != null) 'title': title,
     'text': text,
     'media': media.map(_mediaToJson).toList(),
@@ -106,6 +111,7 @@ class SquareComposeDraft {
       draftId: draftId,
       cidNumber: cidNumber,
       postType: _postTypeFromJson(json['post_type']),
+      postVisibility: SquarePostVisibility.parse(json['post_visibility']),
       title: json['title']?.toString(),
       text: json['text']?.toString() ?? '',
       media: rawMedia.map((item) {

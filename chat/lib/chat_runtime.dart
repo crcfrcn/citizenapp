@@ -1453,6 +1453,14 @@ class _ChatSignalContext {
   final ChatServiceTransport transport;
 }
 
+/// 只交付本次发送拒绝的公开路由事实，不保存密文或身份凭证。
+typedef ChatSendRejection = ({
+  String accountId,
+  String userId,
+  String conversationId,
+  String messageId,
+});
+
 /// App用户 Chat 运行态编排服务。
 ///
 /// 页面层不直接操作 OpenMLS、聊天服务模块瞬时转发、近场通道和 Isar。
@@ -1558,6 +1566,24 @@ class ChatRuntime {
   static final _ChatUserMutationGate _sharedUserMutationGate =
       _ChatUserMutationGate();
   static final Object _userMutationZoneKey = Object();
+
+  final _sendRejections = StreamController<ChatSendRejection>.broadcast();
+  final Map<String, List<ChatSendRejection>> _pendingSendRejections = {};
+  Stream<ChatSendRejection> get sendRejections => _sendRejections.stream;
+
+  void _notifySendRejected(
+    ChatRuntimeAccountContext context,
+    String conversationId,
+    String messageId,
+  ) {
+    if (!_closed)
+      (_pendingSendRejections[context.account.accountId] ??= []).add((
+        accountId: context.account.accountId,
+        userId: context.account.userId,
+        conversationId: conversationId,
+        messageId: messageId,
+      ));
+  }
 
   bool _closed = false;
   final Set<Future<void>> _contextDisposals = <Future<void>>{};
@@ -2185,6 +2211,8 @@ class ChatRuntime {
 
   Future<void> _close() async {
     _closed = true;
+    _pendingSendRejections.clear();
+    if (!_sendRejections.isClosed) await _sendRejections.close();
     for (final timer in _mailboxRetryTimers.values) {
       timer.cancel();
     }
@@ -3004,6 +3032,9 @@ class ChatRuntime {
             debugPrint(
               '[ChatTrace] direction=outbound stage=delivery code=${chatDiagnosticCode(error)}',
             );
+            if (error is ChatConnectionException &&
+                error.code == 'dm_forbidden')
+              return;
             final hub = _realtimeHubs[account.accountId];
             // 未就绪只等待同一Hub；不能由每个会话重新鉴权或重置网络退避。
             if (hub == null || hub.stopPhysical != null) {
@@ -4011,6 +4042,13 @@ class ChatRuntime {
         if (hub != null) {
           await _notifyRealtimeHub(hub);
         }
+        // 先让原消息刷新收尾，再显示拒绝，避免成功读取快照立即清除错误文案。
+        final rejected =
+            _pendingSendRejections.remove(context.account.accountId) ??
+            const <ChatSendRejection>[];
+        if (!_closed && !_sendRejections.isClosed) {
+          for (final event in rejected) _sendRejections.add(event);
+        }
         if (failed || delivery.errorCode != null) {
           throw ChatConnectionException(
             delivery.errorCode ?? 'outbound_retry_required',
@@ -4091,6 +4129,21 @@ class ChatRuntime {
         }
         await _sendPendingOutgoing(context, item);
       } on Object catch (error) {
+        if (error is ChatConnectionException && error.code == 'dm_forbidden') {
+          await _store.markOutgoingDelivery(
+            bindingToken: context.bindingToken,
+            ownerUserId: context.account.userId,
+            messageId: item.localMessageId,
+            state: ChatMessageDeliveryState.failed,
+            errorMessage: 'dm_forbidden',
+          );
+          _notifySendRejected(
+            context,
+            item.conversationId,
+            item.localMessageId,
+          );
+          continue;
+        }
         if (error is _AttachmentAudienceChanged) {
           await _discardPendingAttachment(context, item);
           continue;
@@ -4419,7 +4472,7 @@ class ChatRuntime {
           ),
         );
       } on ChatConnectionException catch (error) {
-        if (error.code == 'commit_conflict') {
+        if (error.code == 'commit_conflict' || error.code == 'dm_forbidden') {
           await crypto.settlePendingCommit(operation, accepted: false);
           await crypto.acknowledgeMessage(operation);
           context._groupBindings.remove(conversationId);
@@ -4713,6 +4766,9 @@ class ChatRuntime {
           state: result.state,
           errorMessage: result.errorMessage,
         );
+        if (result.errorMessage == 'dm_forbidden') {
+          _notifySendRejected(context, message.conversationId, item.messageId);
+        }
         if (result.state == ChatMessageDeliveryState.sent) {
           sent += 1;
         } else if (result.errorMessage != 'commit_required') {
@@ -6046,12 +6102,10 @@ class ChatRuntime {
         message.recipientDeviceId != context.identity.deviceId) {
       throw const FormatException('Chat 邮箱路由与 Message 身份不一致');
     }
-    if (message.conversationId.startsWith('dm:') &&
-        message.groupId.isNotEmpty) {
+    validateChatEnvelope(message);
+    if (message.conversationId.startsWith('dm:')) {
       final id = await _readDirectGroup(context, message.conversationId);
-      if (message.conversationId !=
-              directConversationId(context.account.userId, senderUserId) ||
-          !listEquals(id, message.groupId)) {
+      if (!listEquals(id, message.groupId)) {
         throw const ChatConnectionException('group_binding_invalid');
       }
     }

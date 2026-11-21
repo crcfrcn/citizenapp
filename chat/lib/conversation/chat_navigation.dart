@@ -22,18 +22,31 @@ UserContactService? _contactServiceFromContextOrNull(BuildContext context) {
       );
 }
 
-/// 聊天消费门禁核实后的有/无CID事实；缓存读取失败是操作错误，不增加身份状态。
-Future<({String cidNumber, String accountId})> _resolveChatIdentity(
-  CurrentUserContext currentUser,
-) async {
-  final identity = await currentUser.resolve();
+/// 创建动作只携带原绑定快照；不是新的身份或权限缓存。
+typedef ChatOwner = ({
+  String genesisHash,
+  String cidNumber,
+  String accountId,
+  int bindRev,
+});
+ChatOwner? _chatOwner(CurrentUser? user) {
+  final binding = user?.binding;
+  return binding == null || binding.accountId != user!.accountId
+      ? null
+      : (
+          genesisHash: binding.genesisHash,
+          cidNumber: binding.cidNumber,
+          accountId: binding.accountId,
+          bindRev: binding.bindRev,
+        );
+}
+
+({String cidNumber, String accountId}) _chatIdentity(CurrentUser? identity) {
   if (identity == null) return (cidNumber: '', accountId: '');
-  if (identity.isRegistered) {
+  if (identity.isRegistered)
     return (cidNumber: identity.cidNumber, accountId: identity.accountId);
-  }
-  if (identity.isUnregistered) {
+  if (identity.isUnregistered)
     return (cidNumber: '', accountId: identity.accountId);
-  }
   throw const SquareApiException(
     '身份信息暂不可用，请在身份页刷新后重试',
     errorCode: 'identity_local_missing',
@@ -41,11 +54,21 @@ Future<({String cidNumber, String accountId})> _resolveChatIdentity(
   );
 }
 
+Future<({String cidNumber, String accountId})> _resolveChatIdentity(
+  CurrentUserContext currentUser,
+) async => _chatIdentity(await currentUser.resolve());
+
 Future<({String cidNumber, String accountId})?> _readChatEntryIdentity(
-  BuildContext context,
-) async {
+  BuildContext context, {
+  ChatOwner? expectedOwner,
+}) async {
   try {
-    return await _resolveChatIdentity(context.read<CurrentUserContext>());
+    final revision = context.read<AccountSecurityService?>()?.revision;
+    final generation = revision?.value;
+    final user = await context.read<CurrentUserContext>().resolve();
+    if (!context.mounted || revision?.value != generation) return null;
+    if (expectedOwner != null && _chatOwner(user) != expectedOwner) return null;
+    return _chatIdentity(user);
   } on Exception catch (error) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -71,8 +94,12 @@ Future<void> openGroupChat(
   required String groupId,
   required String title,
   ChatDeleteConversationCallback? onDeleteConversation,
+  ChatOwner? expectedOwner,
 }) async {
-  final identity = await _readChatEntryIdentity(context);
+  final identity = await _readChatEntryIdentity(
+    context,
+    expectedOwner: expectedOwner,
+  );
   if (identity == null) return;
   final accountId = identity.accountId;
   final currentUserId = identity.cidNumber;
@@ -112,8 +139,12 @@ Future<void> openDirectChat(
   BuildContext context, {
   required String peerUserId,
   required String title,
+  ChatOwner? expectedOwner,
 }) async {
-  final identity = await _readChatEntryIdentity(context);
+  final identity = await _readChatEntryIdentity(
+    context,
+    expectedOwner: expectedOwner,
+  );
   if (identity == null) return;
   final accountId = identity.accountId;
   final currentUserId = identity.cidNumber;

@@ -28,6 +28,7 @@ class ProfilePostsTab extends StatefulWidget {
     required this.sessionReady,
     required this.isSelf,
     this.onSessionExpired,
+    this.onAccessDenied,
     this.category,
     this.postType,
     this.mediaKind,
@@ -52,6 +53,9 @@ class ProfilePostsTab extends StatefulWidget {
 
   /// Worker 明确返回 401 时由上层清理缓存并重新握手；每个请求最多调用一次。
   final Future<SquareSession?> Function()? onSessionExpired;
+
+  /// 作者列表明确拒绝主页权限时，让父页关闭整页及资料媒体。
+  final void Function(SquareApiException)? onAccessDenied;
   final bool isSelf;
 
   /// 页面远端刷新失败不伪装成正常空列表。
@@ -197,8 +201,16 @@ class _ProfilePostsTabState extends State<ProfilePostsTab> {
         _done = page.nextCursor == null;
         _loading = false;
       });
-    } on Exception {
+    } on Exception catch (error) {
       if (!mounted || generation != _loadGeneration) return;
+      if (error is SquareApiException &&
+          const [
+            'profile_private',
+            'profile_followers_required',
+            'profile_mutual_required',
+          ].contains(error.errorCode)) {
+        widget.onAccessDenied?.call(error);
+      }
       setState(() {
         _loading = false;
         _failedFirst = _posts.isEmpty && !localHasContent;
@@ -230,8 +242,16 @@ class _ProfilePostsTabState extends State<ProfilePostsTab> {
         _done = page.nextCursor == null;
         _loading = false;
       });
-    } on Exception {
+    } on Exception catch (error) {
       if (!mounted || generation != _loadGeneration) return;
+      if (error is SquareApiException &&
+          const [
+            'profile_private',
+            'profile_followers_required',
+            'profile_mutual_required',
+          ].contains(error.errorCode)) {
+        widget.onAccessDenied?.call(error);
+      }
       setState(() => _loading = false);
     }
   }

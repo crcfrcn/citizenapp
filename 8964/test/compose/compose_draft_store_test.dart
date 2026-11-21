@@ -30,6 +30,17 @@ SquareComposeDraft _draft(
 );
 
 void main() {
+  test('公民圈范围经真实Isar草稿保存恢复', () async {
+    final store = SquareComposeDraftStore.instance;
+    final draft = _draft(
+      'scope',
+      1,
+    ).copyWith(postVisibility: SquarePostVisibility.circle);
+    await store.save(draft);
+    final restored = (await store.list(draft.cidNumber)).single;
+    expect(restored.postVisibility, SquarePostVisibility.circle);
+    expect(restored.toJson()['post_visibility'], 'circle');
+  });
   useIsolatedIsar();
   TestWidgetsFlutterBinding.ensureInitialized();
 

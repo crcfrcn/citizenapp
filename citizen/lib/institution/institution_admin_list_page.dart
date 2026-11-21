@@ -159,6 +159,7 @@ class _AdminListPageState extends State<AdminListPage> {
     );
   }
 
+  // 机构简称只在左侧显示一次，不重复附加机构类型标签。
   Widget _buildInstitutionHeader() {
     return Row(
       children: [
@@ -183,24 +184,6 @@ class _AdminListPageState extends State<AdminListPage> {
               fontSize: AppLayout.scaledValue(15),
               fontWeight: FontWeight.w600,
               color: AppTheme.primaryDark,
-            ),
-          ),
-        ),
-        Container(
-          padding: EdgeInsets.symmetric(
-            horizontal: AppLayout.scaledValue(8),
-            vertical: AppLayout.scaledValue(2),
-          ),
-          decoration: BoxDecoration(
-            color: widget.badgeColor.withValues(alpha: 0.10),
-            borderRadius: BorderRadius.circular(AppLayout.scaledValue(10)),
-          ),
-          child: Text(
-            OrgType.label(widget.institution.orgType),
-            style: TextStyle(
-              fontSize: AppLayout.scaledValue(11),
-              color: widget.badgeColor,
-              fontWeight: FontWeight.w600,
             ),
           ),
         ),

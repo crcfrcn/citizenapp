@@ -37,12 +37,14 @@ class _Identity extends Fake implements FinalizedIdentityResolver {}
 
 class _Resources extends Fake implements SubscriptionService {
   int calls = 0;
+  Completer<SquareResourceAuthorization>? pending;
   @override
   Future<SquareResourceAuthorization> authorizeResources(
     SquareSession session, {
     bool forceRefresh = false,
   }) async {
     calls++;
+    if (pending != null) return pending!.future;
     return SquareApiClient.decodeResourceAuthorization(
       resourceAuthorizationFixture(allowed: false),
     );
@@ -216,6 +218,56 @@ void main() {
       isFalse,
     );
   });
+  for (final entry in {
+    'freedom': '自由会员',
+    'democracy': '民主会员',
+    'spark': '薪火会员',
+  }.entries) {
+    testWidgets('${entry.value}在套餐等待及失败时直接显示链上档名', (tester) async {
+      final resources = _Resources()
+        ..pending = Completer<SquareResourceAuthorization>();
+      final sessions = _Sessions();
+      final reader = light.Reader()
+        ..behavior = (a, b, c, d) async => light.snapshot(
+          b,
+          a,
+          cidNumber: sessions.session.cidNumber,
+          citizens: c,
+          creators: d,
+          memberLevel: entry.key,
+        );
+      final source = ChainDataService(
+        reader: reader,
+        getFinalizedHead: () async => light.block(103),
+        getGenesisHash: () async => light.hash(0),
+        getAccount: () async => sessions.session.accountId,
+      );
+      addTearDown(source.close);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MembershipPage(
+            currentUserContext: CreatorTestUser()
+              ..ownerAccountId = sessions.session.accountId
+              ..cidNumber = sessions.session.cidNumber,
+            sessionProvider: sessions,
+            subscriptionService: resources,
+            chainData: source,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(resources.calls, 1);
+      expect(find.text('${entry.value} · 链上到期自动续费'), findsOneWidget);
+      expect(find.text('会员 · 链上到期自动续费'), findsNothing);
+      resources.pending!.completeError(StateError('测试资源暂不可用'));
+      await tester.pumpAndSettle();
+      expect(find.text('${entry.value} · 链上到期自动续费'), findsOneWidget);
+      expect(find.text('会员 · 链上到期自动续费'), findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
+
   testWidgets('会员页使用轻节点会员，服务端仅交付规则和用量', (tester) async {
     final resources = _Resources(), sessions = _Sessions();
     final reader = light.Reader();
@@ -252,6 +304,8 @@ void main() {
     expect(source.snapshot!.block.number, BigInt.from(103));
     expect(source.snapshot!.memberActive(sessions.session.cidNumber), isTrue);
     expect(find.text('当前会员'), findsOneWidget);
+    expect(find.text('自由会员 · 链上到期自动续费'), findsOneWidget);
+    expect(find.text('会员 · 链上到期自动续费'), findsNothing);
     expect(find.text('取消订阅'), findsWidgets);
     await tester.pumpWidget(const SizedBox.shrink());
   });

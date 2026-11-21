@@ -110,14 +110,18 @@ class Api extends SquareApiClient {
   Completer<Map<String, dynamic>>? heldSquareRead;
   Map<String, dynamic>? capturedSquareRead;
   int feedCalls = 0;
+  Future<SquareFeedPage> Function(SquareFeedKind, String?)? onFeed;
+  final interactionBatches = <List<String>>[];
   @override
-  Future<List<SquarePost>> fetchFeed({
+  Future<SquareFeedPage> fetchFeed({
     required SquareFeedKind feedKind,
+    String? cursor,
     int limit = 20,
     SquareSession? session,
   }) async {
     feedCalls++;
-    return [];
+    if (onFeed != null) return onFeed!(feedKind, cursor);
+    return const SquareFeedPage(posts: []);
   }
 
   int square = 3, tab = 3, post = 3, revision = 1, likes = 0;
@@ -226,10 +230,14 @@ class Api extends SquareApiClient {
   Future<Map<String, dynamic>> fetchPostInteractions({
     required SquareSession session,
     required List<String> postIds,
-  }) async => {
-    'is_ok': true,
-    'items': [for (final id in postIds) interaction(id)],
-  };
+  }) async {
+    interactionBatches.add(List.of(postIds));
+    return {
+      'is_ok': true,
+      'items': [for (final id in postIds) interaction(id)],
+    };
+  }
+
   @override
   Future<Map<String, dynamic>> setLike({
     required SquareSession session,
@@ -382,6 +390,70 @@ void main() {
     ],
     child: MaterialApp(home: Scaffold(body: child)),
   );
+  testWidgets('文章分类连续三页只读取新展示卡片的互动', (tester) async {
+    tester.view.physicalSize = const Size(1000, 4000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    api.square = api.tab = api.post = 0;
+    await driveIo(tester, Notifications.instance.accept(api.state));
+    api.onFeed = (kind, cursor) async {
+      final page = cursor == null ? 1 : int.parse(cursor);
+      return SquareFeedPage(
+        posts: [
+          for (final article in [false, true])
+            SquarePost(
+              postId: '${kind.name}-${article ? "article" : "document"}-$page',
+              author: const SquareAuthor(
+                accountId: 'synthetic',
+                cidNumber: peerCid,
+                displayName: '作者',
+              ),
+              postCategory: SquarePostCategory.normal,
+              postType: article
+                  ? SquarePostType.article
+                  : SquarePostType.document,
+              title: article ? '文章$page' : null,
+              text: '正文$page',
+              publishedAt: DateTime.fromMillisecondsSinceEpoch(page),
+            ),
+        ],
+        nextCursor: page == 3 ? null : '${page + 1}',
+      );
+    };
+    await tester.pumpWidget(
+      wrap(
+        SquareHomePage(
+          identityService: Identity(),
+          tabOrderStore: Order(),
+          feedSource: api,
+          sessionProvider: sessions,
+        ),
+      ),
+    );
+    await drain(tester);
+    await tester.tap(find.text('文章').first);
+    await drain(tester);
+    List<String> articleCalls() => api.interactionBatches
+        .expand((batch) => batch)
+        .where((id) => id.startsWith('article-'))
+        .toList();
+    expect(articleCalls(), ['article-article-1']);
+    for (var page = 2; page <= 3; page++) {
+      await tester.tap(find.byKey(const ValueKey('square-feed-more')));
+      await drain(tester);
+      expect(articleCalls(), [
+        for (var index = 1; index <= page; index++) 'article-article-$index',
+      ]);
+    }
+    // 通知变化仍更新当前分类已经展示的互动，不涉及被分类过滤的公文。
+    api.revision++;
+    await driveIo(tester, Notifications.instance.accept(api.state));
+    await drain(tester);
+    expect(articleCalls().where((id) => id.contains('document')), isEmpty);
+    expect(articleCalls().length, 6);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
   test('三级清读请求范围独立，离线内容级意图持久化并按原范围重放', () async {
     final n = Notifications.instance;
     await n.read(owner: n.scope, scope: 'square', through: 10);

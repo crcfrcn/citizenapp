@@ -15,7 +15,62 @@ import 'package:citizen_square/post/square_models.dart';
 
 import 'package:citizen_testing/mls_authentication_fixture.dart';
 
+class _NotificationGate extends Fake implements SquareResourceGate {
+  final operations = <String>[];
+  @override
+  int sample(String origin, SquareSession session) => 0;
+  @override
+  Future<SquareResourceLease> reserve({
+    required String origin,
+    required SquareSession session,
+    required String operation,
+    String? target,
+    String? operationId,
+    Map<String, int> costs = const {},
+    Map<String, Map<String, int>> actions = const {},
+  }) async {
+    operations.add(operation);
+    throw const SquareApiException('fixture gate');
+  }
+}
+
 void main() {
+  test('通知摘要与服务端一致归广场许可，纯通知和计数仍归account', () async {
+    final previous = SquareApiClient.resourceGate;
+    final gate = _NotificationGate();
+    SquareApiClient.resourceGate = gate;
+    addTearDown(() => SquareApiClient.resourceGate = previous);
+    final api = SquareApiClient(
+      baseUrl: 'https://square.test/api',
+      httpClient: MockClient((_) async {
+        fail('预检拒绝后不能访问云端');
+      }),
+    );
+    addTearDown(api.close);
+    final session = SquareSession(
+      sessionToken: 'fixture',
+      cidNumber: testMlsCidNumber,
+      accountId: testMlsAccountId,
+      bindRev: 1,
+      deviceId: testMlsDeviceId,
+      expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
+      authenticateRequest: fakeMlsRequestHeaders,
+    );
+    await expectLater(
+      api.fetchNotifications(session: session, groupByPost: true),
+      throwsA(isA<SquareApiException>()),
+    );
+    await expectLater(
+      api.fetchNotifications(session: session),
+      throwsA(isA<SquareApiException>()),
+    );
+    await expectLater(
+      api.fetchNotificationState(session: session),
+      throwsA(isA<SquareApiException>()),
+    );
+    expect(gate.operations, ['square', 'account', 'account']);
+  });
+
   coldIdentityAuthenticationTests();
   test('真实429 RPC限额保留固定错误码且不自动重试', () async {
     var calls = 0;
@@ -23,7 +78,11 @@ void main() {
       baseUrl: 'https://square.test/api',
       httpClient: MockClient((_) async {
         calls++;
-        return http.Response('{"error_code":"chain_rpc_budget_exceeded"}', 429);
+        return http.Response(
+          '{"error_code":"chain_rpc_budget_exceeded"}',
+          429,
+          headers: {'retry-after': '120'},
+        );
       }),
     );
     addTearDown(api.close);
@@ -35,12 +94,13 @@ void main() {
       throwsA(
         isA<SquareApiException>()
             .having((e) => e.errorCode, 'code', 'chain_rpc_budget_exceeded')
-            .having((e) => e.statusCode, 'status', 429),
+            .having((e) => e.statusCode, 'status', 429)
+            .having((e) => e.retryAfter?.inSeconds, 'retryAfter', 120),
       ),
     );
     expect(calls, 1);
   });
-  test('通讯录逐条备份包含备注，删除证明覆盖空正文', () async {
+  test('通讯录唯一版本和整批授权正文进入同一请求证明', () async {
     final signed = <List<int>>[];
     final sent = <http.Request>[];
     final session = SquareSession(
@@ -81,17 +141,29 @@ void main() {
       session: session,
       cidNumber: cid,
       contactRemark: '同事',
+      changeVersion: 3,
     );
-    await api.deleteUserContact(session: session, cidNumber: cid);
-    expect(sent.map((r) => r.method), ['GET', 'PUT', 'DELETE']);
+    final deletion = <String, dynamic>{
+      'intent': {
+        'contacts': [
+          {'cid_number': cid, 'change_version': 3},
+        ],
+      },
+      'signature': 'fixture',
+    };
+    await api.deleteUserContacts(session: session, signed: deletion);
+    expect(sent.map((r) => r.method), ['GET', 'PUT', 'POST']);
     expect(sent.map((r) => r.url.path), [
       '/api/user/contacts',
       '/api/user/contacts/$cid',
-      '/api/user/contacts/$cid',
+      '/api/user/contacts/delete',
     ]);
     expect(sent[0].body, '');
-    expect(jsonDecode(sent[1].body), {'contact_remark': '同事'});
-    expect(sent[2].body, '');
+    expect(jsonDecode(sent[1].body), {
+      'contact_remark': '同事',
+      'change_version': 3,
+    });
+    expect(jsonDecode(sent[2].body), deletion);
     expect(signed, sent.map((r) => r.bodyBytes).toList());
   });
 
@@ -222,6 +294,7 @@ void main() {
       'tx_hash': tx,
       'published_at': 1000,
       'post_state': 'published',
+      'post_visibility': 'public',
       'media_items': <Object>[],
     };
     final manifest = <String, dynamic>{
@@ -482,6 +555,7 @@ void main() {
     final raw = Uint8List.fromList(utf8.encode('{"text":"正文"}'));
     expect(
       await api.beginUpload(
+        postVisibility: SquarePostVisibility.public,
         session: session,
         postId: 'post',
         txHash: hash,
@@ -490,7 +564,10 @@ void main() {
       isEmpty,
     );
     expect(requests.single.url.path, '/api/8964/uploads/post/manifest');
-    expect(requests.single.url.queryParameters, {'tx_hash': hash});
+    expect(requests.single.url.queryParameters, {
+      'tx_hash': hash,
+      'post_visibility': 'public',
+    });
     expect(requests.single.bodyBytes, raw);
     expect(await api.completeUpload(session: session, postId: 'post'), isTrue);
     expect(requests.last.url.path, '/api/8964/uploads/post/complete');
@@ -918,7 +995,10 @@ void _readCoalescingTests() {
     expect(requests, 1);
     expect(signed, 1);
     release.complete();
-    expect((await Future.wait(reads)).every((value) => value.isEmpty), isTrue);
+    expect(
+      (await Future.wait(reads)).every((value) => value.posts.isEmpty),
+      isTrue,
+    );
     await b.fetchFeed(feedKind: SquareFeedKind.recommended, session: owner);
     expect(requests, 2);
     expect(signed, 2);

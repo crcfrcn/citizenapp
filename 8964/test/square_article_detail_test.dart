@@ -5,6 +5,9 @@ import 'package:citizen_testing/fake_citizen_sdk.dart';
 import 'package:citizen_testing/isar_test_env.dart';
 
 import 'dart:convert';
+import 'dart:async';
+import 'package:provider/provider.dart';
+import 'package:citizen_user/identity/account_security_service.dart';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -35,6 +38,47 @@ Future<void> _pumpArticle(WidgetTester tester) async {
     await tester.pump(const Duration(milliseconds: 20));
   }
   expect(find.byType(ArticleRichTextView), findsWidgets);
+}
+
+class _DetailSecurity extends Fake implements AccountSecurityService {
+  @override
+  final revision = ValueNotifier<int>(0);
+}
+
+class _DetailSessions extends FakeSessionProvider {
+  _DetailSessions() : super(fakeSession());
+  SquareSession active = fakeSession();
+  @override
+  Future<String?> currentCitizenId() async => active.cidNumber;
+  @override
+  Future<SquareSession?> ensureSession() async => active;
+}
+
+class _DetailApi extends SquareApiClient {
+  _DetailApi()
+    : super(
+        baseUrl: 'https://square.test/api',
+        httpClient: MockClient(
+          (_) async => http.Response(
+            '{"is_ok":true,"items":[]}',
+            200,
+            headers: {'content-type': 'application/json'},
+          ),
+        ),
+      );
+  int calls = 0;
+  Object error = const SquareApiException('denied', statusCode: 403);
+  Completer<SquarePost>? pending;
+  @override
+  Future<SquarePost> fetchPostDetail({
+    required SquareSession session,
+    SquarePost? summary,
+    String? postId,
+  }) async {
+    calls++;
+    if (pending != null) return pending!.future;
+    throw error;
+  }
 }
 
 void main() {
@@ -83,6 +127,157 @@ void main() {
     expect(membershipRequests, 0);
     expect(detailRequests, 1);
   });
+
+  for (final article in [false, true]) {
+    Widget detail(
+      SquarePost post,
+      _DetailApi api,
+      _DetailSessions sessions, {
+      SquareDetailRead? initialRead,
+    }) => article
+        ? SquareArticleDetailPage(
+            post: post,
+            api: api,
+            sessionProvider: sessions,
+            initialRead: initialRead,
+          )
+        : SquarePostDetailPage(
+            post: post,
+            api: api,
+            sessionProvider: sessions,
+            initialRead: initialRead,
+          );
+    SquarePost content() => SquarePost(
+      postId: 'p1',
+      author: samplePost().author,
+      postCategory: SquarePostCategory.normal,
+      postType: article ? SquarePostType.article : SquarePostType.document,
+      text: '已经获准读取的受保护正文',
+      title: article ? '受保护标题' : null,
+      publishedAt: DateTime.fromMillisecondsSinceEpoch(1000),
+      contentSections: article
+          ? [
+              ArticleContentSection(
+                textDelta: [
+                  {'insert': '已经获准读取的受保护正文\n'},
+                ],
+              ),
+            ]
+          : [],
+    );
+    for (final status in [401, 403, 404, 503]) {
+      testWidgets('${article ? "文章" : "动态"}刷新$status按拒绝或故障处理旧正文', (
+        tester,
+      ) async {
+        final api = _DetailApi()
+          ..error = SquareApiException('fixture', statusCode: status);
+        final sessions = _DetailSessions();
+        await tester.pumpWidget(
+          MaterialApp(
+            home: detail(
+              content(),
+              api,
+              sessions,
+              initialRead: SquareDetailRead(
+                session: sessions.active,
+                postId: 'p1',
+                revision: null,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(api.calls, 0); // 通知预读绑定相同，不重复GET。
+        expect(
+          find.textContaining('已经获准读取的受保护正文', findRichText: true),
+          findsWidgets,
+        );
+        await tester.tap(find.byTooltip('刷新'));
+        await tester.pumpAndSettle();
+        expect(api.calls, 1);
+        expect(
+          find.textContaining('已经获准读取的受保护正文', findRichText: true),
+          status == 503 ? findsWidgets : findsNothing,
+        );
+        final menu = tester.widget<PopupMenuButton>(
+          find.byWidgetPredicate((widget) => widget is PopupMenuButton).first,
+        );
+        expect(menu.enabled, status == 503);
+        if (status != 503) {
+          api.error = const SquareApiException('offline', statusCode: 503);
+          await tester.tap(find.text('重试'));
+          await tester.pumpAndSettle();
+          expect(
+            find.textContaining('已经获准读取的受保护正文', findRichText: true),
+            findsNothing,
+          );
+        }
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+    }
+    testWidgets('${article ? "文章" : "动态"}身份修订立即隐藏正文且丢弃迟到读取', (tester) async {
+      final api = _DetailApi()..pending = Completer<SquarePost>();
+      final sessions = _DetailSessions();
+      final security = _DetailSecurity();
+      await tester.pumpWidget(
+        Provider<AccountSecurityService>.value(
+          value: security,
+          child: MaterialApp(
+            home: detail(
+              content(),
+              api,
+              sessions,
+              initialRead: SquareDetailRead(
+                session: sessions.active,
+                postId: 'p1',
+                revision: 0,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(api.calls, 0);
+      await tester.tap(find.byTooltip('刷新'));
+      await tester.pump();
+      sessions.active = fakeSession(cidNumber: 'CN002');
+      security.revision.value++;
+      await tester.pump();
+      api.pending!.complete(content());
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('已经获准读取的受保护正文', findRichText: true),
+        findsNothing,
+      );
+      expect(find.textContaining('当前身份已变化'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+      security.revision.dispose();
+    });
+    testWidgets('${article ? "文章" : "动态"}通知预读不能跨身份复用', (tester) async {
+      final api = _DetailApi(), sessions = _DetailSessions();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: detail(
+            content(),
+            api,
+            sessions,
+            initialRead: SquareDetailRead(
+              session: fakeSession(cidNumber: 'CN002'),
+              postId: 'p1',
+              revision: null,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(api.calls, 1);
+      expect(
+        find.textContaining('已经获准读取的受保护正文', findRichText: true),
+        findsNothing,
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
 
   TestCitizenSdkHarness();
   useIsolatedIsar();
@@ -146,8 +341,34 @@ void main() {
           throw StateError('不应请求远端');
         }),
       );
+      final wrongSession = FakeSessionProvider(null, citizenId: 'CN002');
+      await tester.pumpWidget(
+        MaterialApp(
+          home: type == 'article'
+              ? SquareArticleDetailPage(
+                  post: post,
+                  api: api,
+                  sessionProvider: wrongSession,
+                )
+              : SquarePostDetailPage(
+                  post: post,
+                  api: api,
+                  sessionProvider: wrongSession,
+                ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('本地已保存的详情正文', findRichText: true),
+        findsNothing,
+      );
+      expect(find.textContaining('只能读取当前用户的本地内容'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
       // 无会话：普通阅读仍能完成；主动刷新失败应保留原正文。
-      final session = FakeSessionProvider(null);
+      final session = FakeSessionProvider(
+        null,
+        citizenId: post.author.cidNumber,
+      );
       await tester.pumpWidget(
         MaterialApp(
           home: type == 'article'
@@ -221,7 +442,8 @@ void main() {
               expect(request.url.path, '/api/8964/posts/p1');
               detailRequests++;
               return http.Response(
-                '''{"is_ok":true,"post":{"post_id":"p1","account_id":"$kOwner","cid_number":"CN001-CTZN-000000001-2026","post_category":"normal","post_type":"article","post_title":"标题X","content_hash":"${List<String>.filled(64, '1').join()}","receipt_id":"sqr_1","chain_block":1,"published_at":1000,"post_state":"published","media_items":[{"media_kind":"image","url":"https://media.test/cover.jpg"}]},"manifest":{"schema":"citizenapp.square.post","cid_number":"CN001-CTZN-000000001-2026","post_type":"article","text":"正文内容正文内容正文","media_items":[],"post_title":"标题X","content_sections":[{"text_delta":[{"insert":"正文内容正文内容正文"},{"insert":"\\n"}]}]}}''',
+                '''{"is_ok":true,"post":{"post_id":"p1","account_id":"$kOwner","cid_number":"CN001-CTZN-000000001-2026","post_category":"normal","post_type":"article","post_title":"标题X","content_hash":"${List<String>.filled(64, '1').join()}","receipt_id":"sqr_1","chain_block":1,"published_at":1000,"post_state":"published",
+                "post_visibility": "public","media_items":[{"media_kind":"image","url":"https://media.test/cover.jpg"}]},"manifest":{"schema":"citizenapp.square.post","cid_number":"CN001-CTZN-000000001-2026","post_type":"article","text":"正文内容正文内容正文","media_items":[],"post_title":"标题X","content_sections":[{"text_delta":[{"insert":"正文内容正文内容正文"},{"insert":"\\n"}]}]}}''',
                 200,
                 headers: {'content-type': 'application/json'},
               );
@@ -256,7 +478,8 @@ void main() {
               expect(request.url.path, '/api/8964/posts/p1');
               detailRequests++;
               return http.Response(
-                '''{"is_ok":true,"post":{"post_id":"p1","account_id":"$kOwner","cid_number":"CN001-CTZN-000000001-2026","post_category":"normal","post_type":"article","post_title":"图集文章","content_hash":"$hash","receipt_id":"sqr_2","chain_block":2,"published_at":1000,"post_state":"published","media_items":[{"media_kind":"image","url":"https://media.test/cover.jpg"},{"media_kind":"image","url":"https://media.test/1.jpg"},{"media_kind":"image","url":"https://media.test/2.jpg"},{"media_kind":"image","url":"https://media.test/3.jpg"},{"media_kind":"video","url":"https://media.test/1.m3u8","preview_url":"https://media.test/1.jpg"},{"media_kind":"video","url":"https://media.test/2.m3u8","preview_url":"https://media.test/2.jpg"}]},"manifest":{"schema":"citizenapp.square.post","cid_number":"CN001-CTZN-000000001-2026","post_type":"article","text":"这是满足十个字的正文内容","media_items":[],"post_title":"图集文章","content_sections":[{"text_delta":[{"insert":"图集前面的正文内容满足十字"},{"insert":"\\n"}],"gallery_media_indices":[1,2,3]},{"text_delta":[{"insert":"第一个视频正文内容满足十字"},{"insert":"\\n"}],"video_media_index":4},{"text_delta":[{"insert":"第二个视频正文内容满足十字"},{"insert":"\\n"}],"video_media_index":5}]}}''',
+                '''{"is_ok":true,"post":{"post_id":"p1","account_id":"$kOwner","cid_number":"CN001-CTZN-000000001-2026","post_category":"normal","post_type":"article","post_title":"图集文章","content_hash":"$hash","receipt_id":"sqr_2","chain_block":2,"published_at":1000,"post_state":"published",
+                "post_visibility": "public","media_items":[{"media_kind":"image","url":"https://media.test/cover.jpg"},{"media_kind":"image","url":"https://media.test/1.jpg"},{"media_kind":"image","url":"https://media.test/2.jpg"},{"media_kind":"image","url":"https://media.test/3.jpg"},{"media_kind":"video","url":"https://media.test/1.m3u8","preview_url":"https://media.test/1.jpg"},{"media_kind":"video","url":"https://media.test/2.m3u8","preview_url":"https://media.test/2.jpg"}]},"manifest":{"schema":"citizenapp.square.post","cid_number":"CN001-CTZN-000000001-2026","post_type":"article","text":"这是满足十个字的正文内容","media_items":[],"post_title":"图集文章","content_sections":[{"text_delta":[{"insert":"图集前面的正文内容满足十字"},{"insert":"\\n"}],"gallery_media_indices":[1,2,3]},{"text_delta":[{"insert":"第一个视频正文内容满足十字"},{"insert":"\\n"}],"video_media_index":4},{"text_delta":[{"insert":"第二个视频正文内容满足十字"},{"insert":"\\n"}],"video_media_index":5}]}}''',
                 200,
                 headers: {'content-type': 'application/json'},
               );

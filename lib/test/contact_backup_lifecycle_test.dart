@@ -15,12 +15,20 @@ class _BackupContacts implements UserContactService {
   }
 
   @override
+  Future<List<UserContact>> sync() async {
+    flushes++;
+    return [];
+  }
+
+  @override
+  void setForeground(bool foreground) {}
+  @override
   dynamic noSuchMethod(Invocation invocation) =>
       throw StateError('unexpected contact operation');
 }
 
 void main() {
-  testWidgets('网络恢复只触发待发补传，应用壳销毁后取消网络监听', (tester) async {
+  testWidgets('网络恢复触发合并同步，应用壳销毁后取消网络监听', (tester) async {
     const name = 'test/contact-backup-network';
     var cancelled = false;
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(

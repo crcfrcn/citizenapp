@@ -194,38 +194,32 @@ class ChatSelectableUser {
   final String? subtitle;
 }
 
-/// 通用群创建表单；联系人和创建动作由App提供。
-class ChatGroupCreateView extends StatelessWidget {
-  const ChatGroupCreateView({
+/// 统一聊天联系人选择表单；联系人和创建动作由App提供。
+class ChatCreateView extends StatelessWidget {
+  const ChatCreateView({
     super.key,
     required this.nameController,
-    required this.users,
-    required this.selectedUserIds,
-    required this.onSelectionChanged,
+    required this.contacts,
+    required this.selectedCount,
     required this.canCreate,
     required this.onCreate,
-    this.loading = false,
     this.creating = false,
     this.error,
-    this.emptyMessage = '通讯录为空',
   });
 
   final TextEditingController nameController;
-  final List<ChatSelectableUser> users;
-  final Set<String> selectedUserIds;
-  final void Function(String userId, bool selected) onSelectionChanged;
+  final Widget contacts;
+  final int selectedCount;
   final bool canCreate;
   final VoidCallback onCreate;
-  final bool loading;
   final bool creating;
   final String? error;
-  final String emptyMessage;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('新建群聊'),
+        title: const Text('发起聊天'),
         actions: [
           TextButton(
             onPressed: canCreate && !creating ? onCreate : null,
@@ -235,41 +229,33 @@ class ChatGroupCreateView extends StatelessWidget {
                     height: AppLayout.scaled(context, 18),
                     child: const CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Text('创建'),
+                : const Text('确定'),
           ),
         ],
       ),
       body: Column(
         children: [
-          if (loading)
-            LinearProgressIndicator(
-              key: const ValueKey('group-create-load-progress'),
-              minHeight: AppLayout.scaled(context, 2),
-            ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: TextField(
-              controller: nameController,
-              maxLength: 40,
-              decoration: const InputDecoration(
-                labelText: '群名称',
-                counterText: '',
+          if (selectedCount > 1)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: TextField(
+                controller: nameController,
+                maxLength: 40,
+                decoration: const InputDecoration(
+                  labelText: '群名称（选填）',
+                  counterText: '',
+                ),
               ),
             ),
-          ),
           Padding(
             padding: EdgeInsets.symmetric(
               horizontal: AppLayout.scaled(context, 16),
             ),
             child: Row(
               children: [
-                Text('选择成员', style: Theme.of(context).textTheme.titleSmall),
+                Text('选择联系人', style: Theme.of(context).textTheme.titleSmall),
                 const Spacer(),
-                Text(
-                  selectedUserIds.length < 2
-                      ? '已选 ${selectedUserIds.length}·至少 2 人'
-                      : '已选 ${selectedUserIds.length}',
-                ),
+                Text('已选 ${selectedCount}'),
               ],
             ),
           ),
@@ -278,32 +264,7 @@ class ChatGroupCreateView extends StatelessWidget {
               padding: EdgeInsets.all(AppLayout.scaled(context, 16)),
               child: Text(error!, style: TextStyle(color: AppTheme.danger)),
             ),
-          Expanded(
-            child: loading && users.isEmpty
-                ? const Center(child: Text('正在读取本地通讯录'))
-                : users.isEmpty
-                ? Center(child: Text(emptyMessage))
-                : ListView.builder(
-                    itemCount: users.length,
-                    itemBuilder: (context, index) {
-                      final user = users[index];
-                      final selected = selectedUserIds.contains(user.userId);
-                      return CheckboxListTile(
-                        value: selected,
-                        onChanged: (value) =>
-                            onSelectionChanged(user.userId, value ?? false),
-                        title: Text(user.displayName),
-                        subtitle: user.subtitle == null
-                            ? null
-                            : Text(
-                                user.subtitle!,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                      );
-                    },
-                  ),
-          ),
+          Expanded(child: contacts),
         ],
       ),
     );

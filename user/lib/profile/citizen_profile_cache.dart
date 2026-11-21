@@ -67,6 +67,21 @@ class CitizenProfileCache {
   static final ValueNotifier<CitizenProfileRevisionEvent?> revision =
       ValueNotifier<CitizenProfileRevisionEvent?>(null);
   static int _revision = 0;
+  static int _readSequence = 0;
+  static final Map<String, ({int generation, int read})> _reads = {};
+
+  /// 只用于本进程的请求排序；不进入资料正文、HTTP字段或Isar。
+  static int readGeneration(String cid) => _reads[cid]?.generation ?? 0;
+  static int beginRead(String cid) {
+    final order = ++_readSequence;
+    _reads[cid] = (generation: readGeneration(cid), read: order);
+    return order;
+  }
+  static bool acceptsRead(String cid, int order) => _reads[cid]?.read == order;
+  static void invalidateReads(String cid) {
+    final order = ++_readSequence;
+    _reads[cid] = (generation: order, read: order);
+  }
   static const _updateFields = {
     'display_name',
     'profile_bio',
@@ -275,8 +290,15 @@ class CitizenProfileCache {
     }
     if (remote.profileAt == 0 ||
         local != null && local.profileAt > remote.profileAt) {
-      // 公开资料可以保留旧快照；浏览者关系只能取本次已鉴权响应。
+      // 资料正文按R2版本保留；SQL计数与关系独立，只取本次已鉴权响应。
       final effective = (local ?? remote).copyWith(
+        following: remote.following,
+        followers: remote.followers,
+        mutualFollowing: remote.mutualFollowing,
+        posts: remote.posts,
+        campaigns: remote.campaigns,
+        videos: remote.videos,
+        articles: remote.articles,
         isFollowing: remote.isFollowing,
         isFollowedBy: remote.isFollowedBy,
         isNotifying: remote.isNotifying,
@@ -315,6 +337,7 @@ class CitizenProfileCache {
     check();
     CitizenProfileLoadResult? selected;
     int? localVersion;
+    var saved = false;
     try {
       final result = await UserIsar.instance.writeTxn((db) async {
         check();
@@ -332,18 +355,25 @@ class CitizenProfileCache {
         }
         final decision = selectRemote(local, remote);
         selected = decision;
-        if (decision.status == CitizenProfileLoadStatus.updated) {
+        // SQL社交事实独立于资料版本；保存已选择的完整结果，保留较新的正文及图片引用。
+        if (decision.status == CitizenProfileLoadStatus.updated ||
+            local != null &&
+                jsonEncode(local.toJson()) !=
+                    jsonEncode(decision.profile.toJson())) {
+          saved = true;
           await db.collection<user_store.Profile>().putByCidNumber(
             user_store.Profile()
               ..cidNumber = cid
-              ..profileData = jsonEncode(remote.toJson()..remove('cid_number')),
+              ..profileData = jsonEncode(
+                decision.profile.toJson()..remove('cid_number'),
+              ),
           );
         }
         check();
         return decision;
       });
       check();
-      if (result.status == CitizenProfileLoadStatus.updated) _notify(cid);
+      if (saved) _notify(cid);
       AppLog.profileLoadResult(
         state: result.status.name,
         localVersion: localVersion,
@@ -449,6 +479,8 @@ class CitizenProfileCache {
       if (completeUpdate != null) {
         await db.collection<user_store.Edit>().delete(completeUpdate.rowId);
       }
+      // 与资料提交串行：已有GET即使稍后返回也不能覆盖本次已确认写入。
+      invalidateReads(cid);
       return changed;
     });
     if (changed) _notify(cid);
@@ -459,6 +491,7 @@ class CitizenProfileCache {
     if (cidNumber.trim().isEmpty) return;
     final cid = _cid(cidNumber);
     CitizenProfileMediaCache._invalidate(cid);
+    invalidateReads(cid);
     final changed = await UserIsar.instance.writeTxn((db) async {
       final removed = await db
           .collection<user_store.Profile>()

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:citizen_testing/mls_authentication_fixture.dart';
 
 import 'package:citizen_square/post/square_models.dart';
@@ -119,6 +120,19 @@ CitizenProfile sampleProfile({
 }
 
 class FakeProfileApi extends CitizenProfileApi {
+  Object? accessError;
+  Completer<void>? accessPending;
+  int accessCalls = 0;
+  @override
+  Future<void> requireProfileAccess(
+    String targetCid,
+    SquareSession session,
+  ) async {
+    accessCalls++;
+    if (accessError != null) throw accessError!;
+    if (accessPending != null) await accessPending!.future;
+  }
+
   FakeProfileApi(
     this.result, {
     super.client,

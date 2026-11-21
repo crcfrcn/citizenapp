@@ -3,6 +3,9 @@ import 'package:citizen_network/mls_authentication.dart';
 import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
+/// 私信拒绝文案由聊天错误映射唯一拥有，页面不另写一份。
+const dmForbiddenMessage = '对方不接收你的私信';
+
 /// 公民聊天 对App公开的稳定错误分类；产品文案由App应用映射。
 enum ChatErrorCode {
   invalidContent,
@@ -87,6 +90,8 @@ String chatUserErrorMessage(
   Object error, {
   String fallback = '聊天暂时无法使用，请稍后重试',
 }) {
+  if (error is ChatConnectionException && error.code == 'dm_forbidden')
+    return dmForbiddenMessage;
   if (error is SquarePreflightException) {
     return error.message;
   }

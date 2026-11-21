@@ -82,6 +82,10 @@ class _SquareHomePageState extends State<SquareHomePage> {
   late final SquareFeedSource _feedSource;
   late Future<List<SquarePost>> _feedFuture;
   int _feedLoadGeneration = 0;
+  List<SquarePost> _remotePosts = [];
+  String? _feedCursor;
+  bool _loadingMore = false;
+  String? _paginationError;
   final List<SquarePost> _localPosts = [];
   final Set<String> _removedPostIds = {};
 
@@ -215,7 +219,7 @@ class _SquareHomePageState extends State<SquareHomePage> {
         unawaited(
           SquareInteractionService.instance.load(
             id,
-            _squareApi,
+            _feedSource is SquareApiClient ? _feedSource : _squareApi,
             _sessionProvider!,
           ),
         );
@@ -433,10 +437,9 @@ class _SquareHomePageState extends State<SquareHomePage> {
   Future<void> _openAuthor(String cidNumber) async {
     if (cidNumber.isEmpty) return;
     final isSelf = _identityCidNumber?.trim() == cidNumber;
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (_) => UserProfilePage(cidNumber: cidNumber, isSelf: isSelf),
-      ),
+    await UserProfilePage.open(
+      context,
+      UserProfilePage(cidNumber: cidNumber, isSelf: isSelf),
     );
   }
 
@@ -564,11 +567,14 @@ class _SquareHomePageState extends State<SquareHomePage> {
                         )
                       else
                         FutureBuilder<List<SquarePost>>(
-                          key: ValueKey(
+                          key: ValueKey((
+                            _identityAddress,
+                            _identityCidNumber,
+                            _selectedFeed,
                             _selectedFeed == SquareFeedKind.circle
                                 ? _feedLoadGeneration
-                                : -1,
-                          ),
+                                : 0,
+                          )),
                           future: _feedFuture,
                           builder: (context, snapshot) {
                             final error = snapshot.error;
@@ -591,6 +597,9 @@ class _SquareHomePageState extends State<SquareHomePage> {
                             final posts = _composeFeed(
                               snapshot.data ?? const <SquarePost>[],
                             );
+                            _interactionPosts
+                              ..clear()
+                              ..addAll(posts.map((post) => post.postId));
                             final errorMessage = error is SquareApiException
                                 ? SquareSessionResolution.fromError(
                                     error,
@@ -604,7 +613,12 @@ class _SquareHomePageState extends State<SquareHomePage> {
                                   onRefresh: _refreshFeed,
                                   child: _FeedBody(
                                     posts: posts,
-                                    errorMessage: errorMessage,
+                                    errorMessage:
+                                        _paginationError ?? errorMessage,
+                                    onLoadMore: _feedCursor == null
+                                        ? null
+                                        : _loadMoreFeed,
+                                    loadingMore: _loadingMore,
                                     onOpenPost: _openDetail,
                                     onOpenAuthor: _openAuthor,
                                     avatarImageOf: (key) => _feedSession == null
@@ -656,6 +670,7 @@ class _SquareHomePageState extends State<SquareHomePage> {
     SquareFeedKind feedKind,
     int generation, {
     bool syncSelf = false,
+    String? cursor,
   }) async {
     if (feedKind == SquareFeedKind.notifications) return const [];
     SquareSession? session;
@@ -668,9 +683,13 @@ class _SquareHomePageState extends State<SquareHomePage> {
         throw const SquareApiException('需要钱包账户才能浏览广场');
       }
     }
-    List<SquarePost> posts;
+    SquareFeedPage page;
     try {
-      posts = await _feedSource.fetchFeed(feedKind: feedKind, session: session);
+      page = await _feedSource.fetchFeed(
+        feedKind: feedKind,
+        session: session,
+        cursor: cursor,
+      );
     } on SquareApiException catch (error) {
       // 只在 Worker 明确拒绝旧 Session 时重新握手一次；第二次失败原样交给前台，禁止
       // 无限重试。测试/离线数据源不参与生产会话刷新。
@@ -682,28 +701,26 @@ class _SquareHomePageState extends State<SquareHomePage> {
       final refreshed = await sessionProvider!.refreshSession();
       if (refreshed == null) rethrow;
       session = refreshed;
-      posts = await _feedSource.fetchFeed(
+      page = await _feedSource.fetchFeed(
+        cursor: cursor,
         feedKind: feedKind,
         session: refreshed,
       );
     }
+    if (!mounted || generation != _feedLoadGeneration) return const [];
+    if (cursor != null && page.nextCursor == cursor)
+      throw const SquareApiException('信息流游标未推进');
+    final posts = <String, SquarePost>{
+      if (cursor != null)
+        for (final post in _remotePosts) post.postId: post,
+      for (final post in page.posts) post.postId: post,
+    }.values.toList(growable: false);
+    _remotePosts = posts;
+    _feedCursor = page.nextCursor;
     // 保存完整会话供头像逐次现签；卸载或迟到旧分类请求不能覆盖当前媒体身份。
     if (mounted && generation == _feedLoadGeneration) {
       _feedSession = session;
-      _interactionPosts
-        ..clear()
-        ..addAll(posts.map((p) => p.postId));
-      if (sessionProvider != null && _squareVisible) {
-        for (final id in _interactionPosts) {
-          unawaited(
-            SquareInteractionService.instance.load(
-              id,
-              _feedSource is SquareApiClient ? _feedSource : _squareApi,
-              sessionProvider,
-            ),
-          );
-        }
-      }
+      // 卡片现有入口负责首次互动读取，翻页不重读累计旧页。
       _scheduleSquareRead();
     }
     if (syncSelf && session != null) {
@@ -716,8 +733,33 @@ class _SquareHomePageState extends State<SquareHomePage> {
     return posts;
   }
 
+  Future<void> _loadMoreFeed() async {
+    final cursor = _feedCursor;
+    if (cursor == null || _loadingMore) return;
+    final generation = _feedLoadGeneration, kind = _selectedFeed;
+    setState(() {
+      _loadingMore = true;
+      _paginationError = null;
+    });
+    try {
+      final posts = await _loadFeed(kind, generation, cursor: cursor);
+      if (!mounted || generation != _feedLoadGeneration) return;
+      setState(() => _feedFuture = Future.value(posts));
+    } on Object {
+      if (mounted && generation == _feedLoadGeneration)
+        setState(() => _paginationError = '加载失败，请重试');
+    } finally {
+      if (mounted && generation == _feedLoadGeneration)
+        setState(() => _loadingMore = false);
+    }
+  }
+
   Future<List<SquarePost>> _beginFeedLoad({bool syncSelf = false}) {
     final generation = ++_feedLoadGeneration;
+    _feedCursor = null;
+    _remotePosts = [];
+    _loadingMore = false;
+    _paginationError = null;
     final future = () async {
       await _ensureTabOrder();
       if (!mounted || generation != _feedLoadGeneration) return <SquarePost>[];
@@ -758,19 +800,30 @@ class _SquareHomePageState extends State<SquareHomePage> {
     });
   }
 
+  // 本机即时结果只证明当前作者自己的圈内内容，不能替新浏览者授予互关权限。
+  bool _canMergeLocal(SquarePost post) =>
+      post.postVisibility == SquarePostVisibility.public ||
+      post.postVisibility == SquarePostVisibility.circle &&
+          post.author.cidNumber == _identityCidNumber;
+
   /// 关注和公民圈由服务端按当前 CID 筛选；公民圈只合并本人的即时发布结果。
   List<SquarePost> _composeFeed(List<SquarePost> serverPosts) {
     // 写操作已有确定结果，直接更新当前展示，返回页面不再次请求远端。
     final visibleServer = serverPosts
-        .where((post) => !_removedPostIds.contains(post.postId))
+        .where(
+          (post) =>
+              !_removedPostIds.contains(post.postId) &&
+              post.postVisibility != SquarePostVisibility.profile,
+        )
         .toList();
     final byId = <String, SquarePost>{};
     for (final post in [
-      ..._localPosts,
+      ..._localPosts.where(_canMergeLocal),
       ...visibleServer,
-      ...widget.seedPosts,
+      ...widget.seedPosts.where(_canMergeLocal),
     ]) {
-      if (!_removedPostIds.contains(post.postId)) {
+      if (!_removedPostIds.contains(post.postId) &&
+          post.postVisibility != SquarePostVisibility.profile) {
         byId.putIfAbsent(post.postId, () => post);
       }
     }
@@ -786,6 +839,7 @@ class _SquareHomePageState extends State<SquareHomePage> {
         if (selfCid != null && selfCid.isNotEmpty) {
           for (final post in _localPosts) {
             if (post.author.cidNumber == selfCid &&
+                post.postVisibility != SquarePostVisibility.profile &&
                 !_removedPostIds.contains(post.postId)) {
               circle[post.postId] = post;
             }
@@ -822,12 +876,16 @@ class _FeedBody extends StatelessWidget {
     required this.onOpenPost,
     required this.onOpenAuthor,
     required this.avatarImageOf,
+    this.onLoadMore,
+    this.loadingMore = false,
   });
 
   final List<SquarePost> posts;
   final String? errorMessage;
   final ValueChanged<SquarePost> onOpenPost;
   final ValueChanged<String> onOpenAuthor;
+  final VoidCallback? onLoadMore;
+  final bool loadingMore;
 
   /// 完整资料头像只从逐请求签名的图片源读取，不保存一次性证明头。
   final ImageProvider? Function(String objectKey) avatarImageOf;
@@ -845,11 +903,20 @@ class _FeedBody extends StatelessWidget {
       return ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
-        children: [if (errorMessage != null) _errorBanner(errorMessage!)],
+        children: [
+          if (errorMessage != null) _errorBanner(errorMessage!),
+          if (onLoadMore != null) _moreButton(),
+        ],
       );
     }
 
     return ListView.separated(
+      // 分页合并后排序可能移动旧卡片；按帖子保留State，避免再次读取旧互动。
+      findItemIndexCallback: (key) {
+        if (key is! ValueKey<String>) return null;
+        final index = posts.indexWhere((post) => post.postId == key.value);
+        return index < 0 ? null : index + (errorMessage == null ? 0 : 1);
+      },
       // 底部留白给右下角发布 FAB，避免盖住末条内容的互动区。
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 88),
       itemBuilder: (context, index) {
@@ -857,11 +924,13 @@ class _FeedBody extends StatelessWidget {
           return _errorBanner(errorMessage!);
         }
         final postIndex = errorMessage == null ? index : index - 1;
+        if (postIndex == posts.length) return _moreButton();
         final post = posts[postIndex];
         final avatarImage = post.isLocal ? null : _avatarImage(post.author);
         // 文章走标题/正文在上、强制横屏首图在下的文章卡；其余走图文卡。
         if (post.postType == SquarePostType.article) {
           return SquareArticleCard(
+            key: ValueKey(post.postId),
             post: post,
             onTap: () => onOpenPost(post),
             onAuthorTap: () => onOpenAuthor(post.author.cidNumber ?? ''),
@@ -869,6 +938,7 @@ class _FeedBody extends StatelessWidget {
           );
         }
         return SquarePostCard(
+          key: ValueKey(post.postId),
           post: post,
           onTap: () => onOpenPost(post),
           onAuthorTap: () => onOpenAuthor(post.author.cidNumber ?? ''),
@@ -877,9 +947,20 @@ class _FeedBody extends StatelessWidget {
       },
       separatorBuilder: (_, _) =>
           SizedBox(height: AppLayout.scaled(context, 10)),
-      itemCount: posts.length + (errorMessage == null ? 0 : 1),
+      itemCount:
+          posts.length +
+          (errorMessage == null ? 0 : 1) +
+          (onLoadMore == null ? 0 : 1),
     );
   }
+
+  Widget _moreButton() => Center(
+    child: TextButton(
+      key: const ValueKey('square-feed-more'),
+      onPressed: loadingMore ? null : onLoadMore,
+      child: Text(loadingMore ? '加载中' : '加载更多'),
+    ),
+  );
 
   Widget _errorBanner(String message) {
     return Container(
@@ -1115,23 +1196,30 @@ Future<void> openSquareNotification(
 }) async {
   try {
     final api = context.read<SquareApiClient>();
+    final security = context.read<AccountSecurityService?>();
+    final revision = security?.revision.value;
     final session = await context.read<SquareSessionProvider>().ensureSession();
     if (session == null || !context.mounted) return;
     final post = await api.fetchPostDetail(session: session, postId: postId);
     await session.validateCurrent();
-    if (!context.mounted) return;
+    if (!context.mounted || revision != security?.revision.value) return;
+    final initialRead = SquareDetailRead(
+      session: session,
+      postId: postId,
+      revision: revision,
+    );
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => post.postType == SquarePostType.article
             ? SquareArticleDetailPage(
                 post: post,
-                initialDetailLoaded: true,
+                initialRead: initialRead,
                 initialCommentId: commentId,
                 notificationThrough: notificationThrough,
               )
             : SquarePostDetailPage(
                 post: post,
-                initialDetailLoaded: true,
+                initialRead: initialRead,
                 initialCommentId: commentId,
                 notificationThrough: notificationThrough,
               ),

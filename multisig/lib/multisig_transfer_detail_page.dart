@@ -602,7 +602,7 @@ class _MultisigTransferDetailPageState
       final balanceBlockedReason =
           await MultisigTransferBalanceGuard.checkAdminWalletBalance(
             wallet: wallet,
-            requiredFeeFen: fees.voteFeeFen,
+            requiredFeeFen: fees.FLAT_FEE,
             edFen: fees.existentialDepositFen,
             actionLabel: '提交多签转账投票',
             chain: sdk,

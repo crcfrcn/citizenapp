@@ -36,6 +36,7 @@ class _FakeGroupCrypto implements MlsGroupCrypto, MlsCommitControl {
 
   final String userId;
   final String localDeviceId;
+  int processCalls = 0;
   final Map<String, List<String>> _roster = {};
   final Map<String, int> _epoch = {};
   final Map<String, List<String>> _pending = {};
@@ -131,6 +132,7 @@ class _FakeGroupCrypto implements MlsGroupCrypto, MlsCommitControl {
 
   @override
   Future<GroupInbound> groupProcess(MlsWireMessage wire) async {
+    processCalls++;
     // 测试只驱动 application 入站:回显明文。
     final epoch = _epoch[wire.conversationId] ?? 0;
     return GroupInbound(
@@ -208,6 +210,49 @@ MlsKeyPackage _keyPackage(String userId, String device) => MlsKeyPackage(
 );
 
 void main() {
+  useIsolatedChatIsar();
+  test('群信封携带私聊组ID在MLS处理前拒绝，协议及业务状态不改', () async {
+    final store = ChatStore();
+    final crypto = _FakeGroupCrypto(userId: _userA, localDeviceId: 'devA');
+    final flow = ChatGroupFlow(
+      ownerUserId: _ownerUserId,
+      crypto: crypto,
+      store: store,
+      bindingToken: await _bindingToken(store),
+      submitCommit: _submit(_okDeliverer),
+      deliverer: _okDeliverer,
+      userId: _userA,
+      currentAccountId: _accountA,
+      localDeviceId: 'devA',
+    );
+    final message =
+        const MlsWireMessage(
+          conversationId: 'grp:CN123:forged',
+          wireBytes: [1],
+          groupIdBytes: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        ).toEncryptedMessage(
+          messageId: 'forged',
+          senderUserId: _userB,
+          recipientUserId: _userA,
+          senderDeviceId: 'devB',
+          recipientDeviceId: 'devA',
+          createdAtMillis: 1,
+        );
+    await expectLater(
+      flow.processIncomingGroupMessage(message.writeToBuffer()),
+      throwsFormatException,
+    );
+    expect(crypto.processCalls, 0);
+    expect(
+      await store.readMessages(
+        ownerUserId: _ownerUserId,
+        currentAccountId: _accountA,
+        conversationId: message.conversationId,
+      ),
+      isEmpty,
+    );
+  });
+
   test('非管理员不能从控制入口改名，接收端拒绝合法成员越权改名和外层冒名', () async {
     final store = ChatStore(),
         crypto = _FakeGroupCrypto(userId: _userB, localDeviceId: 'devB');
@@ -269,7 +314,6 @@ void main() {
     );
     expect((await store.readGroup(_ownerUserId, id))!.name, '原名');
   });
-  useIsolatedChatIsar();
 
   test('stale只有精确已提交收据才进入设备确认集合', () async {
     final store = ChatStore();
@@ -288,7 +332,7 @@ void main() {
     );
     final message =
         MlsWireMessage(
-          conversationId: 'grp:receipt',
+          conversationId: 'grp:$_userA:receipt',
           wireBytes: [1, 2, 3],
           messageKind: MlsMessageKind.application,
         ).toEncryptedMessage(

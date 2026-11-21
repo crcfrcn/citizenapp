@@ -32,6 +32,7 @@ SquareLocalPost _post(
   String postId,
   int createdAt, {
   String cid = _cid,
+  String postVisibility = 'public',
   List<Map<String, Object>> media = const [],
 }) {
   final bytes = Uint8List.fromList(
@@ -51,6 +52,7 @@ SquareLocalPost _post(
     accountId: _account,
     postCategory: 'normal',
     postType: 'document',
+    postVisibility: postVisibility,
     manifestBytes: bytes,
     contentHash: sha256.convert(bytes).toString(),
     receiptId: 'sqr_$postId',
@@ -107,6 +109,26 @@ class _MediaApi extends SquareApiClient {
 void main() {
   useIsolatedIsar();
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('本人回灌三类动态不漏范围，重开数据库保持原值', () async {
+    final posts = [
+      _post('scope-open', 3, postVisibility: 'public'),
+      _post('scope-circle', 2, postVisibility: 'circle'),
+      _post('scope-home', 1, postVisibility: 'profile'),
+    ];
+    final sync = SquarePostSyncService(
+      pageLoader: ({required session, cursor, required limit}) async =>
+          SquareLocalPostPage(items: posts, nextCursor: null),
+    );
+    await sync.sync(_session, userInitiated: true);
+    await (await SocialIsar.instance.db()).close();
+    final saved = await const SquarePostStore().listByCid(_cid);
+    expect(saved.map((p) => p.postVisibility).toSet(), {
+      'public',
+      'circle',
+      'profile',
+    });
+  });
 
   test('普通加载拒绝联网，用户刷新跨实例复用同CID任务', () async {
     final gate = Completer<SquareLocalPostPage>();
@@ -215,8 +237,9 @@ void main() {
     await firstSync.sync(_session, userInitiated: true);
     expect(firstCursors, [null, 'cursor_2']);
     expect(
-      (await const SquarePostStore().listByCid(_cid))
-          .map((post) => post.postId),
+      (await const SquarePostStore().listByCid(
+        _cid,
+      )).map((post) => post.postId),
       ['sqp_3', 'sqp_2', 'sqp_1'],
     );
     final firstCheckpoint = await const SquarePostStore().readSyncCheckpoint(
@@ -240,8 +263,9 @@ void main() {
 
     expect(secondPageCalls, 1);
     expect(
-      (await const SquarePostStore().listByCid(_cid))
-          .map((post) => post.postId),
+      (await const SquarePostStore().listByCid(
+        _cid,
+      )).map((post) => post.postId),
       ['sqp_4', 'sqp_3', 'sqp_2', 'sqp_1'],
     );
     final nextCheckpoint = await const SquarePostStore().readSyncCheckpoint(

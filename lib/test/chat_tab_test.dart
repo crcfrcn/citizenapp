@@ -576,6 +576,108 @@ void main() {
     );
   }
 
+  testWidgets('创建结果打开器等待身份时换账户，旧快照不能继续导航', (tester) async {
+    final user = _HeldEntryIdentity(), security = _UnusedSecurity();
+    addTearDown(security.revision.dispose);
+    final original = await _LocalChatIdentity(registered: true).resolve();
+    final binding = original!.binding!;
+    final owner = (
+      genesisHash: binding.genesisHash,
+      cidNumber: binding.cidNumber,
+      accountId: binding.accountId,
+      bindRev: binding.bindRev,
+    );
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          Provider<CurrentUserContext>.value(value: user),
+          Provider<AccountSecurityService>.value(value: security),
+        ],
+        child: MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => unawaited(
+                  openDirectChat(
+                    context,
+                    peerUserId: _peerUserId,
+                    title: '对端',
+                    expectedOwner: owner,
+                  ),
+                ),
+                child: const Text('打开旧选择结果'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开旧选择结果'));
+    await tester.pump();
+    security.revision.value++;
+    user.held.complete(original);
+    await tester.pumpAndSettle();
+    expect(find.byType(ChatConversationPage), findsNothing);
+    expect(find.text('打开旧选择结果'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('私信拒绝只显示于匹配账户与会话，退出后取消监听', (tester) async {
+    const record = MethodChannel('com.llfbandit.record/messages');
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      record,
+      (_) async => null,
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        record,
+        null,
+      ),
+    );
+    final runtime = _RejectionRuntime(_FakeChatStore());
+    addTearDown(runtime.events.close);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ChatConversationPage(
+          runtime: runtime,
+          conversationId: _directConversationId,
+          currentUserId: _ownerUserId,
+          accountId: testMlsAccountId,
+          peerUserId: _peerUserId,
+          title: '测试私聊',
+        ),
+      ),
+    );
+    await settleLocal(tester);
+    runtime.events.add((
+      accountId: 'other',
+      userId: _ownerUserId,
+      conversationId: _directConversationId,
+      messageId: 'wrong',
+    ));
+    await tester.pump();
+    expect(find.text('对方不接收你的私信'), findsNothing);
+    runtime.events.add((
+      accountId: testMlsAccountId,
+      userId: _ownerUserId,
+      conversationId: _directConversationId,
+      messageId: 'denied',
+    ));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('对方不接收你的私信'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    runtime.events.add((
+      accountId: testMlsAccountId,
+      userId: _ownerUserId,
+      conversationId: _directConversationId,
+      messageId: 'late',
+    ));
+    await tester.pump(const Duration(seconds: 1));
+    expect(runtime.events.hasListener, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('完整会话从各自CID读取左右头像，资料更新后刷新且拒绝串用头像', (tester) async {
     const record = MethodChannel('com.llfbandit.record/messages');
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
@@ -653,6 +755,17 @@ void main() {
       revision: 10001,
     );
     await settleLocal(tester);
+    // 缓存事件和图像解码是异步过程；按可观察结果有界等待，不依赖固定八帧。
+    for (
+      var i = 0;
+      i < 30 && avatar('own-avatar').imagePath != updated.path;
+      i++
+    ) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+      await tester.pump();
+    }
     expect(avatar('own-avatar').imagePath, updated.path);
     expect(avatar('peer-avatar').imagePath, peer.path);
     profiles.values[_ownerUserId] = _peerProfile;
@@ -985,7 +1098,7 @@ void main() {
           const UserContact(
             cidNumber: _peerUserId,
             contactRemark: '乙备注',
-            updatedAt: 1,
+            changeVersion: 1,
           ),
         ]),
       ),
@@ -996,7 +1109,7 @@ void main() {
       const UserContact(
         cidNumber: _peerUserId,
         contactRemark: '甲备注',
-        updatedAt: 1,
+        changeVersion: 1,
       ),
     ]);
     await settleLocal(tester);
@@ -1164,7 +1277,7 @@ void main() {
               const UserContact(
                 cidNumber: _peerUserId,
                 contactRemark: '同事',
-                updatedAt: 1,
+                changeVersion: 1,
               ),
             ]),
           ),
@@ -1648,13 +1761,15 @@ void main() {
     await tester.pump();
   });
 
-  testWidgets('点加号弹出扫一扫/收付款/发私信/发群聊/加好友五项', (tester) async {
+  testWidgets('点加号弹出扫一扫/收付款/发起聊天/加好友四项', (tester) async {
     await pumpTab(tester);
     await openMenu(tester);
 
-    for (final label in ['扫一扫', '收付款', '发私信', '发群聊', '加好友']) {
+    for (final label in ['扫一扫', '收付款', '发起聊天', '加好友']) {
       expect(find.text(label), findsOneWidget, reason: '缺少菜单项 $label');
     }
+    expect(find.text('发私信'), findsNothing);
+    expect(find.text('发群聊'), findsNothing);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
@@ -1670,7 +1785,7 @@ void main() {
     await openMenu(tester);
 
     final rows = <Finder>[];
-    for (final label in ['扫一扫', '收付款', '发私信', '发群聊', '加好友']) {
+    for (final label in ['扫一扫', '收付款', '发起聊天', '加好友']) {
       final row = find.ancestor(
         of: find.text(label),
         matching: find.byType(InkWell),
@@ -1681,14 +1796,14 @@ void main() {
     }
     expect(
       tester.getCenter(rows.last).dy - tester.getCenter(rows.first).dy,
-      closeTo(160, 1),
+      closeTo(120, 1),
     );
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
   });
 
-  testWidgets('扫一扫用扫码 svg（不是二维码图标）、发私信用聊天 tab 同款图标', (tester) async {
+  testWidgets('扫一扫用扫码 svg（不是二维码图标）、发起聊天用聊天 tab 同款图标', (tester) async {
     await pumpTab(tester);
     await openMenu(tester);
 
@@ -1706,40 +1821,33 @@ void main() {
     // 防回归：不得再用 Material 的二维码图标顶替扫码图标。
     expect(find.byIcon(Icons.qr_code_scanner_rounded), findsNothing);
     expect(find.byIcon(Icons.qr_code_rounded), findsNothing);
-    // 发私信与底部导航「聊天」tab 同一个图标。
+    // 发起聊天与底部导航「聊天」tab 同一个图标。
     expect(find.byIcon(Icons.textsms_outlined), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
   });
 
-  testWidgets('五项分别路由到对应动作', (tester) async {
+  testWidgets('四项分别路由到对应动作', (tester) async {
     final fired = <String>[];
     await pumpTab(
       tester,
       openers: ChatEntryOpeners(
         openScan: (_) async => fired.add('scan'),
         openReceivePay: (_) async => fired.add('receivePay'),
-        openSendMessage: (_) async => fired.add('sendMessage'),
-        openCreateGroup: (_) async => fired.add('createGroup'),
+        openChat: (_) async => fired.add('chat'),
         openAddFriend: (_) async => fired.add('addFriend'),
       ),
     );
 
-    for (final label in ['扫一扫', '收付款', '发私信', '发群聊', '加好友']) {
+    for (final label in ['扫一扫', '收付款', '发起聊天', '加好友']) {
       await openMenu(tester);
       await tester.tap(find.text(label));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
     }
 
-    expect(fired, [
-      'scan',
-      'receivePay',
-      'sendMessage',
-      'createGroup',
-      'addFriend',
-    ]);
+    expect(fired, ['scan', 'receivePay', 'chat', 'addFriend']);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
@@ -2258,4 +2366,17 @@ class _DelayedProfileCache extends CitizenProfileCache {
   final held = Completer<CitizenProfile?>();
   @override
   Future<CitizenProfile?> read(String cidNumber) => held.future;
+}
+
+class _RejectionRuntime extends _AvatarRuntime {
+  _RejectionRuntime(super.store);
+  final events = StreamController<ChatSendRejection>.broadcast();
+  @override
+  Stream<ChatSendRejection> get sendRejections => events.stream;
+}
+
+class _HeldEntryIdentity extends _LocalChatIdentity {
+  final held = Completer<CurrentUser?>();
+  @override
+  Future<CurrentUser?> resolve() => held.future;
 }

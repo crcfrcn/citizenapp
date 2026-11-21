@@ -12512,17 +12512,18 @@ const ContactSchema = CollectionSchema(
       name: r'contact_remark',
       type: IsarType.string,
     ),
-    r'owner_cid': PropertySchema(
+    r'delete_batch': PropertySchema(
       id: 3,
+      name: r'delete_batch',
+      type: IsarType.string,
+    ),
+    r'deleted': PropertySchema(id: 4, name: r'deleted', type: IsarType.bool),
+    r'owner_cid': PropertySchema(
+      id: 5,
       name: r'owner_cid',
       type: IsarType.string,
     ),
-    r'pending': PropertySchema(id: 4, name: r'pending', type: IsarType.string),
-    r'updated_at': PropertySchema(
-      id: 5,
-      name: r'updated_at',
-      type: IsarType.long,
-    ),
+    r'pending': PropertySchema(id: 6, name: r'pending', type: IsarType.string),
   },
 
   estimateSize: _contactEstimateSize,
@@ -12567,6 +12568,7 @@ int _contactEstimateSize(
   var bytesCount = offsets.last;
   bytesCount += 3 + object.cidNumber.length * 3;
   bytesCount += 3 + object.contactRemark.length * 3;
+  bytesCount += 3 + object.deleteBatch.length * 3;
   bytesCount += 3 + object.ownerCidNumber.length * 3;
   bytesCount += 3 + object.pendingAction.length * 3;
   return bytesCount;
@@ -12581,9 +12583,10 @@ void _contactSerialize(
   writer.writeLong(offsets[0], object.changeVersion);
   writer.writeString(offsets[1], object.cidNumber);
   writer.writeString(offsets[2], object.contactRemark);
-  writer.writeString(offsets[3], object.ownerCidNumber);
-  writer.writeString(offsets[4], object.pendingAction);
-  writer.writeLong(offsets[5], object.updatedAt);
+  writer.writeString(offsets[3], object.deleteBatch);
+  writer.writeBool(offsets[4], object.deleted);
+  writer.writeString(offsets[5], object.ownerCidNumber);
+  writer.writeString(offsets[6], object.pendingAction);
 }
 
 Contact _contactDeserialize(
@@ -12596,10 +12599,11 @@ Contact _contactDeserialize(
   object.changeVersion = reader.readLong(offsets[0]);
   object.cidNumber = reader.readString(offsets[1]);
   object.contactRemark = reader.readString(offsets[2]);
+  object.deleteBatch = reader.readString(offsets[3]);
+  object.deleted = reader.readBoolOrNull(offsets[4]);
   object.rowId = id;
-  object.ownerCidNumber = reader.readString(offsets[3]);
-  object.pendingAction = reader.readString(offsets[4]);
-  object.updatedAt = reader.readLong(offsets[5]);
+  object.ownerCidNumber = reader.readString(offsets[5]);
+  object.pendingAction = reader.readString(offsets[6]);
   return object;
 }
 
@@ -12619,9 +12623,11 @@ P _contactDeserializeProp<P>(
     case 3:
       return (reader.readString(offset)) as P;
     case 4:
-      return (reader.readString(offset)) as P;
+      return (reader.readBoolOrNull(offset)) as P;
     case 5:
-      return (reader.readLong(offset)) as P;
+      return (reader.readString(offset)) as P;
+    case 6:
+      return (reader.readString(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
   }
@@ -13313,6 +13319,179 @@ extension ContactQueryFilter
     });
   }
 
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> deleteBatchEqualTo(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'delete_batch',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> deleteBatchGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'delete_batch',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> deleteBatchLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'delete_batch',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> deleteBatchBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'delete_batch',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> deleteBatchStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'delete_batch',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> deleteBatchEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'delete_batch',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> deleteBatchContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'delete_batch',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> deleteBatchMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'delete_batch',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> deleteBatchIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'delete_batch', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition>
+  deleteBatchIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'delete_batch', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> deletedIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'deleted'),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> deletedIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'deleted'),
+      );
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterFilterCondition> deletedEqualTo(
+    bool? value,
+  ) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'deleted', value: value),
+      );
+    });
+  }
+
   QueryBuilder<Contact, Contact, QAfterFilterCondition> rowIdEqualTo(Id value) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
@@ -13664,65 +13843,6 @@ extension ContactQueryFilter
       );
     });
   }
-
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> updatedAtEqualTo(
-    int value,
-  ) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.equalTo(property: r'updated_at', value: value),
-      );
-    });
-  }
-
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> updatedAtGreaterThan(
-    int value, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.greaterThan(
-          include: include,
-          property: r'updated_at',
-          value: value,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> updatedAtLessThan(
-    int value, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.lessThan(
-          include: include,
-          property: r'updated_at',
-          value: value,
-        ),
-      );
-    });
-  }
-
-  QueryBuilder<Contact, Contact, QAfterFilterCondition> updatedAtBetween(
-    int lower,
-    int upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(
-        FilterCondition.between(
-          property: r'updated_at',
-          lower: lower,
-          includeLower: includeLower,
-          upper: upper,
-          includeUpper: includeUpper,
-        ),
-      );
-    });
-  }
 }
 
 extension ContactQueryObject
@@ -13768,6 +13888,30 @@ extension ContactQuerySortBy on QueryBuilder<Contact, Contact, QSortBy> {
     });
   }
 
+  QueryBuilder<Contact, Contact, QAfterSortBy> sortByDeleteBatch() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'delete_batch', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterSortBy> sortByDeleteBatchDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'delete_batch', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterSortBy> sortByDeleted() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'deleted', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterSortBy> sortByDeletedDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'deleted', Sort.desc);
+    });
+  }
+
   QueryBuilder<Contact, Contact, QAfterSortBy> sortByOwnerCidNumber() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'owner_cid', Sort.asc);
@@ -13789,18 +13933,6 @@ extension ContactQuerySortBy on QueryBuilder<Contact, Contact, QSortBy> {
   QueryBuilder<Contact, Contact, QAfterSortBy> sortByPendingActionDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'pending', Sort.desc);
-    });
-  }
-
-  QueryBuilder<Contact, Contact, QAfterSortBy> sortByUpdatedAt() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'updated_at', Sort.asc);
-    });
-  }
-
-  QueryBuilder<Contact, Contact, QAfterSortBy> sortByUpdatedAtDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'updated_at', Sort.desc);
     });
   }
 }
@@ -13843,6 +13975,30 @@ extension ContactQuerySortThenBy
     });
   }
 
+  QueryBuilder<Contact, Contact, QAfterSortBy> thenByDeleteBatch() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'delete_batch', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterSortBy> thenByDeleteBatchDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'delete_batch', Sort.desc);
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterSortBy> thenByDeleted() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'deleted', Sort.asc);
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QAfterSortBy> thenByDeletedDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'deleted', Sort.desc);
+    });
+  }
+
   QueryBuilder<Contact, Contact, QAfterSortBy> thenByRowId() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'id', Sort.asc);
@@ -13878,18 +14034,6 @@ extension ContactQuerySortThenBy
       return query.addSortBy(r'pending', Sort.desc);
     });
   }
-
-  QueryBuilder<Contact, Contact, QAfterSortBy> thenByUpdatedAt() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'updated_at', Sort.asc);
-    });
-  }
-
-  QueryBuilder<Contact, Contact, QAfterSortBy> thenByUpdatedAtDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'updated_at', Sort.desc);
-    });
-  }
 }
 
 extension ContactQueryWhereDistinct
@@ -13919,6 +14063,20 @@ extension ContactQueryWhereDistinct
     });
   }
 
+  QueryBuilder<Contact, Contact, QDistinct> distinctByDeleteBatch({
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'delete_batch', caseSensitive: caseSensitive);
+    });
+  }
+
+  QueryBuilder<Contact, Contact, QDistinct> distinctByDeleted() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'deleted');
+    });
+  }
+
   QueryBuilder<Contact, Contact, QDistinct> distinctByOwnerCidNumber({
     bool caseSensitive = true,
   }) {
@@ -13932,12 +14090,6 @@ extension ContactQueryWhereDistinct
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'pending', caseSensitive: caseSensitive);
-    });
-  }
-
-  QueryBuilder<Contact, Contact, QDistinct> distinctByUpdatedAt() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'updated_at');
     });
   }
 }
@@ -13968,6 +14120,18 @@ extension ContactQueryProperty
     });
   }
 
+  QueryBuilder<Contact, String, QQueryOperations> deleteBatchProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'delete_batch');
+    });
+  }
+
+  QueryBuilder<Contact, bool?, QQueryOperations> deletedProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'deleted');
+    });
+  }
+
   QueryBuilder<Contact, String, QQueryOperations> ownerCidNumberProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'owner_cid');
@@ -13979,16 +14143,1085 @@ extension ContactQueryProperty
       return query.addPropertyName(r'pending');
     });
   }
-
-  QueryBuilder<Contact, int, QQueryOperations> updatedAtProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'updated_at');
-    });
-  }
 }
 
 // coverage:ignore-file
 // ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
+
+extension GetContactDeleteBatchCollection on Isar {
+  IsarCollection<ContactDeleteBatch> get contactDeleteBatchs =>
+      this.collection();
+}
+
+const ContactDeleteBatchSchema = CollectionSchema(
+  name: r'contact_delete',
+  id: 857930607751510755,
+  properties: {
+    r'batchId': PropertySchema(id: 0, name: r'batchId', type: IsarType.string),
+    r'data': PropertySchema(id: 1, name: r'data', type: IsarType.string),
+    r'ownerCid': PropertySchema(
+      id: 2,
+      name: r'ownerCid',
+      type: IsarType.string,
+    ),
+  },
+
+  estimateSize: _contactDeleteBatchEstimateSize,
+  serialize: _contactDeleteBatchSerialize,
+  deserialize: _contactDeleteBatchDeserialize,
+  deserializeProp: _contactDeleteBatchDeserializeProp,
+  idName: r'id',
+  indexes: {
+    r'ownerCid_batchId': IndexSchema(
+      id: 9144570338680881094,
+      name: r'ownerCid_batchId',
+      unique: true,
+      replace: true,
+      properties: [
+        IndexPropertySchema(
+          name: r'ownerCid',
+          type: IndexType.hash,
+          caseSensitive: true,
+        ),
+        IndexPropertySchema(
+          name: r'batchId',
+          type: IndexType.hash,
+          caseSensitive: true,
+        ),
+      ],
+    ),
+  },
+  links: {},
+  embeddedSchemas: {},
+
+  getId: _contactDeleteBatchGetId,
+  getLinks: _contactDeleteBatchGetLinks,
+  attach: _contactDeleteBatchAttach,
+  version: '3.3.2',
+);
+
+int _contactDeleteBatchEstimateSize(
+  ContactDeleteBatch object,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  var bytesCount = offsets.last;
+  bytesCount += 3 + object.batchId.length * 3;
+  bytesCount += 3 + object.data.length * 3;
+  bytesCount += 3 + object.ownerCid.length * 3;
+  return bytesCount;
+}
+
+void _contactDeleteBatchSerialize(
+  ContactDeleteBatch object,
+  IsarWriter writer,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  writer.writeString(offsets[0], object.batchId);
+  writer.writeString(offsets[1], object.data);
+  writer.writeString(offsets[2], object.ownerCid);
+}
+
+ContactDeleteBatch _contactDeleteBatchDeserialize(
+  Id id,
+  IsarReader reader,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  final object = ContactDeleteBatch();
+  object.batchId = reader.readString(offsets[0]);
+  object.data = reader.readString(offsets[1]);
+  object.id = id;
+  object.ownerCid = reader.readString(offsets[2]);
+  return object;
+}
+
+P _contactDeleteBatchDeserializeProp<P>(
+  IsarReader reader,
+  int propertyId,
+  int offset,
+  Map<Type, List<int>> allOffsets,
+) {
+  switch (propertyId) {
+    case 0:
+      return (reader.readString(offset)) as P;
+    case 1:
+      return (reader.readString(offset)) as P;
+    case 2:
+      return (reader.readString(offset)) as P;
+    default:
+      throw IsarError('Unknown property with id $propertyId');
+  }
+}
+
+Id _contactDeleteBatchGetId(ContactDeleteBatch object) {
+  return object.id;
+}
+
+List<IsarLinkBase<dynamic>> _contactDeleteBatchGetLinks(
+  ContactDeleteBatch object,
+) {
+  return [];
+}
+
+void _contactDeleteBatchAttach(
+  IsarCollection<dynamic> col,
+  Id id,
+  ContactDeleteBatch object,
+) {
+  object.id = id;
+}
+
+extension ContactDeleteBatchByIndex on IsarCollection<ContactDeleteBatch> {
+  Future<ContactDeleteBatch?> getByOwnerCidBatchId(
+    String ownerCid,
+    String batchId,
+  ) {
+    return getByIndex(r'ownerCid_batchId', [ownerCid, batchId]);
+  }
+
+  ContactDeleteBatch? getByOwnerCidBatchIdSync(
+    String ownerCid,
+    String batchId,
+  ) {
+    return getByIndexSync(r'ownerCid_batchId', [ownerCid, batchId]);
+  }
+
+  Future<bool> deleteByOwnerCidBatchId(String ownerCid, String batchId) {
+    return deleteByIndex(r'ownerCid_batchId', [ownerCid, batchId]);
+  }
+
+  bool deleteByOwnerCidBatchIdSync(String ownerCid, String batchId) {
+    return deleteByIndexSync(r'ownerCid_batchId', [ownerCid, batchId]);
+  }
+
+  Future<List<ContactDeleteBatch?>> getAllByOwnerCidBatchId(
+    List<String> ownerCidValues,
+    List<String> batchIdValues,
+  ) {
+    final len = ownerCidValues.length;
+    assert(
+      batchIdValues.length == len,
+      'All index values must have the same length',
+    );
+    final values = <List<dynamic>>[];
+    for (var i = 0; i < len; i++) {
+      values.add([ownerCidValues[i], batchIdValues[i]]);
+    }
+
+    return getAllByIndex(r'ownerCid_batchId', values);
+  }
+
+  List<ContactDeleteBatch?> getAllByOwnerCidBatchIdSync(
+    List<String> ownerCidValues,
+    List<String> batchIdValues,
+  ) {
+    final len = ownerCidValues.length;
+    assert(
+      batchIdValues.length == len,
+      'All index values must have the same length',
+    );
+    final values = <List<dynamic>>[];
+    for (var i = 0; i < len; i++) {
+      values.add([ownerCidValues[i], batchIdValues[i]]);
+    }
+
+    return getAllByIndexSync(r'ownerCid_batchId', values);
+  }
+
+  Future<int> deleteAllByOwnerCidBatchId(
+    List<String> ownerCidValues,
+    List<String> batchIdValues,
+  ) {
+    final len = ownerCidValues.length;
+    assert(
+      batchIdValues.length == len,
+      'All index values must have the same length',
+    );
+    final values = <List<dynamic>>[];
+    for (var i = 0; i < len; i++) {
+      values.add([ownerCidValues[i], batchIdValues[i]]);
+    }
+
+    return deleteAllByIndex(r'ownerCid_batchId', values);
+  }
+
+  int deleteAllByOwnerCidBatchIdSync(
+    List<String> ownerCidValues,
+    List<String> batchIdValues,
+  ) {
+    final len = ownerCidValues.length;
+    assert(
+      batchIdValues.length == len,
+      'All index values must have the same length',
+    );
+    final values = <List<dynamic>>[];
+    for (var i = 0; i < len; i++) {
+      values.add([ownerCidValues[i], batchIdValues[i]]);
+    }
+
+    return deleteAllByIndexSync(r'ownerCid_batchId', values);
+  }
+
+  Future<Id> putByOwnerCidBatchId(ContactDeleteBatch object) {
+    return putByIndex(r'ownerCid_batchId', object);
+  }
+
+  Id putByOwnerCidBatchIdSync(
+    ContactDeleteBatch object, {
+    bool saveLinks = true,
+  }) {
+    return putByIndexSync(r'ownerCid_batchId', object, saveLinks: saveLinks);
+  }
+
+  Future<List<Id>> putAllByOwnerCidBatchId(List<ContactDeleteBatch> objects) {
+    return putAllByIndex(r'ownerCid_batchId', objects);
+  }
+
+  List<Id> putAllByOwnerCidBatchIdSync(
+    List<ContactDeleteBatch> objects, {
+    bool saveLinks = true,
+  }) {
+    return putAllByIndexSync(
+      r'ownerCid_batchId',
+      objects,
+      saveLinks: saveLinks,
+    );
+  }
+}
+
+extension ContactDeleteBatchQueryWhereSort
+    on QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QWhere> {
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterWhere> anyId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(const IdWhereClause.any());
+    });
+  }
+}
+
+extension ContactDeleteBatchQueryWhere
+    on QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QWhereClause> {
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterWhereClause>
+  idEqualTo(Id id) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(IdWhereClause.between(lower: id, upper: id));
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterWhereClause>
+  idNotEqualTo(Id id) {
+    return QueryBuilder.apply(this, (query) {
+      if (query.whereSort == Sort.asc) {
+        return query
+            .addWhereClause(
+              IdWhereClause.lessThan(upper: id, includeUpper: false),
+            )
+            .addWhereClause(
+              IdWhereClause.greaterThan(lower: id, includeLower: false),
+            );
+      } else {
+        return query
+            .addWhereClause(
+              IdWhereClause.greaterThan(lower: id, includeLower: false),
+            )
+            .addWhereClause(
+              IdWhereClause.lessThan(upper: id, includeUpper: false),
+            );
+      }
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterWhereClause>
+  idGreaterThan(Id id, {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IdWhereClause.greaterThan(lower: id, includeLower: include),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterWhereClause>
+  idLessThan(Id id, {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IdWhereClause.lessThan(upper: id, includeUpper: include),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterWhereClause>
+  idBetween(
+    Id lowerId,
+    Id upperId, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IdWhereClause.between(
+          lower: lowerId,
+          includeLower: includeLower,
+          upper: upperId,
+          includeUpper: includeUpper,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterWhereClause>
+  ownerCidEqualToAnyBatchId(String ownerCid) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IndexWhereClause.equalTo(
+          indexName: r'ownerCid_batchId',
+          value: [ownerCid],
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterWhereClause>
+  ownerCidNotEqualToAnyBatchId(String ownerCid) {
+    return QueryBuilder.apply(this, (query) {
+      if (query.whereSort == Sort.asc) {
+        return query
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'ownerCid_batchId',
+                lower: [],
+                upper: [ownerCid],
+                includeUpper: false,
+              ),
+            )
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'ownerCid_batchId',
+                lower: [ownerCid],
+                includeLower: false,
+                upper: [],
+              ),
+            );
+      } else {
+        return query
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'ownerCid_batchId',
+                lower: [ownerCid],
+                includeLower: false,
+                upper: [],
+              ),
+            )
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'ownerCid_batchId',
+                lower: [],
+                upper: [ownerCid],
+                includeUpper: false,
+              ),
+            );
+      }
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterWhereClause>
+  ownerCidBatchIdEqualTo(String ownerCid, String batchId) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IndexWhereClause.equalTo(
+          indexName: r'ownerCid_batchId',
+          value: [ownerCid, batchId],
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterWhereClause>
+  ownerCidEqualToBatchIdNotEqualTo(String ownerCid, String batchId) {
+    return QueryBuilder.apply(this, (query) {
+      if (query.whereSort == Sort.asc) {
+        return query
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'ownerCid_batchId',
+                lower: [ownerCid],
+                upper: [ownerCid, batchId],
+                includeUpper: false,
+              ),
+            )
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'ownerCid_batchId',
+                lower: [ownerCid, batchId],
+                includeLower: false,
+                upper: [ownerCid],
+              ),
+            );
+      } else {
+        return query
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'ownerCid_batchId',
+                lower: [ownerCid, batchId],
+                includeLower: false,
+                upper: [ownerCid],
+              ),
+            )
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'ownerCid_batchId',
+                lower: [ownerCid],
+                upper: [ownerCid, batchId],
+                includeUpper: false,
+              ),
+            );
+      }
+    });
+  }
+}
+
+extension ContactDeleteBatchQueryFilter
+    on QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QFilterCondition> {
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  batchIdEqualTo(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'batchId',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  batchIdGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'batchId',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  batchIdLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'batchId',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  batchIdBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'batchId',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  batchIdStartsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'batchId',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  batchIdEndsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'batchId',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  batchIdContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'batchId',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  batchIdMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'batchId',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  batchIdIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'batchId', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  batchIdIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'batchId', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  dataEqualTo(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  dataGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  dataLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  dataBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'data',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  dataStartsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  dataEndsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  dataContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'data',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  dataMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'data',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  dataIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'data', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  dataIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'data', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  idEqualTo(Id value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'id', value: value),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  idGreaterThan(Id value, {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'id',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  idLessThan(Id value, {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'id',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  idBetween(
+    Id lower,
+    Id upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'id',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  ownerCidEqualTo(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'ownerCid',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  ownerCidGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'ownerCid',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  ownerCidLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'ownerCid',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  ownerCidBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'ownerCid',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  ownerCidStartsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'ownerCid',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  ownerCidEndsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'ownerCid',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  ownerCidContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'ownerCid',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  ownerCidMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'ownerCid',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  ownerCidIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'ownerCid', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterFilterCondition>
+  ownerCidIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'ownerCid', value: ''),
+      );
+    });
+  }
+}
+
+extension ContactDeleteBatchQueryObject
+    on QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QFilterCondition> {}
+
+extension ContactDeleteBatchQueryLinks
+    on QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QFilterCondition> {}
+
+extension ContactDeleteBatchQuerySortBy
+    on QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QSortBy> {
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterSortBy>
+  sortByBatchId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'batchId', Sort.asc);
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterSortBy>
+  sortByBatchIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'batchId', Sort.desc);
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterSortBy>
+  sortByData() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'data', Sort.asc);
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterSortBy>
+  sortByDataDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'data', Sort.desc);
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterSortBy>
+  sortByOwnerCid() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'ownerCid', Sort.asc);
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterSortBy>
+  sortByOwnerCidDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'ownerCid', Sort.desc);
+    });
+  }
+}
+
+extension ContactDeleteBatchQuerySortThenBy
+    on QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QSortThenBy> {
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterSortBy>
+  thenByBatchId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'batchId', Sort.asc);
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterSortBy>
+  thenByBatchIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'batchId', Sort.desc);
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterSortBy>
+  thenByData() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'data', Sort.asc);
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterSortBy>
+  thenByDataDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'data', Sort.desc);
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterSortBy>
+  thenById() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'id', Sort.asc);
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterSortBy>
+  thenByIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'id', Sort.desc);
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterSortBy>
+  thenByOwnerCid() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'ownerCid', Sort.asc);
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QAfterSortBy>
+  thenByOwnerCidDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'ownerCid', Sort.desc);
+    });
+  }
+}
+
+extension ContactDeleteBatchQueryWhereDistinct
+    on QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QDistinct> {
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QDistinct>
+  distinctByBatchId({bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'batchId', caseSensitive: caseSensitive);
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QDistinct>
+  distinctByData({bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'data', caseSensitive: caseSensitive);
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QDistinct>
+  distinctByOwnerCid({bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'ownerCid', caseSensitive: caseSensitive);
+    });
+  }
+}
+
+extension ContactDeleteBatchQueryProperty
+    on QueryBuilder<ContactDeleteBatch, ContactDeleteBatch, QQueryProperty> {
+  QueryBuilder<ContactDeleteBatch, int, QQueryOperations> idProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'id');
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, String, QQueryOperations> batchIdProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'batchId');
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, String, QQueryOperations> dataProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'data');
+    });
+  }
+
+  QueryBuilder<ContactDeleteBatch, String, QQueryOperations>
+  ownerCidProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'ownerCid');
+    });
+  }
+}
 
 extension GetNoticeCollection on Isar {
   IsarCollection<Notice> get notices => this.collection();

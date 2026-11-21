@@ -21,9 +21,10 @@ Widget squareLikerAvatar(
 }
 
 void openSquareLiker(BuildContext context, String cid, String? self) {
-  Navigator.of(context).push<void>(
-    MaterialPageRoute(
-      builder: (_) => UserProfilePage(cidNumber: cid, isSelf: cid == self),
+  unawaited(
+    UserProfilePage.open(
+      context,
+      UserProfilePage(cidNumber: cid, isSelf: cid == self),
     ),
   );
 }

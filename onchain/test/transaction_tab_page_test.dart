@@ -26,7 +26,9 @@ const _walletBAccountId =
     '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 
 class _RecipientService extends OnchainPaymentService {
-  _RecipientService(this.recipient, {this.onResolve});
+  _RecipientService(this.recipient, {this.onResolve, this.FLAT_FEE = 100});
+  // ignore: non_constant_identifier_names
+  final int FLAT_FEE;
   final String recipient;
   final Future<OnchainRecipient> Function(String?)? onResolve;
   String? input;
@@ -64,7 +66,7 @@ class _RecipientService extends OnchainPaymentService {
       feeRateParts: 1000000,
       minimumFeeFen: BigInt.from(17),
       existentialDepositFen: BigInt.from(135),
-      voteFeeFen: BigInt.from(100),
+      FLAT_FEE: BigInt.from(FLAT_FEE),
       feeFen: BigInt.from(17),
       minimumSelfPayFen: BigInt.from(152),
     );
@@ -480,7 +482,8 @@ void main() {
   testWidgets('0x收款地址进入原确认弹窗，显示原始地址及解析账户，取消不准备交易', (tester) async {
     const address = '0x6D66a0cB155051055F3FB3Cc73d9230D3Fb4D5B5';
     const recipient = 'w5Bc7ma8qUcECfQDJmRyQM2wGmga5XSYtz7DvEengQ86xBWrT';
-    final service = _RecipientService(recipient);
+    final service = _RecipientService(recipient, FLAT_FEE: 137);
+    var balanceFen = 10000;
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.lightTheme,
@@ -493,7 +496,7 @@ void main() {
             address: 'wallet_a',
             accountId: _walletAAccountId,
           ),
-          balanceLoader: (_) async => BigInt.from(10000),
+          balanceLoader: (_) async => BigInt.from(balanceFen),
           localRecordsLoader: (_, {limit = 100}) async => const [],
         ),
       ),
@@ -547,10 +550,36 @@ void main() {
     expect(service.input, address);
     expect(service.quotedAmountFen, BigInt.from(203));
     expect(find.text('转账金额：2.03 GMB'), findsOneWidget);
-    expect(find.text('预估手续费：0.17 GMB'), findsOneWidget);
-    expect(find.text('合计：2.20 GMB'), findsOneWidget);
+    expect(find.text('预估手续费：1.54 GMB'), findsOneWidget);
+    expect(find.text('合计：3.57 GMB'), findsOneWidget);
     expect(find.text('以太坊地址：$address'), findsOneWidget);
     expect(find.text('收款账户：$recipient'), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, '取消'));
+    await tester.pumpAndSettle();
+    expect(service.preparations, 0);
+    // 使用非100的快照值，验证备注费确实读取 FLAT_FEE；清空后恢复基础费。
+    for (final note in ['', ' ', '\n', 'aaa']) {
+      await tester.enterText(remark, note);
+      await tester.ensureVisible(submit);
+      await tester.tap(submit);
+      await _pumpUntilFound(tester, find.text('确认交易'));
+      expect(
+        find.text('预估手续费：${note.isEmpty ? '0.17' : '1.54'} GMB'),
+        findsOneWidget,
+      );
+      await tester.tap(find.widgetWithText(TextButton, '取消'));
+      await tester.pumpAndSettle();
+    }
+    await tester.enterText(remark, '测');
+    balanceFen = 491; // 本金203 + 手续费154 + ED135，差一分。
+    await tester.ensureVisible(submit);
+    await tester.tap(submit);
+    await _pumpUntilFound(tester, find.textContaining('余额不足，可用余额：'));
+    expect(find.text('确认交易'), findsNothing);
+    balanceFen = 492;
+    await tester.tap(submit);
+    await _pumpUntilFound(tester, find.text('确认交易'));
+    expect(find.text('预估手续费：1.54 GMB'), findsOneWidget);
     await tester.tap(find.widgetWithText(TextButton, '取消'));
     await tester.pumpAndSettle();
     expect(service.preparations, 0);

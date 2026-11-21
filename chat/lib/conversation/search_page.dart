@@ -349,5 +349,3 @@ class _ChatSearchPageState extends State<ChatSearchPage> {
     );
   }
 }
-
-/// 建群页:输群名 + 从通讯录多选成员 → `createGroup`(创建者自动为 admin)。

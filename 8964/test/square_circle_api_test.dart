@@ -33,12 +33,13 @@ void main() {
         sessionToken: 'circle-session',
         cidNumber: testMlsCidNumber,
         bindRev: 1,
-        accountId: '0x8888888888888888888888888888888888888888888888888888888888888888',
+        accountId:
+            '0x8888888888888888888888888888888888888888888888888888888888888888',
         expiresAt: 1800000000000,
         authenticateRequest: fakeMlsRequestHeaders,
       ),
     );
-    expect(posts, isEmpty);
+    expect(posts.posts, isEmpty);
   });
   test('通知分层、讨论串与点赞接口保留当前会话证明及准确请求目标', () async {
     final requests = <http.Request>[];

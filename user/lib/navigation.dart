@@ -26,6 +26,6 @@ enum ContactPickMode {
   /// 选收款人(交易页发起):点联系人即返回公民号，由调用方选择收款人。
   pickForTransfer,
 
-  /// 选私信对象(聊天页「发私信」):点联系人直接打开一对一聊天,不带操作菜单与扫码入口。
-  pickForMessage,
+  /// 发起聊天内嵌多选列表；只交付选中联系人，不负责打开聊天。
+  pickForChat,
 }

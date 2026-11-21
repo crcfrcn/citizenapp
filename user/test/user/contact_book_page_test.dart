@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:citizen_user/navigation.dart';
 import 'package:http/http.dart' as http;
@@ -58,7 +59,7 @@ IdentityBinding _ownerBinding() => IdentityBinding(
 const _contact = UserContact(
   cidNumber: _contactCidNumber,
   contactRemark: '张三',
-  updatedAt: 2,
+  changeVersion: 2,
 );
 const _profile = CitizenProfile(
   accountId: _contactAccountId,
@@ -98,6 +99,7 @@ class _FakeContacts implements UserContactService {
   int getContactsCalls = 0;
   int syncCalls = 0;
   int flushCalls = 0;
+  final deleteCalls = <List<String>>[];
 
   @override
   Future<void> flushPending() async {
@@ -130,15 +132,28 @@ class _FakeContacts implements UserContactService {
       UserContact(
         cidNumber: cidNumber,
         contactRemark: contactRemark,
-        updatedAt: 3,
+        changeVersion: 3,
       ),
     ];
     return contacts;
   }
 
   @override
-  Future<List<UserContact>> deleteContact(String cidNumber) async {
+  Future<List<UserContact>> deleteContact(
+    String cidNumber, {
+    required Future<Uint8List> Function(String, Uint8List) signer,
+  }) async {
     contacts = const <UserContact>[];
+    return contacts;
+  }
+
+  @override
+  Future<List<UserContact>> deleteContacts(
+    List<String> cids, {
+    required Future<Uint8List> Function(String, Uint8List) signer,
+  }) async {
+    deleteCalls.add(List.of(cids));
+    contacts = contacts.where((c) => !cids.contains(c.cidNumber)).toList();
     return contacts;
   }
 
@@ -179,6 +194,11 @@ class _PendingContacts extends _FakeContacts {
 }
 
 class _FakeProfileApi extends CitizenProfileApi {
+  @override
+  Future<void> requireProfileAccess(
+    String targetCid,
+    SquareSession session,
+  ) async {}
   _FakeProfileApi(this.profile);
 
   final CitizenProfile profile;
@@ -208,6 +228,19 @@ class _FakeProfileApi extends CitizenProfileApi {
   }
 }
 
+class _BoundedProfileCache extends CitizenProfileCache {
+  int active = 0, maximum = 0;
+  final pending = <Completer<CitizenProfile?>>[];
+  @override
+  Future<CitizenProfile?> read(String cid) {
+    active++;
+    if (active > maximum) maximum = active;
+    final call = Completer<CitizenProfile?>();
+    pending.add(call);
+    return call.future.whenComplete(() => active--);
+  }
+}
+
 class _PendingProfileApi extends CitizenProfileApi {
   final Completer<CitizenProfile> completer = Completer<CitizenProfile>();
 
@@ -220,6 +253,8 @@ class _PendingProfileApi extends CitizenProfileApi {
 }
 
 class _FakeSessionProvider implements SquareSessionProvider {
+  @override
+  Future<String?> currentCitizenId() async => 'CN220-CTZN2-198805200-2026';
   @override
   Future<SquareSession?> ensureSession() async => SquareSession(
     deviceId: testMlsDeviceId,
@@ -293,25 +328,32 @@ Widget _page({
   CurrentUserContext? currentUserContext,
   Listenable? identityRevision,
   SquareSessionProvider? sessionProvider,
-}) => Provider<CidBusinessGate>.value(
-  value: _ReadyBusinessGate(),
-  child: MaterialApp(
-    theme: AppTheme.lightTheme.copyWith(platform: platform),
-    home: ContactBookPage(
-      mode: mode,
-      service: service ?? _FakeContacts(),
-      profileApi: profileApi ?? _FakeProfileApi(profile),
-      profileCache: profileCache,
-      profileMediaCache: profileMediaCache,
-      sessionProvider: sessionProvider ?? _FakeSessionProvider(),
-      initialProfiles: initialProfiles ?? {_contactCidNumber: profile},
-      directChatOpener: directChatOpener,
-      transferOpener: transferOpener,
-      currentUserContext: currentUserContext ?? _RegisteredIdentityCache(),
-      identityRevision: identityRevision,
+  ValueChanged<List<UserContact>>? onSelectionChanged,
+  bool selectionEnabled = true,
+}) {
+  final page = ContactBookPage(
+    mode: mode,
+    onSelectionChanged: onSelectionChanged,
+    selectionEnabled: selectionEnabled,
+    service: service ?? _FakeContacts(),
+    profileApi: profileApi ?? _FakeProfileApi(profile),
+    profileCache: profileCache,
+    profileMediaCache: profileMediaCache,
+    sessionProvider: sessionProvider ?? _FakeSessionProvider(),
+    initialProfiles: initialProfiles ?? {_contactCidNumber: profile},
+    directChatOpener: directChatOpener,
+    transferOpener: transferOpener,
+    currentUserContext: currentUserContext ?? _RegisteredIdentityCache(),
+    identityRevision: identityRevision,
+  );
+  return Provider<CidBusinessGate>.value(
+    value: _ReadyBusinessGate(),
+    child: MaterialApp(
+      theme: AppTheme.lightTheme.copyWith(platform: platform),
+      home: mode == ContactPickMode.pickForChat ? Scaffold(body: page) : page,
     ),
-  ),
-);
+  );
+}
 
 class _ReadyBusinessGate implements CidBusinessGate {
   @override
@@ -366,39 +408,196 @@ class _MutableIdentityCache implements CurrentUserContext {
 }
 
 void main() {
-  testWidgets('主页写入资料缓存后，通讯录就地更新昵称和头像声明', (tester) async {
-    final old = _profile.copyWith(displayName: '旧昵称', profileAt: 1);
-    final cache = _ChangedProfileCache(old);
-    final previous = CitizenProfileCache.revision.value;
+  testWidgets('本机资料缓存固定两项并发，失败继续且离页不扩展读取', (tester) async {
+    final cache = _BoundedProfileCache();
+    final service = _FakeContacts()
+      ..contacts = [
+        for (var n = 1; n <= 6; n++)
+          UserContact(
+            cidNumber: 'CN220-CTZN2-10000000$n-2026',
+            contactRemark: '',
+            changeVersion: 1,
+          ),
+      ];
+    await tester.pumpWidget(
+      _page(service: service, initialProfiles: const {}, profileCache: cache),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(cache.pending.length, 2);
+    expect(cache.maximum, 2);
+    cache.pending[0].complete(null);
+    await tester.pump();
+    await tester.pump();
+    expect(cache.pending.length, 3);
+    cache.pending[1].completeError(StateError('单项缓存错误'));
+    await tester.pump();
+    await tester.pump();
+    expect(cache.pending.length, 4);
+    expect(cache.maximum, 2);
+    await tester.pumpWidget(const SizedBox.shrink());
+    cache.pending[2].complete(null);
+    cache.pending[3].complete(null);
+    await tester.pump();
+    expect(cache.maximum, 2);
+    expect(cache.pending.length, 4);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('自动同步终态只重读本机，当前页面立即更新新增备注和删除', (tester) async {
+    final service = _FakeContacts();
+    final profiles = _FakeProfileApi(_profile);
     await tester.pumpWidget(
       _page(
-        profile: old,
-        profileCache: cache,
+        service: service,
+        profileApi: profiles,
+        profileCache: const _MemoryProfileCache(null),
         profileMediaCache: _MemoryProfileMediaCache(
-          const CitizenProfileMediaSnapshot(avatarPath: '/cached/avatar.webp'),
+          const CitizenProfileMediaSnapshot(),
         ),
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('旧昵称'), findsOneWidget);
-    cache.profile = _profile.copyWith(
-      profileAt: 3,
-      avatarKey:
-          'i/$_contactCidNumber/avatar/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    final reads = service.getContactsCalls;
+    final profileReads = profiles.entryReads;
+    service.contacts = [
+      UserContact(
+        cidNumber: _contact.cidNumber,
+        contactRemark: '新备注',
+        changeVersion: 3,
+      ),
+    ];
+    service.syncState.value = const ContactSyncState(
+      phase: ContactSyncPhase.syncing,
     );
-    CitizenProfileCache.revision.value = CitizenProfileRevisionEvent(
-      cidNumber: _contactCidNumber,
-      revision: (previous?.revision ?? 0) + 1,
+    service.syncState.value = const ContactSyncState(
+      phase: ContactSyncPhase.synced,
     );
     await tester.pumpAndSettle();
-    expect(find.text('Rhett'), findsOneWidget);
-    expect(find.text('旧昵称'), findsNothing);
-    final avatar = tester.widget<ProfileAvatar>(find.byType(ProfileAvatar));
-    expect(avatar.userImageSet, isTrue);
-    expect(avatar.imagePath, '/cached/avatar.webp');
-    await tester.pumpWidget(const SizedBox.shrink());
-    CitizenProfileCache.revision.value = previous;
+    expect(find.text('备注：新备注'), findsOneWidget);
+    expect(service.getContactsCalls, reads + 1);
+    expect(service.syncCalls, 0);
+    service.contacts = [];
+    service.syncState.value = const ContactSyncState(
+      phase: ContactSyncPhase.syncing,
+    );
+    service.syncState.value = const ContactSyncState(
+      phase: ContactSyncPhase.synced,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('备注：新备注'), findsNothing);
+    service.contacts = [_contact];
+    service.syncState.value = const ContactSyncState(
+      phase: ContactSyncPhase.syncing,
+    );
+    service.syncState.value = const ContactSyncState(
+      phase: ContactSyncPhase.synced,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('备注：张三'), findsOneWidget);
+    expect(service.syncCalls, 0);
+    expect(find.text('恢复云端通讯录'), findsNothing);
+    expect(profiles.entryReads, profileReads);
   });
+
+  testWidgets('下拉保持唯一恢复入口，删除弹窗只复用原两个按钮', (tester) async {
+    final service = _FakeContacts()
+      ..contacts = [
+        _contact,
+        const UserContact(
+          cidNumber: 'CN220-CTZN2-100000003-2026',
+          contactRemark: '同事',
+          changeVersion: 1,
+        ),
+      ];
+    await tester.pumpWidget(
+      _page(
+        service: service,
+        initialProfiles: {
+          _contact.cidNumber: _profile,
+          'CN220-CTZN2-100000003-2026': _profile,
+        },
+        profileCache: const _MemoryProfileCache(null),
+        profileMediaCache: _MemoryProfileMediaCache(
+          const CitizenProfileMediaSnapshot(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('恢复云端通讯录'), findsNothing);
+    expect(service.syncCalls, 0);
+    await tester
+        .widget<RefreshIndicator>(find.byType(RefreshIndicator))
+        .onRefresh();
+    await tester.pumpAndSettle();
+    expect(service.syncCalls, 1);
+    await tester.tap(find.byTooltip('联系人操作').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('删除联系人'));
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(TextButton),
+      ),
+      findsNWidgets(2),
+    );
+    await tester.tap(
+      find
+          .byWidgetPredicate(
+            (widget) => widget is CheckboxListTile && widget.value == false,
+          )
+          .first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('删除'));
+    await tester.pumpAndSettle();
+    expect(service.deleteCalls, hasLength(1));
+    expect(service.deleteCalls.single.toSet(), {
+      _contact.cidNumber,
+      'CN220-CTZN2-100000003-2026',
+    });
+  });
+
+  for (final mode in [ContactPickMode.browse, ContactPickMode.pickForChat]) {
+    testWidgets('主页写入资料缓存后，通讯录就地更新昵称和头像声明：${mode.name}', (tester) async {
+      final old = _profile.copyWith(displayName: '旧昵称', profileAt: 1);
+      final cache = _ChangedProfileCache(old);
+      final previous = CitizenProfileCache.revision.value;
+      await tester.pumpWidget(
+        _page(
+          mode: mode,
+          onSelectionChanged: (_) {},
+          profile: old,
+          profileCache: cache,
+          profileMediaCache: _MemoryProfileMediaCache(
+            const CitizenProfileMediaSnapshot(
+              avatarPath: '/cached/avatar.webp',
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('旧昵称'), findsOneWidget);
+      cache.profile = _profile.copyWith(
+        profileAt: 3,
+        avatarKey:
+            'i/$_contactCidNumber/avatar/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      );
+      CitizenProfileCache.revision.value = CitizenProfileRevisionEvent(
+        cidNumber: _contactCidNumber,
+        revision: (previous?.revision ?? 0) + 1,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Rhett'), findsOneWidget);
+      expect(find.text('旧昵称'), findsNothing);
+      final avatar = tester.widget<ProfileAvatar>(find.byType(ProfileAvatar));
+      expect(avatar.userImageSet, isTrue);
+      expect(avatar.imagePath, '/cached/avatar.webp');
+      await tester.pumpWidget(const SizedBox.shrink());
+      CitizenProfileCache.revision.value = previous;
+    });
+  }
 
   testWidgets('批量资料最多并发两项，单项失败继续，页面关闭后停止后续恢复', (tester) async {
     final api = _QueuedProfileApi();
@@ -408,7 +607,7 @@ void main() {
           UserContact(
             cidNumber: 'CN220-CTZN2-10000000$n-2026',
             contactRemark: '',
-            updatedAt: 1,
+            changeVersion: 1,
           ),
       ];
     await tester.pumpWidget(
@@ -467,43 +666,49 @@ void main() {
     revision.dispose();
   });
 
-  testWidgets('恢复联系人后后台补齐昵称和头像，不阻塞本地列表', (tester) async {
-    final api = _RestoringProfileApi();
-    await tester.pumpWidget(
-      _page(
-        initialProfiles: const {},
-        profileApi: api,
-        profileCache: const _MemoryProfileCache(null),
-        profileMediaCache: _MemoryProfileMediaCache(
-          const CitizenProfileMediaSnapshot(avatarPath: '/restored-avatar.jpg'),
+  for (final mode in [ContactPickMode.browse, ContactPickMode.pickForChat]) {
+    testWidgets('恢复联系人后后台补齐昵称和头像，不阻塞本地列表：${mode.name}', (tester) async {
+      final api = _RestoringProfileApi();
+      await tester.pumpWidget(
+        _page(
+          mode: mode,
+          onSelectionChanged: (_) {},
+          initialProfiles: const {},
+          profileApi: api,
+          profileCache: const _MemoryProfileCache(null),
+          profileMediaCache: _MemoryProfileMediaCache(
+            const CitizenProfileMediaSnapshot(
+              avatarPath: '/restored-avatar.jpg',
+            ),
+          ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(
-      find.byKey(const ValueKey('contact-card-$_contactCidNumber')),
-      findsOneWidget,
-    );
-    expect(find.text('Rhett'), findsNothing);
-    expect(api.requests, 1);
-    final session = (await _FakeSessionProvider().ensureSession())!;
-    api.pending.complete(
-      ProfileEntryRefreshResult(
-        const CitizenProfileLoadResult(
-          _profile,
-          CitizenProfileLoadStatus.updated,
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('contact-card-$_contactCidNumber')),
+        findsOneWidget,
+      );
+      expect(find.text('Rhett'), findsNothing);
+      expect(api.requests, 1);
+      final session = (await _FakeSessionProvider().ensureSession())!;
+      api.pending.complete(
+        ProfileEntryRefreshResult(
+          const CitizenProfileLoadResult(
+            _profile,
+            CitizenProfileLoadStatus.updated,
+          ),
+          session,
         ),
-        session,
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('Rhett'), findsOneWidget);
-    expect(
-      tester.widget<ProfileAvatar>(find.byType(ProfileAvatar)).imagePath,
-      '/restored-avatar.jpg',
-    );
-    await tester.pumpWidget(const SizedBox.shrink());
-  });
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Rhett'), findsOneWidget);
+      expect(
+        tester.widget<ProfileAvatar>(find.byType(ProfileAvatar)).imagePath,
+        '/restored-avatar.jpg',
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
 
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
     for (final brokenCache in [false, true]) {
@@ -536,7 +741,7 @@ void main() {
             const UserContact(
               cidNumber: chain_fixture.cidB,
               contactRemark: '李四',
-              updatedAt: 3,
+              changeVersion: 3,
             ),
           ];
         final profiles = _FakeProfileApi(_profile);
@@ -746,32 +951,36 @@ void main() {
     );
   });
 
-  testWidgets('联系人列表首帧直接使用公开资料与本机头像缓存', (tester) async {
-    final profile = _profile.copyWith(
-      avatarKey:
-          'i/$_contactCidNumber/avatar/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-    );
-    const avatarPath = '/cached/profile/avatar.webp';
-    await tester.pumpWidget(
-      _page(
-        profile: profile,
-        initialProfiles: const <String, CitizenProfile>{},
-        profileCache: _MemoryProfileCache(profile),
-        profileMediaCache: _MemoryProfileMediaCache(
-          const CitizenProfileMediaSnapshot(avatarPath: avatarPath),
+  for (final mode in [ContactPickMode.browse, ContactPickMode.pickForChat]) {
+    testWidgets('联系人列表首帧直接使用公开资料与本机头像缓存：${mode.name}', (tester) async {
+      final profile = _profile.copyWith(
+        avatarKey:
+            'i/$_contactCidNumber/avatar/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      );
+      const avatarPath = '/cached/profile/avatar.webp';
+      await tester.pumpWidget(
+        _page(
+          mode: mode,
+          onSelectionChanged: (_) {},
+          profile: profile,
+          initialProfiles: const <String, CitizenProfile>{},
+          profileCache: _MemoryProfileCache(profile),
+          profileMediaCache: _MemoryProfileMediaCache(
+            const CitizenProfileMediaSnapshot(avatarPath: avatarPath),
+          ),
         ),
-      ),
-    );
-    await tester.pump();
-    await tester.pump();
+      );
+      await tester.pump();
+      await tester.pump();
 
-    final avatar = tester.widget<ProfileAvatar>(find.byType(ProfileAvatar));
-    expect(avatar.imagePath, avatarPath);
-    expect(avatar.userImageSet, isTrue);
-    expect(avatar.memberLevel, isNull);
-    expect(avatar.membergateActive, isFalse);
-    expect(avatar.showBadge, isTrue);
-  });
+      final avatar = tester.widget<ProfileAvatar>(find.byType(ProfileAvatar));
+      expect(avatar.imagePath, avatarPath);
+      expect(avatar.userImageSet, isTrue);
+      expect(avatar.memberLevel, isNull);
+      expect(avatar.membergateActive, isFalse);
+      expect(avatar.showBadge, isTrue);
+    });
+  }
 
   testWidgets('公开资料缓存故障不阻塞通讯录且未知态不显示旧头像徽章', (tester) async {
     final profileApi = _PendingProfileApi();
@@ -959,30 +1168,91 @@ void main() {
     expect(openedTitle, 'Rhett');
   });
 
-  testWidgets('发私信模式点联系人直接开私聊、无操作菜单', (tester) async {
-    String? openedPeerCidNumber;
-    String? openedTitle;
-    Future<void> opener(
-      BuildContext context, {
-      required String peerUserId,
-      required String title,
-    }) async {
-      openedPeerCidNumber = peerUserId;
-      openedTitle = title;
-    }
-
+  testWidgets('聊天多选复用头像卡片，圆圈位于头像左侧且点击不打开主页或私聊', (tester) async {
+    List<UserContact> selected = [];
     await tester.pumpWidget(
-      _page(mode: ContactPickMode.pickForMessage, directChatOpener: opener),
+      _page(
+        mode: ContactPickMode.pickForChat,
+        onSelectionChanged: (value) => selected = value,
+        directChatOpener: (_, {required peerUserId, required title}) async =>
+            fail('多选误开私聊'),
+      ),
     );
     await tester.pumpAndSettle();
-
-    // 选私信模式:不显示逐项操作菜单,点联系人卡即开私聊。
+    final checkbox = find.byType(Checkbox);
+    final avatar = find.byType(ProfileAvatar);
+    expect(checkbox, findsOneWidget);
+    expect(tester.widget<Checkbox>(checkbox).shape, isA<CircleBorder>());
+    expect(
+      tester.getRect(checkbox).right,
+      lessThan(tester.getRect(avatar).left),
+    );
+    expect(tester.widget<ProfileAvatar>(avatar).seed, _contactCidNumber);
+    expect(find.text('Rhett'), findsOneWidget);
+    expect(find.text('备注：张三'), findsOneWidget);
     expect(find.byTooltip('联系人操作'), findsNothing);
     await tester.tap(find.text('Rhett'));
     await tester.pump();
+    expect(selected.single.cidNumber, _contactCidNumber);
+    expect(find.byType(UserProfilePage), findsNothing);
+    await tester.enterText(find.byKey(const ValueKey('contact-search')), '不匹配');
+    await tester.pump();
+    expect(find.byType(Checkbox), findsNothing);
+    expect(selected.single.cidNumber, _contactCidNumber);
+    await tester.enterText(find.byKey(const ValueKey('contact-search')), '');
+    await tester.pump();
+    expect(tester.widget<Checkbox>(checkbox).value, isTrue);
+    await tester.tap(checkbox);
+    await tester.pump();
+    expect(selected, isEmpty);
+  });
 
-    expect(openedPeerCidNumber, _contactCidNumber);
-    expect(openedTitle, 'Rhett');
+  testWidgets('身份变化清空聊天选择，禁用期间不改选择', (tester) async {
+    final revision = ValueNotifier(0);
+    addTearDown(revision.dispose);
+    List<UserContact> selected = [];
+    Widget page(bool enabled) => _page(
+      mode: ContactPickMode.pickForChat,
+      identityRevision: revision,
+      selectionEnabled: enabled,
+      onSelectionChanged: (value) => selected = value,
+    );
+    await tester.pumpWidget(page(true));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(Checkbox));
+    await tester.pump();
+    expect(selected.length, 1);
+    await tester.pumpWidget(page(false));
+    expect(tester.widget<Checkbox>(find.byType(Checkbox)).onChanged, isNull);
+    revision.value++;
+    await tester.pumpAndSettle();
+    expect(selected, isEmpty);
+    expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isFalse);
+  });
+
+  testWidgets('通讯录刷新移除已选关系后同步清空选择', (tester) async {
+    final service = _FakeContacts();
+    List<UserContact> selected = [];
+    await tester.pumpWidget(
+      _page(
+        mode: ContactPickMode.pickForChat,
+        service: service,
+        onSelectionChanged: (value) => selected = value,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(Checkbox));
+    await tester.pump();
+    expect(selected.length, 1);
+    service.contacts = [];
+    final refresh = tester
+        .state<RefreshIndicatorState>(find.byType(RefreshIndicator))
+        .show();
+    await tester.pumpAndSettle();
+    await refresh;
+    expect(service.syncCalls, 1);
+    expect(selected, isEmpty);
+    expect(find.byType(Checkbox), findsNothing);
   });
 
   testWidgets('未注册身份显示统一注册引导,且不读通讯录', (tester) async {

@@ -1369,7 +1369,12 @@ class _ActiveMembershipBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final plan = state.planForLevel(state.memberLevel);
-    final name = plan?.displayName ?? '会员';
+    // 已知链上档位直接展示固定名称，不等待资源授权的套餐资料。
+    final name =
+        plan?.displayName ??
+        (_tierOrder.contains(state.memberLevel)
+            ? membershipTitle(state.memberLevel!)
+            : '会员');
     // 用户订阅授权未取消时，runtime 按链上真实公历到期时间自动扣款。
     final route = switch (state.subState) {
       'cancelled' => '已取消 · 到期终止',
