@@ -264,7 +264,7 @@ class MultisigTransferService {
       fromPublicKey: fromPublicKey,
       beneficiaryPublicKey: beneficiaryPublicKey,
       amountFen: amountFen,
-      remark: remark.trim(),
+      remark: remark,
     );
     return (
       txHash: submitResult.txHash,
@@ -326,7 +326,7 @@ class MultisigTransferService {
           listEquals(event.fieldBytes('proposer_account_id'), signerPublicKey) &&
           listEquals(event.fieldBytes('beneficiary_account_id'), beneficiaryPublicKey) &&
           event.fieldUnsigned('amount') == amountFen &&
-          utf8.decode(event.fieldBytes('remark')) == remark.trim(),
+          utf8.decode(event.fieldBytes('remark')) == remark,
     );
     return (
       txHash: submitResult.txHash,

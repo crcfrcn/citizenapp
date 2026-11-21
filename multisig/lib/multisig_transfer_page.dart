@@ -51,7 +51,8 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
 
   bool _submitting = false;
 
-  BigInt? _estimatedFee;
+  // 复用现有报价快照；备注编辑本地重算，提交前仍读取最新报价。
+  CitizenFeeSnapshot? _fees;
   String? _addressError;
   String? _amountError;
   CitizenChainSyncStatus? _chainProgress;
@@ -89,9 +90,9 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
   bool get _loadingBalance => _balance.value == null && !_balance.hasError;
 
   void _onAmountChanged() {
-    if (_estimatedFee != null || _amountError != null) {
+    if (_fees != null || _amountError != null) {
       setState(() {
-        _estimatedFee = null;
+        _fees = null;
         _amountError = null;
       });
     }
@@ -105,7 +106,7 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
         amountFen: amountFen,
       );
       if (mounted && _amountController.text == text) {
-        setState(() => _estimatedFee = fees.feeFen);
+        setState(() => _fees = fees);
       }
     } catch (_) {
       // 提交时会重取报价并提示错误。
@@ -187,15 +188,16 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
           _selectedWallet != wallet) {
         return;
       }
-      setState(() => _estimatedFee = fees.feeFen);
+      setState(() => _fees = fees);
+      final feeFen = fees.feeFen + (remark.isNotEmpty ? fees.FLAT_FEE : BigInt.zero);
       final accounts = widget.institution.accounts;
       final ed = fees.existentialDepositFen;
       final requiredFen =
-          amountFen + ed + (accounts == null ? fees.feeFen : BigInt.zero);
+          amountFen + ed + (accounts == null ? feeFen : BigInt.zero);
       if (_availableBalance! < requiredFen) {
         setState(
           () => _amountError = accounts == null
-              ? '余额不足（需支付 ${formatFen(fees.feeFen)} 元手续费并保留 ${formatFen(ed)} 元 ED）'
+              ? '余额不足（需支付 ${formatFen(feeFen)} 元手续费并保留 ${formatFen(ed)} 元 ED）'
               : '机构主账户余额不足（转账后须保留 ${formatFen(ed)} 元 ED）',
         );
         return;
@@ -211,7 +213,7 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
           : await MultisigTransferBalanceGuard.checkInstitutionFeeAccountBalance(
               feeAccountId: accounts.feeAccountId,
               actionLabel: '发起机构多签转账提案',
-              additionalDebitFen: fees.feeFen,
+              additionalDebitFen: feeFen,
               fees: fees,
               chain: sdk,
             );
@@ -523,7 +525,7 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
               // ──── 预估手续费 ────
               _buildInfoRow(
                 '预估手续费',
-                _estimatedFee != null ? '${formatFen(_estimatedFee!)} 元' : '--',
+                _fees != null ? '${formatFen(_fees!.feeFen + (_remarkController.text.isNotEmpty ? _fees!.FLAT_FEE : BigInt.zero))} 元' : '--',
               ),
               SizedBox(height: AppLayout.scaled(context, 8)),
 
@@ -539,13 +541,14 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
               SizedBox(height: AppLayout.scaled(context, 16)),
 
               // ──── 备注 ────
-              _buildLabel('备注（可选）'),
+              _buildLabel('转账备注（选填）'),
               SizedBox(height: AppLayout.scaled(context, 6)),
               TextField(
                 controller: _remarkController,
+                onChanged: (_) => setState(() { _amountError = null; }),
                 maxLines: 3,
                 decoration: InputDecoration(
-                  hintText: '最多 256 字节',
+                  hintText: '输入备注收1.00元备注手续费。',
                   hintStyle: TextStyle(
                     color: AppTheme.textTertiary,
                     fontSize: AppLayout.scaled(context, 14),

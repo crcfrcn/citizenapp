@@ -535,7 +535,7 @@ void main() {
       '2.03',
     );
     final submit = find.widgetWithText(FilledButton, '签名交易');
-    final remark = find.widgetWithText(TextField, '请输入转账备注（选填）');
+    final remark = find.widgetWithText(TextField, '输入备注收1.00元备注手续费。');
     await tester.enterText(remark, '测试');
     await tester.ensureVisible(submit);
     await tester.tap(submit);

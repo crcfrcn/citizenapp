@@ -1105,7 +1105,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
                   ),
                   decoration:
                       transactionFieldDecoration(
-                        hintText: '请输入转账备注（选填）',
+                        hintText: '输入备注收1.00元备注手续费。',
                       ).copyWith(
                         contentPadding: const EdgeInsets.fromLTRB(
                           14,

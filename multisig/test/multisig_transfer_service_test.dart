@@ -116,17 +116,47 @@ class Chain extends TestChainReads {
   }
 }
 
-Future<Object> submit(MultisigTransferService service) =>
+Future<Object> submit(MultisigTransferService service, {String remark = ''}) =>
     service.submitProposeTransfer(
       institution: institution,
       proposerRoleCode: null,
       beneficiaryAddress: citizenSs58FromAccountId('0x${'02' * 32}'),
       amountFen: BigInt.from(100),
-      remark: '',
+      remark: remark,
       signerPublicKey: signer,
       externalSigning: (_) async => 'synthetic-response',
     );
 void main() {
+  for (final remark in [' ', ' memo ', '\n', '中文 ']) {
+    for (final cold in [false, true]) {
+      test('转账备注按上链原文验收：$remark，冷签$cold', () async {
+        final chain = Chain()..events = eventBytes(remark: remark);
+        final tx = flow(cold: cold);
+        final service = MultisigTransferService(
+          buildCall: _buildCall,
+          getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
+          getFinalizedHead: chain.getFinalizedHead,
+          getStorageKeysPaged: chain.getStorageKeysPaged,
+          getStorage: chain.getStorage,
+          getStorageBatch: chain.getStorageBatch,
+          getSystemEvents: chain.getSystemEvents,
+          getRuntimeContext: chain.getRuntimeContext,
+          prepareTransaction: tx.prepareTransaction,
+          executePreparedTransaction: tx.executePreparedTransaction,
+          cancelPreparedTransactionExecution: tx.cancelPreparedTransactionExecution,
+          consumePreparedTransactionQrResponse: tx.consumePreparedTransactionQrResponse,
+        );
+        final result = await submit(service, remark: remark);
+        expect((result as dynamic).proposalId, BigInt.from(7));
+        expect(tx.prepareCount, 1);
+        expect(tx.executeCount, 1);
+        // 事件即使只缺少首尾空白，也不是本次签名的备注原文。
+        chain.events = eventBytes(remark: remark.trim());
+        await expectLater(submit(service, remark: remark), throwsStateError);
+      });
+    }
+  }
+
   test('机构普通转账使用Some(CID)及实际岗位，缺岗位在准备前失败', () async {
     final institution = InstitutionInfo(
       fullName: '合成机构',
@@ -205,6 +235,7 @@ void main() {
       ),
     );
     for (final kind in [3, 6]) {
+      for (final note in kind == 3 ? ['', ' ' , ' 原文 ' ] : ['']) {
       for (final cold in [true, false]) {
         final chain = Chain()
           ..events = Uint8List.fromList([
@@ -225,7 +256,7 @@ void main() {
             ...List.filled(32, kind == 3 ? 2 : 9),
             100,
             ...List.filled(15, 0),
-            if (kind == 3) 0,
+            if (kind == 3) ...[utf8.encode(note).length << 2, ...utf8.encode(note)],
             9,
             0,
             0,
@@ -257,7 +288,7 @@ void main() {
                 proposerRoleCode: 'DIRECTOR',
                 beneficiaryAddress: citizenSs58FromAccountId('0x${'02' * 32}'),
                 amountFen: BigInt.from(100),
-                remark: '',
+                remark: note,
                 signerPublicKey: signer,
                 externalSigning: (_) async => 'synthetic-response',
               )
@@ -272,6 +303,7 @@ void main() {
         expect(result.blockHash, block.hash);
         expect(tx.consumeCount, cold ? 1 : 0);
       }
+    }
     }
   });
   test('多签外签回调异常取消pending，未知消费不重播', () async {

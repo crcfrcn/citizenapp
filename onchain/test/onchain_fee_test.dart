@@ -31,5 +31,11 @@ void main() {
       ),
       BigInt.from(50213),
     );
+    expect(
+      MultisigTransferBalanceGuard.institutionFeeAccountRequiredFen(
+        fees, fees.feeFen + fees.FLAT_FEE,
+      ),
+      BigInt.from(323),
+    );
   });
 }
