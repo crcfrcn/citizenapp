@@ -1,3 +1,5 @@
+// 定义治理提案进入交易页面所需的已校验导航参数。
+
 import 'package:flutter/widgets.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'institution/institution_info.dart';

@@ -1,3 +1,5 @@
+// 提供每设备路由和密文消息的Protobuf Dart模型和编解码。
+
 // This is a generated file - do not edit.
 //
 // Generated from message.proto.

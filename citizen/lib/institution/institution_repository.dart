@@ -1,3 +1,5 @@
+// 从本地最终链目录构造统一机构，并附加创世固定账户。
+
 import 'package:citizen_storage/user_isar.dart' as app_store show Entity;
 // 统一机构仓库门面(ADR-028 决策 2)——finalized 链快照 + Isar 产出统一 [Institution];
 // 为创世治理机构附 china 固定账户。

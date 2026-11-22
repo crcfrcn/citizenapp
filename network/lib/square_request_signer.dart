@@ -1,3 +1,5 @@
+// 冻结真实HTTP请求正文，以同一MLS设备签发绑定完整目标的证明。
+
 import 'dart:convert';
 import 'dart:typed_data';
 

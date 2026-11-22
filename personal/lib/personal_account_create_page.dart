@@ -1,3 +1,5 @@
+// 选择管理员及阈值，准备无需CID的个人多签创建提案。
+
 import 'package:citizen_personal/personal_local_store.dart';
 import 'package:citizen_storage/user_isar.dart' as wallet_store show Account;
 import 'package:citizen_sdk/citizen_sdk.dart';

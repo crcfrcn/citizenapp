@@ -1,3 +1,5 @@
+// 定义最终链业务快照的Isar结构、序列化和查询扩展。
+
 // GENERATED CODE - DO NOT MODIFY BY HAND
 
 // ignore_for_file: experimental_member_use

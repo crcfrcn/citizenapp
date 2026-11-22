@@ -1,3 +1,5 @@
+// 持久保存详情首屏快照和冻结票据，操作授权仍须查链。
+
 import 'package:isar_community/isar.dart';
 import 'package:citizen_storage/user_isar.dart' as wallet_store show Proposal;
 

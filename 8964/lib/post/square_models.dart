@@ -1,3 +1,5 @@
+// 定义广场分类、发布范围、帖子、媒体和发布阶段模型。
+
 import 'package:citizen_user/profile/profile_presentation.dart';
 
 /// 广场前端模型。

@@ -1,3 +1,5 @@
+// 定义本机聊天会话、消息、发送队列、媒体及设备路由存储。
+
 import 'dart:async';
 import 'package:isar_community/isar.dart';
 import 'isar_core_bootstrap.dart';

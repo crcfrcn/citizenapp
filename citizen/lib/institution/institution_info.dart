@@ -1,10 +1,5 @@
-/// 跨模块共用：机构/多签账户的数据载体类型 + 身份编码工具。
-///
-///
-/// - 内置治理机构静态注册表（`kNrc`/`kPrcs`/`kProvincialBanks`）+
-///   CID 查找、个人多签账户包装与联合投票常量在
-///   `lib/citizen/institution/governance_registry.dart`。
-/// - 机构治理主体统一为 `cid_number`；具体账户只用于账户操作。
+// 定义机构和多签共用资料、账户集合及公开身份编码工具。
+
 library;
 
 import 'package:citizen_sdk/citizen_sdk.dart';

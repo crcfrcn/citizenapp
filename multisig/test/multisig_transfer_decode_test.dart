@@ -1,3 +1,5 @@
+// 验证多签详情解码、就绪及重试，并覆盖分页和投票时序。
+
 import 'package:citizen_citizen/runtime/runtime_upgrade_detail_page.dart';
 import 'package:citizen_sdk/test/platform/fixture.dart';
 

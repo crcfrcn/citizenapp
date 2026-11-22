@@ -1,3 +1,5 @@
+// 提供交易页进入个人多签账户列表的整卡入口。
+
 import 'package:flutter/material.dart';
 
 import 'package:citizen_personal/personal_account_list_page.dart';

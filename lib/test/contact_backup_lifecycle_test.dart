@@ -1,3 +1,5 @@
+// 验证网络恢复触发通讯录合并及应用销毁撤销监听。
+
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';

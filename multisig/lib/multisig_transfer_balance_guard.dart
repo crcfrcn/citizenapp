@@ -1,3 +1,5 @@
+// 按提案实际付款账户核对可支配余额并提示不足。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 /// 按提案的付款账户提示余额不足。

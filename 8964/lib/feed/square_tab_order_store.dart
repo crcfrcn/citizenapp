@@ -1,3 +1,5 @@
+// 在用户库保存稳定分类顺序，去重并补齐新增分类。
+
 import 'package:citizen_square/post/square_models.dart';
 import 'package:citizen_storage/user_isar.dart';
 

@@ -1,8 +1,4 @@
-// 测试隔离:每个测试文件(独立 isolate)用唯一临时目录开各业务 Isar,从物理上根除
-// 系统临时目录下同名数据库导致的并发锁竞争(30 秒超时)与磁盘残留污染。
-//
-// 打开真库的测试文件在 main() 顶部调一次 `useIsolatedIsar();` 即可,不再各自手写
-// setUpAll(ensureTestCoreInitialized) / setUp / tearDown(resetForTest) 样板。
+// 按测试文件隔离真实Isar目录，并管理各业务数据库的打开和清理。
 
 import 'dart:io';
 

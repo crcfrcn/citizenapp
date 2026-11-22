@@ -1,3 +1,5 @@
+// 发现、刷新并展示本机相关个人多签账户。
+
 import 'package:citizen_personal/personal_local_store.dart';
 import 'package:citizen_storage/user_isar.dart'
     as wallet_store

@@ -1,3 +1,5 @@
+// 定义本地行政区查询和按原始主键增量删除接口。
+
 import 'package:citizen_storage/user_isar.dart' as app_store show Region;
 
 import 'package:citizen_citizen/public/admin_division_dto.dart';

@@ -1,3 +1,5 @@
+// 协调唯一活动的一对一通话、信令、忙线及可重试资源清理。
+
 import 'dart:async';
 import 'dart:math';
 

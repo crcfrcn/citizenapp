@@ -1,3 +1,5 @@
+// 解码广场账户动作签名载荷，并生成独立审阅字段。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:convert';

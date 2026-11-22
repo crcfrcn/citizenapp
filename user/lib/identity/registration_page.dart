@@ -1,3 +1,5 @@
+// 承载默认Cloudflare核验页面并交付本次瞬时令牌。
+
 import 'dart:convert';
 import 'package:citizen_user/identity/registration_api.dart';
 

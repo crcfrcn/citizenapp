@@ -1,3 +1,5 @@
+// 限定正式服务及媒体来源，以禁止重定向的HTTPS客户端隔离凭据。
+
 import 'package:http/http.dart' as http;
 import 'package:citizen_system/app_log.dart';
 

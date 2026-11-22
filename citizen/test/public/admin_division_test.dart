@@ -1,5 +1,4 @@
-// 行政区字典层单测(ADR-021):region_name 命中/回退、formatAreaPath 三态、
-// 字典 loader 灌库、listCities 按 code 去重。
+// 验证行政区自然索引隔离、字典导入及显示路径名称回退。
 
 import 'dart:convert';
 

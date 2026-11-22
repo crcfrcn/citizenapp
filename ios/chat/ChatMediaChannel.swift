@@ -1,3 +1,5 @@
+// 实现iOS聊天媒体选择和有界探测，返回固定错误分类。
+
 import AVFoundation
 import Flutter
 import UIKit

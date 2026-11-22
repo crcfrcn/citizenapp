@@ -1,3 +1,6 @@
+// 协调统一人验、原链注册和最终结果报告及既有身份恢复。
+
+import 'package:citizen_system/identity_cid_display.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'dart:async';
 import 'dart:io';
@@ -55,7 +58,7 @@ Future<bool> startCidRegistrationFlow(
           },
         );
   }
-  // 已有公民号先恢复公开绑定与服务准备，绝不打开注册面板或Turnstile。
+  // 已有身份CID号先恢复公开绑定与服务准备，绝不打开注册面板或Turnstile。
   try {
     final verified = await context.read<FinalizedIdentityResolver>().resolve();
     if (verified == null) return false;
@@ -116,7 +119,7 @@ Future<bool> startCidRegistrationFlow(
           canRetryChain: service.canRetryRegistration,
         );
         return RegistrationSubmitOutcome.success(
-          '身份 CID 已注册:${result.binding.cidNumber}',
+          '身份CID号 已注册:${formatIdentityCidText(result.binding.cidNumber)}',
         );
       } on Object catch (error) {
         final insufficient =
@@ -132,7 +135,7 @@ Future<bool> startCidRegistrationFlow(
     },
   );
   if (registered == true && context.mounted) {
-    _showSnack(context, '身份 CID 已注册');
+    _showSnack(context, '身份CID号 已注册');
   }
   return registered == true;
 }
@@ -273,7 +276,7 @@ String _describeError(Object error) {
       CitizenSdkErrorCode.storage => '本机安全存储失败，请检查设备存储状态',
       CitizenSdkErrorCode.integrity => '链上回执或身份校验未通过，请核实当前账户',
       CitizenSdkErrorCode.notFound => '所选钱包账户或链上登记不存在，请核对账户',
-      CitizenSdkErrorCode.conflict => '注册状态冲突，请核对当前公民号状态',
+      CitizenSdkErrorCode.conflict => '注册状态冲突，请核对当前身份CID号状态',
       CitizenSdkErrorCode.notReady ||
       CitizenSdkErrorCode.invalidState => '钱包或链状态尚未就绪，请稍后重试',
       CitizenSdkErrorCode.busy ||
@@ -296,7 +299,7 @@ void _showSnack(BuildContext context, String message, {bool isError = false}) {
   if (!context.mounted) return;
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
-      content: Text(message),
+      content: Text(identityCidUiText(message)),
       backgroundColor: isError ? AppTheme.danger : null,
     ),
   );

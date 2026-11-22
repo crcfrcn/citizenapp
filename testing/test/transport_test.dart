@@ -1,3 +1,5 @@
+// 验证多个真实SDK共享物理通道及未声明业务调用立即失败。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 import 'package:flutter_test/flutter_test.dart';

@@ -1,3 +1,5 @@
+// 验证聊天依赖包图和真实ARM64原生库的完整接口导出。
+
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';

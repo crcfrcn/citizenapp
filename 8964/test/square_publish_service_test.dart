@@ -1,3 +1,5 @@
+// 验证发布验真、账户切换和未知结果恢复且不重复签发交易。
+
 import 'package:citizen_testing/mls_authentication_fixture.dart';
 
 import 'package:citizen_user/identity/finalized_identity_resolver.dart';

@@ -1,3 +1,5 @@
+// 验证规范Delta、字号和登记字体的真实只读渲染。
+
 import 'dart:convert';
 
 import 'package:flutter/services.dart';

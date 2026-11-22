@@ -1,3 +1,6 @@
+// 查询已绑定清算行及最终目录，提供搜索、绑定和切换界面。
+
+import 'package:citizen_system/identity_cid_display.dart';
 import 'dart:async';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -220,7 +223,7 @@ class _ClearingBankSettingsPageState extends State<ClearingBankSettingsPage> {
     return ListTile(
       leading: const Icon(Icons.account_balance),
       title: Text(current?.displayTitle ?? '当前清算行'),
-      subtitle: Text(cid),
+      subtitle: Text(formatIdentityCidText(cid)),
       trailing: current == null
           ? null
           : TextButton(
@@ -280,7 +283,7 @@ class _ClearingBankSettingsPageState extends State<ClearingBankSettingsPage> {
     return ListTile(
       leading: const Icon(Icons.verified_outlined, color: Colors.green),
       title: Text(title),
-      subtitle: Text('${item.cidNumber}\n${endpoint.wssUrl}'),
+      subtitle: Text('${formatIdentityCidText(item.cidNumber)}\n${endpoint.wssUrl}'),
       isThreeLine: true,
       trailing: FilledButton(
         onPressed: ready && !isCurrent ? () => _openBind(item) : null,

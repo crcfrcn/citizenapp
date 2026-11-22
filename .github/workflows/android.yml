@@ -1,4 +1,5 @@
-# 一个产品平台一次执行只有一个Run，所有产品执行归本仓Workflow。
+# 组织Android版本、回归、编译及正式交付，并维护所属运行记录。
+
 name: 公民·Android
 run-name: 公民·Android·${{ github.run_number }}
 'on':

@@ -1,3 +1,5 @@
+// 验证评论缓存、分页、幂等重试、回复关联及身份切换。
+
 import 'package:citizen_storage/social_isar.dart' as social_store show Reply;
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_user/identity/current_user_context.dart';

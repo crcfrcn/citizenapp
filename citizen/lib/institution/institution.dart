@@ -1,3 +1,5 @@
+// 统一表示按CID分类的机构资料及固定治理账户。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_storage/user_isar.dart' as app_store show Entity;
 // 统一机构实体(ADR-028 决策 2)——合并公权 `entity` 与治理

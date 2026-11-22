@@ -1,3 +1,5 @@
+// 验证个人多签地址和生命周期解码及管理员与阈值分离。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:convert';

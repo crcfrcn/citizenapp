@@ -1,3 +1,5 @@
+// 展示清算零钱包余额及充值、提现和清算行管理入口。
+
 import 'dart:async';
 
 import 'package:citizen_offchain/clearing_bank_directory.dart';

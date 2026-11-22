@@ -1,3 +1,5 @@
+// 持久化广场帖子副本、草稿、评论及待重试和删除事实。
+
 import 'dart:async';
 
 import 'package:isar_community/isar.dart';

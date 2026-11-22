@@ -1,3 +1,5 @@
+// 探测文件大小并将图片压缩到当前允许上限。
+
 import 'dart:io';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:path_provider/path_provider.dart';

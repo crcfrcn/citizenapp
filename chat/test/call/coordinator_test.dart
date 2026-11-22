@@ -1,3 +1,5 @@
+// 验证唯一通话会话、并发来电、关闭代次及失败清理重试。
+
 import 'dart:async';
 import 'dart:math';
 

@@ -1,11 +1,4 @@
-// 行政区显示路径拼装(ADR-021 行政区唯一真源)。
-//
-// 机构只存 (province_code, city_code, town_code);显示名一律按三元组
-// 查字典 join。**不在 widget build 里 await**——在 repository 层预 join 成
-// view-model 字段,UI 直接读字符串。
-//
-// 省名走链上常量(`publicProvinceNames` / `provinceDisplayName`,见
-// public_provinces.dart)这一认可的省名源;市/镇名走字典。
+// 从省市镇自然代码查字典并组合显示路径，缺失时保留代码。
 
 import 'package:citizen_citizen/public/admin_division_store.dart';
 

@@ -1,3 +1,5 @@
+// 定义用户、目录和钱包业务记录的Isar结构及访问扩展。
+
 // GENERATED CODE - DO NOT MODIFY BY HAND
 
 // ignore_for_file: experimental_member_use

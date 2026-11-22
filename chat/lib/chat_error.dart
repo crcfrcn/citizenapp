@@ -1,3 +1,5 @@
+// 定义聊天稳定错误和统一私信拒绝提示，限制异常携带敏感内容。
+
 import 'transport/attachment_transfer.dart';
 import 'package:citizen_network/mls_authentication.dart';
 import 'package:citizen_user/square_api_client.dart';
@@ -98,7 +100,7 @@ String chatUserErrorMessage(
   if (error is SquareApiException) {
     return switch (error.errorCode) {
       'cid_not_bound' => '公民身份同步失败，请重试',
-      'identity_unregistered' => '当前默认账户尚未注册公民号，无法使用聊天',
+      'identity_unregistered' => '当前默认账户尚未注册身份CID号，无法使用聊天',
       'device_not_registered' ||
       'chat_device_not_registered' ||
       'invalid_mls_signature' ||

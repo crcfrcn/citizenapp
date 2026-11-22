@@ -1,3 +1,5 @@
+// 验证冷签倒计时、响应预检、取消及不提前消费或提交。
+
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 
 import 'dart:typed_data';

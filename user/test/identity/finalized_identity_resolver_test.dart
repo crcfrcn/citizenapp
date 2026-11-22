@@ -1,3 +1,5 @@
+// 验证最终身份闭环、同次验真合并及账户和修订切换隔离。
+
 import 'dart:typed_data';
 import 'dart:async';
 

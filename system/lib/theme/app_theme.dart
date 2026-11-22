@@ -1,3 +1,5 @@
+// 定义公民App浅色主题、品牌色和通用控件样式。
+
 import 'package:flutter/material.dart';
 
 import 'package:citizen_system/theme/app_layout.dart';

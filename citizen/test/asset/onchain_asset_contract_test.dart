@@ -1,3 +1,5 @@
+// 以冻结向量验证资产编号、调用常量及严格SCALE解码。
+
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';

@@ -1,6 +1,7 @@
-// 私密小群的 Dart 侧模型。名册以 MLS 群成员为真源,本模型为镜像视图。
+// 定义以MLS名册为真源的群、成员及角色镜像。
 
 /// 群成员角色。
+
 enum GroupMemberRole {
   admin('admin'),
   member('member');

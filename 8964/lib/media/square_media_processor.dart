@@ -1,3 +1,5 @@
+// 按授权规格生成图片和视频衍生物，管理原生文件保护及临时清理。
+
 import 'package:citizen_user/square_api_client.dart';
 
 import 'dart:async';

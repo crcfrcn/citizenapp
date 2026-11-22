@@ -1,3 +1,5 @@
+// 访问App受保护私有记录，校验路径并协调原生原子提交和擦除。
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';

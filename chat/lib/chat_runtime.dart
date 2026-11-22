@@ -1,3 +1,5 @@
+// 协调聊天身份绑定、实时同步、可靠投递、附件及持久擦除生命周期。
+
 import 'chat_error.dart';
 import 'transport/attachment_transfer.dart';
 import 'package:citizen_user/identity/current_user_context.dart';

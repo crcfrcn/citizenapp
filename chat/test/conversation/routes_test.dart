@@ -1,3 +1,5 @@
+// 验证私聊路由复用唯一SDK会话标识规则。
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/chat.dart';
 

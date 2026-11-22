@@ -1,3 +1,5 @@
+// 验证机构关注按CID隔离及合库后的无重入关联读取。
+
 import 'package:citizen_citizen/public/isar_public_institution_store.dart';
 import 'package:citizen_citizen/public/public_institution_dto.dart';
 import 'package:citizen_testing/isar_test_env.dart';

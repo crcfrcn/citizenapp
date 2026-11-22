@@ -1,3 +1,5 @@
+// 管理会话本地快照、乐观消息、通知刷新和前后台生命周期。
+
 import '../message/message_view.dart';
 import '../chat_error.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';

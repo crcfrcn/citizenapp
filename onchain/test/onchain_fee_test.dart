@@ -1,3 +1,5 @@
+// 验证机构费用账户承担操作费而不承担主账户本金。
+
 import 'package:citizen_multisig/multisig_transfer_balance_guard.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter_test/flutter_test.dart';

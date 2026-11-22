@@ -1,3 +1,5 @@
+// 展示本机交易流水行及可选的详情导航箭头。
+
 import 'package:citizen_storage/user_isar.dart' as wallet_store show Entry;
 import 'package:flutter/material.dart';
 import 'package:citizen_system/theme/app_theme.dart';

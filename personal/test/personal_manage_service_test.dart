@@ -1,3 +1,5 @@
+// 验证个人多签调用、阈值、唯一执行事件及分批状态读取。
+
 import 'dart:convert';
 import 'dart:typed_data';
 

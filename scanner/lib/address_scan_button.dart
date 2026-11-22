@@ -1,3 +1,5 @@
+// 为地址输入统一提供扫码导航，仅返回有效收款账户。
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 

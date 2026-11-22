@@ -1,3 +1,5 @@
+// 装配iOS原生通道，处理推送、屏幕保护、网络变化和钱包回跳及后台任务。
+
 import Flutter
 import OSLog
 import StoreKit

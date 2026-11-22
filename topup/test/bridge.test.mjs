@@ -1,4 +1,5 @@
-// 执行真实随包JS；合成SDK端口不连接钱包、不签名或广播资金。
+// 执行真实付款桥接和MWP，验证超时、迟到回执及单次唤起和支付。
+
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,mkdtempSync,writeFileSync,rmSync} from 'node:fs';

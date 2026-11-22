@@ -1,3 +1,5 @@
+// 按页面可见账户订阅SDK余额，隐藏或覆盖时释放监视。
+
 import 'dart:async';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';

@@ -1,3 +1,6 @@
+// 展示会员链上状态、价格及独立云端额度用量和订阅操作。
+
+import 'package:citizen_system/identity_cid_display.dart';
 import 'package:citizen_user/identity/register_identity_flow.dart';
 import 'package:citizen_chain/citizen_chain.dart';
 
@@ -426,7 +429,7 @@ class _MembershipPageState extends State<MembershipPage>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              error is SubscriptionException ? error.message : '会员操作失败，请重试',
+              identityCidUiText(error is SubscriptionException ? error.message : '会员操作失败，请重试'),
             ),
           ),
         );
@@ -1347,7 +1350,7 @@ class _LoadFailureBanner extends StatelessWidget {
           SizedBox(width: AppLayout.scaled(context, 8)),
           Expanded(
             child: Text(
-              message,
+              identityCidUiText(message),
               style: TextStyle(
                 fontSize: AppLayout.scaled(context, 13),
                 color: AppTheme.textSecondary,

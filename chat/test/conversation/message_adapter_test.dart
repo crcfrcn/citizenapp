@@ -1,3 +1,5 @@
+// 验证各类消息的真实状态、媒体路径及占位模型转换。
+
 import 'package:citizen_testing/chat_runtime_fixture.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';
 import 'package:flutter_test/flutter_test.dart';

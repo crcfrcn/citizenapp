@@ -1,8 +1,4 @@
-// AdminAccountStorageCodec golden test:固定字节 -> 固定解码结果。
-//
-// 覆盖链上三类管理员 pallet `AdminAccounts` 的目标布局：
-// - 机构 value 只保存 institution_code + admins，CID 来自 storage key；
-// - 个人多签 value 保持独立账户布局，personal_account_id 来自 storage key。
+// 以冻结字节验证三类管理员布局、数量和截断边界。
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 

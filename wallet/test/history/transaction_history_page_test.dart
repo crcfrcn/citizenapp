@@ -1,3 +1,5 @@
+// 验证本机流水分页、账户切换、充值回执及零远端读取。
+
 import 'dart:async';
 import 'dart:io';
 

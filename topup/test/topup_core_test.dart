@@ -1,3 +1,5 @@
+// 验证精确充值报价、固定配置指纹及六条币轨的单轮验款。
+
 import 'package:citizen_testing/fixture.dart';
 
 import 'dart:async';

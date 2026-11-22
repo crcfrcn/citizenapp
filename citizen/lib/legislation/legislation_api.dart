@@ -1,3 +1,5 @@
+// 通过SDK读取最终链法律、版本及不可修改条款清单。
+
 import 'package:citizen_storage/user_isar.dart'
     as wallet_store
     show LawSnapshot;

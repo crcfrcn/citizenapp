@@ -1,3 +1,5 @@
+// 持久保存公开资料和媒体展示快照，协调本地读取及版本通知。
+
 import 'package:citizen_storage/user_isar.dart'
     as user_store
     show Edit, ProfileMedia, Profile;

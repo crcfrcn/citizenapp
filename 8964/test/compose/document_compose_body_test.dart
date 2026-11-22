@@ -1,3 +1,5 @@
+// 验证公文字数、非空及图片上限和删除后补选。
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';

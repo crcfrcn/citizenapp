@@ -1,3 +1,5 @@
+// 严格编解码MLS媒体附件描述并校验文件组和实际收件设备。
+
 import 'dart:convert';
 import 'package:fixnum/fixnum.dart';
 import 'package:citizen_network/protocol/media_content.pb.dart' as protocol;

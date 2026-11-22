@@ -1,3 +1,5 @@
+// 展示尚未接入的决议销毁提案发起说明。
+
 import 'package:flutter/material.dart';
 
 import 'package:citizen_citizen/proposal/proposal_placeholder.dart';

@@ -1,3 +1,5 @@
+// 定义转账步骤、账户选择、冻结收款目标及明确错误模型。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 enum OnchainPaymentErrorCode { walletMissing, invalidDraft }

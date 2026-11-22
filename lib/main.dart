@@ -1,3 +1,5 @@
+// 初始化唯一完整SDK会话和本机数据，处理启动清理与擦除恢复。
+
 import 'package:citizen_widgets/chain_balance_scope.dart';
 import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_user/contacts/contact_service.dart';

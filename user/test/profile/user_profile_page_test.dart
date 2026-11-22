@@ -1,3 +1,5 @@
+// 验证统一主页权限检查、明确拒绝提示及身份变化和读取故障处理。
+
 import 'package:citizen_user/profile/citizen_profile_api.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:citizen_user/square_api_client.dart';
@@ -8,6 +10,8 @@ import 'package:citizen_user/profile/profile_action_icons.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:citizen_user/identity/square_session_provider.dart';
+import 'package:citizen_user/identity/account_security_service.dart';
+import 'package:provider/provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -52,6 +56,11 @@ Widget _wrap({required bool isSelf, CitizenProfile? localProfile}) =>
         subscriptionService: _NullMembershipSnapshotService(),
       ),
     );
+
+class _SecurityRevision extends Fake implements AccountSecurityService {
+  @override
+  final revision = ValueNotifier<int>(0);
+}
 
 class _PendingRefreshSession extends FakeSessionProvider {
   _PendingRefreshSession()
@@ -287,7 +296,7 @@ void main() {
       expect(api.authorPostCalls, before + 1);
       expect(find.text('取关前的圈内正文'), findsNothing);
       if (denyHome) {
-        expect(find.text('仅互相关注的用户可见'), findsWidgets);
+        expect(find.text('用户尚未开放主页访问，请稍后重试。'), findsWidgets);
         expect(find.byType(ProfileHeaderCard), findsNothing);
       } else {
         expect(find.byType(ProfileHeaderCard), findsOneWidget);
@@ -377,11 +386,11 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('不能泄露的缓存'), findsNothing);
-    expect(find.text('仅用户可见'), findsWidgets);
+    expect(find.text('用户尚未开放主页访问，请稍后重试。'), findsWidgets);
     expect(api.calls, 0);
   });
 
-  testWidgets('统一主页入口拒绝时保留原路由，只弹窗', (tester) async {
+  testWidgets('统一主页入口明确拒绝时提示两秒自动消失且没有确认弹窗', (tester) async {
     final api = FakeProfileApi(sampleProfile())
       ..accessError = const SquareApiException(
         'private',
@@ -411,9 +420,86 @@ void main() {
     await tester.tap(find.text('主页入口'));
     await tester.pumpAndSettle();
     expect(find.byType(UserProfilePage), findsNothing);
-    expect(find.text('仅用户可见'), findsOneWidget);
+    expect(find.text('用户尚未开放主页访问，请稍后重试。'), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.text('确定'), findsNothing);
     expect(api.accessCalls, 1);
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+    expect(find.byType(SnackBar), findsNothing);
   });
+  for (final code in ['profile_followers_required', 'profile_mutual_required']) {
+    testWidgets('$code使用同一自动消失提示', (tester) async {
+      final api = FakeProfileApi(sampleProfile())
+        ..accessError = SquareApiException('fixture', statusCode: 403, errorCode: code);
+      await tester.pumpWidget(MaterialApp(home: Builder(builder: (context) =>
+        Scaffold(body: TextButton(onPressed: () => UserProfilePage.open(context,
+          UserProfilePage(cidNumber: api.result.cidNumber!, isSelf: false,
+            api: api, sessionProvider: FakeSessionProvider(fakeSession()))),
+          child: const Text('主页入口'))))));
+      await tester.tap(find.text('主页入口'));
+      await tester.pumpAndSettle();
+      expect(find.text('用户尚未开放主页访问，请稍后重试。'), findsOneWidget);
+      expect(find.byType(AlertDialog), findsNothing);
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+      expect(find.byType(SnackBar), findsNothing);
+    });
+  }
+  for (final identityChanged in [true, false]) {
+    testWidgets('旧主页权限拒绝不提示到新${identityChanged ? '身份' : '路由'}', (tester) async {
+      final security = _SecurityRevision();
+      addTearDown(security.revision.dispose);
+      final api = FakeProfileApi(sampleProfile())..accessPending = Completer<void>();
+      await tester.pumpWidget(Provider<AccountSecurityService?>.value(value: security,
+        child: MaterialApp(home: Builder(builder: (context) => Scaffold(
+          body: TextButton(onPressed: () => UserProfilePage.open(context,
+            UserProfilePage(cidNumber: api.result.cidNumber!, isSelf: false,
+              api: api, sessionProvider: FakeSessionProvider(fakeSession()))),
+            child: const Text('主页入口')))))));
+      await tester.tap(find.text('主页入口'));
+      await tester.pump();
+      if (identityChanged) {
+        security.revision.value++;
+      } else {
+        Navigator.of(tester.element(find.text('主页入口'))).push<void>(
+          MaterialPageRoute(builder: (_) => const Scaffold(body: Text('其他页面'))));
+        await tester.pumpAndSettle();
+      }
+      api.accessPending!.completeError(const SquareApiException('fixture',
+        statusCode: 403, errorCode: 'profile_private'));
+      await tester.pumpAndSettle();
+      expect(find.byType(SnackBar), findsNothing);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(UserProfilePage), findsNothing);
+    });
+  }
+  final entryFailures = <Object>[
+    const SquareApiException('fixture', statusCode: 503),
+    const SquareApiException('fixture', statusCode: 401, errorCode: 'invalid_session'),
+    const SquareApiException('fixture', statusCode: 403, errorCode: 'unknown_forbidden'),
+    const SquareApiException('fixture', statusCode: 404, errorCode: 'user_not_found'),
+    const SquareApiException('fixture', statusCode: 503, errorCode: 'profile_private'),
+    const FormatException('fixture'), TimeoutException('fixture'), StateError('fixture'),
+  ];
+  for (var index = 0; index < entryFailures.length; index++) {
+    testWidgets('非明确权限拒绝$index不弹窗也不放行缓存', (tester) async {
+      final api = FakeProfileApi(sampleProfile())..accessError = entryFailures[index];
+      await tester.pumpWidget(MaterialApp(home: Builder(builder: (context) =>
+        Scaffold(body: TextButton(onPressed: () => UserProfilePage.open(context,
+          UserProfilePage(cidNumber: api.result.cidNumber!, isSelf: false,
+            initialProfile: sampleProfile(displayName: '未获准的缓存'),
+            api: api, sessionProvider: FakeSessionProvider(fakeSession()))),
+          child: const Text('主页入口'))))));
+      await tester.tap(find.text('主页入口'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(SnackBar), findsNothing);
+      expect(find.byType(UserProfilePage), findsNothing);
+      expect(find.text('未获准的缓存'), findsNothing);
+      expect(api.accessCalls, 1);
+    });
+  }
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     CitizenProfileApi.resetEntryRefreshMemory();
@@ -670,7 +756,9 @@ void main() {
       await tester.drag(find.text('暂无公文内容，请在广场发布'), const Offset(0, 380));
       await tester.pumpAndSettle();
       expect(find.text('旧主页资料'), findsNothing);
-      expect(find.text('该用户不存在'), findsWidgets);
+      expect(find.text('用户主页暂不可用'), findsWidgets);
+      expect(find.byType(SnackBar), findsNothing);
+      expect(find.byType(AlertDialog), findsNothing);
       debugDefaultTargetPlatformOverride = null;
     });
 

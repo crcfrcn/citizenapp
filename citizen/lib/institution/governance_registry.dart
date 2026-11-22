@@ -1,11 +1,5 @@
-/// 固定治理机构静态账户表 + 联合投票常量 + 反向查找入口。
-///
-///
-/// - 通用类型 `InstitutionInfo` / `InstitutionAccounts` / `OrgType` + 身份编码工具
-///   `accountIdBytes` 等在
-///   `lib/citizen/institution/institution_info.dart`。
-/// - 联合投票只使用国家储委会/省储委会/省储行三类储备治理机构。
-/// - `kFixedGovernanceInstitutions` 保存不进入治理 tab 的其它固定治理机构账户。
+// 提供固定治理机构目录、制度账户、联合投票常量及反向查找。
+
 library;
 
 import 'package:citizen_sdk/citizen_sdk.dart';

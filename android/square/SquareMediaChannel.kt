@@ -1,3 +1,5 @@
+// 提供广场受保护临时媒体、范围读取及原生播放和转码通道。
+
 package com.crcfrcn.citizenapp
 
 import android.content.Context

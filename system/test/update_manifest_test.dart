@@ -1,3 +1,5 @@
+// 验证版本展示、数值比较及非法商店版本拒绝。
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_system/update/app_update_manifest.dart';
 

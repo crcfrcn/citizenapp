@@ -1,3 +1,5 @@
+// 以Flutter WebRTC实现通话媒体连接并等待平台子资源清理。
+
 import 'dart:async';
 
 import 'package:flutter_webrtc/flutter_webrtc.dart';

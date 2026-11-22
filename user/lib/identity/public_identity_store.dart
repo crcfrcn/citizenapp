@@ -1,3 +1,5 @@
+// 原子保存公开绑定和当前设备钱包授权回执，校验属主及CAS修订。
+
 import 'dart:convert';
 
 import 'package:citizen_user/identity/identity_binding.dart';

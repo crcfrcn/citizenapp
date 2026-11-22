@@ -1,3 +1,5 @@
+// 从已过滤的本机其他账户中选择CID换绑目标。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'package:flutter/material.dart';
@@ -6,7 +8,7 @@ import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_sdk/citizen_sdk.dart' show CitizenWalletStateAccount;
 import 'package:citizen_system/theme/app_layout.dart';
 
-/// 弹出“更换公民号绑定的账户”底部面板：从本地其他账户中挑选新的签名账户。
+/// 弹出“更换身份CID号绑定的账户”底部面板：从本地其他账户中挑选新的签名账户。
 ///
 /// 返回选定账户的 `accountId`;取消 / 无可选账户返回 `null`。授权与提交由调用方
 /// ([MyIdService.rebindCidTo])承接;目标账户已由调用方过滤掉当前身份账户。
@@ -53,7 +55,7 @@ class RebindAccountSheet extends StatelessWidget {
               ),
             ),
             Text(
-              '更换公民号绑定的账户',
+              '更换身份CID号绑定的账户',
               style: TextStyle(
                 fontSize: AppLayout.scaled(context, 17),
                 fontWeight: FontWeight.w700,
@@ -62,7 +64,7 @@ class RebindAccountSheet extends StatelessWidget {
             ),
             SizedBox(height: AppLayout.scaled(context, 6)),
             Text(
-              '更换公民号绑定的签名账户为以下选中的账户，更换绑定需当前钱包账户与目标钱包账户'
+              '更换身份CID号绑定的签名账户为以下选中的账户，更换绑定需当前钱包账户与目标钱包账户'
               '各签名一次（共两次生物识别授权）。',
               style: TextStyle(
                   fontSize: AppLayout.scaled(context, 12),

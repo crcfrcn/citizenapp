@@ -1,3 +1,5 @@
+// 核对本轮真实动态库导出全部声明聊天C接口。
+
 import 'dart:ffi';
 import 'dart:io';
 

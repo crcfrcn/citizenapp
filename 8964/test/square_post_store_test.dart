@@ -1,3 +1,5 @@
+// 验证发布副本完整性、可见范围、媒体事务和删除后不复活。
+
 import 'package:citizen_storage/social_isar.dart'
     as social_store
     show Draft, Media, Post, PostSchema, Publish;

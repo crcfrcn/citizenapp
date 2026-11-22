@@ -1,3 +1,5 @@
+// 按链端字段顺序编码支付意图并构造操作域签名摘要。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:math';

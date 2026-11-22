@@ -1,3 +1,5 @@
+// 验证媒体大小及单次图片压缩，拒绝仍超限或失败结果。
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/media/compressor.dart';
 import 'package:chat/message/chat_message.dart';

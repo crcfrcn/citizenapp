@@ -1,3 +1,5 @@
+// 验证主页分类、作者分页、媒体呈现及会话故障准确区分。
+
 import 'package:citizen_testing/mls_authentication_fixture.dart';
 
 import 'package:citizen_storage/user_isar.dart';

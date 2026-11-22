@@ -1,5 +1,8 @@
+// 验证旧数据库结构的真实重开、游标和提案历史保留。
+
 // 仅本测试固定旧schema元数据，使用Isar提供的schema构造API。
 // ignore_for_file: invalid_use_of_protected_member
+
 import 'dart:convert';
 import 'package:citizen_storage/isar_core_bootstrap.dart';
 import 'package:isar_community/isar.dart';

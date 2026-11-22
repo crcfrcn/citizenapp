@@ -1,3 +1,5 @@
+// 验证占号换绑模板、当前账户和防重放字段及过期范围。
+
 import 'package:flutter/widgets.dart';
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 

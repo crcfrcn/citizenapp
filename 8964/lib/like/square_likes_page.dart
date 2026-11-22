@@ -1,3 +1,5 @@
+// 展示帖子点赞用户列表并连接主页入口。
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';

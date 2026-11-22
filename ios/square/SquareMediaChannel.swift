@@ -1,3 +1,5 @@
+// 提供iOS广场受保护媒体文件、范围读取、播放和视频处理通道。
+
 import Flutter
 import Foundation
 import Darwin

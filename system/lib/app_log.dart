@@ -1,3 +1,5 @@
+// 统一应用日志，按编译开关输出闭集阶段和安全诊断。
+
 import 'dart:async';
 import 'dart:io';
 

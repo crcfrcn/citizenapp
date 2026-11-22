@@ -1,3 +1,5 @@
+// 展示创作者单个档位、各周期开关和价格及编辑入口。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 

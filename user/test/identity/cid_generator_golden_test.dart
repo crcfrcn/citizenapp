@@ -1,8 +1,4 @@
-// 人主体 CID 号客户端生成器金标测试(链端 ↔ Dart 逐字节对齐)。
-//
-// 金标 CN951-CTZN1-539598435-2026 直接抄自 citizenchain
-// `runtime/primitives/cid/generator.rs::citizen_cid_number_golden`
-// (model B dev //0 公钥,CTZN,2026);任何生成规则漂移都会在这里红。
+// 以链端黄金向量验证人主体CID生成和年份范围。
 
 import 'package:citizen_user/identity/cid_generator.dart';
 import 'package:flutter_test/flutter_test.dart';

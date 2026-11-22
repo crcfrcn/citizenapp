@@ -1,3 +1,5 @@
+// 按编号和机构持久保存提案列表摘要及扫描进度。
+
 import 'package:isar_community/isar.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_storage/user_isar.dart'

@@ -1,3 +1,5 @@
+// 呈现可选钱包密码输入和风险确认，映射SDK校验结果。
+
 import 'package:flutter/material.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:provider/provider.dart';

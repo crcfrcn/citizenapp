@@ -1,3 +1,5 @@
+// 验证省市和关注导航及行政字典迟到后的名称更新。
+
 import 'package:citizen_storage/user_isar.dart' as app_store show Entity;
 // 卡B 公权机构导航 widget 测试。
 //

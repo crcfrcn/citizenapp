@@ -1,3 +1,5 @@
+// 定义提案主键与展示号、元数据、冻结票据和业务详情。
+
 import 'dart:typed_data';
 
 import 'package:citizen_personal/personal_manage_models.dart';

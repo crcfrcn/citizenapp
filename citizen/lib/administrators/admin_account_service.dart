@@ -1,3 +1,5 @@
+// 按明确主体读取管理员名册及所属治理阈值并缓存结果。
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';

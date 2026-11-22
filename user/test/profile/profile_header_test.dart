@@ -1,3 +1,5 @@
+// 验证主页资料、关系统计、徽章及大字体和窄屏布局。
+
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'dart:io';
@@ -172,7 +174,7 @@ void main() {
       _profileCidNumber,
     ).fallbackName;
     expect(find.text(fallback), findsWidgets);
-    expect(find.text('公民号：$_profileCidNumber'), findsOneWidget);
+    expect(find.text('身份CID号：$_profileCidNumber'), findsOneWidget);
     expect(find.textContaining('SS58：'), findsNothing);
     expect(find.text(kOwner), findsNothing);
     expect(find.textContaining('8 互关'), findsOneWidget);
@@ -247,7 +249,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('SS58：'), findsNothing);
-    expect(find.text('公民号：$_profileCidNumber'), findsOneWidget);
+    expect(find.text('身份CID号：$_profileCidNumber'), findsOneWidget);
     expect(find.byTooltip('复制 SS58 地址'), findsNothing);
     expect(tester.takeException(), isNull);
   });

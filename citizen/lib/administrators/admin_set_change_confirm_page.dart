@@ -1,3 +1,5 @@
+// 展示管理员集合差异及阈值，确认后提交治理变更。
+
 import 'package:flutter/material.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 

@@ -1,3 +1,5 @@
+// 计算头像背景摘要，申请上传授权并核对R2对象回执。
+
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';

@@ -1,3 +1,5 @@
+// 协调公开身份恢复、首次MLS设备授权及所属记录清理。
+
 import 'package:citizen_scanner/qr_sign_session_page.dart' show PayloadSigner;
 import 'package:citizen_system/security/account_security_exception.dart';
 

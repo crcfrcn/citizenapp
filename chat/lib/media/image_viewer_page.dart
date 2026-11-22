@@ -1,3 +1,5 @@
+// 全屏缩放查看图片，按屏幕尺寸解码并提供相册保存。
+
 import 'package:citizen_system/theme/app_layout.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';

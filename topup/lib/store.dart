@@ -1,3 +1,5 @@
+// 持久化原充值订单及付款事实，协调验款、发币回执和删除隔离。
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';

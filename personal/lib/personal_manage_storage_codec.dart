@@ -1,3 +1,5 @@
+// 解码个人多签生命周期、管理员及独立阈值快照。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:convert';

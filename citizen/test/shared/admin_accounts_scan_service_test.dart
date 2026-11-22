@@ -1,8 +1,4 @@
-// AdminAccountsScanService.filterMine 纯函数单测(ADR-018 §九)。
-//
-// filterMine 是个人多签发现的"按 kind + 本地钱包"分流逻辑,
-// 纯函数无链依赖。链上扫描路径直接使用 CitizenSdk 分页和批量读取，
-// 真链依赖,留给端到端校核覆盖。
+// 验证管理员扫描结果按类型及本机钱包筛选个人多签。
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_citizen/administrators/admin_account_storage_codec.dart';

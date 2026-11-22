@@ -1,3 +1,5 @@
+// 展示会员各档完整权益说明，并消费已确认套餐事实。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:citizen_user/square_api_client.dart';
@@ -96,7 +98,7 @@ class MembershipDetailPage extends StatelessWidget {
             _row('媒体下载流量', benefits.downloads),
             _row('聊天附件上传流量', benefits.uploads),
             _row('附件新建额度', benefits.begins),
-            _row('重置规则', '同一公民号跨设备累计，UTC 零点重置'),
+            _row('重置规则', '同一身份CID号跨设备累计，UTC 零点重置'),
           ]),
           SizedBox(height: AppLayout.scaled(context, 12)),
           _section(tierColor, Icons.info_outline, '计量说明', [

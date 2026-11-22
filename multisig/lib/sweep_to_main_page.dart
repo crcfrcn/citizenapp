@@ -1,3 +1,5 @@
+// 准备机构费用账户向固定主账户归集的治理提案。
+
 import 'package:citizen_widgets/chain_balance_scope.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';

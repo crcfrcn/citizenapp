@@ -1,3 +1,5 @@
+// 展示聊天列表和加号动作菜单，连接真实搜索、通讯录及创建入口。
+
 part of '../chat.dart';
 
 /// 聊天页加号菜单 4 个动作的可注入入口。
@@ -1012,48 +1014,30 @@ class _ChatTabState extends State<ChatTab> {
   Widget build(BuildContext context) {
     return ChatConversationOverview(
       key: ValueKey('$_cidNumber:$_accountId'),
-      header: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Stack(
-            alignment: Alignment.center,
-            children: [
-              ChatSectionHeader<_ChatEntryAction>(
-                onAction: _onEntryAction,
-                actions: [
-                  for (final item in _chatEntryItems)
-                    ChatHeaderAction<_ChatEntryAction>(
-                      value: item.action,
-                      label: item.label,
-                      icon: item.asset != null
-                          ? SvgPicture.asset(
-                              item.asset!,
-                              width: AppLayout.scaled(context, 18),
-                              height: AppLayout.scaled(context, 18),
-                              colorFilter: const ColorFilter.mode(
-                                Colors.white,
-                                BlendMode.srcIn,
-                              ),
-                            )
-                          : Icon(
-                              item.icon,
-                              size: AppLayout.scaled(context, 20),
-                              color: Colors.white,
-                            ),
+      showConnectionIndicator: _listController.connectionLabel != null,
+      header: ChatSectionHeader<_ChatEntryAction>(
+        onAction: _onEntryAction,
+        actions: [
+          for (final item in _chatEntryItems)
+            ChatHeaderAction<_ChatEntryAction>(
+              value: item.action,
+              label: item.label,
+              icon: item.asset != null
+                  ? SvgPicture.asset(
+                      item.asset!,
+                      width: AppLayout.scaled(context, 18),
+                      height: AppLayout.scaled(context, 18),
+                      colorFilter: const ColorFilter.mode(
+                        Colors.white,
+                        BlendMode.srcIn,
+                      ),
+                    )
+                  : Icon(
+                      item.icon,
+                      size: AppLayout.scaled(context, 20),
+                      color: Colors.white,
                     ),
-                ],
-              ),
-              if (_listController.connectionLabel != null)
-                Positioned.fill(
-                  top:
-                      ChatSectionHeader.contentPadding.top -
-                      ChatSectionHeader.contentPadding.bottom,
-                  child: const IgnorePointer(
-                    child: Center(child: ChatConnectionIndicator()),
-                  ),
-                ),
-            ],
-          ),
+            ),
         ],
       ),
       onRefresh: () => _reload(syncFirst: true),

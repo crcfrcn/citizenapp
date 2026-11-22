@@ -1,8 +1,4 @@
-// 回归:行政区字典数据包(assets/divisions)能从真实打包资源灌入,并按
-// (city, 省code, 市code) join 出市名。守护 ADR-021 字典 join + 防 assets 数据/格式
-// 漂移——如 china 重烤后某省市名再次为空(回到 001 bug),本测试会变红。
-//
-// 用内存 fake store(不依赖 Isar native);Isar 实现侧已由真机 QA + 类型注解覆盖。
+// 从真实资源包导入行政区字典并核对省市自然代码关联。
 
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_test/flutter_test.dart';

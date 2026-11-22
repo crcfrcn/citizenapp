@@ -1,3 +1,6 @@
+// 展示账户动作的统一签名响应二维码供发起方扫回。
+
+import 'package:citizen_system/identity_cid_display.dart';
 import 'package:citizen_scanner/qr_display_scaffold.dart' show AppQrImage;
 import 'package:flutter/material.dart';
 
@@ -22,7 +25,7 @@ class QrSignResponsePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fieldLines = reviewEntries
-        .map((field) => '${field.$1}：${field.$2}')
+        .map((field) => '${identityCidUiText(field.$1)}：${identityCidReviewText(field.$1, field.$2)}')
         .join('\n');
     return Scaffold(
       appBar: AppBar(title: const Text('签名结果')),
@@ -33,7 +36,7 @@ class QrSignResponsePage extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Text(
-                '$actionLabel\n$fieldLines',
+                '${identityCidUiText(actionLabel)}\n$fieldLines',
                 style: TextStyle(
                   fontSize: AppLayout.scaled(context, 18),
                   fontWeight: FontWeight.w600,

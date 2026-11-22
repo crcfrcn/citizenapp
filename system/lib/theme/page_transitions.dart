@@ -1,3 +1,5 @@
+// 提供淡入和滑动组合的页面路由过渡。
+
 import 'package:flutter/material.dart';
 
 /// Fade + slide-up transition for secondary pages.

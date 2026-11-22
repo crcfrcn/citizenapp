@@ -1,3 +1,5 @@
+// 准备广场发布链调用，关联本次签名并核对准确最终执行结果。
+
 import 'dart:convert';
 
 import 'package:citizen_citizen/pallet_registry.dart';

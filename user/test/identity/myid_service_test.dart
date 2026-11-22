@@ -1,3 +1,5 @@
+// 验证身份验真与绑定先保存后广播、并发合并及失败主动重试。
+
 import 'package:citizen_testing/chat_runtime_fixture.dart';
 import 'package:flutter/widgets.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
@@ -129,6 +131,7 @@ void main() {
   MyIdService testService({
     CitizenSdk? signing,
     bool useDefaultSigner = false,
+    bool sdkSwitchesDefault = true,
     _FakeWalletManager? wallet,
     TestChainReads? chain,
     FinalizedIdentityResolver? identityResolver,
@@ -140,6 +143,14 @@ void main() {
     SquareSessionProvider? sessionProvider,
   }) {
     final actualWallet = wallet ?? _FakeWalletManager(_aliceWallet);
+    if (identityTransaction is _FakeIdentityTransaction && sdkSwitchesDefault) {
+      identityTransaction.onSdkDefaultCommitted = (target) {
+        actualWallet._wallet = actualWallet.accounts.singleWhere(
+          (a) => a.accountId == target,
+        );
+        actualWallet.catalogRevision += BigInt.one;
+      };
+    }
     final actualChain = chain ?? _FakeChain();
     final actualRuntime = runtime ?? _BindingRuntime();
     addTearDown(actualRuntime.close);
@@ -938,6 +949,7 @@ void main() {
     final metadataRuntime = _BindingRuntime();
     final service = testService(
       runtime: metadataRuntime,
+      badgeSnapshotStore: IdentityBadgeSnapshotStore(),
       wallet: fakeWallet,
       chain: _FakeChain(),
       identityTransaction: fakeRpc,
@@ -980,6 +992,45 @@ void main() {
     expect(metadataRuntime.observed!.accountId, newAccount.accountId);
     expect(metadataRuntime.observed!.bindingRevision, 2);
     expect(fakeRpc.occupiedCid, isNull, reason: '已有公民号换绑收敛不得再次占号');
+    expect(
+      (await fakeWallet.getWalletState().result).defaultAccount?.accountId,
+      newAccount.accountId,
+    );
+    expect((await service.getState()).cidNumber, 'GD-CTZN1-8F3A2B');
+    expect(fakeWallet.signCalls, 1, reason: '仅原账户授权，默认切换不得再请求签名');
+  });
+
+  test('链上换绑完成但SDK未切默认时，不激活展示或报告完整成功', () async {
+    final target = _testAccount(
+      accountId: '0x${'11' * 32}',
+      accountAddress: 'new-ss58',
+      accountIndex: 5,
+      name: '目标账户',
+    );
+    final wallet = _FakeWalletManager(_aliceWallet, accounts: [target]);
+    final service = testService(
+      wallet: wallet,
+      sdkSwitchesDefault: false,
+      identityResolver: _FakeIdentityResolver(
+        _registeredIdentity(_validAccountId),
+      ),
+      identityTransaction: _FakeIdentityTransaction(),
+    );
+    await expectLater(
+      service.rebindCidTo(
+        buildContext: null,
+        cidNumber: 'GD-CTZN1-8F3A2B',
+        newAccountId: target.accountId,
+      ),
+      throwsA(isA<AccountSecurityException>()),
+    );
+    expect(wallet.bindings, isEmpty);
+    expect(wallet.identityNotifications, 0);
+    expect(wallet.signCalls, 1);
+    expect(
+      (await wallet.getWalletState().result).defaultAccount?.accountId,
+      _validAccountId,
+    );
   });
 
   test('换绑 finalized 不登记 MLS设备，后续仅由 Worker 未登记响应触发', () async {
@@ -1238,6 +1289,7 @@ class _FakeWalletManager extends TestWalletReads
   @override
   final revision = ValueNotifier<int>(0);
   final List<CitizenWalletStateAccount> accounts;
+  BigInt catalogRevision = BigInt.one;
 
   int mlsDeviceRegistrationCalls = 0;
 
@@ -1260,7 +1312,7 @@ class _FakeWalletManager extends TestWalletReads
               ? CitizenWalletInitializationState.empty
               : CitizenWalletInitializationState.ready,
           cleanupPending: false,
-          revision: BigInt.one,
+          revision: catalogRevision,
           hotProfile: null,
           accounts: <CitizenWalletStateAccount>[
             ?_wallet,
@@ -1459,6 +1511,7 @@ class _FakeIdentityTransaction extends CitizenIdentityTransaction {
 
   final Object? rebindError;
   final void Function()? onRebound;
+  void Function(String)? onSdkDefaultCommitted;
   String? occupiedCid;
   String? occupiedAccountId;
   String? reboundCid;
@@ -1500,6 +1553,7 @@ class _FakeIdentityTransaction extends CitizenIdentityTransaction {
     reboundOld = currentAccountId;
     reboundSignature = Uint8List.fromList(currentAccountSignature);
     onRebound?.call();
+    onSdkDefaultCommitted?.call(newAccountId);
     return (txHash: '0xtx', usedNonce: 0, blockHash: '0xblk');
   }
 

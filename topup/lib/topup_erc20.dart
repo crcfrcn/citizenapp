@@ -1,3 +1,5 @@
+// 冻结并编码ERC20付款及完整订单绑定，将SDK验真归入原单。
+
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart'

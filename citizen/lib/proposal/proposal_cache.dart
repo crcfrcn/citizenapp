@@ -1,3 +1,5 @@
+// 缓存进程内提案数据，并在主动刷新时清理重载。
+
 import 'package:citizen_personal/personal_manage_models.dart';
 import 'package:citizen_citizen/proposal/proposal_models.dart';
 

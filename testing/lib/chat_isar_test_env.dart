@@ -1,3 +1,5 @@
+// 为每个聊天测试创建独占数据库，并加载本轮锁定Isar库。
+
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;

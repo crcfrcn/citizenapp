@@ -1,3 +1,5 @@
+// 展示本地优先的评论区，协调分页、回复和当前身份草稿。
+
 import 'package:citizen_square/post/square_interaction_service.dart';
 
 import 'package:citizen_square/comment/square_comment_service.dart';

@@ -1,3 +1,5 @@
+// 验证充值表单、宿主预备、金额换算及键盘和图标布局。
+
 import 'dart:async';
 import 'dart:ui' as ui;
 

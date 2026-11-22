@@ -1,3 +1,5 @@
+// 定义创作者档位、可选周期及以分计价的链上方案。
+
 import 'package:citizen_chain/citizen_chain.dart';
 
 /// 订阅周期；枚举值沿用既有链协议，不使用枚举序号。

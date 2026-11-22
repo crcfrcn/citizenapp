@@ -1,3 +1,5 @@
+// 验证真实Flutter资源包完整交付行政区和机构JSON。
+
 import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';

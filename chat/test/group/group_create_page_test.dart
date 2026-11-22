@@ -1,3 +1,5 @@
+// 验证联系人读取、单选私聊和多选建群及失败重试。
+
 import 'dart:async';
 
 import 'package:chat/chat.dart';

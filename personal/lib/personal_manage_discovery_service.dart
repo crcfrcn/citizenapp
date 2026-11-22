@@ -1,3 +1,5 @@
+// 从管理员反向索引发现本机相关个人多签并更新本地记录。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_personal/personal_local_store.dart';
 import 'package:citizen_storage/user_isar.dart' as wallet_store show Account;

@@ -1,3 +1,5 @@
+// 组织广场信息流、身份、分页、刷新及发布入口和未读状态。
+
 import 'package:citizen_square/feed/square_notifications_page.dart';
 import 'package:citizen_square/post/square_interaction_service.dart';
 import 'package:citizen_user/notifications.dart';

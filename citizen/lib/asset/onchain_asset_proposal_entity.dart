@@ -1,6 +1,4 @@
-// 尚未接线的资产提案数据模型；没有Isar collection/schema或实际持久化实现。
-// 字段只表达候选记录，不证明已建案、发行成功或已开放资产功能。
-// 后续完整功能需独立实现查询、治理及持久化；本轮不增加数据库结构。
+// 定义尚未接入数据库的资产提案候选记录模型。
 
 class OnchainAssetProposalEntity {
   OnchainAssetProposalEntity({

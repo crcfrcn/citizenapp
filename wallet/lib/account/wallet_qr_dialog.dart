@@ -1,3 +1,5 @@
+// 构造固定账户码并展示本机名称和地址，载荷仅含规范账户。
+
 import 'package:citizen_scanner/qr_display_scaffold.dart' show AppQrImage;
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';

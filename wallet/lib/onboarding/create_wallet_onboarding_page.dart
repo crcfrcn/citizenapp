@@ -1,3 +1,5 @@
+// 提供首次钱包词数选择、创建及冷账户导入入口并等待备份完成。
+
 import 'package:flutter/material.dart';
 import 'package:citizen_system/app_log.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';

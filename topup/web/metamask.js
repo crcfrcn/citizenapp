@@ -1,4 +1,5 @@
-// SDK连接由App复用；每个已签订单独立等待自己的RPC结果。
+// 复用官方钱包会话，按已签订单协调授权、付款及一次性回执。
+
 export function createWalletSession({openLink}){
  let sdkPromise,closed=false,connecting,store,writeError,reauthorize=false,reset;
  const requests=new Set(),inFlight=new Set();

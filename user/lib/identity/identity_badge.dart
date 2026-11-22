@@ -1,3 +1,5 @@
+// 按已知身份及有效会员展示统一颜色和图形的身份徽章。
+
 import 'package:flutter/material.dart';
 
 import 'package:citizen_system/theme/app_theme.dart';

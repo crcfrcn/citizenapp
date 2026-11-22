@@ -1,3 +1,5 @@
+// 绘制折叠虚化头图和渐变资料区及居中标题。
+
 import 'dart:ui';
 
 import 'package:flutter/material.dart';

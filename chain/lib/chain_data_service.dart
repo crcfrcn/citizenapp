@@ -1,3 +1,5 @@
+// 为每个SDK共享展示数据同步及价格缓存，协调前后台、账户和最终块变化。
+
 import 'dart:async';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/foundation.dart';

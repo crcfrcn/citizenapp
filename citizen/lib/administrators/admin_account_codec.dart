@@ -1,3 +1,5 @@
+// 解码管理员记录及账户资料，区分名册与独立阈值。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:typed_data';

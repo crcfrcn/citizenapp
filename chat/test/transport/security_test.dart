@@ -1,3 +1,5 @@
+// 验证服务根、令牌和唯一WSS及同源HTTPS附件合同。
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/transport/chat_connection.dart';
 

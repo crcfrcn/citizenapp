@@ -1,3 +1,5 @@
+// 读取并闭环核对CID登记、双向钱包绑定及链上身份快照。
+
 import 'dart:convert';
 import 'dart:typed_data';
 

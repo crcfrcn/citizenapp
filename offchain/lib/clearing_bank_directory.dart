@@ -1,3 +1,5 @@
+// 从最终链状态读取清算行资格及安全WSS节点目录。
+
 import 'dart:convert';
 import 'dart:typed_data';
 

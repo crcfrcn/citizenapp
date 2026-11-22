@@ -1,3 +1,5 @@
+// 验证文本、表情、贴纸及媒体载荷分派和非法描述拒绝。
+
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/message/basic_content.dart';

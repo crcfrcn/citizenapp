@@ -1,3 +1,5 @@
+// 验证三类帖子增量回灌、媒体哈希、逐页原子提交和检查点。
+
 import 'package:citizen_testing/mls_authentication_fixture.dart';
 
 import 'dart:async';

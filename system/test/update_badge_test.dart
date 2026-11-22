@@ -1,3 +1,5 @@
+// 验证更新红点及检查失败保留已读取设备版本。
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_system/update/app_update_controller.dart';

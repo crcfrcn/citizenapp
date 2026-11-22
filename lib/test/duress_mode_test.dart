@@ -1,3 +1,5 @@
+// 验证独立防共匪密码、全量擦除和持久恢复终态。
+
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 import 'package:citizen_testing/isar_test_env.dart';
 import 'package:citizen_offchain/offchain_clearing_rpc.dart';

@@ -1,4 +1,5 @@
-//! 原生内部协议与持久化回归，保持对父模块私有实现的测试访问。
+//! 验证真实OpenMLS协议、设备与群状态及持久化和冲突恢复。
+
 use openmls_rust_crypto::OpenMlsRustCrypto;
 use openmls_traits::types::SignatureScheme;
 

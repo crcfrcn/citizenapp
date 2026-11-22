@@ -1,4 +1,5 @@
-# 一个产品平台一次执行只有一个Run，所有产品执行归本仓Workflow。
+# 协调iOS版本、验收、编译和正式产物交付及本平台历史清理。
+
 name: 公民·iOS
 run-name: 公民·iOS·${{ github.run_number }}
 'on':

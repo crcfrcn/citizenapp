@@ -1,3 +1,5 @@
+// 管理按机构CID定位的管理员激活记录及冷签授权。
+
 import 'package:citizen_storage/user_isar.dart' as wallet_store show Admin;
 import 'package:citizen_sdk/citizen_sdk.dart';
 

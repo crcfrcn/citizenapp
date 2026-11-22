@@ -1,3 +1,5 @@
+// 定义仅STUN的通话配置和加密WSS瞬时信令传输接口。
+
 import 'call_signal.dart';
 
 /// 仅含 STUN 的 ICE 配置。TURN URI 在 聊天通话边界直接拒绝。

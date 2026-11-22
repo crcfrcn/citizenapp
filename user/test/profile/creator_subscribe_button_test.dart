@@ -1,3 +1,5 @@
+// 验证创作者有效档位控制订阅入口及二级操作。
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

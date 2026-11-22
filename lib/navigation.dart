@@ -1,3 +1,5 @@
+// 提供跨业务页面工厂，保持导航装配集中于根应用。
+
 import 'package:citizen_wallet/core/navigation.dart';
 import 'package:citizen_wallet/account/wallet_page.dart';
 import 'package:citizen_onchain/onchain_payment_page.dart';

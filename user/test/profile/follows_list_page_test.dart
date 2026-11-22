@@ -1,3 +1,5 @@
+// 验证关系列表结构、互关查询及缺资料的稳定展示。
+
 import 'package:citizen_testing/mls_authentication_fixture.dart';
 
 import 'dart:async';

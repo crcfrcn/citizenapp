@@ -1,3 +1,5 @@
+// 以同CID真实MLS组同步通讯录，持久提交后可靠重放和确认。
+
 import 'dart:convert';
 
 import 'mls_boundary.dart';

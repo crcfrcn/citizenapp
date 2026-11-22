@@ -1,3 +1,5 @@
+// 以自然索引和有界事务读写Isar行政区分片。
+
 import 'package:citizen_storage/user_isar.dart' as app_store show Region;
 // 行政区自然三元索引由原Isar维护；按省分片与有界事务增量更新。
 

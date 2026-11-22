@@ -1,10 +1,4 @@
-// 立法法律 SCALE 镜像解码(ADR-027 / ADR-028 P3)——单一源,浏览页与(将来 P4)
-// 条款编辑器共用,绝不另写第二套(链端布局一改两处必裂)。
-//
-// 链端 `LegislationApi` 故意返回 SCALE 字节(`Option<Vec<u8>>` / `Vec<u64>`),
-// 客户端镜像解码。布局逐字段对齐 legislation-yuan(多字节 LE;`Option`=1 tag 字节;
-// `Compact` 变长;`BoundedVec/Vec`=Compact(len)+items;`[u8;N]`=N 裸字节;
-// String=`BoundedVec<u8>`=Compact(len)+utf8)。
+// 严格解码法律Runtime API及存储返回的SCALE字节。
 
 import 'dart:convert';
 import 'dart:typed_data';

@@ -1,3 +1,5 @@
+// 验证密文块授权、HTTPS请求、长度及摘要和失败计量边界。
+
 import 'package:citizen_testing/chat_access_fixture.dart';
 import 'dart:async';
 import 'dart:typed_data';

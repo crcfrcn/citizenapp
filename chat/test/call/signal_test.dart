@@ -1,3 +1,5 @@
+// 验证信令精确连接字段及TURN配置拒绝。
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/call/call_signal.dart';
 import 'package:chat/call/call_transport.dart';

@@ -1,3 +1,5 @@
+// 按机构层级和地区查询法律列表，并复用已读版本进入阅读器。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';

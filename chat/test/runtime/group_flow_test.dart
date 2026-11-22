@@ -1,3 +1,5 @@
+// 以模拟群密码学和真实Isar验证名册、投递和群控制权限。
+
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';

@@ -1,4 +1,4 @@
-// 业务含义与Rust管理员结构统一；Dart成员用camelCase，JSON键沿所属接口。
+// 定义管理员人员、机构或个人多签身份及其状态模型。
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_citizen/institution/institution_code_label.dart';

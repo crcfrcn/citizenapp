@@ -1,3 +1,5 @@
+// 解析发布期最终链目录中的机构、自然行政代码及代表人资料。
+
 import 'package:citizen_storage/user_isar.dart' as app_store show Entity;
 
 // 公权机构 finalized 链快照 DTO。

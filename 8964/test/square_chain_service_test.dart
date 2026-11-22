@@ -1,3 +1,5 @@
+// 验证发布调用编码、当前签名关联及永久CID身份资格。
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';

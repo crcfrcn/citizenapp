@@ -1,3 +1,5 @@
+// 验证加载本轮原生库及成功检查结果复用。
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_testing/mls_test_env.dart';
 

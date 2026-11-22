@@ -1,3 +1,5 @@
+// 验证MLS证明字段、当前账户代次及关闭后不生成或交付旧身份。
+
 import 'package:citizen_network/mls_authentication.dart';
 import 'package:citizen_testing/chat_runtime_fixture.dart';
 

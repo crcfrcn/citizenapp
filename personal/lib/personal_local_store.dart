@@ -1,3 +1,5 @@
+// 按账户持久化个人多签状态、详情及已有名称。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:convert';

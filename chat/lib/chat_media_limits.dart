@@ -1,3 +1,5 @@
+// 将会员模块提供的真实规格适配为聊天附件限额。
+
 import 'message/chat_message.dart';
 import 'package:citizen_user/membership/subscription_service.dart';
 

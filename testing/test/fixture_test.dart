@@ -1,3 +1,5 @@
+// 验证不同Pub URI和启动目录定位同一所属夹具。
+
 import 'dart:convert';
 import 'dart:io';
 

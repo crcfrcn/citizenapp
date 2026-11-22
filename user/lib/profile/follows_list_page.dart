@@ -1,3 +1,6 @@
+// 分页展示关注、关注者或互关，连接统一用户主页入口。
+
+import 'package:citizen_system/identity_cid_display.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -260,7 +263,7 @@ class _FollowsListPageState extends State<FollowsListPage> {
               overflow: TextOverflow.ellipsis,
             ),
             subtitle: Text(
-              entry.peerCid,
+              formatIdentityCidText(entry.peerCid),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),

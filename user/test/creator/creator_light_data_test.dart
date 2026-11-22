@@ -1,3 +1,5 @@
+// 验证会员、档位及统计分别就绪和页面进出复用链缓存。
+
 import 'dart:async';
 import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';

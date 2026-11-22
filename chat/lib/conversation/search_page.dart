@@ -1,3 +1,5 @@
+// 搜索本机会话、联系人及已解密聊天记录。
+
 part of '../chat.dart';
 
 typedef GroupChatOpener =
@@ -345,7 +347,7 @@ class _ChatSearchPageState extends State<ChatSearchPage> {
                         item.cidNumber,
                       ).fallbackName
                     : item.contactRemark,
-                subtitle: item.cidNumber,
+                subtitle: formatIdentityCidText(item.cidNumber),
                 onTap: () => unawaited(_openContact(item)),
               ),
           ],

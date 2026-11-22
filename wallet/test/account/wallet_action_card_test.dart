@@ -1,3 +1,5 @@
+// 验证双币及零钱包布局、准确账户和共享防重复门禁。
+
 import 'dart:async';
 import 'dart:ui' as ui;
 
@@ -319,7 +321,6 @@ void main() {
         WalletDetailBody(
           account: account,
           name: account.name,
-          onNameChanged: (_) async {},
           onRefresh: () async {},
           actionKey: GlobalKey<WalletActionCardState>(),
           records: const [],
@@ -340,7 +341,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('1,280.35'), findsOneWidget);
     expect(find.byKey(const ValueKey('wallet-onchain-balance')), findsNothing);
-    expect(find.byIcon(Icons.edit_outlined), findsOneWidget);
+    expect(find.byIcon(Icons.edit_outlined), findsNothing);
     final rect = tester.getRect(
       find.byKey(const ValueKey('wallet-recent-records-card')),
     );

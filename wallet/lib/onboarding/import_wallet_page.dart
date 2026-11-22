@@ -1,3 +1,5 @@
+// 采集助记词和可选密码，等待SDK真实导入成功后返回。
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';

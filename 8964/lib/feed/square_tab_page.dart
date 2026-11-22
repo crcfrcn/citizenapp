@@ -1,3 +1,5 @@
+// 按当前CID装配底部广场入口，转发通知和分类偏好。
+
 import 'package:flutter/material.dart';
 
 import 'package:citizen_square/feed/square_home_page.dart';

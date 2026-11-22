@@ -1,3 +1,5 @@
+// 统一根据文件名推断聊天媒体MIME类型。
+
 import 'package:chat/message/chat_message.dart';
 
 /// 由文件名推断 MIME 类型。聊天媒体的 MIME 单源,发送端与采集端共用。

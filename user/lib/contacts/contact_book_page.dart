@@ -1,3 +1,6 @@
+// 以本地优先通讯录展示联系人，提供主页、转账、私聊及备注和删除操作。
+
+import 'package:citizen_system/identity_cid_display.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_scanner/qr_sign_session_page.dart'
     show signCitizenPayload;
@@ -92,7 +95,7 @@ class _ContactBookPageState extends State<ContactBookPage> {
 
   List<UserContact> _contacts = const <UserContact>[];
 
-  /// 公开资料按身份主键 CID 号缓存（键 = cid_number，与资料接口寻址一致）。
+  /// 公开资料按身份主键 身份CID号缓存（键 = cid_number，与资料接口寻址一致）。
   final Map<String, CitizenProfile> _profiles = <String, CitizenProfile>{};
   final Map<String, CitizenProfileMediaSnapshot> _profileMedia =
       <String, CitizenProfileMediaSnapshot>{};
@@ -607,7 +610,7 @@ class _ContactBookPageState extends State<ContactBookPage> {
                       return CheckboxListTile(
                         value: selected.contains(item.cidNumber),
                         title: Text(_contactDisplayName(item)),
-                        subtitle: Text(item.cidNumber),
+                        subtitle: Text(formatIdentityCidText(item.cidNumber)),
                         onChanged: (value) => update(() {
                           if (value == true) {
                             selected.add(item.cidNumber);
@@ -776,7 +779,7 @@ class _ContactBookPageState extends State<ContactBookPage> {
             controller: _searchController,
             onChanged: (value) => setState(() => _query = value),
             decoration: InputDecoration(
-              hintText: '搜索昵称、备注或公民号',
+              hintText: '搜索昵称、备注或身份CID号',
               prefixIcon: const Icon(Icons.search_rounded),
               suffixIcon: _query.isEmpty
                   ? null
@@ -958,7 +961,7 @@ class _ContactCard extends StatelessWidget {
                       ],
                       SizedBox(height: AppLayout.scaled(context, 3)),
                       Text(
-                        '公民号：${contact.cidNumber}',
+                        '身份CID号：${formatIdentityCidText(contact.cidNumber)}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(

@@ -1,13 +1,4 @@
-// 分类管理员模块 `AdminAccounts` 链上扫描。
-//
-// 管理员身份和个人多签发现都依赖链上 `AdminAccounts` 反向索引。本服务把
-// "翻页 getKeysPaged + 批量 fetchStorageBatch + 解码 + 提取账户"收敛为一次扫描,
-// 产出已解码条目。调用方必须显式选择要扫描的分类管理员 pallet，个人多签只扫
-// `PersonalAdmins`，钱包管理员标签则扫描公权、私权和个人三类。
-//
-// 扫描直接调用 CitizenSdk 的 finalized **短前缀分页**
-// (prefix = twox128(pallet) || twox128(storage),
-// 无嵌长 K1)。
+// 分页扫描并批读各类管理员名册，提取与本机账户相关的条目。
 
 import 'package:flutter/foundation.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';

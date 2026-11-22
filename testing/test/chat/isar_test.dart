@@ -1,3 +1,5 @@
+// 验证真实Isar测试夹具的持久数据在各用例间隔离。
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_storage/chat_isar.dart';
 import 'package:citizen_testing/chat_isar_test_env.dart';

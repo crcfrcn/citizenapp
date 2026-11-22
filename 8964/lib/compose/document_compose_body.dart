@@ -1,3 +1,5 @@
+// 编辑最多300字和9张图片的公文，校验非空内容。
+
 import 'dart:io';
 
 import 'package:flutter/material.dart';

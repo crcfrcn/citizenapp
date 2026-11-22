@@ -1,3 +1,5 @@
+// 验证真实WebSocket握手、资源预检、命令关联及传输失败收口。
+
 import 'package:citizen_testing/chat_access_fixture.dart';
 import 'dart:async';
 import 'dart:io';

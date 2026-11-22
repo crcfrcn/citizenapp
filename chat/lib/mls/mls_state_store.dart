@@ -1,3 +1,5 @@
+// 创建并验证聊天自有的系统保护MLS状态目录。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:io';

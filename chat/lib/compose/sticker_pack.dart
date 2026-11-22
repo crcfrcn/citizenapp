@@ -1,3 +1,5 @@
+// 维护内置Fluent贴纸清单，以包和贴纸标识定位本机资源。
+
 library;
 
 import 'sticker_model.dart';

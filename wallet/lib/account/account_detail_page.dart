@@ -1,3 +1,5 @@
+// 展示账户详情并通过SDK受控资源查看和清理私钥。
+
 import 'package:citizen_topup/store.dart';
 import 'package:citizen_storage/user_isar.dart' as wallet_store show Entry;
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -373,34 +375,10 @@ class _AccountDetailPageState extends State<AccountDetailPage>
       body: WalletDetailBody(
         account: account,
         name: account.name,
-        onNameChanged: _saveAccountName,
         onRefresh: _onPullRefresh,
         actionKey: _actionCardKey,
         records: _recentRecords,
       ),
     );
-  }
-
-  /// 当前账户名称由SDK保存并回读；不会更改钱包级名称、默认账户或公开昵称。
-  Future<void> _saveAccountName(String name) async {
-    final accountId = widget.account.accountId;
-    try {
-      final state = await context
-          .read<CitizenSdk>()
-          .renameAccount(accountId: accountId, name: name)
-          .result;
-      if (!state.accounts.any(
-        (a) => a.accountId == accountId && a.name == name,
-      )) {
-        throw StateError('账户名称保存回读未确认');
-      }
-    } on Object {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('账户名称保存失败，请重试')));
-      }
-      rethrow;
-    }
   }
 }

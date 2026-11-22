@@ -1,3 +1,5 @@
+// 展示文章及竞选文章卡片的标题、摘要、横屏首图和互动。
+
 import 'package:citizen_square/media/square_media_grid.dart';
 import 'package:flutter/material.dart';
 

@@ -1,3 +1,5 @@
+// 按账户保存清算行展示快照，实际绑定和操作仍由链上核验。
+
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';

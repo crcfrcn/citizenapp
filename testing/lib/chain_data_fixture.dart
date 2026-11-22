@@ -1,3 +1,5 @@
+// 提供链数据读模型和存储的受控测试输入。
+
 import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 

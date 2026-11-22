@@ -1,3 +1,5 @@
+// 统一媒体横向分页、当前位置和图集圆点指示。
+
 import 'package:flutter/material.dart';
 
 import 'package:citizen_system/theme/app_layout.dart';

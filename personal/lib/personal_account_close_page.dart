@@ -1,3 +1,5 @@
+// 采集受益地址并准备个人多签关闭提案，复核资金余额。
+
 import 'package:citizen_widgets/chain_balance_scope.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 

@@ -1,3 +1,5 @@
+// 验证贴纸分类呈现及包和贴纸标识回调。
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/compose/sticker_pack.dart';

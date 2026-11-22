@@ -1,3 +1,5 @@
+// 验证身份快照持久化、CID和账户隔离及损坏或过期拒绝。
+
 import 'package:citizen_storage/user_isar.dart' as user_store show Identity;
 
 import 'dart:typed_data';

@@ -1,3 +1,5 @@
+// 通过真实FFI验证MLS身份复用、认证证明及损坏状态拒绝。
+
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';

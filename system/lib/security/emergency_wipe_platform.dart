@@ -1,3 +1,5 @@
+// 桥接原生后台生命周期以协助完成已触发的数据擦除。
+
 import 'package:flutter/services.dart';
 
 /// 防共匪擦除期间的原生生命周期桥。

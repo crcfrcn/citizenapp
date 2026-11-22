@@ -1,3 +1,5 @@
+// 介绍运行时升级发起和投票流程，保留移动端只读入口。
+
 import 'package:flutter/material.dart';
 
 import 'package:citizen_system/theme/app_theme.dart';

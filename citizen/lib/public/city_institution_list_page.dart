@@ -1,3 +1,6 @@
+// 展示指定城市的本地公权机构并进入统一详情。
+
+import 'package:citizen_system/identity_cid_display.dart';
 import 'package:citizen_storage/user_isar.dart' as app_store show Entity;
 import 'package:flutter/material.dart';
 
@@ -135,7 +138,7 @@ class _CityInstitutionListPageState extends State<CityInstitutionListPage> {
             ),
           ),
           subtitle: Text(
-            '身份ID ${inst.cidNumber}',
+            '身份CID号 ${formatIdentityCidText(inst.cidNumber)}',
             style: TextStyle(
               fontSize: AppLayout.scaled(context, 12.5),
               color: AppTheme.textTertiary,

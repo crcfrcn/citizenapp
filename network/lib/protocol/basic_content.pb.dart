@@ -1,3 +1,5 @@
+// 提供基础文本、表情和贴纸内容的Protobuf Dart模型和编解码。
+
 // This is a generated file - do not edit.
 //
 // Generated from basic_content.proto.

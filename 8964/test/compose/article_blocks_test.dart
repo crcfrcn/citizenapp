@@ -1,3 +1,5 @@
+// 验证富文本段落与图集视频关联及旧平铺结构拒绝。
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:citizen_square/article/article_blocks.dart';

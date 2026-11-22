@@ -1,3 +1,5 @@
+// 验证分类顺序规范及真实重开后保留最后拖动结果。
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:isar_community/isar.dart';
 import 'package:citizen_square/post/square_models.dart';

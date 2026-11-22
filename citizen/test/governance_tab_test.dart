@@ -1,3 +1,5 @@
+// 验证治理分组排序持久化、公民导航惰性装配及首帧结构。
+
 import 'package:citizen_user/identity/current_user_context.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:provider/provider.dart';

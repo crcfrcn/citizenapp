@@ -1,3 +1,5 @@
+// 验证主体账户选择、单次提交、失败留页及余额不足充值交互。
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';

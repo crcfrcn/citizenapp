@@ -1,3 +1,5 @@
+// 验证默认账户精确绑定、并发读取合并及失效后的迟到拒绝。
+
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:citizen_user/identity/public_identity_store.dart';
 

@@ -1,3 +1,5 @@
+// 表示链上已确认的公开CID与账户绑定。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:convert';

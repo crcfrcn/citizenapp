@@ -1,3 +1,5 @@
+// 统一呈现明确未注册状态的引导及公民服务入口门禁。
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
@@ -110,7 +112,7 @@ class _IdentityRegisterGuideState extends State<IdentityRegisterGuide> {
   }
 }
 
-/// 社交详情与编辑直达入口的统一门禁；未确认公民号前不挂载业务子页面。
+/// 社交详情与编辑直达入口的统一门禁；未确认身份CID号前不挂载业务子页面。
 /// 外层 WalletGate 已处理无钱包，这里只处理公民服务业务身份。
 class CitizenServiceGate extends StatefulWidget {
   const CitizenServiceGate({
@@ -195,7 +197,7 @@ class _CitizenServiceGateState extends State<CitizenServiceGate> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('暂时无法核实公民号身份，请重试'),
+              const Text('暂时无法核实身份CID号，请重试'),
               TextButton(onPressed: _onRevision, child: const Text('重试')),
             ],
           ),

@@ -1,3 +1,5 @@
+// 核验注册局占号或换绑授权模板，按用户选择的账户准备回签。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:typed_data';

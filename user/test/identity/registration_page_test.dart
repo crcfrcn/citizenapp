@@ -1,3 +1,5 @@
+// 验证核验页面只接纳本次UUID和令牌，拒绝伪成功及附加字段。
+
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_user/identity/registration_page.dart';

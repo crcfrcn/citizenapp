@@ -1,3 +1,5 @@
+// 验证群控制严格编解码，区分用户文本及非法或未知操作。
+
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/group/group_control.dart';

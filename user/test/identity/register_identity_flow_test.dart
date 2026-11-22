@@ -1,3 +1,5 @@
+// 验证既有CID恢复、统一注册入口及明确取消和失败不重复授权。
+
 import 'package:citizen_user/identity/registration_coordinator.dart';
 import 'package:citizen_user/identity/registration_models.dart';
 import 'package:citizen_user/identity/identity_binding.dart';

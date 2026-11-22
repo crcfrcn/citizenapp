@@ -1,3 +1,5 @@
+// 以真实MLS验证多设备分块附件、持久确认及篡改和错序拒绝。
+
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';

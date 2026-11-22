@@ -1,3 +1,5 @@
+// 校验iOS聊天文件保护并管理所属状态目录和MLS原生库接线。
+
 import Flutter
 import Foundation
 import MLS

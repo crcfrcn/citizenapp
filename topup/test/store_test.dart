@@ -1,3 +1,5 @@
+// 验证原订单签后落库、付款真实性、回执恢复及防重复和删除边界。
+
 import 'dart:convert';
 import 'dart:async';
 import 'dart:io';

@@ -1,3 +1,5 @@
+// 在最终块闭环校验CID和当前账户，供动权动钱路径使用。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/foundation.dart';
 

@@ -1,3 +1,5 @@
+// 从现有密文消息字段计算确定性消息标识。
+
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart' as crypto;

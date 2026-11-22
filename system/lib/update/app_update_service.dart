@@ -1,3 +1,5 @@
+// 依据当前设备商店的真实上架状态判断可用更新。
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';

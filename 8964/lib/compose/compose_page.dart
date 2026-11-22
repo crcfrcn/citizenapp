@@ -1,3 +1,5 @@
+// 装配固定类型发布编辑器，按CID隔离草稿、媒体和发布生命周期。
+
 import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_user/identity/account_security_service.dart';
 import 'dart:async';
@@ -996,28 +998,23 @@ class _IdentityBar extends StatelessWidget {
               borderRadius: 17,
               showBadge: false,
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 4),
             Expanded(
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: TextButton.icon(
+                child: TextButton(
                   key: const ValueKey('compose-visibility'),
                   onPressed: onVisibility,
-                  icon: Icon(
-                    visibility == SquarePostVisibility.public
-                        ? Icons.public
-                        : visibility == SquarePostVisibility.circle
-                        ? Icons.people_outline
-                        : Icons.person_outline,
-                    size: 18,
+                  style: TextButton.styleFrom(
+                    backgroundColor: AppTheme.primary,
+                    disabledBackgroundColor: AppTheme.primary,
+                    foregroundColor: Colors.white,
+                    disabledForegroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    minimumSize: const Size(0, 28),
+                    shape: const StadiumBorder(),
                   ),
-                  label: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Flexible(child: Text(visibility.label)),
-                      const Icon(Icons.arrow_drop_down, size: 18),
-                    ],
-                  ),
+                  child: Text(visibility.label),
                 ),
               ),
             ),

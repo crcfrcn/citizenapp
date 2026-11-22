@@ -1,3 +1,5 @@
+// 验证法律生效正文、历史版选择和链失败后的首帧及重试。
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';

@@ -1,3 +1,5 @@
+// 验证通知状态不阻断概览刷新或引入额外链读取。
+
 import 'dart:async';
 import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_testing/chain_data_fixture.dart' as f;

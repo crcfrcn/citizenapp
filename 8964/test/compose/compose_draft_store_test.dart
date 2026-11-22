@@ -1,3 +1,5 @@
+// 以真实Isar验证草稿媒体离线保存、CID隔离及失败不覆盖。
+
 import 'package:citizen_storage/social_isar.dart'
     as social_store
     show Cleanup, Draft;

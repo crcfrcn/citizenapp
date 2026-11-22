@@ -1,3 +1,5 @@
+// 展示治理机构分组，支持拖动排序并持久保存本机偏好。
+
 import 'package:citizen_storage/user_isar.dart' as user_store show Setting;
 
 import 'dart:async';

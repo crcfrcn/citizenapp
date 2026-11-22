@@ -1,3 +1,5 @@
+// 验证联系人本地优先、增量备份、离线重试及整批合并。
+
 import 'package:citizen_storage/isar_core_bootstrap.dart';
 import 'dart:convert';
 import 'package:citizen_testing/fake_citizen_sdk.dart';

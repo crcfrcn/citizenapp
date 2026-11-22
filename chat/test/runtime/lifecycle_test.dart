@@ -1,3 +1,5 @@
+// 验证聊天单次启动、失败重试及资源停止和实例隔离。
+
 import 'package:citizen_testing/chat_runtime_fixture.dart';
 import 'dart:async';
 import 'dart:io';

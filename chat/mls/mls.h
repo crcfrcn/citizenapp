@@ -1,3 +1,5 @@
+// 声明聊天OpenMLS身份、加解密、群及认证操作的C接口。
+
 #ifndef MLS_H
 #define MLS_H
 

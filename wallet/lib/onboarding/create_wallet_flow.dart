@@ -1,3 +1,5 @@
+// 协调SDK钱包准备和提交及原备份界面的保护生命周期。
+
 import 'dart:async';
 import 'dart:convert';
 

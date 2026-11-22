@@ -1,3 +1,5 @@
+// 管理短期聊天许可、WSS连接及同源HTTPS附件路径和事件。
+
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_user/identity/square_session_provider.dart';

@@ -1,3 +1,5 @@
+// 展示可见账户在SDK验证最终块上的精确链上总余额。
+
 import 'package:citizen_widgets/chain_balance_scope.dart';
 import 'dart:async';
 

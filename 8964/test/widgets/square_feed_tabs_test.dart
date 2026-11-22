@@ -1,3 +1,5 @@
+// 验证分类交互、未读计数、窄屏及拖动完成后提交。
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

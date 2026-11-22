@@ -1,3 +1,5 @@
+// 验证远端注销确认后完整本地清理，未知或失败时保留数据。
+
 import 'package:citizen_testing/chat_runtime_fixture.dart';
 import 'dart:typed_data';
 

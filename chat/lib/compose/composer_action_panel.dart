@@ -1,3 +1,5 @@
+// 展示聊天功能面板及各动作图标和选择回调。
+
 import 'package:citizen_system/theme/app_layout.dart';
 import 'package:flutter/material.dart';
 

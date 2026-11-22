@@ -1,3 +1,5 @@
+// 验证MLS错误脱敏及认证请求的身份、期限和HTTPS边界。
+
 import 'package:chat/transport/attachment_transfer.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_user/square_api_client.dart';

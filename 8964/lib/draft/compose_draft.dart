@@ -1,3 +1,5 @@
+// 定义固定发布类型和可见范围的本地草稿及完整内容往返。
+
 import 'dart:convert';
 
 import 'package:citizen_square/post/square_models.dart';

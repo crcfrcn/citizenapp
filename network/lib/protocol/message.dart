@@ -1,3 +1,5 @@
+// 封装每设备密文路由及投递记录，复用唯一Protobuf消息。
+
 import 'message.pb.dart';
 
 export 'message.pb.dart';

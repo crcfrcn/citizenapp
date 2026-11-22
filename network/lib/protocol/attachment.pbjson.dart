@@ -1,3 +1,5 @@
+// 提供密文附件分块及控制消息的Protobuf JSON描述及二进制描述符。
+
 // This is a generated file - do not edit.
 //
 // Generated from attachment.proto.

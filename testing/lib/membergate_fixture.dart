@@ -1,3 +1,5 @@
+// 提供合成会员资源规则和公开展示样例，不替代生产额度真源。
+
 import 'dart:typed_data';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_chain/citizen_chain.dart';

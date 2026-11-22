@@ -1,3 +1,5 @@
+// 验证资源规则和用量严格解析、许可并发合并及拒绝边界。
+
 import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_testing/chain_data_fixture.dart' as light;
 import 'dart:convert';

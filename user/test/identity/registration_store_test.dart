@@ -1,3 +1,5 @@
+// 验证注册事实原生CAS、重启持久化及跨链和记录闭集。
+
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';

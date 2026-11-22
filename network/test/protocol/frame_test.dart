@@ -1,3 +1,5 @@
+// 验证聊天帧、邮箱进度、资源回执和每设备密文的协议往返。
+
 import 'package:fixnum/fixnum.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_network/protocol/chat_frame.pb.dart';

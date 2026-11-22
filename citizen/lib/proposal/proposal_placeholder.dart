@@ -1,3 +1,5 @@
+// 统一展示尚未接入提案类型的开发中页面。
+
 import 'package:flutter/material.dart';
 
 import 'package:citizen_system/theme/app_theme.dart';

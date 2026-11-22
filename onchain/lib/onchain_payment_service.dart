@@ -1,3 +1,5 @@
+// 核对准确付款账户及收款绑定，按Runtime编码并交SDK执行转账。
+
 import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 

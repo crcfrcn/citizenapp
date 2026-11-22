@@ -1,3 +1,5 @@
+// 验证拍摄页手势提示及三分钟录像上限。
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/media/camera_capture_page.dart';

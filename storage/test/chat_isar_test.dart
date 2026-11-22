@@ -1,3 +1,5 @@
+// 验证聊天库真实重开及与用户和广场库的生命周期隔离。
+
 import 'package:isar_community/isar.dart';
 import 'dart:io';
 

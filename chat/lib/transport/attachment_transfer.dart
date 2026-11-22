@@ -1,3 +1,5 @@
+// 通过系统TLS分块传输密文附件，限制正文并拒绝重定向和明文。
+
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';

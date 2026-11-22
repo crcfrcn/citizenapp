@@ -1,3 +1,5 @@
+// 展示首次权限说明并由用户动作申请通知权限。
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';

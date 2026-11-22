@@ -1,3 +1,5 @@
+// 验证多签入口标题、箭头及整卡点击范围。
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

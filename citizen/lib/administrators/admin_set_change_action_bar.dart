@@ -1,3 +1,5 @@
+// 展示管理员集合变更的提交和取消动作栏。
+
 import 'package:flutter/material.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 

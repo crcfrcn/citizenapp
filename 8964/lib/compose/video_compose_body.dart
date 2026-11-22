@@ -1,3 +1,5 @@
+// 编辑单个视频及最多300字配文，并校验必需视频。
+
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 

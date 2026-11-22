@@ -1,3 +1,5 @@
+// 验证头像徽章仅消费最终链事实及CID年份边界。
+
 import 'dart:async';
 import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_testing/chain_data_fixture.dart' as f;

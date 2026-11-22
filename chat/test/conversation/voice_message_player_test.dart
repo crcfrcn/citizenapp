@@ -1,3 +1,5 @@
+// 验证语音上限及未下载消息使用既有附件入口。
+
 import 'package:flutter/material.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';
 import 'package:flutter_test/flutter_test.dart';

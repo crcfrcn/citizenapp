@@ -1,3 +1,5 @@
+// 展示个人多签资料、余额、管理员及提案历史。
+
 import 'package:citizen_widgets/chain_balance_scope.dart';
 import 'package:citizen_personal/personal_local_store.dart';
 import 'package:citizen_storage/user_isar.dart'

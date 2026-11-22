@@ -1,3 +1,5 @@
+// 定义多签转账、安全基金和费用归集提案的业务详情。
+
 import 'dart:typed_data';
 
 /// 多签转账模块写入 ProposalWithDetail.businessDetails 的键名。

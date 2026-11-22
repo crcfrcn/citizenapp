@@ -1,5 +1,5 @@
-# 仅由 AndroidTest 任务启用；不关闭 Release 优化或改变生产逻辑。
-# Runner 及测试 APK 对目标 APK 中共享库的调用不能被完全内联或改名。
+# 为Android设备测试保留目标应用共享库及目录保护接口的可调用符号。
+
 -keep class androidx.tracing.Trace { *; }
 -keep class kotlin.LazyKt** { *; }
 -keep interface kotlin.Lazy { *; }

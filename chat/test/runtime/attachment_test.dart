@@ -1,3 +1,5 @@
+// 以真实MLS验证群控制及按冻结设备路由持久化附件投递。
+
 import 'package:citizen_testing/chat_runtime_fixture.dart';
 
 import 'dart:convert';

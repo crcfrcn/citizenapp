@@ -1,3 +1,5 @@
+// 读取并展示宪法或普通法律的生效版本、历史版和双语条款。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';

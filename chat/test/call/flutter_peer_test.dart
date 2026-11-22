@@ -1,3 +1,5 @@
+// 验证Flutter WebRTC连接状态的完整映射。
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:chat/call/flutter_call_peer.dart';

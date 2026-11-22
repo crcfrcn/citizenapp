@@ -1,3 +1,5 @@
+// 验证单视频、配文字数及统一预览和删除交互。
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';

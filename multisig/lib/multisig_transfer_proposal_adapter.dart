@@ -1,3 +1,5 @@
+// 向提案列表提供多签业务标题、摘要、详情导航及缓存操作。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 

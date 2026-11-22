@@ -1,3 +1,5 @@
+// 编辑管理员列表，协调姓名、账户和阈值输入。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 

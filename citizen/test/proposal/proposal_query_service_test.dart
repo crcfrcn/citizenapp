@@ -1,3 +1,5 @@
+// 验证最终块提案读取、u128编号、冻结票据及缺失损坏区分。
+
 import 'dart:typed_data';
 import 'dart:io';
 

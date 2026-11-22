@@ -1,3 +1,5 @@
+// 确认远端删除后清理同CID本地副本，保留失败恢复。
+
 import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_square/post/square_post_store.dart';
 

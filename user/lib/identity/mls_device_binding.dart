@@ -1,3 +1,5 @@
+// 使用SDK原语构造已获授权的MLS设备登记载荷和摘要。
+
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';

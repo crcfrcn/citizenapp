@@ -1,3 +1,5 @@
+// 验证已安装App启动、钱包选择、扫码返回及聊天恢复的设备流程。
+
 package com.crcfrcn.citizenapp
 
 import android.content.Intent

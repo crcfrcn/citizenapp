@@ -1,3 +1,5 @@
+// 按CID反查本地公权目录的行政范围和法定代表人。
+
 import 'package:citizen_citizen/public/public_institution_repository.dart';
 import 'package:citizen_citizen/public/public_provinces.dart';
 

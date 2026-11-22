@@ -1,3 +1,5 @@
+// 按CID保存和恢复广场草稿，协调媒体引用及待重试清理。
+
 import 'package:citizen_storage/social_isar.dart'
     as social_store
     show Cleanup, Draft, Media, Publish;

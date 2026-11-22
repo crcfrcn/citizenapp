@@ -1,3 +1,5 @@
+// 以真实Core会话提供测试装配，只替换明确的业务及系统资源边界。
+
 import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';

@@ -1,3 +1,5 @@
+// 验证交易顶栏无障碍布局及其他页面不显示连接状态。
+
 import 'dart:async';
 
 import 'package:citizen_system/theme/app_theme.dart';

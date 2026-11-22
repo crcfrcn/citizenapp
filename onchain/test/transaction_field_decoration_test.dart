@@ -1,3 +1,5 @@
+// 验证嵌入扫码按钮的地址框与金额框等高。
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

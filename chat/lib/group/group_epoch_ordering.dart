@@ -1,3 +1,5 @@
+// 按MLS epoch缓冲和回放乱序Commit，维持群解密顺序。
+
 import 'package:chat/mls/mls_group_boundary.dart';
 import 'package:chat/mls/mls_session.dart';
 import 'package:citizen_network/protocol/message.dart';

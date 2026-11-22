@@ -1,3 +1,5 @@
+// 验证SDK纹理方向、结构化结果、错误及前后台和退出时序。
+
 import 'dart:async';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/widgets.dart';

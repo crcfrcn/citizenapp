@@ -1,3 +1,5 @@
+// 定义WSS顶层聊天帧、客户端命令、服务端回执和资源计量。
+
 syntax = "proto3";
 
 package chat.protocol;

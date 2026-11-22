@@ -1,3 +1,5 @@
+// 验证身份与会员徽章配色、图形和非法档位回退。
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

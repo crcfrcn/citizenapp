@@ -1,3 +1,5 @@
+// 提供聊天WSS帧、命令和回执的Protobuf Dart模型和编解码。
+
 // This is a generated file - do not edit.
 //
 // Generated from chat_frame.proto.

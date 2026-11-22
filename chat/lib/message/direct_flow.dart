@@ -1,3 +1,5 @@
+// 协调私聊MLS加解密、可靠队列、每设备投递及附件处理。
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';

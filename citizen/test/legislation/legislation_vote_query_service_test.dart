@@ -1,3 +1,5 @@
+// 验证同块立法票据和签署读取，拒绝损坏状态冒充缺失。
+
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';

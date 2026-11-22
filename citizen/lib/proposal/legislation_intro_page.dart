@@ -1,3 +1,5 @@
+// 介绍节点端法律提案发起及手机端阅读和表决流程。
+
 import 'package:flutter/material.dart';
 
 import 'package:citizen_system/theme/app_theme.dart';

@@ -1,3 +1,5 @@
+// 验证实际聊天运行时串联MLS身份、挑战签名和许可认证。
+
 import 'dart:convert';
 import 'dart:io';
 

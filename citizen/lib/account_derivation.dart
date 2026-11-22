@@ -1,12 +1,4 @@
-// GMB 账户统一派生原语 —— 全 app 唯一入口。
-//
-// 与 citizenchain `primitives::core_const` 单一权威源严格字节对齐:
-//   preimage = b"GMB"(3B) || op_tag(1B) || ss58.to_le_bytes()(2B) || payload
-//   address  = blake2b_256(preimage)            // 32 字节 account id
-// op_tag 与 payload(见各常量注释)逐一对齐 core_const.rs;任何模块禁止
-// 自行拼接 preimage,一律调用本文件。
-//
-// 派生输出为 32 字节账户；文本及 SS58 编解码直接调用 CitizenSDK。
+// 按统一公民域、操作标签和账户参数派生各类公开账户地址。
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 

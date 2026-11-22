@@ -1,3 +1,5 @@
+// 规范文章段落和关联媒体，校验并生成发布Manifest结构。
+
 import 'package:citizen_square/article/article_section_editor.dart';
 import 'package:citizen_square/post/square_models.dart';
 

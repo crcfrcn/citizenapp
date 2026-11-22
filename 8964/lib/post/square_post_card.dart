@@ -1,3 +1,5 @@
+// 按信息流或详情模式展示公文和视频及其竞选变体。
+
 import 'package:flutter/material.dart';
 
 import 'package:citizen_square/post/square_models.dart';

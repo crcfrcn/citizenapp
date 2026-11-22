@@ -1,3 +1,5 @@
+// 复用冷热签名流程，展示冷签请求并预检响应及设备期限。
+
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:citizen_scanner/qr_display_scaffold.dart' show AppQrImage;
 

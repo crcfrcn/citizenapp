@@ -1,3 +1,5 @@
+// 提供媒体附件公开描述的Protobuf Dart模型和编解码。
+
 // This is a generated file - do not edit.
 //
 // Generated from media_content.proto.

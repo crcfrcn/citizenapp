@@ -1,3 +1,5 @@
+// 持久保存行政区及机构派生数据的独立版本游标。
+
 import 'package:citizen_storage/user_isar.dart' as app_store show Version;
 // 只读派生数据的版本游标存储(与 schemaVersion 解耦)。
 //

@@ -1,3 +1,5 @@
+// 编排帖子详情、链索引展示和编辑删除，复核当前身份与访问权限。
+
 import 'package:citizen_square/like/square_likes_strip.dart';
 import 'package:citizen_square/post/square_interaction_service.dart';
 import 'package:citizen_square/comment/comments.dart';

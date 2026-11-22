@@ -1,3 +1,5 @@
+// 向会话页面共享通话协调器和当前通话状态。
+
 import 'package:flutter/widgets.dart';
 import 'package:chat/call/call_coordinator.dart';
 

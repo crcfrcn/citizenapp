@@ -1,3 +1,5 @@
+// 定义公开用户资料、关系条目及资料图片键解析模型。
+
 import 'package:citizen_user/profile/profile_presentation.dart';
 
 /// 用户主页公开资料模型（对应 Worker `UserProfileResponse`）。

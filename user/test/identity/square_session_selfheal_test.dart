@@ -1,3 +1,5 @@
+// 验证会话错误准确分类、首次设备登记和取消不触发重复授权。
+
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:citizen_sdk/citizen_sdk.dart'
     show

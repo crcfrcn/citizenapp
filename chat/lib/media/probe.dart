@@ -1,3 +1,5 @@
+// 有界探测媒体宽高、时长及缩略图blurhash。
+
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:blurhash_dart/blurhash_dart.dart';

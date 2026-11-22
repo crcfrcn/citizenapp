@@ -1,9 +1,4 @@
-// 统一机构链态读服务(ADR-028 决策 2)——合并公权 `LivePublicInstitutionChainData`
-// 与治理侧 admins 读取为一套:按机构 CID 读取名册和过滤提案，余额由 SDK 独立管理。
-//
-//
-// - 管理员身份统一按机构 CID 路由，机构码只用于选择对应 admins pallet。
-// - 读取遵守 ADR-018:提案走当年共享缓存客户端过滤,不长前缀扫描。
+// 按机构CID组合链上名册和提案状态，余额交由SDK独立管理。
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_citizen/institution/institution.dart';

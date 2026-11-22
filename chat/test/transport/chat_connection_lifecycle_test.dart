@@ -1,3 +1,5 @@
+// 验证WSS帧、附件重试和停止后迟到许可及命令超时关闭。
+
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';

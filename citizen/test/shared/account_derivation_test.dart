@@ -1,16 +1,4 @@
-// account_derivation 统一派生原语单测(ADR-018 §九,公权机构卡0)。
-//
-// golden 向量取自链端权威源(勿手算、勿照抄本端计算结果):
-//   - 主/费账户:citizenchain/runtime/primitives/cid/china/china_cb.rs 的
-//     main_account / fee_account 字面常量
-//   - 安全基金/两和基金:金标 fixture tests/fixtures/account_derive_vectors.json
-//     (链端金标由 CitizenChain 的 account_derive_golden 测试生成；本产品独立核对自身镜像)
-// 用以交叉验证本端派生与 citizenchain primitives 字节对齐:
-//   preimage = b"GMB" || op_tag || ss58.to_le_bytes() || payload
-//   OP_MAIN(0x01)/OP_FEE(0x02)/OP_SAFETY(0x04)/OP_HE(0x05): payload = cid_number
-//   OP_CLEARING(0x07): payload = cid_number
-//   OP_FCSF(0x08): payload = 联邦安全局 cid_number
-//   OP_NAME(0x00,永久冻结): payload = cid_number || account_name
+// 验证各类制度账户名称路由、前缀和派生边界。
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 

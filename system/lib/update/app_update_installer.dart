@@ -1,3 +1,5 @@
+// 通过原生通道读取设备版本、检查更新并打开对应商店。
+
 import 'package:flutter/services.dart';
 import 'package:citizen_system/update/app_update_manifest.dart';
 

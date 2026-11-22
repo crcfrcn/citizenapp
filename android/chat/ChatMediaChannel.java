@@ -1,3 +1,5 @@
+// 实现聊天文件选择及有界媒体探测，管理临时文件和安全错误。
+
 package com.crcfrcn.citizenapp;
 import android.app.Activity;
 import android.content.ContentResolver;

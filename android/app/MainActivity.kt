@@ -1,3 +1,5 @@
+// 承载Android应用并桥接推送、权限、受保护记录及钱包回跳和后台擦除。
+
 package com.crcfrcn.citizenapp
 
 import org.citizen.sdk.CitizenSdkPlugin

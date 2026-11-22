@@ -1,10 +1,7 @@
-// 立法法律 Dart 镜像类型(ADR-027 / ADR-028 P3)——与链端 legislation-yuan
-// SCALE 布局逐字段对齐。解码见 [legislation_codec.dart](单一源)。
-//
-// 法律层级 = 章 > 节 > 条 > 款(「项」已删,见宪法迁移卡)。宪法
-// (law_id=0,tier=宪法)双语(`*En` 全填),普通法律单语(`*En` 为 null)。
+// 定义法律层级、地区、状态及章节条款和版本模型。
 
 /// 法律层级(链端 Tier,1 字节枚举索引)。
+
 enum LawTier {
   constitution, // 0 宪法
   national, // 1 国家

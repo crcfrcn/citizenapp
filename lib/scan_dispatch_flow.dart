@@ -1,3 +1,7 @@
+// 按二维码协议分派到身份、账户和支付等业务页面。
+
+import 'package:citizen_system/identity_cid_selectable_text.dart';
+import 'package:citizen_system/identity_cid_display.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
@@ -170,9 +174,9 @@ Future<void> _handleCitizenIdentitySignRequest(
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(prep.actionLabel),
+        title: Text(identityCidUiText(prep.actionLabel)),
         content: Text(
-          fields.map((field) => '${field.$1}：${field.$2}').join('\n'),
+          fields.map((field) => '${identityCidUiText(field.$1)}：${identityCidReviewText(field.$1, field.$2)}').join('\n'),
         ),
         actions: [
           TextButton(
@@ -234,7 +238,7 @@ Future<void> _handleOccupySignRequest(
     if (!context.mounted) return;
     final reviewEntries = <(String, String)>[
       ('创世哈希', prep.genesisHash),
-      ('身份CID', prep.cidNumber),
+      ('身份CID号', prep.cidNumber),
       if (prep.currentAccountId != null)
         ('当前绑定账户', citizenSs58FromAccountId(prep.currentAccountId!)),
       ('预期绑定版本', prep.expectedBindingRevision.toString()),
@@ -242,15 +246,15 @@ Future<void> _handleOccupySignRequest(
       (prep.isOccupy ? '绑定账户' : '新绑定账户', prep.account.ss58Address),
     ];
     final reviewText = reviewEntries
-        .map((entry) => '${entry.$1}：${entry.$2}')
+        .map((entry) => '${identityCidUiText(entry.$1)}：${entry.$2}')
         .join('\n');
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(prep.actionLabel),
+        title: Text(identityCidUiText(prep.actionLabel)),
         content: SingleChildScrollView(
-          child: SelectableText(
-            '${prep.isOccupy ? '把此 CID 占号绑定到你的账户' : '把此 CID 换绑到你的新账户'}\n'
+          child: IdentityCidSelectableText(
+            '${prep.isOccupy ? '把此身份CID号占号绑定到你的账户' : '把此身份CID号换绑到你的新账户'}\n'
             '$reviewText',
           ),
         ),
@@ -369,7 +373,7 @@ Future<CitizenWalletStateAccount?> _pickBindingAccount(
           Padding(
             padding: EdgeInsets.all(AppLayout.scaledValue(16)),
             child: Text(
-              '选择要绑定到该 CID 的账户',
+              '选择要绑定到该身份CID号的账户',
               style: TextStyle(
                 fontSize: AppLayout.scaled(context, 16),
                 fontWeight: FontWeight.w600,
@@ -394,7 +398,7 @@ Future<bool?> _showActionConfirm(
   SquareActionSignPrep prep,
 ) {
   final fieldLines = prep.decoded.reviewFields!
-      .map((field) => '${field.label}：${field.value}')
+      .map((field) => '${identityCidUiText(field.label)}：${identityCidFieldText(field.key, field.value)}')
       .join('\n');
   return showDialog<bool>(
     context: context,
@@ -402,7 +406,7 @@ Future<bool?> _showActionConfirm(
       title: const Text('确认签名'),
       content: Text(
         '账户：${_shortAddress(prep.account.ss58Address)}\n'
-        '动作：${prep.actionLabel}\n'
+        '动作：${identityCidUiText(prep.actionLabel)}\n'
         '$fieldLines\n\n'
         '确认后将用本机钱包对此操作签名。',
       ),

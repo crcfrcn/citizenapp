@@ -1,3 +1,5 @@
+// 统一展示提案标题、展示号、计票进度、投票动作和状态。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'package:flutter/material.dart';

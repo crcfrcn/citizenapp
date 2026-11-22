@@ -1,3 +1,5 @@
+// 验证文章帖子详情的权限、身份撤销、刷新和本人离线读取。
+
 import 'package:citizen_storage/user_isar.dart';
 import 'package:citizen_storage/social_isar.dart';
 

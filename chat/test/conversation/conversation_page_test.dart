@@ -1,3 +1,5 @@
+// 验证完整会话输入、发送及附件预检和媒体交互的运行时边界。
+
 import 'package:citizen_testing/chat_runtime_fixture.dart';
 import 'dart:async';
 import 'dart:io';

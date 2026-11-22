@@ -1,3 +1,5 @@
+// 声明用户模块的聊天、支付、主页和联系人选择导航意图。
+
 import 'package:flutter/widgets.dart';
 
 typedef DirectChatOpener =

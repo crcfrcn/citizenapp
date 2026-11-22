@@ -1,3 +1,5 @@
+// 验证宿主WSS许可、永久CID及设备身份绑定和迟到结果隔离。
+
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';

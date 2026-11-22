@@ -1,3 +1,5 @@
+// 验证群密文扇出、成员上限、管理员权限和epoch顺序。
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/group/group_fanout.dart';
 import 'package:chat/group/group_epoch_ordering.dart';

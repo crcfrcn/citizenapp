@@ -1,3 +1,5 @@
+// 将草稿素材导入数据库，管理受控临时文件和擦除生命周期。
+
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;

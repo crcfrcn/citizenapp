@@ -1,4 +1,4 @@
-// 公权机构数据包载入单测 —— 版本驱动增量 reconcile(fake AssetBundle + fake store)。
+// 验证机构快照分片增量对账、合法空分片及失败不推进游标。
 
 import 'dart:convert';
 

@@ -1,3 +1,5 @@
+// 以独立MLS文件组加解密附件分块，原子保存状态及处理结果。
+
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';

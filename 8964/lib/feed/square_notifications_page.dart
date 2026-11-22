@@ -1,3 +1,5 @@
+// 展示广场通知，协调分页、当前身份缓存和独立已读范围。
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';

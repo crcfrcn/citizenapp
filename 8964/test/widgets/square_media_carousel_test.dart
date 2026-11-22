@@ -1,3 +1,5 @@
+// 验证图集滑动和单张或多张的圆点指示。
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

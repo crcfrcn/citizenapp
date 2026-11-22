@@ -1,3 +1,5 @@
+// 展示广场分类及通知红点，支持全部分类拖动排序。
+
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';

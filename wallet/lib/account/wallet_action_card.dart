@@ -1,3 +1,5 @@
+// 为准确冷热账户提供双币充值和清算零钱包入口。
+
 import 'package:citizen_offchain/offchain_clearing_rpc.dart';
 import 'package:citizen_wallet/core/navigation.dart';
 

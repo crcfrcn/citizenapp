@@ -1,3 +1,5 @@
+// 以内存自然三元组实现行政区测试仓库。
+
 import 'package:citizen_storage/user_isar.dart' as app_store show Region;
 import 'package:citizen_citizen/public/admin_division_dto.dart';
 import 'package:citizen_citizen/public/admin_division_store.dart';

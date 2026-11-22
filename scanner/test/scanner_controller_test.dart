@@ -1,3 +1,5 @@
+// 验证迟到采集关闭、真实排空和更换SDK时的资源隔离。
+
 import 'dart:async';
 
 import 'package:citizen_sdk/citizen_sdk.dart';

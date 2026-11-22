@@ -1,3 +1,5 @@
+// 验证管理员四字段、机构CID键及个人多签变更布局。
+
 import 'dart:convert';
 import 'dart:typed_data';
 

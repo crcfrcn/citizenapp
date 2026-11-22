@@ -1,3 +1,5 @@
+// 验证消息只携带密文投递字段及部署中立设备路由。
+
 import 'package:fixnum/fixnum.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_network/protocol/message.dart';

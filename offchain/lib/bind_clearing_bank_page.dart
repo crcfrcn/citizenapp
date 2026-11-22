@@ -1,3 +1,6 @@
+// 展示并确认按机构CID绑定或切换清算行。
+
+import 'package:citizen_system/identity_cid_selectable_text.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -11,7 +14,7 @@ import 'package:citizen_system/theme/app_layout.dart';
 
 /// 绑定**清算行**(L2)确认页。
 ///
-/// 设置页选择 finalized 目录中的机构，确认后以机构 CID 绑定或切换。
+/// 设置页选择 finalized 目录中的机构，确认后以身份CID号 绑定或切换。
 /// 绑定即开户，无预存和业务开户费，签名者支付链上交易费。
 class BindClearingBankPage extends StatefulWidget {
   const BindClearingBankPage({
@@ -54,8 +57,8 @@ class _BindClearingBankPageState extends State<BindClearingBankPage> {
             subtitle: Text(b.areaPath.isEmpty ? '-' : b.areaPath),
           ),
           ListTile(
-            title: const Text('CID'),
-            subtitle: SelectableText(b.cidNumber),
+            title: const Text('身份CID号'),
+            subtitle: IdentityCidSelectableText(b.cidNumber),
           ),
           ListTile(
             title: const Text('主账户'),

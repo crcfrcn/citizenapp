@@ -1,3 +1,5 @@
+// 在Android设备验证广场媒体通道、规格及安全文件操作。
+
 package com.crcfrcn.citizenapp
 
 import android.net.Uri

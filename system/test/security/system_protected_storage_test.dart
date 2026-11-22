@@ -1,3 +1,5 @@
+// 验证原生唯一锁、提交回执、冲突和关闭后的迟到写入隔离。
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';

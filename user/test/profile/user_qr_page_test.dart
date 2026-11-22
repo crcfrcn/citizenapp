@@ -1,3 +1,5 @@
+// 验证固定用户码的二维码、公开资料、复制及下载入口。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'package:citizen_testing/fake_citizen_sdk.dart';

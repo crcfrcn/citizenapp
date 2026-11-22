@@ -1,3 +1,5 @@
+// 验证公开通讯录复用已有MLS身份，拒绝错误属主且不补建钥。
+
 import 'package:citizen_network/mls_authentication.dart';
 import 'package:citizen_testing/chat_runtime_fixture.dart';
 

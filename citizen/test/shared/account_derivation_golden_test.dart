@@ -1,12 +1,4 @@
-// 账户派生跨语言金标向量测试(ADR-024 Tier 2)。
-//
-// 金标 fixture 由 Rust 切片导出(canonical 真源
-// citizenchain/runtime/primitives/tests/fixtures/account_derive_vectors.json
-// 的副本),逐条断言 Dart 镜像派生 == account_id,防止 Dart 与链端漂移。
-//
-// fixture 用 GMB 域生成,本测试证明 Dart 派生地址与链端逐字节一致。
-//
-// 金标缺席必须失败；不能把未执行的派生回归登记为完整验收。
+// 以链端黄金向量逐字节核对App统一账户派生。
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 

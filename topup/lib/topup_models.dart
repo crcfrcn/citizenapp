@@ -1,3 +1,5 @@
+// 定义固定充值币轨、整数报价、配置指纹及签后订单模型。
+
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';

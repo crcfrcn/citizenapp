@@ -1,3 +1,5 @@
+// 基于当前钱包和必要链验真区分CID就绪、未注册及未知状态。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_user/identity/current_user_context.dart';
 import 'package:citizen_user/identity/finalized_identity_resolver.dart';

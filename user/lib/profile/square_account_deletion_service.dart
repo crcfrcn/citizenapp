@@ -1,3 +1,5 @@
+// 提交或恢复注销，取得云端真实完成后逐项清理本地数据。
+
 import 'package:citizen_user/profile/citizen_profile_cache.dart';
 import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_square/post/square_post_store.dart';

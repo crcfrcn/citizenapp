@@ -1,3 +1,5 @@
+// 提供不绑定真实创世版本的链状态界面测试夹具。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 CitizenChainSyncStatus chainSnapshot({

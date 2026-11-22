@@ -1,14 +1,4 @@
-// 个人多签详情页底部"提案列表"组件(req 5)。
-//
-// 数据双轨制:
-// - 链上活跃提案(STATUS_VOTING):由 [PersonalProposalHistoryService.fetchAll] 实时拉
-//   并同步到 Isar,保证其他设备发起的提案也被记录。
-// - 历史提案(REJECTED / EXECUTED / EXECUTION_FAILED):链上 90 天后清理,
-//   citizenapp 通过 Isar 永久保留。两者合并以 Isar 为准。
-//
-// **样式**:每条提案是**独立方块 Card**(对齐治理机构详情页
-// `_buildProposalCard:520`),带 statusColor 边框 + 36×36 状态图标 + 标题/子标题 +
-// 右侧状态徽章。Card 之间 8px 间距。
+// 分页展示个人多签活跃及历史提案并提供详情入口。
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 

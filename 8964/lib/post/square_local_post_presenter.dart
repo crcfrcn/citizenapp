@@ -1,3 +1,5 @@
+// 将已通过哈希校验的本地Manifest转换为只读帖子和媒体引用。
+
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';

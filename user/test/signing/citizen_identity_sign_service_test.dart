@@ -1,3 +1,5 @@
+// 验证身份授权完整审阅、指定账户和动作拒绝。
+
 import 'package:flutter/widgets.dart';
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 

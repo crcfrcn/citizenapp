@@ -1,3 +1,5 @@
+// 展示运行时升级详情，并按机构岗位资格提供联合投票。
+
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 

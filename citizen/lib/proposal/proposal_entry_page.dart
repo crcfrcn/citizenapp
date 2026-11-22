@@ -1,3 +1,5 @@
+// 将机构转换为提案主体，按统一能力清单展示发起入口。
+
 import 'package:citizen_citizen/navigation.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
@@ -171,7 +173,7 @@ class _ProposalEntryPageState extends State<ProposalEntryPage> {
                         SizedBox(width: AppLayout.scaled(context, 8)),
                         Expanded(
                           child: Text(
-                            '请先激活机构签名钱包；能否发起由链上机构 CID 与岗位码共同校验',
+                            '请先激活机构签名钱包；能否发起由链上身份CID号 与岗位码共同校验',
                             style: TextStyle(
                               fontSize: AppLayout.scaled(context, 12),
                               color: AppTheme.textTertiary,

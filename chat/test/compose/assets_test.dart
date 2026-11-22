@@ -1,3 +1,5 @@
+// 验证全部内置贴纸PNG可从实际资源包加载。
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/compose/sticker_pack.dart';

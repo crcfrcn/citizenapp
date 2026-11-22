@@ -1,3 +1,5 @@
+// 定义钱包发出的跨业务页面和弹窗导航意图。
+
 import 'package:citizen_storage/user_isar.dart' as wallet_store show Entry;
 import 'package:flutter/widgets.dart';
 

@@ -1,3 +1,5 @@
+// 集中登记App链调用和存储使用的pallet及call索引。
+
 /// CitizenApp 链上 pallet / call 索引唯一真源。
 ///
 /// 索引由 citizenchain 的 `construct_runtime!`(runtime/src/lib.rs)声明顺序决定。
@@ -6,6 +8,7 @@
 /// 两者必须逐项一致；本文件仅收录 CitizenApp 实际构造 extrinsic 用到的 pallet/call。
 ///
 /// 约定：pallet 常量以 `Pallet` 结尾；call 常量以 `Call` 结尾。
+
 class PalletRegistry {
   const PalletRegistry._();
 

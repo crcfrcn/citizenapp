@@ -1,4 +1,4 @@
-// 管理员任职的业务含义与链上一致；Dart成员遵循camelCase，JSON键沿所属接口。
+// 定义机构岗位、任职、业务权限及投票计划的链协议模型。
 
 import 'package:citizen_citizen/administrators/admin_account.dart';
 

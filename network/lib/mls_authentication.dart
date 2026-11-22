@@ -1,4 +1,7 @@
+// 定义聊天设备身份、MLS请求证明、操作和稳定错误类型。
+
 /// 本机 Chat 设备身份。
+
 class ChatDevice {
   const ChatDevice({
     required this.userId,

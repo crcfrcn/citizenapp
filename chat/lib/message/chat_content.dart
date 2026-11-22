@@ -1,3 +1,5 @@
+// 定义展示无关聊天内容，并统一分派基础和媒体载荷编解码。
+
 import 'dart:convert';
 import 'basic_content.dart';
 import 'chat_message.dart';

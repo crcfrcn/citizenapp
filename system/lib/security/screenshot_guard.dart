@@ -1,3 +1,5 @@
+// 按引用计数管理屏幕保护，统一监听截屏和录屏事件。
+
 import 'package:flutter/services.dart';
 
 /// 截屏保护工具（进程级全局资源，引用计数管理）。

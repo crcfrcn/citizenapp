@@ -1,3 +1,5 @@
+// 验证聊天气泡、会话列表和菜单的布局、控制器及订阅行为。
+
 import 'package:citizen_system/theme/app_layout.dart';
 import 'package:citizen_testing/chat_runtime_fixture.dart';
 import 'dart:async';
@@ -13,14 +15,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/chat.dart';
 
 void main() {
-  testWidgets('连接点仅在挂载时按1至5循环且居中', (tester) async {
+  testWidgets('连接点仅在挂载时按1至3循环且居中', (tester) async {
     await tester.pumpWidget(
       const MaterialApp(
         home: Scaffold(body: Center(child: ChatConnectionIndicator())),
       ),
     );
-    for (var count = 1; count <= 5; count++) {
-      for (var i = 0; i < 5; i++)
+    for (var count = 1; count <= 3; count++) {
+      for (var i = 0; i < 3; i++)
         expect(
           tester
               .widget<Opacity>(find.byKey(ValueKey('chat-connection-dot-$i')))

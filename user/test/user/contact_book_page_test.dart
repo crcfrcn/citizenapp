@@ -1,3 +1,5 @@
+// 验证通讯录资料并发恢复、身份隔离、就地更新及唯一主页入口。
+
 import 'dart:typed_data';
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:citizen_user/navigation.dart';
@@ -942,7 +944,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('备注：张三'), findsOneWidget);
-    expect(find.text('公民号：$_contactCidNumber'), findsOneWidget);
+    expect(find.text('身份CID号：$_contactCidNumber'), findsOneWidget);
     expect(find.textContaining('SS58：'), findsNothing);
     expect(find.text('建设一个可信、自由的社会'), findsNothing);
     expect(

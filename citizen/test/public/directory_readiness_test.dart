@@ -1,3 +1,5 @@
+// 验证目录导入并发合并、后台完成就地呈现和失败重试。
+
 import 'dart:async';
 import 'dart:convert';
 

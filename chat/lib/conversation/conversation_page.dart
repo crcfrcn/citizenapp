@@ -1,3 +1,5 @@
+// 装配完整会话的消息、输入、媒体和录音交互及产品资格动作。
+
 part of '../chat.dart';
 
 typedef ChatPickMediaCallback = Future<ChatMediaDraft?> Function();

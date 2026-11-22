@@ -1,3 +1,5 @@
+// 验证文章Delta样式白名单、规范换行及字号编辑。
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_quill/flutter_quill.dart';

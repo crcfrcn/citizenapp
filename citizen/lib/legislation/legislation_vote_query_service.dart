@@ -1,3 +1,5 @@
+// 读取并严格解码立法提案、代表票据、公投和签署状态。
+
 import 'dart:convert';
 import 'dart:typed_data';
 

@@ -1,3 +1,5 @@
+// 展示语音或视频通话状态，并提供接听、挂断和媒体控制。
+
 import 'package:citizen_system/theme/app_layout.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';

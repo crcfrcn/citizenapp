@@ -1,3 +1,5 @@
+// 验证声明图片、SVG及字体原件均可从实际资源包读取。
+
 import 'dart:ui' as ui;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';

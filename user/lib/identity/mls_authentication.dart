@@ -1,3 +1,5 @@
+// 复用唯一聊天运行时生成绑定公开CID和设备的受限请求证明。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:convert';

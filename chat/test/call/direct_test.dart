@@ -1,3 +1,5 @@
+// 验证通话offer、answer、ICE及挂断顺序和超时收口。
+
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';

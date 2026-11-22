@@ -1,13 +1,4 @@
-// 公权机构省份导航来源 —— 复用治理省储委会的同一行政区(不新建)。
-//
-// 省份是固定行政区划(43 省),与机构数据是否加载无关,必须始终全显
-// (对称治理 tab 的 43 省储委会编译期常量)。
-//
-// ADR-021 行政区唯一真源:机构记录只存 province/city/town code;省名走链上常量
-// (`kPrcs`,认可的省名源),市/镇名走 china.sqlite 派生字典。
-// 省 code 从省储委会 cid_number 前缀派生(`ZS001-...` → `ZS`),与字典 provinces.json
-// 的 code 一一对应。`publicProvinceNamesSet()` 给单测断言「链上省名集合==字典省名集合」
-// 用,把"逐字对齐"变守卫。
+// 从固定治理目录取得43省导航及代码和名称映射。
 
 import 'package:citizen_citizen/institution/governance_registry.dart';
 

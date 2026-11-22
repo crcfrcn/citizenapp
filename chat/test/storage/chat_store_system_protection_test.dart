@@ -1,3 +1,5 @@
+// 验证聊天正文与搜索索引只保存在独立本机数据库。
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/chat.dart';
 import 'package:citizen_testing/isar_test_env.dart';

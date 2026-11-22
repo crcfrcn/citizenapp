@@ -1,3 +1,5 @@
+// 读取准确最终绑定上下文，执行匿名CID自助占号及换绑交易。
+
 import 'dart:convert';
 import 'dart:typed_data';
 

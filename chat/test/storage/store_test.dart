@@ -1,3 +1,5 @@
+// 验证聊天集合结构、可靠队列、置顶、路由事务及重复投递。
+
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';

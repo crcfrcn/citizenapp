@@ -1,3 +1,5 @@
+// 验证广场库独立队列、重入拒绝及关闭后的迟到结果隔离。
+
 import 'package:citizen_storage/user_isar.dart' as wallet_store show Scan;
 import 'package:citizen_storage/social_isar.dart'
     as social_store

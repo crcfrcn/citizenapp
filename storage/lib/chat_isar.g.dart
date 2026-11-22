@@ -1,3 +1,5 @@
+// 定义本机聊天记录、路由和队列的Isar结构及访问扩展。
+
 // GENERATED CODE - DO NOT MODIFY BY HAND
 
 // ignore_for_file: experimental_member_use

@@ -1,3 +1,5 @@
+// 协调聊天创建、会话及群详情导航，复核原身份绑定快照。
+
 part of '../chat.dart';
 
 UserContactService _contactServiceFromContext(BuildContext context) =>
@@ -100,7 +102,7 @@ Future<void> openGroupChat(
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            accountId.isEmpty ? '请先在「我的 → 我的钱包」添加钱包账户' : '当前默认账户尚未注册 CID',
+            accountId.isEmpty ? '请先在「我的 → 我的钱包」添加钱包账户' : '当前默认账户尚未注册身份CID号',
           ),
         ),
       );
@@ -159,7 +161,7 @@ Future<void> openDirectChat(
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(accountId.isEmpty ? '请先添加钱包账户' : '当前默认账户尚未注册 CID'),
+          content: Text(accountId.isEmpty ? '请先添加钱包账户' : '当前默认账户尚未注册身份CID号'),
         ),
       );
     }

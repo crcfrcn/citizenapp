@@ -1,3 +1,5 @@
+// 验证广场门禁、信息流分页、媒体证明及身份代次隔离。
+
 import 'package:chat/chat.dart' as chat_sdk;
 import 'package:citizen_user/membership/subscription_service.dart';
 

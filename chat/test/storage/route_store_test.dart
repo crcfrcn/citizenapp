@@ -1,3 +1,5 @@
+// 验证聊天设备路由缓存的创建、读取和替换。
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/chat_store.dart';
 import 'package:citizen_testing/chat_isar_test_env.dart';

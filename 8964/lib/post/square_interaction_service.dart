@@ -1,3 +1,5 @@
+// 按浏览者CID读写点赞、收藏等互动状态。
+
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';

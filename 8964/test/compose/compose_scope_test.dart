@@ -1,3 +1,6 @@
+// 验证发布范围随草稿保存及CID切换后的编辑和迟到操作隔离。
+
+import 'package:citizen_system/theme/app_theme.dart';
 import 'package:provider/provider.dart';
 import 'package:citizen_user/identity/square_session_provider.dart';
 import 'package:citizen_square/compose/square_publish_service.dart';
@@ -116,6 +119,10 @@ void main() {
         find.descendant(of: control, matching: find.text('公开可见')),
         findsOneWidget,
       );
+      expect(find.descendant(of: control, matching: find.byType(Icon)), findsNothing);
+      final button = tester.widget<TextButton>(control);
+      expect(button.style?.shape?.resolve({}), isA<StadiumBorder>());
+      expect(button.style?.backgroundColor?.resolve({}), AppTheme.primary);
       await tester.tap(control);
       await tester.pumpAndSettle();
       expect(

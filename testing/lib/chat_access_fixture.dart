@@ -1,3 +1,5 @@
+// 提供传输回归使用的合成聊天资源许可。
+
 import 'package:chat/transport/chat_connection.dart';
 import 'package:citizen_network/protocol/chat_frame.pb.dart';
 import 'package:citizen_user/square_api_client.dart';

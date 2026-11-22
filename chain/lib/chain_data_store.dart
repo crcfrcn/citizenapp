@@ -1,3 +1,5 @@
+// 按链和账户持久化验证读模型，并隔离独立价格快照。
+
 import 'dart:convert';
 import 'package:isar_community/isar.dart';
 import 'package:citizen_storage/chain_state.dart';

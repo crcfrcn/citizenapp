@@ -1,3 +1,5 @@
+// 将平台无内容推送映射为聊天唤醒，并清理已读会话通知。
+
 import 'dart:async';
 import 'dart:io';
 

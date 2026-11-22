@@ -1,3 +1,5 @@
+// 承载SDK相机纹理，转发前后台并等待真实采集关闭。
+
 import 'dart:async';
 
 import 'package:citizen_sdk/citizen_sdk.dart';

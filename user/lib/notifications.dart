@@ -1,3 +1,5 @@
+// 按CID维护通知列表及独立已读状态，合并恢复和校准请求。
+
 import 'package:citizen_storage/user_isar.dart' as user_store show Notice;
 
 import 'dart:async';

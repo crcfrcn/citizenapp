@@ -1,3 +1,5 @@
+// 验证文件扩展名到MIME及媒体类别的统一映射。
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/media/mime.dart';
 import 'package:chat/message/chat_message.dart';

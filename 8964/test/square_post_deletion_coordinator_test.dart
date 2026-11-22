@@ -1,3 +1,5 @@
+// 验证远端删除、准确不存在回执及本地清理恢复和CID边界。
+
 import 'package:citizen_testing/mls_authentication_fixture.dart';
 
 import 'package:flutter_test/flutter_test.dart';

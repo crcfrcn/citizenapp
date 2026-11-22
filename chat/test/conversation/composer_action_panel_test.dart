@@ -1,3 +1,5 @@
+// 验证私聊功能动作及群聊转账和通话限制。
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/compose/composer_action_panel.dart';

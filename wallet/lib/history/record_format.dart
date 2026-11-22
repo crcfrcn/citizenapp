@@ -1,3 +1,5 @@
+// 统一格式化交易类型、地址、精确金额和执行状态。
+
 import 'package:flutter/material.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_system/theme/app_theme.dart';

@@ -1,3 +1,5 @@
+// 统一文本、语音、表情和功能输入，管理录音手势及面板布局。
+
 import 'package:citizen_system/theme/app_layout.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';

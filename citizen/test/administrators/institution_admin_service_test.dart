@@ -1,3 +1,5 @@
+// 验证人员和岗位独立读取、失败保留及准确主体路由。
+
 import 'package:citizen_storage/user_isar.dart' as wallet_store show Admin;
 
 import 'dart:async';

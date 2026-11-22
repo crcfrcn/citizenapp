@@ -1,3 +1,5 @@
+// 按账户分页展示本机流水和详情，合并变更并隔离迟到查询。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_topup/topup_result_page.dart';
 import 'package:citizen_topup/store.dart';

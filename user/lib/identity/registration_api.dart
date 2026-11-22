@@ -1,3 +1,5 @@
+// 提交默认Cloudflare人验并只消费当次核验结果。
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';

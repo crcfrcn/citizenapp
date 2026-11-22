@@ -1,3 +1,5 @@
+// 按系统语言提供统一中英文生物识别弹窗文案。
+
 import 'dart:ui' show Locale, PlatformDispatcher;
 
 import 'package:flutter/foundation.dart' show visibleForTesting;

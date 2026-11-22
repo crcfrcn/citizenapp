@@ -1,3 +1,5 @@
+// 按分区展示聊天搜索结果及提示。
+
 import 'package:citizen_system/theme/app_layout.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:flutter/material.dart';

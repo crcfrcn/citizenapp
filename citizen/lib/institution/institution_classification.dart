@@ -1,13 +1,4 @@
-// 机构 → 子 tab 分组(ADR-028 决策 3)——按 `institution_code` 把统一机构目录
-// 切成立法/治理/公权 三个机构视图的过滤谓词。单一源。
-//
-//
-// - 机构码的底层分类(固定治理 / 公权法人 / 机构账户 / 个人多签)由
-//   `citizen/institution/institution_code_label.dart` 提供,本文件只在其上叠加
-//   五子 tab 的「业务分组」,绝不复制码表。
-// - 五子 tab 中:立法/治理/公权 是机构视图(本文件过滤);广场/选举 是活动视图
-//   (非机构子集,见 ADR-028 决策 5/7),不在本文件。
-// - 公权 = 全集(超集),不需过滤——任何已知机构都属于公权。
+// 按机构码将统一目录分类到立法、治理和公权视图。
 
 import 'package:citizen_citizen/institution/institution_code_label.dart';
 

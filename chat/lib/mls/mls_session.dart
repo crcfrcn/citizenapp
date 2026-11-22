@@ -1,3 +1,5 @@
+// 表示MLS线消息和发送语义，接收类型交由OpenMLS判断。
+
 import 'package:fixnum/fixnum.dart';
 import 'package:citizen_network/protocol/message.dart';
 

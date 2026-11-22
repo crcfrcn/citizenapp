@@ -1,3 +1,5 @@
+// 验证奖励和费用投影、断点补扫及真实执行状态交付。
+
 import 'dart:async';
 import 'package:citizen_storage/user_isar.dart' as store show WalletCursor;
 import 'package:citizen_storage/user_isar.dart' show UserIsar;

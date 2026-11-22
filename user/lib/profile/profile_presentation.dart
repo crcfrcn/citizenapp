@@ -1,3 +1,5 @@
+// 从永久CID稳定派生缺失资料的展示值，不用于授权或持久资料。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 /// 用户公开资料缺失时的唯一展示规则。

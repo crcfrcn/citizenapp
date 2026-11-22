@@ -1,3 +1,6 @@
+// 展示交易表单，协调钱包或通讯录选择及SDK执行结果反馈。
+
+import 'package:citizen_system/identity_cid_display.dart';
 import 'package:citizen_widgets/chain_balance_scope.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:citizen_storage/user_isar.dart' as wallet_store show Entry;
@@ -738,7 +741,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
           children: [
             Text('付款账户：$payerName'),
             if (recipient.cidNumber != null)
-              Text('收款公民号：${recipient.cidNumber}'),
+              Text('收款身份CID号：${formatIdentityCidText(recipient.cidNumber!)}'),
             if (requestedCid == null && requestedAddress.startsWith('0x'))
               Text('以太坊地址：$requestedAddress'),
             Text('收款账户：${recipient.address}'),
@@ -993,7 +996,7 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
                 ),
               ),
             _buildFieldLabel(
-              _recipientCid == null ? '收款地址' : '收款公民号：$_recipientCid',
+              _recipientCid == null ? '收款地址' : '收款身份CID号：${formatIdentityCidText(_recipientCid!)}',
             ),
             TextField(
               controller: _toController,

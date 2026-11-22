@@ -1,3 +1,5 @@
+// 验证三类本地搜索、空查询及CID切换的迟到结果隔离。
+
 import 'package:citizen_user/navigation.dart';
 
 import 'dart:async';

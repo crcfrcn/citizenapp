@@ -1,3 +1,5 @@
+// 管理PIN校验、应用锁和防共匪密码触发的全量持久擦除。
+
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';

@@ -1,3 +1,5 @@
+// 验证账户序号输入、批量追加、SDK错误映射及退出时序。
+
 import 'dart:async';
 
 import 'package:citizen_sdk/citizen_sdk.dart';

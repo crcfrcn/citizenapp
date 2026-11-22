@@ -1,3 +1,5 @@
+// 校验并编码管理员集合变更，将通用准备及冷热执行交给SDK。
+
 import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';

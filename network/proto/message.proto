@@ -1,3 +1,5 @@
+// 定义每设备聊天路由、独立密文及逻辑消息字段。
+
 syntax = "proto3";
 
 package chat.protocol;

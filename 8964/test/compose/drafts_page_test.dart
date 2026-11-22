@@ -1,3 +1,5 @@
+// 验证草稿列表立即呈现、身份切换和删除清理重试。
+
 import 'dart:async';
 
 import 'package:citizen_square/draft/compose_draft.dart';

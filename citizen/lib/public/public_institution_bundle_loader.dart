@@ -1,3 +1,5 @@
+// 按最终链快照版本增量导入机构分片，成功后更新同步游标。
+
 import 'package:citizen_storage/user_isar.dart' as app_store show Entity;
 // 公权机构创世快照包载入 —— 链上快照驱动 reconcile(ADR-018 §九 混合模式 ①)。
 //

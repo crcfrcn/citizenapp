@@ -1,3 +1,5 @@
+// 验证公开资料和名片协议、缓存严格性及每次媒体请求的新鲜证明。
+
 import 'package:citizen_storage/user_isar.dart'
     as user_store
     show Edit, ProfileMedia, Profile;

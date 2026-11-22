@@ -1,3 +1,5 @@
+// 验证订阅和方案链调用的准确字段及黄金状态编码。
+
 import 'dart:convert';
 import 'dart:typed_data';
 

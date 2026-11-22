@@ -1,3 +1,5 @@
+// 解析当前账户与提案的管理员及投票关系，提供统一资格上下文。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'package:citizen_system/app_log.dart';

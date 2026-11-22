@@ -1,3 +1,5 @@
+// 提供带按压反馈的交互卡片。
+
 import 'package:flutter/material.dart';
 
 /// A wrapper that applies a subtle scale-down animation on press (0.97 scale).

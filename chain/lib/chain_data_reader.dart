@@ -1,3 +1,5 @@
+// 固定同一最终块批读身份、会员、创作者档位和价格事实。
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';

@@ -1,3 +1,5 @@
+// 验证附件会员许可、到期及精确大小边界不影响基础聊天。
+
 import 'package:citizen_testing/membergate_fixture.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_user/square_api_client.dart';

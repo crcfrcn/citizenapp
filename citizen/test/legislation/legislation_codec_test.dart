@@ -1,5 +1,4 @@
-// 立法 SCALE 解码金标向量 —— 手工编码字节(独立于解码器正向推理),验证 codec
-// 与链端布局逐字段对齐。structural 字节手写,字符串内容用 utf8.encode(长度 compact 手算)。
+// 以独立黄金字节验证法律地区、章节版本及不可修改清单解码。
 
 import 'dart:convert';
 import 'dart:typed_data';

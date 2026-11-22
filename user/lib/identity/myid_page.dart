@@ -1,3 +1,6 @@
+// 展示访客、投票和竞选三档身份卡及当前身份操作。
+
+import 'package:citizen_system/identity_cid_display.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
@@ -24,7 +27,7 @@ import 'package:citizen_system/theme/app_layout.dart';
 ///
 /// 右上角按钮随状态切换:纯访客→「注册」(自助占一个匿名 CID);匿名已注册→「更换」
 /// (把 CID 换绑到另一个本地账户);投票/竞选→「更换」但只提示须去注册局。访客卡在
-/// 已占匿名 CID 时于卡内补显「公民号」,徽章色不变(仍访客,决策:不新增卡/色)。
+/// 已占匿名 CID 时于卡内补显「身份CID号」,徽章色不变(仍访客,决策:不新增卡/色)。
 /// 顶部支持下拉刷新。
 class MyIdPage extends StatefulWidget {
   const MyIdPage({super.key, this.myIdService, this.openRegistrationTopup});
@@ -119,7 +122,7 @@ class _MyIdPageState extends State<MyIdPage> {
   }
 
   void _onSnapshotChanged() {
-    if (_myIdService != null && !_refreshing) {
+    if (_myIdService != null && !_refreshing && !_submitting) {
       _loadState(preserveError: true);
     }
   }
@@ -127,6 +130,7 @@ class _MyIdPageState extends State<MyIdPage> {
   MyIdSync? _pendingSync;
 
   void _onSyncChanged() {
+    if (_submitting) return;
     final result = _myIdService!.sync.value;
     if (result == null) return;
     if (_refreshing) {
@@ -165,6 +169,7 @@ class _MyIdPageState extends State<MyIdPage> {
   }
 
   void _onIdentityChanged() {
+    if (_submitting) return;
     if (_refreshing) {
       _identityChanged = true;
     } else {
@@ -304,18 +309,25 @@ class _MyIdPageState extends State<MyIdPage> {
         cidNumber: cid,
         newAccountId: newAccountId,
       );
-      return '身份 CID 已换绑到所选账户';
+      return '身份CID号 已换绑到所选账户';
     });
   }
 
-  /// 统一提交外壳:置 loading → 跑动作 → 成功提示并回刷身份 → 失败提示;不吞异常。
+  /// 统一提交外壳：动作与本地身份回刷均完成后才报告成功;不吞异常。
   Future<void> _runSubmit(Future<String> Function() action) async {
     setState(() => _submitting = true);
     try {
       final message = await action();
       if (!mounted) return;
-      _showSnack(message);
+      final cid = _state.cidNumber;
       await _loadState();
+      if (!mounted) return;
+      if (_state.status == MyIdStatus.queryFailed ||
+          _state.cidNumber != cid ||
+          !_state.isAnonymousRegistered) {
+        throw const AccountSecurityException('链上已换绑，身份显示尚未同步，请勿重复换绑');
+      }
+      _showSnack(message);
     } on Object catch (error) {
       if (!mounted) return;
       _showSnack(_describeError(error), isError: true);
@@ -328,7 +340,7 @@ class _MyIdPageState extends State<MyIdPage> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
+        content: Text(identityCidUiText(message)),
         backgroundColor: isError ? AppTheme.danger : null,
       ),
     );
@@ -412,7 +424,7 @@ class _MyIdPageState extends State<MyIdPage> {
               ),
             ] else if (_loading && _state.status == MyIdStatus.unknown) ...[
               SizedBox(height: AppLayout.scaled(context, 12)),
-              const _PassportMessageBanner(message: '正在同步公民号身份，核实后自动更新'),
+              const _PassportMessageBanner(message: '正在同步身份信息，核实后自动更新'),
             ] else if ((_state.errorMessage ?? '').trim().isNotEmpty) ...[
               SizedBox(height: AppLayout.scaled(context, 12)),
               _PassportMessageBanner(message: _state.errorMessage!),
@@ -463,8 +475,8 @@ class _MyIdPageState extends State<MyIdPage> {
         mono: true,
       ),
       _PassportField(
-        label: '公民号',
-        value: showValues ? _displayValue(_state.cidNumber) : null,
+        label: '身份CID号',
+        value: showValues ? formatIdentityCidText(_displayValue(_state.cidNumber)) : null,
         mono: true,
         singleLine: true,
       ),
@@ -567,7 +579,7 @@ class _PassportIdentityCard extends StatelessWidget {
   final bool showActualValues;
   final List<_PassportField> fields;
 
-  /// 访客卡专用:已占匿名 CID 时的 CID 号(非空则在卡内补显「公民号」)。
+  /// 访客卡专用:已占匿名 CID 时的 身份CID号(非空则在卡内补显「身份CID号」)。
   final String? registeredCid;
 
   String get _title => switch (tier) {
@@ -664,15 +676,15 @@ class _PassportIdentityCard extends StatelessWidget {
                   ],
                 ),
               ),
-              // 访客卡:已占匿名 CID 时补一行「公民号」;纯访客只留标题行,高度自然收缩。
+              // 访客卡:已占匿名 CID 时补一行「身份CID号」;纯访客只留标题行,高度自然收缩。
               if (tier == MyIdTier.visitor) ...[
                 if (registeredCid != null &&
                     registeredCid!.trim().isNotEmpty) ...[
                   SizedBox(height: AppLayout.scaled(context, 14)),
                   _PassportFieldRow(
                     field: _PassportField(
-                      label: '公民号',
-                      value: registeredCid,
+                      label: '身份CID号',
+                      value: formatIdentityCidText(registeredCid!),
                       mono: true,
                       singleLine: true,
                     ),
@@ -857,7 +869,7 @@ class _PassportFieldValue extends StatelessWidget {
       ),
     );
     if (!field.singleLine) return value;
-    // 公民号必须完整保持一行；窄屏只在必要时等比缩小，不用换行或省略破坏号码。
+    // 身份CID号必须完整保持一行；窄屏只在必要时等比缩小，不用换行或省略破坏号码。
     return FittedBox(
       fit: BoxFit.scaleDown,
       alignment: Alignment.centerLeft,
@@ -897,7 +909,7 @@ class _PassportMessageBanner extends StatelessWidget {
               SizedBox(width: AppLayout.scaled(context, 8)),
               Expanded(
                 child: Text(
-                  message,
+                  identityCidUiText(message),
                   style: TextStyle(
                     fontSize: AppLayout.scaled(context, 12),
                     height: 1.4,

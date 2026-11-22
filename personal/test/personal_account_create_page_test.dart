@@ -1,3 +1,5 @@
+// 验证管理员扫码姓名确认及个人多签入金交互。
+
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 import 'package:provider/provider.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';

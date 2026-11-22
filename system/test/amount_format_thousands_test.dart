@@ -1,3 +1,5 @@
+// 验证金额千分位编辑、光标和非法小数输入保留。
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/services.dart';
 import 'package:citizen_system/amount_format.dart';

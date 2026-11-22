@@ -1,3 +1,5 @@
+// 验证公开绑定严格字段、跨实例CAS及修订不回退。
+
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';

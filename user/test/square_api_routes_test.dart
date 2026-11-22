@@ -1,3 +1,5 @@
+// 验证真实API路径、业务字段、请求证明及拉黑和限流边界。
+
 import 'package:crypto/crypto.dart' show sha256;
 
 import 'dart:async';

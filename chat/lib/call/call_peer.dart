@@ -1,3 +1,5 @@
+// 定义WebRTC媒体、会话描述、ICE候选及平台连接接口。
+
 import 'call_transport.dart';
 
 enum CallMediaKind { voice, video }

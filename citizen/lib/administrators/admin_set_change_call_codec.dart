@@ -1,3 +1,5 @@
+// 编码个人多签管理员集合及阈值变更调用。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:convert';

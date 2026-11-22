@@ -1,3 +1,5 @@
+// 以真实MLS验证同CID通讯录同步、丢失回执恢复和精确设备移除。
+
 import 'dart:convert';
 import 'dart:io';
 

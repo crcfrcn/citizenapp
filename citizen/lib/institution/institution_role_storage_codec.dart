@@ -1,3 +1,5 @@
+// 严格解码机构岗位、任职及独立管理员名册的SCALE布局。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:convert';

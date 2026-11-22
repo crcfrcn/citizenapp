@@ -1,3 +1,5 @@
+// 验证创作者身份门禁、档位价格及未知状态不越权。
+
 import 'dart:async';
 
 import 'package:citizen_user/creator/creator_page.dart';

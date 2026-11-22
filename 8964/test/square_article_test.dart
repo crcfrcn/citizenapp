@@ -1,3 +1,5 @@
+// 验证文章内容规格、首图和段落媒体编辑交互。
+
 import 'package:citizen_testing/membergate_fixture.dart'
     show resourceAuthorizationFixture;
 import 'package:citizen_testing/mls_authentication_fixture.dart';

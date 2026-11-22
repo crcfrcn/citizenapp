@@ -1,3 +1,5 @@
+// 将SDK采集失败投影为App扫码设备和生命周期错误。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 /// CitizenApp 扫码设备层错误分类。

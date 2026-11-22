@@ -1,3 +1,5 @@
+// 提供用户资料、会话和缓存的合成测试实现。
+
 import 'dart:async';
 import 'package:citizen_testing/mls_authentication_fixture.dart';
 

@@ -1,3 +1,5 @@
+// 验证本人资料、徽章及会员页面按需读取和共享缓存。
+
 import 'package:citizen_user/profile/citizen_profile_api.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;

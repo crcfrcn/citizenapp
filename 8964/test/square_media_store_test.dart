@@ -1,3 +1,5 @@
+// 验证分块媒体完整性、跨重开持久化和引用事务回滚。
+
 import 'package:citizen_storage/social_isar.dart'
     as social_store
     show Chunk, CleanupSchema, PostCursorSchema, Draft, DraftSchema, PostSchema;

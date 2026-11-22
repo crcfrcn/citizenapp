@@ -1,3 +1,5 @@
+// 展示冷热钱包身份、地址、账户码及最近交易记录。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'package:flutter/material.dart';
@@ -13,13 +15,12 @@ import 'package:citizen_system/theme/app_layout.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_wallet/account/wallet_qr_dialog.dart';
 
-/// 冷热详情唯一展示布局；名称保存、余额刷新与私钥权限仍由原页面负责。
+/// 冷热详情唯一展示布局；名称仅展示，余额刷新与私钥权限仍由原页面负责。
 class WalletDetailBody extends StatelessWidget {
   const WalletDetailBody({
     super.key,
     required this.account,
     required this.name,
-    required this.onNameChanged,
     required this.onRefresh,
     required this.actionKey,
     required this.records,
@@ -27,7 +28,6 @@ class WalletDetailBody extends StatelessWidget {
   });
   final CitizenWalletStateAccount account;
   final String name;
-  final Future<void> Function(String) onNameChanged;
   final Future<void> Function() onRefresh;
   final GlobalKey<WalletActionCardState> actionKey;
   final List<wallet_store.Entry> records;
@@ -49,7 +49,6 @@ class WalletDetailBody extends StatelessWidget {
                 key: ValueKey(account.accountId),
                 wallet: account,
                 name: name,
-                onNameChanged: onNameChanged,
               ),
               Padding(
                 padding: EdgeInsets.symmetric(
@@ -159,8 +158,7 @@ class WalletDetailBody extends StatelessWidget {
 /// 钱包详情页主视觉中的身份区。
 ///
 /// - 与 [WalletOnchainBalanceCard] 共用外层纯色主视觉面板，本组件只负责身份内容。
-/// - 名称可点击进入编辑态;提交(回车 / onTapOutside)时通过 [onNameChanged]
-///   回调让外层落盘。空字符串或与现值相同则回滚不报错,由编辑态自行处理。
+/// - 名称仅展示；重命名统一由“我的钱包”列表菜单处理。
 /// - 地址完整展示，空间不足时从第二行左对齐换行；复制按钮独立位于分隔线左侧。
 /// - 右侧 QR 入口打开账户二维码弹窗，内容为 QR_V1 `k=5` 账户码（只声明账户）。
 ///   身份码(`k=3` 用户码)只在用户主页出示,本卡不做「该出哪种码」的运行时判断。
@@ -169,7 +167,6 @@ class WalletIdentityCard extends StatefulWidget {
     super.key,
     required this.wallet,
     required this.name,
-    required this.onNameChanged,
     this.evmAddressLoader,
   });
 
@@ -178,80 +175,14 @@ class WalletIdentityCard extends StatefulWidget {
   /// Defaults to the SDK finalized receive-address check.
   final Future<String> Function(String accountId)? evmAddressLoader;
 
-  /// 仅展示调用方提供的名称；账户/钱包级保存由onNameChanged的各自所有者负责。
+  /// 仅展示调用方提供的名称，不提供详情页改名入口。
   final String name;
-
-  /// 名称提交回调。外层负责持久化,Widget 内部已做 trim 和空值回滚。
-  final Future<void> Function(String) onNameChanged;
 
   @override
   State<WalletIdentityCard> createState() => _WalletIdentityCardState();
 }
 
 class _WalletIdentityCardState extends State<WalletIdentityCard> {
-  /// 当前展示态的名称(与 widget.name 同步,编辑提交后更新)。
-  late String _name;
-
-  /// 是否处于编辑态。
-  bool _isEditingName = false;
-  bool _savingName = false;
-
-  /// 编辑态 TextField 的 controller。
-  late final TextEditingController _nameController;
-
-  @override
-  void initState() {
-    super.initState();
-    _name = widget.name;
-    _nameController = TextEditingController(text: _name);
-  }
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    super.dispose();
-  }
-
-  /// 提交名称。trim 后空或与当前相同则回滚编辑态,不调用回调。
-  Future<void> _submitName(String raw) async {
-    if (_savingName) return;
-    final trimmed = raw.trim();
-    if (trimmed.isEmpty || trimmed == _name) {
-      setState(() {
-        _isEditingName = false;
-        _nameController.text = _name;
-      });
-      return;
-    }
-    setState(() => _savingName = true);
-    try {
-      await widget.onNameChanged(trimmed);
-      if (!mounted) return;
-      setState(() {
-        _name = trimmed;
-        _isEditingName = false;
-      });
-    } catch (_) {
-      // 落盘失败由外层回调自行 SnackBar,这里仅负责回滚编辑态。
-      if (!mounted) return;
-      setState(() {
-        _isEditingName = false;
-        _nameController.text = _name;
-      });
-    } finally {
-      if (mounted) setState(() => _savingName = false);
-    }
-  }
-
-  @override
-  void didUpdateWidget(covariant WalletIdentityCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.name != widget.name) {
-      _name = widget.name;
-      if (!_isEditingName && !_savingName) _nameController.text = _name;
-    }
-  }
-
   bool _copyDialogOpen = false;
 
   /// One copy entry opens both address forms; only a confirmed EVM alias is copied.
@@ -418,80 +349,20 @@ class _WalletIdentityCardState extends State<WalletIdentityCard> {
               children: [
                 SizedBox(
                   height: AppLayout.scaled(context, 44),
-                  child: _isEditingName
-                      ? TextField(
-                          enabled: !_savingName,
-                          controller: _nameController,
-                          autofocus: true,
-                          style: TextStyle(
-                            fontSize: AppLayout.scaled(context, 18),
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                            height: AppLayout.compactLineHeight,
-                          ),
-                          cursorColor: Colors.white,
-                          decoration: InputDecoration(
-                            isDense: true,
-                            // 身份区名称槽固定为 44px，覆盖普通输入框 52px 基线；
-                            // 否则全局输入框约束会把钱包身份卡单独撑高。
-                            constraints: BoxConstraints.tightFor(
-                              height: AppLayout.scaled(context, 44),
-                            ),
-                            contentPadding: EdgeInsets.symmetric(
-                              vertical: AppLayout.scaled(context, 8),
-                            ),
-                            enabledBorder: UnderlineInputBorder(
-                              borderSide: BorderSide(
-                                color: Colors.white.withAlpha(150),
-                              ),
-                            ),
-                            focusedBorder: const UnderlineInputBorder(
-                              borderSide: BorderSide(color: Colors.white),
-                            ),
-                          ),
-                          textInputAction: TextInputAction.done,
-                          onSubmitted: _submitName,
-                          onTapOutside: (_) {
-                            _submitName(_nameController.text);
-                          },
-                        )
-                      : Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(
-                              AppTheme.radiusSm,
-                            ),
-                            onTap: () {
-                              setState(() {
-                                _isEditingName = true;
-                                _nameController.text = _name;
-                              });
-                            },
-                            child: Row(
-                              children: [
-                                Flexible(
-                                  child: Text(
-                                    _name,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: AppLayout.scaled(context, 18),
-                                      fontWeight: FontWeight.w700,
-                                      color: Colors.white,
-                                      height: AppLayout.compactLineHeight,
-                                    ),
-                                  ),
-                                ),
-                                SizedBox(width: AppLayout.scaled(context, 8)),
-                                Icon(
-                                  Icons.edit_outlined,
-                                  size: AppLayout.scaled(context, 19),
-                                  color: Colors.white,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      widget.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: AppLayout.scaled(context, 18),
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                        height: AppLayout.compactLineHeight,
+                      ),
+                    ),
+                  ),
                 ),
                 Material(
                   color: Colors.transparent,
@@ -630,7 +501,7 @@ class _WalletIdentityCardState extends State<WalletIdentityCard> {
               onTap: () => showWalletQrDialog(
                 context,
                 accountId: widget.wallet.accountId,
-                accountName: _name,
+                accountName: widget.name,
               ),
               child: SizedBox(
                 width: AppLayout.scaled(context, 48),

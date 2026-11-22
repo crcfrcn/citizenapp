@@ -1,3 +1,5 @@
+// 验证九图或单视频选择、取消及混选和非法文件拒绝。
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';

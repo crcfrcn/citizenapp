@@ -1,3 +1,5 @@
+// 验证岗位、任职、管理员及投票计划的严格SCALE布局。
+
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';

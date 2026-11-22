@@ -1,3 +1,5 @@
+// 验证机构详情、管理员钱包关联及激活和权限状态呈现。
+
 import 'package:citizen_storage/user_isar.dart' as app_store show Entity;
 // 统一机构详情页(ADR-028)widget 测试 —— 公权路径(信息卡/账户/提案占位/管理员/
 // 提案列表/订阅)+ 统一账户行派生。替代旧 public_institution_detail_test。

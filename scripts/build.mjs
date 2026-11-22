@@ -1,5 +1,5 @@
-// 本脚本消费产品声明的工具和原锁依赖，只负责普通工程装配、编译构建和必要注释。
-// config.mjs：只负责配置声明；build.mjs：只负责编译构建实现和必要注释；*.yml：负责全部GitHub流程，包括版本、作业编排、发布及历史清理。
+// 装配App工作区及平台工程，准备锁定SDK并编译和核验移动产物。
+
 import {spawn, execFileSync} from 'node:child_process';
 import {accessSync, constants, appendFileSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync,
     lstatSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync} from 'node:fs';
@@ -503,6 +503,7 @@ prepareWallet(assets);
 await run(environment.ESBUILD_BIN || 'esbuild', ['metamask.js', '--bundle', '--format=iife',
     '--global-name=CitizenTopup', '--platform=browser', '--target=safari15,chrome100', '--minify',
     '--outfile=metamask.bundle.js', '--define:process.env.NODE_ENV="production"'], assets, false, resourceEnvironment, 'App资源准备');
+await generatedHeaders(project);
 }
 
 const flutterSource = 'https://github.com/flutter/flutter.git';
@@ -744,4 +745,41 @@ export async function verifyMls(file,platform){
   if(!offset||BigInt(offset)%8n!==0n)throw Error('OpenMLS Mach-O字符串表未按8字节对齐');
  }
 
+}
+
+// 为明确的第一方生成输出写入职责简介；保留工具指令、许可和全部生成代码。
+export async function generatedHeaders(source) {
+ const {readFile,writeFile}=await import('node:fs/promises');
+ const files={
+  "network/lib/protocol/attachment.pb.dart": "提供密文附件分块及控制消息的Protobuf Dart模型和编解码。",
+  "network/lib/protocol/attachment.pbenum.dart": "保留密文附件协议的Protobuf枚举输出；当前未声明枚举。",
+  "network/lib/protocol/attachment.pbjson.dart": "提供密文附件分块及控制消息的Protobuf JSON描述及二进制描述符。",
+  "network/lib/protocol/basic_content.pb.dart": "提供基础文本、表情和贴纸内容的Protobuf Dart模型和编解码。",
+  "network/lib/protocol/basic_content.pbenum.dart": "保留基础聊天内容协议的Protobuf枚举输出；当前未声明枚举。",
+  "network/lib/protocol/basic_content.pbjson.dart": "提供基础文本、表情和贴纸内容的Protobuf JSON描述及二进制描述符。",
+  "network/lib/protocol/chat_frame.pb.dart": "提供聊天WSS帧、命令和回执的Protobuf Dart模型和编解码。",
+  "network/lib/protocol/chat_frame.pbenum.dart": "保留聊天WSS帧协议的Protobuf枚举输出；当前未声明枚举。",
+  "network/lib/protocol/chat_frame.pbjson.dart": "提供聊天WSS帧、命令和回执的Protobuf JSON描述及二进制描述符。",
+  "network/lib/protocol/media_content.pb.dart": "提供媒体附件公开描述的Protobuf Dart模型和编解码。",
+  "network/lib/protocol/media_content.pbenum.dart": "保留媒体附件协议的Protobuf枚举输出；当前未声明枚举。",
+  "network/lib/protocol/media_content.pbjson.dart": "提供媒体附件公开描述的Protobuf JSON描述及二进制描述符。",
+  "network/lib/protocol/message.pb.dart": "提供每设备路由和密文消息的Protobuf Dart模型和编解码。",
+  "network/lib/protocol/message.pbenum.dart": "保留密文消息协议的Protobuf枚举输出；当前未声明枚举。",
+  "network/lib/protocol/message.pbjson.dart": "提供每设备路由和密文消息的Protobuf JSON描述及二进制描述符。",
+  "storage/lib/chain_state.g.dart": "定义最终链业务快照的Isar结构、序列化和查询扩展。",
+  "storage/lib/chat_isar.g.dart": "定义本机聊天记录、路由和队列的Isar结构及访问扩展。",
+  "storage/lib/social_isar.g.dart": "定义广场帖子、草稿和媒体的Isar结构及访问扩展。",
+  "storage/lib/user_isar.g.dart": "定义用户、目录和钱包业务记录的Isar结构及访问扩展。",
+  "topup/web/metamask.bundle.js": "提供随包MetaMask钱包连接、订单付款及原生桥接脚本。"
+};
+ for(const [name,intro] of Object.entries(files)){
+  const path=join(source,name);let text;
+  try{text=await readFile(path,'utf8');}catch(error){if(error.code==='ENOENT')continue;throw error;}
+  const header=(name.endsWith('.rs')?'//! ':'// ')+intro;
+  if(text.startsWith(header+'\n'))continue;
+  const first=text.slice(0,text.indexOf('\n'));
+  if(/^(?:\/\/!?|#) [\u3400-\u9fff]/u.test(first)&&!/(?:版权|版权所有)/u.test(first))text=text.slice(first.length).replace(/^\n+/u,'');
+  text=header+'\n\n'+text;
+  await writeFile(path,text);
+ }
 }

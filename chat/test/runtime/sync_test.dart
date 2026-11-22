@@ -1,3 +1,5 @@
+// 验证真实同步、身份锁、持久确认、前后台及迟到传输回收。
+
 import 'package:citizen_system/notifications/app_push_token.dart';
 import 'package:chat/chat_push.dart';
 import 'package:citizen_testing/chat_runtime_fixture.dart';

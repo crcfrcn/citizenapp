@@ -1,3 +1,5 @@
+// 读取文章详情和完整段落媒体，随身份及权限变化撤下旧正文。
+
 import 'package:citizen_square/like/square_likes_strip.dart';
 import 'package:citizen_square/post/square_interaction_service.dart';
 import 'package:citizen_square/comment/comments.dart';

@@ -1,3 +1,5 @@
+// 合并个人多签链上活跃提案与本地终态历史，并持久化业务快照。
+
 import 'package:citizen_storage/user_isar.dart' as wallet_store show Action;
 // 个人多签提案历史聚合服务(req 5)。
 //

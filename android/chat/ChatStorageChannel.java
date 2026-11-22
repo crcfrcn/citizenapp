@@ -1,3 +1,5 @@
+// 验证聊天系统保护目录和路径，并提供原生存储通道。
+
 package com.crcfrcn.citizenapp;
 import android.content.Context;
 import android.os.UserManager;

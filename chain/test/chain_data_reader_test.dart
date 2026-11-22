@@ -1,3 +1,5 @@
+// 验证同块批读、价格按需读取及身份与会员事实失败边界。
+
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:citizen_chain/citizen_chain.dart';

@@ -1,3 +1,5 @@
+// 聚合主页、作者帖子和资料更新，按每次入口独立检查访问权限。
+
 import 'package:citizen_square/media/square_media_policy.dart';
 
 import 'dart:async';

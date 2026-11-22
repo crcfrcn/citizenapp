@@ -1,3 +1,5 @@
+// 验证充值与聊天推送分派、初始事件消费及平台公开配置隔离。
+
 import 'package:citizen_system/notifications/app_push_token.dart';
 
 import 'dart:io';

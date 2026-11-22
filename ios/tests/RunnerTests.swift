@@ -1,3 +1,5 @@
+// 验证iOS文件保护、原生CAS、推送环境及真实媒体范围和转码。
+
 import Darwin
 import AVFoundation
 import CoreVideo

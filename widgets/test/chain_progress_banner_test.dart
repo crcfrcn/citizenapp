@@ -1,3 +1,5 @@
+// 验证高度更新、失败保留、状态配色及迟到订阅撤销。
+
 import 'dart:async';
 
 import 'package:citizen_system/theme/app_theme.dart';

@@ -1,3 +1,5 @@
+// 展示公权机构管理员并复用本机钱包和激活控件。
+
 import 'package:citizen_widgets/chain_balance_scope.dart';
 import 'dart:async';
 

@@ -1,3 +1,5 @@
+// 按真实Pub包配置定位所属测试夹具。
+
 import 'dart:convert';
 import 'dart:io';
 

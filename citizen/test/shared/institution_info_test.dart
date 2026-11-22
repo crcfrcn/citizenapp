@@ -1,3 +1,5 @@
+// 验证机构CID和个人多签身份、真实名称及提案能力。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_citizen/proposal/proposal_registry.dart';

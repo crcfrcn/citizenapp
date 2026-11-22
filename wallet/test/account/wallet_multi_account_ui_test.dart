@@ -1,3 +1,5 @@
+// 验证冷热账户目录、默认切换、删除、余额及迟到SDK结果隔离。
+
 import 'package:citizen_sdk/test/platform/fixture.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
 
@@ -861,6 +863,7 @@ void main() {
       await tester.tap(find.text('重命名'));
       await _settleWallet(tester);
       expect(find.text('重命名账户'), findsOneWidget);
+      expect(tester.widget<TextField>(find.byType(TextField)).maxLength, 10);
       await tester.enterText(find.byType(TextField), '原账户新名称');
       await tester.tap(find.text(cancel ? '取消' : '保存'));
       await tester.pump(const Duration(milliseconds: 50));
@@ -1040,11 +1043,7 @@ void main() {
           child: MaterialApp(
             home: accountPage
                 ? AccountDetailPage(account: account)
-                : WalletDetailPage(
-                    wallet: account,
-                    walletName: '原钱包',
-                    expectedRevision: actual.revision,
-                  ),
+                : WalletDetailPage(wallet: account, walletName: '原钱包'),
           ),
         ),
       );
@@ -1128,7 +1127,7 @@ void main() {
   });
 
   // 以下七项详情布局/菜单/返回断言从历史原件恢复，仅替换SDK模型与注入。
-  testWidgets('热账户复用冷钱包纯色主视觉、名称铅笔、地址二维码与顶部余额', (tester) async {
+  testWidgets('热账户复用冷钱包纯色主视觉、只读名称、地址二维码与顶部余额', (tester) async {
     _disposeWidgetBeforeStores(tester);
     addTearDown(() async {
       await tester.pumpWidget(const SizedBox.shrink());
@@ -1156,7 +1155,16 @@ void main() {
       find.byKey(const ValueKey('wallet-onchain-balance-section')),
       findsOneWidget,
     );
-    expect(find.byIcon(Icons.edit_outlined), findsOneWidget);
+    expect(find.byIcon(Icons.edit_outlined), findsNothing);
+    await tester.tap(find.text(account.name));
+    await tester.pump();
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('wallet-detail-header')),
+        matching: find.byType(TextField),
+      ),
+      findsNothing,
+    );
     expect(find.byKey(const ValueKey('wallet-onchain-balance')), findsNothing);
     final header = tester.widget<Container>(
       find.byKey(const ValueKey('wallet-detail-header')),
@@ -1300,7 +1308,6 @@ void main() {
                     builder: (_) => WalletDetailPage(
                       wallet: _makeColdWallet(),
                       walletName: '冷钱包',
-                      expectedRevision: BigInt.one,
                     ),
                   ),
                 ),
@@ -1332,11 +1339,7 @@ void main() {
       Provider<CitizenSdk>.value(
         value: _sdk,
         child: MaterialApp(
-          home: WalletDetailPage(
-            wallet: _makeColdWallet(),
-            walletName: '冷钱包',
-            expectedRevision: BigInt.one,
-          ),
+          home: WalletDetailPage(wallet: _makeColdWallet(), walletName: '冷钱包'),
         ),
       ),
     );
@@ -1755,6 +1758,7 @@ void main() {
     await tester.tap(find.text('重命名'));
     await _settleWallet(tester);
     await tester.enterText(find.byType(TextField), '新钱包名称');
+    expect(tester.widget<TextField>(find.byType(TextField)).maxLength, 10);
     await tester.tap(find.text('保存'));
     await _settleWallet(tester);
     expect(submitted, ['1', 2, '新钱包名称']);

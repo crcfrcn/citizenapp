@@ -1,3 +1,5 @@
+// 展示转账、安全基金或归集提案详情，协调就绪、刷新和投票。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:async';

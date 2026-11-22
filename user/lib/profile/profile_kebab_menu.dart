@@ -1,3 +1,5 @@
+// 展示用户码及按本人权限提供的资料编辑和注销菜单。
+
 import 'package:flutter/material.dart';
 
 import 'package:citizen_system/theme/app_theme.dart';

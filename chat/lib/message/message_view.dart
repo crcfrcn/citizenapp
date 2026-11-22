@@ -1,3 +1,6 @@
+// 将本机消息转换为聊天气泡模型，连接头像和媒体缓存展示。
+
+import 'package:citizen_system/identity_cid_display.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';
 import 'package:chat/message/chat_content.dart';
 import 'package:chat/message/chat_message.dart';
@@ -413,7 +416,7 @@ class ChatMessageListView extends StatelessWidget {
   Widget _sender(BuildContext context, String userId) {
     return groupSenderBuilder?.call(context, userId) ??
         Text(
-          userId,
+          formatIdentityCidText(userId),
           style: TextStyle(
             fontSize: AppLayout.scaled(context, 11),
             color: AppTheme.textSecondary,

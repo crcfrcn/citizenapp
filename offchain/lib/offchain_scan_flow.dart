@@ -1,3 +1,5 @@
+// 校验已解析收款码中的清算行和节点，再进入付款确认页。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'package:flutter/material.dart';

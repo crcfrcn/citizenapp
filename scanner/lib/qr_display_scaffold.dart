@@ -1,3 +1,5 @@
+// 绘制SDK二维码图像及用户、账户和收款码共用展示外壳。
+
 import 'dart:ui' as ui;
 import 'dart:async';
 

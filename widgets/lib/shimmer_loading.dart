@@ -1,3 +1,5 @@
+// 提供光泽加载动画及提案、钱包和列表骨架组件。
+
 import 'package:flutter/material.dart';
 
 import 'package:citizen_system/theme/app_theme.dart';

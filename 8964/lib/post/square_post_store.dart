@@ -1,3 +1,5 @@
+// 保存已发布帖子的原始Manifest及媒体关联，维护删除事实和同步检查点。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_storage/social_isar.dart'
     as social_store

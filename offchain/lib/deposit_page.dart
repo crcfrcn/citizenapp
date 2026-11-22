@@ -1,3 +1,5 @@
+// 填写并确认向当前绑定清算行充值，提交前复核链状态及费用。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';

@@ -1,3 +1,5 @@
+// 呈现关注、私信及发帖通知开关，协调当前关系动作。
+
 import 'package:flutter/material.dart';
 
 import 'package:citizen_system/theme/app_theme.dart';

@@ -1,3 +1,5 @@
+// 展示多签转账入口并核对管理员钱包后导航。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'package:flutter/material.dart';

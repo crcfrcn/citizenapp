@@ -1,3 +1,5 @@
+// 验证清算RPC并发、账户清理及nonce、费率和付款ACK真实性。
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';

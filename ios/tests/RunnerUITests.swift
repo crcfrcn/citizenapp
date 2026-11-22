@@ -1,3 +1,5 @@
+// 驱动隔离UI宿主验证已安装App导航、身份、聊天和交易等设备场景。
+
 #if UI_TEST_HOST
 import UIKit
 

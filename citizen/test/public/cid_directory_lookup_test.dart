@@ -1,4 +1,4 @@
-// R2:治理详情按 cid 反查公权目录库拿 省/市/法定代表人(与公权详情统一)。
+// 验证按CID反查机构省市和代表人及缺失结果。
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_citizen/public/public_institution_dto.dart';

@@ -1,3 +1,5 @@
+// 统一展示含永久CID及当前账户的固定用户码。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 

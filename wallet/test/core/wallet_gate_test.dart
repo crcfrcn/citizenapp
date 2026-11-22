@@ -1,3 +1,5 @@
+// 验证钱包门禁错误、诊断和重试，确保SDK事件不越过备份完成。
+
 import 'dart:async';
 
 import 'package:citizen_sdk/citizen_sdk.dart';

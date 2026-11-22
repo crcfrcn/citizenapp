@@ -1,3 +1,5 @@
+// 验证账户动作按二维码定位本机钱包并构造绑定请求的签名响应。
+
 import 'package:flutter/widgets.dart';
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 

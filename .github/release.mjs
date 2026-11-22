@@ -1,3 +1,5 @@
+// 准备正式版本及发布资产，保留各平台最近成功和失败记录并清理所属旧记录。
+
 import {execFileSync, spawnSync} from 'node:child_process';
 import {accessSync, appendFileSync, constants, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync} from 'node:fs';
 import {join, resolve} from 'node:path';

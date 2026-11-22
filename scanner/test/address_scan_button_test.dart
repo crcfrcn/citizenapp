@@ -1,3 +1,5 @@
+// 验证地址扫码唯一入口、用途、返回账户及取消不回调。
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';

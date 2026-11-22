@@ -1,3 +1,5 @@
+// 验证聊天许可安全地址及必需WebSocket子协议。
+
 import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/mls/mls_boundary.dart';

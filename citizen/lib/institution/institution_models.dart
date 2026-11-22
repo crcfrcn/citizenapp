@@ -1,3 +1,5 @@
+// 定义公权和私权机构账户关闭提案的业务详情。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:typed_data';

@@ -1,3 +1,5 @@
+// 读取随包白皮书和原图，提供离线目录及章节跳转。
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';

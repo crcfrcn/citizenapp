@@ -1,3 +1,5 @@
+// 协调平台会员订阅和换档，维护业务门禁及当前资源许可。
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';

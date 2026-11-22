@@ -1,3 +1,5 @@
+// 将同一群OpenMLS密文分配为每成员独立投递路由。
+
 import 'package:chat/message/message_id.dart';
 import 'package:chat/mls/mls_group_boundary.dart';
 import 'package:chat/mls/mls_session.dart';

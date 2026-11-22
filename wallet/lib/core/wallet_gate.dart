@@ -1,3 +1,5 @@
+// 根据SDK真实目录决定初始化、就绪或恢复界面，等待原备份流程结束。
+
 import 'package:citizen_wallet/core/navigation.dart';
 
 import 'dart:async';

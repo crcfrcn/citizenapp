@@ -1,3 +1,5 @@
+// 展示机构人员与岗位，按本机冷钱包状态提供管理员激活。
+
 import 'package:citizen_widgets/chain_balance_scope.dart';
 import 'dart:async';
 

@@ -1,3 +1,5 @@
+// 严格编解码私聊和群聊共用的基础文本、表情及贴纸内容。
+
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:protobuf/protobuf.dart';

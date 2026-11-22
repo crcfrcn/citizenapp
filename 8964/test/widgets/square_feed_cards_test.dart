@@ -1,3 +1,5 @@
+// 验证卡片布局、受保护媒体来源及本地视频完整性和清理。
+
 import 'package:citizen_storage/social_isar.dart' as social_store show Chunk;
 import 'package:citizen_user/profile/citizen_profile_api.dart'
     show CitizenRemoteImage;

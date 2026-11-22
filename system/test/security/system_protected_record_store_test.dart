@@ -1,3 +1,5 @@
+// 验证受保护记录CAS、跨实例并发、损坏和链接拒绝及全量擦除。
+
 import 'dart:async';
 import 'dart:io';
 

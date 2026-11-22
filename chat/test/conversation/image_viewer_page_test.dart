@@ -1,3 +1,5 @@
+// 验证全屏图片查看结构及保存成功和失败提示。
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/media/image_viewer_page.dart';

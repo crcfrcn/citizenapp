@@ -1,3 +1,5 @@
+// 定义本机会话、消息、队列和待处理媒体等公开运行模型。
+
 import 'package:chat/message/chat_message.dart';
 
 /// App应用 conversation-list presentation snapshot.

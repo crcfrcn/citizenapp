@@ -1,3 +1,6 @@
+// 采集公民或居民类型和绑定账户，展示注册提交状态。
+
+import 'package:citizen_system/identity_cid_display.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'package:flutter/material.dart';
@@ -178,8 +181,8 @@ class _RegisterIdentitySheetState extends State<RegisterIdentitySheet> {
                 ),
                 SizedBox(height: AppLayout.scaled(context, 6)),
                 Text(
-                  '占用一个匿名身份 CID 号并绑定到你选的钱包账户,自付最低链上费。身份主键是'
-                  'CID 号,绑定账户只是鉴权凭证——私钥泄漏可换绑到新账户,CID 不丢失。',
+                  '占用一个匿名身份CID号并绑定到你选的钱包账户,自付最低链上费。身份主键是'
+                  '身份CID号,绑定账户只是鉴权凭证——私钥泄漏可换绑到新账户,身份CID号不丢失。',
                   style: TextStyle(
                     fontSize: AppLayout.scaled(context, 12),
                     height: 1.5,
@@ -242,7 +245,7 @@ class _RegisterIdentitySheetState extends State<RegisterIdentitySheet> {
                 ),
                 SizedBox(height: AppLayout.scaled(context, 16)),
                 if (_error != null) ...[
-                  Text(_error!, style: const TextStyle(color: AppTheme.danger)),
+                  Text(identityCidUiText(_error!), style: const TextStyle(color: AppTheme.danger)),
                   if (_needsTopup)
                     Row(
                       children: [

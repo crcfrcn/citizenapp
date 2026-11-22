@@ -1,3 +1,5 @@
+// 选择一段视频或最多九张照片，并返回路径型媒体。
+
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:chat/media/mime.dart';

@@ -1,3 +1,5 @@
+// 验证首页偏好持久化、同款布局及保存失败保留原状态。
+
 import 'dart:io';
 
 import 'package:citizen_system/security/system_protected_storage.dart';

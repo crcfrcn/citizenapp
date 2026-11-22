@@ -1,3 +1,5 @@
+// 在人验通过后执行原注册交易并持久确认最终链结果。
+
 import 'package:citizen_user/identity/registration_api.dart';
 import 'package:citizen_user/identity/registration_models.dart';
 import 'package:citizen_user/identity/registration_store.dart';

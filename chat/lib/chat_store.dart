@@ -1,3 +1,5 @@
+// 按绑定门闩管理本机聊天、设备路由、消息和队列持久化。
+
 import 'package:citizen_user/identity/identity_binding.dart';
 import 'package:chat/message/chat_message.dart';
 import 'package:chat/group/group_models.dart';

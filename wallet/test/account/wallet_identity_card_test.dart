@@ -1,3 +1,5 @@
+// 验证双地址复制、映射确认、身份布局和固定账户码。
+
 import 'dart:async';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -30,8 +32,8 @@ void main() {
   );
 
   Future<void> pumpCard(
-    WidgetTester tester,
-    Future<void> Function(String) onNameChanged, {
+    WidgetTester tester, {
+    String name = '我的钱包',
     TargetPlatform platform = TargetPlatform.android,
     Future<String> Function(String)? evmAddressLoader,
   }) async {
@@ -57,8 +59,7 @@ void main() {
                 width: 411,
                 child: WalletIdentityCard(
                   wallet: wallet,
-                  name: '我的钱包',
-                  onNameChanged: onNameChanged,
+                  name: name,
                   evmAddressLoader:
                       evmAddressLoader ??
                       (accountId) async =>
@@ -89,7 +90,7 @@ void main() {
         null,
       ),
     );
-    await pumpCard(tester, (_) async {});
+    await pumpCard(tester);
     expect(find.byIcon(Icons.copy_outlined), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('wallet-identity-copy-button')));
     await tester.pumpAndSettle();
@@ -118,8 +119,9 @@ void main() {
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
       SystemChannels.platform,
       (call) async {
-        if (call.method == 'Clipboard.setData')
+        if (call.method == 'Clipboard.setData') {
           copied = (call.arguments as Map)['text'] as String;
+        }
         return null;
       },
     );
@@ -129,11 +131,7 @@ void main() {
         null,
       ),
     );
-    await pumpCard(
-      tester,
-      (_) async {},
-      evmAddressLoader: (_) => confirmation.future,
-    );
+    await pumpCard(tester, evmAddressLoader: (_) => confirmation.future);
     await tester.tap(find.byKey(const ValueKey('wallet-identity-copy-button')));
     await tester.pumpAndSettle();
     final ethereum = citizenEvmAddressFromAccountId(wallet.accountId);
@@ -164,7 +162,6 @@ void main() {
     for (final fails in [true, false]) {
       await pumpCard(
         tester,
-        (_) async {},
         evmAddressLoader: (_) async {
           if (fails) throw StateError('read failed');
           return '0x1111111111111111111111111111111111111111';
@@ -189,7 +186,7 @@ void main() {
   });
 
   testWidgets('renders wallet name and full address', (tester) async {
-    await pumpCard(tester, (_) async {});
+    await pumpCard(tester);
     expect(find.text('我的钱包'), findsOneWidget);
     expect(find.textContaining('...'), findsNothing);
     final firstLine = tester.widget<Text>(
@@ -203,7 +200,7 @@ void main() {
     // 测试字体下第一行可容纳 20 个字符；锁定“排满第一行后再换行”，
     // 防止恢复为优先塞满第二行而导致第一行过短的旧拆分逻辑。
     expect(firstLine.data, wallet.ss58Address.substring(0, 20));
-    expect(find.byIcon(Icons.edit_outlined), findsOneWidget);
+    expect(find.byIcon(Icons.edit_outlined), findsNothing);
     expect(find.byIcon(Icons.copy_outlined), findsOneWidget);
     expect(find.byIcon(Icons.qr_code_rounded), findsOneWidget);
     expect(find.byIcon(Icons.account_balance_wallet_rounded), findsNothing);
@@ -212,7 +209,7 @@ void main() {
   testWidgets('方案 2 身份区高度和二维码竖分隔线固定', (tester) async {
     final platformHeights = <TargetPlatform, double>{};
     for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
-      await pumpCard(tester, (_) async {}, platform: platform);
+      await pumpCard(tester, platform: platform);
       platformHeights[platform] = tester
           .getSize(find.byKey(const ValueKey('wallet-identity-section')))
           .height;
@@ -225,7 +222,7 @@ void main() {
     );
 
     // 后续精确几何断言都在 411×914 设计基准视口下量取。
-    await pumpCard(tester, (_) async {});
+    await pumpCard(tester);
     expect(
       tester.getSize(find.byKey(const ValueKey('wallet-identity-qr-divider'))),
       const Size(1, 48),
@@ -267,7 +264,7 @@ void main() {
   });
 
   testWidgets('冷热钱包账户码弹窗严格使用居中地址和左右对称文字按钮', (tester) async {
-    await pumpCard(tester, (_) async {});
+    await pumpCard(tester);
 
     await tester.tap(find.byKey(const ValueKey('wallet-identity-qr-button')));
     await tester.pumpAndSettle();
@@ -319,64 +316,24 @@ void main() {
     expect(raw, isNot(contains('ss58_address')));
   });
 
-  testWidgets('tap wallet name enters edit mode and submits new name', (
-    tester,
-  ) async {
-    String? received;
-    await pumpCard(tester, (name) async {
-      received = name;
-    });
-
-    // 点击钱包名进入编辑态。
+  testWidgets('详情名称只读，点击不会显示输入框或编辑铅笔', (tester) async {
+    await pumpCard(tester);
     await tester.tap(find.text('我的钱包'));
     await tester.pump();
-    expect(find.byType(TextField), findsOneWidget);
-
-    // 输入新名称并提交(通过 TextField onSubmitted)。
-    await tester.enterText(find.byType(TextField), '新钱包名');
-    await tester.testTextInput.receiveAction(TextInputAction.done);
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
-
-    expect(received, '新钱包名');
-  });
-
-  testWidgets('empty name rollback without calling callback', (tester) async {
-    var callCount = 0;
-    await pumpCard(tester, (_) async {
-      callCount += 1;
-    });
-
-    await tester.tap(find.text('我的钱包'));
-    await tester.pump();
-    // 清空后提交 → 回滚,不触发回调。
-    await tester.enterText(find.byType(TextField), '   ');
-    await tester.testTextInput.receiveAction(TextInputAction.done);
-    await tester.pump();
-
-    expect(callCount, 0);
-    // 回滚后应该回到展示态显示原钱包名。
     expect(find.text('我的钱包'), findsOneWidget);
-  });
-  testWidgets('保存中只提交一次，失败回滚名称', (tester) async {
-    var calls = 0;
-    final pending = Completer<void>();
-    await pumpCard(tester, (_) {
-      calls++;
-      return pending.future;
-    });
-    await tester.tap(find.text('我的钱包'));
-    await tester.pump();
-    await tester.enterText(find.byType(TextField), '新名称');
-    final field = tester.widget<TextField>(find.byType(TextField));
-    field.onSubmitted!('新名称');
-    field.onSubmitted!('新名称');
-    await tester.pump();
-    expect(calls, 1);
-    pending.completeError(StateError('synthetic-save-failure'));
-    await tester.pumpAndSettle();
-    expect(find.text('我的钱包'), findsOneWidget);
-    expect(find.text('新名称'), findsNothing);
     expect(find.byType(TextField), findsNothing);
+    expect(find.byIcon(Icons.edit_outlined), findsNothing);
+    expect(tester.testTextInput.isVisible, isFalse);
+  });
+
+  testWidgets('列表改名后的新名称可由外部刷新展示，详情仍不可编辑', (tester) async {
+    await pumpCard(tester);
+    await pumpCard(tester, name: '新钱包名称');
+    expect(find.text('我的钱包'), findsNothing);
+    expect(find.text('新钱包名称'), findsOneWidget);
+    await tester.tap(find.text('新钱包名称'));
+    await tester.pump();
+    expect(find.byType(TextField), findsNothing);
+    expect(find.byIcon(Icons.edit_outlined), findsNothing);
   });
 }

@@ -1,3 +1,5 @@
+// 严格编解码经现有端到端通道传输的群控制消息。
+
 import 'dart:convert';
 
 // 群控制消息(走既有 E2E application 通道,不改 proto、不进 ChatMessageKind)。

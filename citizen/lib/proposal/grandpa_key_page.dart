@@ -1,3 +1,5 @@
+// 提示GRANDPA密钥管理须在所属权威节点桌面端执行。
+
 import 'package:flutter/material.dart';
 
 import 'package:citizen_citizen/proposal/proposal_placeholder.dart';

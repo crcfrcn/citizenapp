@@ -1,3 +1,5 @@
+// 通过真实SDK验证业务二维码域、模板和请求响应绑定。
+
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';

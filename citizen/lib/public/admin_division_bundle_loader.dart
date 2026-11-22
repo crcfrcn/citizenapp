@@ -1,14 +1,4 @@
-// 行政区字典数据包载入 —— 版本驱动增量 reconcile(ADR-021 §A2/A3)。
-//
-// 已提交行政区数据由本产品资源维护；自动化编译只消费现有资源
-// 生成静态数据包。客户端无服务端,数据靠 assets 包分发;包版本变了就增量刷新——
-// 变的换、删的清、没变的不动,零旧数据残留(只读派生数据,无用户数据)。
-// 数据包结构:
-//   assets/divisions/manifest.json      = { version, province_count, city_count, town_count, provinces:[{code,ver}] }
-//   assets/divisions/provinces.json      = [{code,name}]
-//   assets/divisions/cities/<pcode>.json = [{code,name}]
-//   assets/divisions/towns/<pcode>.json  = [{city_code,code,name}]
-// provinces[].ver = 该省内容(市分片+镇分片)hash,改名/删码/重排一变即变。
+// 按版本和省级分片增量导入随包行政区字典。
 
 import 'dart:convert';
 

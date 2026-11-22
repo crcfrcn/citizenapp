@@ -1,3 +1,5 @@
+// 复用提案查询读取当前主体活跃提案数量限制。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_citizen/proposal/proposal_query_service.dart';

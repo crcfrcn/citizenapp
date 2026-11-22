@@ -1,3 +1,5 @@
+// 采集机构转账目标、金额和备注，核价并发起提案。
+
 import 'package:citizen_widgets/chain_balance_scope.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:citizen_storage/user_isar.dart' as wallet_store show Account;

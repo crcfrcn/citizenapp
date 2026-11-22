@@ -1,3 +1,6 @@
+// 展示多签账户管理提案详情、计票和当前可用投票动作。
+
+import 'package:citizen_system/identity_cid_display.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:async';
@@ -1036,7 +1039,7 @@ class _MultisigProposalDetailPageState
     final info = _institutionCloseInfo!;
     final accountSs58 = citizenSs58FromAccountIdBytes(info.institutionBytes);
     return [
-      _buildInfoRow('机构 CID', info.actorCidNumber),
+      _buildInfoRow('身份CID号', formatIdentityCidText(info.actorCidNumber)),
       Divider(height: AppLayout.scaledValue(20)),
       _buildInfoRow(
         '机构账户',

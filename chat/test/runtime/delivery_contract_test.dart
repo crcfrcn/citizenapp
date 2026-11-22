@@ -1,3 +1,5 @@
+// 验证私聊群信封隔离、私信拒绝及持久化前后的确认顺序。
+
 import 'package:chat/chat_error.dart';
 import 'package:chat/transport/attachment_transfer.dart';
 import 'package:citizen_testing/chat_runtime_fixture.dart';

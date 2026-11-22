@@ -1,3 +1,5 @@
+// 在系统保护目录管理附件缓存及短时明文文件。
+
 import 'dart:io';
 import 'package:citizen_system/security/system_protected_storage.dart';
 

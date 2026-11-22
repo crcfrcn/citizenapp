@@ -1,3 +1,5 @@
+// 提供媒体附件公开描述的Protobuf JSON描述及二进制描述符。
+
 // This is a generated file - do not edit.
 //
 // Generated from media_content.proto.

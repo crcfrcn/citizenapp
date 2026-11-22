@@ -1,3 +1,5 @@
+// 使用VideoToolbox硬件HEVC转码并校验实际硬件能力。
+
 @preconcurrency import AVFoundation
 import CoreMedia
 import Foundation

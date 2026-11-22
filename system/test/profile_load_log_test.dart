@@ -1,3 +1,5 @@
+// 验证资料和提案日志只包含闭集结果、版本及固定失败阶段。
+
 import 'dart:async';
 
 import 'package:citizen_system/app_log.dart';

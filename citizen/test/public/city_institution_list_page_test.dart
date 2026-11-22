@@ -1,3 +1,5 @@
+// 验证城市目录未返回时立即呈现列表页结构。
+
 import 'package:citizen_storage/user_isar.dart' as app_store show Entity;
 
 import 'dart:async';

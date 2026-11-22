@@ -1,3 +1,5 @@
+// 验证升级摘要严格解码及联合投票准确事件和取消边界。
+
 import 'dart:convert';
 import 'dart:typed_data';
 

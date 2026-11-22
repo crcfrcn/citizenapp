@@ -1,3 +1,5 @@
+// 提供本地优先的公权机构查询，并合并随包快照后台导入。
+
 import 'package:citizen_storage/user_isar.dart' as app_store show Entity;
 // 公权机构 finalized 链快照缓存 repo 门面。
 //

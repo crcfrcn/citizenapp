@@ -1,3 +1,5 @@
+// 验证清算快照账户隔离、WSS端点及写入和删除失败回读。
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:citizen_offchain/clearing_bank_prefs.dart';

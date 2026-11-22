@@ -1,3 +1,5 @@
+// 在后台队列保护App记录和数据库，以原生文件锁执行原子CAS。
+
 import Flutter
 import Foundation
 import Security

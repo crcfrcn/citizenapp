@@ -1,3 +1,5 @@
+// 验证提案详情持久化、冻结岗位票据及种类隔离。
+
 import 'package:citizen_citizen/proposal/proposal_models.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_citizen/proposal/proposal_detail_local_store.dart';

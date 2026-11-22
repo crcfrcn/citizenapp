@@ -1,3 +1,5 @@
+// 编码并执行统一内部投票，核对当前签名人和准确执行事件。
+
 import 'dart:convert';
 
 import 'package:citizen_citizen/pallet_registry.dart';

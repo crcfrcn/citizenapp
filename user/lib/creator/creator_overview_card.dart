@@ -1,3 +1,5 @@
+// 展示创作者有效订阅人数及预计月收入和估算提示。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 

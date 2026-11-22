@@ -1,3 +1,5 @@
+// 验证群资料加载、管理员操作及普通成员退群权限。
+
 import 'dart:async';
 
 import 'package:chat/chat.dart';

@@ -1,3 +1,5 @@
+// 维护设备版本和商店更新状态，保留查询失败及重试。
+
 import 'package:flutter/foundation.dart';
 import 'package:citizen_system/app_log.dart';
 import 'package:citizen_system/update/app_update_manifest.dart';

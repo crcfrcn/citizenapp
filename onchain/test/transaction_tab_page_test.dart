@@ -1,3 +1,5 @@
+// 验证转账步骤反馈、单笔状态回读及键盘和表单交互。
+
 import 'package:citizen_user/navigation.dart';
 import 'package:citizen_storage/user_isar.dart' as wallet_store show Entry;
 

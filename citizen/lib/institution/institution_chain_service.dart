@@ -1,3 +1,5 @@
+// 按机构CID读取并解码公权或私权账户管理提案。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:convert';

@@ -1,3 +1,5 @@
+// 验证读模型持久隔离、块序及独立价格和损坏记录处理。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_storage/chain_state.dart';

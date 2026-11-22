@@ -1,3 +1,5 @@
+// 以当前会话和请求证明访问公民服务API，严格解析业务响应和错误。
+
 import 'package:citizen_network/protocol/chat_frame.pb.dart' as wire;
 import 'package:citizen_network/citizen_serve_api_config.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';

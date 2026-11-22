@@ -1,3 +1,5 @@
+// 验证三库精确结构、并发隔离及统一用户库原子事务。
+
 import 'dart:async';
 
 import 'package:citizen_storage/user_isar.dart' as user;

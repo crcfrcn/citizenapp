@@ -1,3 +1,5 @@
+// 验证公民圈、通知、讨论串和点赞使用准确接口及当前会话证明。
+
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';

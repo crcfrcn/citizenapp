@@ -1,3 +1,5 @@
+// 验证分类互动按需读取、三级已读范围及拉黑和路由恢复。
+
 import 'dart:async';
 
 import 'package:citizen_square/feed/square_home_page.dart';

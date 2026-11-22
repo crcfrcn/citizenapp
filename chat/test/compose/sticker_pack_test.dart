@@ -1,3 +1,5 @@
+// 验证贴纸清单、磁盘资源、分类和标识的一一对应。
+
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/compose/sticker_model.dart';

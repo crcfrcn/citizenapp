@@ -1,3 +1,5 @@
+// 验证多种字体尺寸下五项钱包菜单可滚动和点击。
+
 import 'dart:async';
 
 import 'package:citizen_sdk/citizen_sdk.dart';

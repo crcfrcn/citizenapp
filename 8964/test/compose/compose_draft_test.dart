@@ -1,3 +1,5 @@
+// 验证草稿类型、范围、段落及媒体往返和损坏拒绝。
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:citizen_square/draft/compose_draft.dart';

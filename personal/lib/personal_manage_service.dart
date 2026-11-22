@@ -1,3 +1,5 @@
+// 准备个人多签创建和关闭，查询账户并严格解码业务提案。
+
 import 'dart:convert';
 
 import 'package:citizen_citizen/proposal/proposal_query_service.dart';

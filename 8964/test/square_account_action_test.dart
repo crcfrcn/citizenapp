@@ -1,3 +1,5 @@
+// 验证账户动作签名范围及无会话只读恢复，拒绝错误完成回执。
+
 import 'package:citizen_testing/mls_authentication_fixture.dart';
 
 import 'dart:convert';

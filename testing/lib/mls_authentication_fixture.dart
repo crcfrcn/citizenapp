@@ -1,3 +1,5 @@
+// 提供业务测试使用的规范MLS公开证明和受限认证替身。
+
 import 'dart:convert';
 
 import 'package:citizen_user/square_api_client.dart';

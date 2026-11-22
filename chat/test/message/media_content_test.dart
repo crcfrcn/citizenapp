@@ -1,3 +1,5 @@
+// 验证媒体描述的精确大小、设备成员和规范线格式边界。
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/message/media_content.dart';
 import 'package:citizen_network/protocol/media_content.pb.dart' as protocol;

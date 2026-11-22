@@ -1,3 +1,5 @@
+// 按分类展示内置贴纸网格并返回选择结果。
+
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:chat/compose/sticker_model.dart';

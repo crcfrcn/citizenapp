@@ -1,3 +1,5 @@
+// 协调群加解密、成员扇出、epoch顺序及本地提交和可靠投递。
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';

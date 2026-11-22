@@ -1,3 +1,5 @@
+// 验证备注字符范围及数字、拼音和英文排序。
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_user/contacts/contact_sort.dart';
 

@@ -1,3 +1,5 @@
+// 展示管理员账户、姓名及相关状态的共用卡片。
+
 import 'package:flutter/material.dart';
 
 import 'package:citizen_citizen/administrators/admin_account.dart';

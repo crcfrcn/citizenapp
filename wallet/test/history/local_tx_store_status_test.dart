@@ -1,3 +1,5 @@
+// 验证流水账户可见性、事件方向和SDK执行关联及状态投影。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_storage/user_isar.dart' show UserIsar;
 import 'package:citizen_storage/user_isar.dart'

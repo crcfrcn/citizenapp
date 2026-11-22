@@ -1,3 +1,5 @@
+// 验证创作者关系登记最小请求、严格列表及仅改名调用。
+
 import 'package:citizen_testing/mls_authentication_fixture.dart';
 
 import 'dart:convert';

@@ -1,3 +1,5 @@
+// 通过SDK查询提案、索引和计票，区分缺失损坏并等待真实就绪。
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';

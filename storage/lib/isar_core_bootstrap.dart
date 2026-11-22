@@ -1,3 +1,5 @@
+// 定位业务数据库目录并加载Isar Core，保持各业务实例独立。
+
 import 'dart:ffi';
 import 'dart:io';
 

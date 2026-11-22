@@ -1,3 +1,5 @@
+// 验证身份完整授权审阅、公开字段及状态日期边界。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:convert';

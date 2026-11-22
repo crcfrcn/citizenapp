@@ -1,3 +1,5 @@
+// 持久保存供展示的身份快照，本地读取不触发联网或操作授权。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_storage/user_isar.dart' as user_store show Identity;
 

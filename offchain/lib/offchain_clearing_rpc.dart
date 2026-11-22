@@ -1,3 +1,5 @@
+// 通过独占WSS调用清算RPC，校验响应并关闭所有迟到连接。
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';

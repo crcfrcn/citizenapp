@@ -1,3 +1,5 @@
+// 验证聊天自动准备、会话与附件许可隔离及错误可重试界面。
+
 import 'package:citizen_testing/membergate_fixture.dart';
 import 'package:flutter/services.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
@@ -1700,11 +1702,11 @@ void main() {
     );
     expect(
       tester.getCenter(find.text('连接中')).dy,
-      tester.getCenter(find.text('聊天')).dy,
+      lessThan(tester.getTopLeft(find.text('聊天')).dy),
     );
     expect(
       tester.widget<Text>(find.text('连接中')).style?.color,
-      AppTheme.textSecondary,
+      AppTheme.primary,
     );
     expect(find.byType(AlertDialog), findsNothing);
     expect(find.byType(SnackBar), findsNothing);

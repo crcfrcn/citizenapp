@@ -1,3 +1,5 @@
+// 录制限时单声道AAC语音，自动停止并在取消后删除临时明文。
+
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';

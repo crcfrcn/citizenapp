@@ -1,3 +1,5 @@
+// 统一展示作者头像、身份徽章、竞选信息和更多操作。
+
 import 'package:flutter/material.dart';
 import 'package:citizen_user/profile/citizen_profile.dart';
 import 'package:citizen_user/profile/citizen_profile_cache.dart';

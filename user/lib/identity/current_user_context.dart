@@ -1,3 +1,5 @@
+// 提供聊天、通讯录及主页共用的本机当前用户绑定快照。
+
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 

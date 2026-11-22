@@ -1,8 +1,4 @@
-// 个人多签提案历史服务单元测试。
-//
-// 仅覆盖 Isar 持久层路径(`recordOrUpdate` 写 / `fetchAll` 读 / 状态字段映射 /
-// snapshot JSON 序列化反序列化)。链上拉取通过 CitizenSdk，测试走不可用分支，
-// 等价于"链上失败 → 仅返回 Isar"路径。
+// 验证个人多签历史的本地更新、状态和快照，以及链读取失败路径。
 
 import 'dart:typed_data';
 import 'dart:convert';

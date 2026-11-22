@@ -1,21 +1,4 @@
-// 公民 / 居民「人主体」CID 号客户端生成器 —— 全 App 唯一入口。
-//
-// 逐字节镜像 citizenchain `runtime/primitives/cid/generator.rs` 的**人主体码分支**
-// (`is_person_code`:公民 CTZN / 居民 NATP)。人主体去地域化:
-//   input  = "{account_id}|{institution}|{year}"        // 竖线字面量连接
-//   n      = u64::from_le_bytes(blake2_256(input)[..8]) // 前 8 字节小端 → 无符号 u64
-//   number = n % 1e12                                   // 12 位十进制号段(1e12/年)
-//   high3  = number / 1e9  (0..=999)  → R5 = "CN" + high3(3 位补零)
-//   low9   = number % 1e9             → N9 = low9(9 位补零)
-// CTZN / NATP 均为 4 字符码、盈利策略 = Profit ⇒ 核心段用 M1(digit)校验位:
-//   payload = R5 + institution + N9 + year
-//   acc     = Σ (i+1) * alphabetIndex(payload[i])       // 见 checksum_char_m1
-//   M1      = '0' + (acc % 10)
-//   结果    = "{R5}-{institution}{M1}-{N9}-{year}"
-//
-// 号段撞号由链上 registry nonce 探测吸收;本地生成只做"首选候选号"。任何模块
-// 禁止另拼一份人主体 CID 规则,一律调用本文件,靠金标 CN951-CTZN1-539598435-2026
-// (`test/citizen/cid_generator_golden_test.dart`)钉死防跨语言漂移。
+// 按链原语的人主体协议生成公民或居民CID号码。
 
 import 'dart:convert';
 import 'package:citizen_sdk/citizen_sdk.dart';

@@ -1,3 +1,5 @@
+// 验证当前签名账户的内部投票及执行事件，取消或未知结果不重播。
+
 import 'package:citizen_citizen/proposal/proposal_query_service.dart';
 
 import 'dart:convert';

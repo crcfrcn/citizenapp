@@ -1,3 +1,5 @@
+// 按Runtime metadata构造清算绑定、存取款及切换调用并交SDK执行。
+
 import 'dart:convert';
 import 'dart:typed_data';
 

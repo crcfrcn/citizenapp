@@ -1,3 +1,5 @@
+// 展示本地充值明细快照，不发起网络读取或再次付款。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:citizen_storage/user_isar.dart' show Entry;

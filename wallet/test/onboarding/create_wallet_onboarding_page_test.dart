@@ -1,3 +1,5 @@
+// 验证词数及SDK准备提交、备份保护和退出后的迟到隔离。
+
 import 'dart:async';
 
 import 'package:citizen_sdk/citizen_sdk.dart';

@@ -1,3 +1,5 @@
+// 完整解码公民身份授权，核对请求、载荷和本机账户后准备签名。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'package:flutter/widgets.dart' show BuildContext;

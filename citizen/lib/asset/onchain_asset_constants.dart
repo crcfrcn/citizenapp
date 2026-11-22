@@ -1,7 +1,4 @@
-// OnchainIssuance既定pallet/call/ACTION合同；编号不代表业务已开放。
-// 当前runtime的调用过滤与FeeRoute均拒绝本模块公开调用，App没有资产查询实现或页面接线。
-// 业务权限绑定actor_cid_number、岗位码与发起钱包，执行账户不替代机构CID。
-// 链端定义归citizenchain/runtime/issuance/onchainissue/src/{lib,proposal,types}.rs。
+// 声明尚未开放代币业务的固定调用索引和动作编号。
 
 import 'package:citizen_citizen/pallet_registry.dart';
 

@@ -1,3 +1,5 @@
+// 将单mdat MP4的moov前置并严格修正样本偏移。
+
 package com.crcfrcn.citizenapp
 
 import java.io.File

@@ -1,6 +1,9 @@
+// 验证三档身份卡、当前身份排序及刷新换绑的真实状态交付。
+
 import 'dart:async';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_system/identity_cid_display.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -111,6 +114,45 @@ void main() {
     expect(find.text('CID-NEW'), findsOneWidget);
     expect(find.text(_votingState.cidNumber!), findsNothing);
     expect(find.text('身份验证失败，请重试'), findsNothing);
+  });
+
+  testWidgets('换绑只执行原流程，完成并回读新身份后才提示成功，重新进入仍显示CID', (tester) async {
+    const initial = MyIdState(
+      tier: MyIdTier.visitor,
+      status: MyIdStatus.normal,
+      cidNumber: 'CN583-CTZN2-763721825-2026',
+    );
+    final service = _RebindPageService(initial);
+    await tester.pumpWidget(MaterialApp(home: MyIdPage(myIdService: service)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, '更换'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('目标冷账户'));
+    await tester.pump();
+    expect(service.calls, 1);
+    expect(find.text(identityCidUiText('身份 CID 已换绑到所选账户')), findsNothing);
+    service.publish(const MyIdState(tier: MyIdTier.visitor));
+    await tester.pump();
+    expect(
+      find.text(formatIdentityCidText(initial.cidNumber!)),
+      findsOneWidget,
+      reason: '提交期间迟到广播不能清空原CID',
+    );
+    service.state = initial;
+    service.finished.complete();
+    await tester.pumpAndSettle();
+    expect(find.text(formatIdentityCidText(initial.cidNumber!)), findsOneWidget);
+    expect(find.widgetWithText(TextButton, '更换'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, '注册'), findsNothing);
+    expect(find.text(identityCidUiText('身份 CID 已换绑到所选账户')), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    await tester.pumpWidget(MaterialApp(home: MyIdPage(myIdService: service)));
+    await tester.pumpAndSettle();
+    expect(find.text(formatIdentityCidText(initial.cidNumber!)), findsOneWidget);
+    expect(find.widgetWithText(TextButton, '更换'), findsOneWidget);
+    expect(service.calls, 1);
+    expect(service.state.cidNumber, initial.cidNumber, reason: '显示格式不改变完整业务CID');
   });
 
   testWidgets('三张身份卡始终存在且旧访客文案彻底删除', (tester) async {
@@ -413,7 +455,7 @@ void main() {
     expect(find.widgetWithText(TextButton, '更换'), findsNothing);
     // 访客卡内不含 CID 行(其余卡的字段名不算)。
     expect(
-      find.descendant(of: card(MyIdTier.visitor), matching: find.text('公民号')),
+      find.descendant(of: card(MyIdTier.visitor), matching: find.text('身份CID号')),
       findsNothing,
     );
   });
@@ -437,13 +479,13 @@ void main() {
     );
     final visitorCard = card(MyIdTier.visitor);
     expect(
-      find.descendant(of: visitorCard, matching: find.text('公民号')),
+      find.descendant(of: visitorCard, matching: find.text('身份CID号')),
       findsOneWidget,
     );
     expect(
       find.descendant(
         of: visitorCard,
-        matching: find.text('CN000-CTZN1-000000001-2026'),
+        matching: find.text('CN000-CTZN1-000000001'),
       ),
       findsOneWidget,
     );
@@ -473,10 +515,10 @@ void main() {
     expect(find.widgetWithText(TextButton, '更换'), findsNothing);
   });
 
-  testWidgets('身份卡 CID 字段统一显示「公民号」且完整保持单行', (tester) async {
+  testWidgets('身份卡CID字段使用统一标签且值保持单行', (tester) async {
     await pumpPage(tester, _votingState);
     final votingCard = card(MyIdTier.voting);
-    final label = find.descendant(of: votingCard, matching: find.text('公民号'));
+    final label = find.descendant(of: votingCard, matching: find.text('身份CID号'));
     final value = find.descendant(
       of: votingCard,
       matching: find.text('CID-2026-0715'),
@@ -494,7 +536,7 @@ void main() {
       lessThanOrEqualTo(8),
       reason: '公民号键值间距应保持紧凑',
     );
-    expect(find.text('身份CID号'), findsNothing);
+    expect(find.text('公民号'), findsNothing);
   });
 
   testWidgets('三类身份卡字段值紧随名称并保持左对齐', (tester) async {
@@ -525,14 +567,14 @@ void main() {
     );
     expectCompactField(
       card(MyIdTier.visitor),
-      '公民号',
-      'CN000-CTZN1-000000001-2026',
+      '身份CID号',
+      'CN000-CTZN1-000000001',
     );
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
     await pumpPage(tester, _votingState);
-    expectCompactField(card(MyIdTier.voting), '公民号', 'CID-2026-0715');
+    expectCompactField(card(MyIdTier.voting), '身份CID号', 'CID-2026-0715');
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
@@ -807,4 +849,34 @@ class _PageCurrentUser implements CurrentUserContext {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// 原两次签名已由服务/SDK回归覆盖；页面只驱动同一次换绑和收尾。
+class _RebindPageService extends _FakeMyIdService {
+  _RebindPageService(super.state);
+  final finished = Completer<void>();
+  int calls = 0;
+  @override
+  Future<List<CitizenWalletStateAccount>> listRebindTargets() async => [
+    CitizenWalletStateAccount(
+      signMode: CitizenWalletSignMode.cold,
+      walletIndex: 2,
+      accountIndex: 0,
+      accountId: '0x${'22' * 32}',
+      ss58Address: 'target-ss58',
+      name: '目标冷账户',
+      createdAtMillis: BigInt.zero,
+      isDefault: false,
+    ),
+  ];
+  @override
+  Future<void> rebindCidTo({
+    required BuildContext? buildContext,
+    required String cidNumber,
+    required String newAccountId,
+  }) async {
+    calls++;
+    expect(newAccountId, '0x${'22' * 32}');
+    await finished.future;
+  }
 }

@@ -1,3 +1,5 @@
+//! 实现OpenMLS身份、密钥包、群及附件加解密和持久幂等操作。
+
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},

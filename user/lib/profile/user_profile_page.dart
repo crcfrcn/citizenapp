@@ -1,3 +1,5 @@
+// 按当前身份和访问结果呈现用户主页、分类内容及关系操作。
+
 import 'package:citizen_chain/citizen_chain.dart';
 import 'dart:async';
 import 'dart:io';
@@ -53,9 +55,9 @@ import 'package:citizen_network/hex_codec.dart' show bytesToHex;
 class UserProfilePage extends StatefulWidget {
   /// 全部头像/联系人入口共用；拒绝时留在原页，不打开目标主页。
   static Future<void> open(BuildContext context, UserProfilePage page) async {
+    final security = context.read<AccountSecurityService?>();
+    final revision = security?.revision.value;
     try {
-      final security = context.read<AccountSecurityService?>();
-      final revision = security?.revision.value;
       bool Function(SquareSession, int?)? consumeEntry;
       ProfileEntryRefreshResult? entryProfile;
       final sessions =
@@ -113,42 +115,52 @@ class UserProfilePage extends StatefulWidget {
               : _ProfileEntry(consume: consumeEntry, profile: entryProfile, child: page),
         ),
       );
-    } on Object catch (error) {
-      if (context.mounted)
-        await _showAccessDialog(context, _accessMessage(error));
+    } on Object catch (error, stackTrace) {
+      if (!context.mounted ||
+          revision != security?.revision.value ||
+          ModalRoute.of(context)?.isCurrent == false) {
+        return;
+      }
+      _showAccessNotice(context, error);
+      if (!_privacyDenied(error)) {
+        AppLog.profileLoadFailure(
+          stage: 'access', error: error, stackTrace: stackTrace,
+        );
+      }
     }
   }
 
   static String _accessMessage(Object error) => switch (error) {
-    SquareApiException(errorCode: 'profile_private') => '仅用户可见',
-    SquareApiException(errorCode: 'profile_followers_required') => '仅关注该用户的人可见',
-    SquareApiException(errorCode: 'profile_mutual_required') => '仅互相关注的用户可见',
-    SquareApiException(statusCode: 404) => '该用户不存在',
-    _ => '主页访问检查失败，请重试',
+    SquareApiException(statusCode: 403, errorCode: 'profile_private' ||
+        'profile_followers_required' || 'profile_mutual_required') =>
+      '用户尚未开放主页访问，请稍后重试。',
+    SquareApiException(statusCode: 404, errorCode: 'user_not_found') => '用户主页暂不可用',
+    _ => '内容加载失败，请下拉刷新',
   };
 
   static bool _privacyDenied(Object error) =>
       error is SquareApiException &&
-      const [
+      (error.statusCode == 403 && const [
         'profile_private',
         'profile_followers_required',
         'profile_mutual_required',
-        'user_not_found',
-      ].contains(error.errorCode);
+      ].contains(error.errorCode) ||
+       error.statusCode == 404 && error.errorCode == 'user_not_found');
 
-  static Future<void> _showAccessDialog(BuildContext context, String message) =>
-      showDialog<void>(
-        context: context,
-        builder: (dialog) => AlertDialog(
-          content: Text(message),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialog).pop(),
-              child: const Text('确定'),
-            ),
-          ],
-        ),
-      );
+  /// 只有明确的主页隐私拒绝才短暂提示；404及服务故障不能冒充权限结论。
+  static void _showAccessNotice(BuildContext context, Object error) {
+    if (error is! SquareApiException ||
+        error.statusCode != 403 ||
+        !_privacyDenied(error)) {
+      return;
+    }
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(_accessMessage(error)),
+        duration: const Duration(seconds: 2),
+      ));
+  }
   const UserProfilePage({
     super.key,
     required this.cidNumber,
@@ -475,7 +487,7 @@ class _UserProfilePageState extends State<UserProfilePage>
       return;
     }
     if (navigator.canPop()) navigator.pop();
-    await UserProfilePage._showAccessDialog(navigator.context, message);
+    UserProfilePage._showAccessNotice(navigator.context, error);
     if (mounted) setState(() => _denyingAccess = false);
   }
 

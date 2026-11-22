@@ -1,3 +1,5 @@
+// 验证最终绑定推进后旧聊天上下文失去读写能力。
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/chat.dart';
 import 'package:citizen_testing/isar_test_env.dart';

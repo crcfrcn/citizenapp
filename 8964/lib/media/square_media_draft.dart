@@ -1,3 +1,5 @@
+// 从相册文件构造公文、文章或视频使用的媒体草稿。
+
 import 'dart:io';
 
 import 'package:image_picker/image_picker.dart';

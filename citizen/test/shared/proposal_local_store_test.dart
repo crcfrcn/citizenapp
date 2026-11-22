@@ -1,3 +1,5 @@
+// 验证提案摘要、机构索引及最终游标的并发持久状态。
+
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';

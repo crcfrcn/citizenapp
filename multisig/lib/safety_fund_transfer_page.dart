@@ -1,3 +1,5 @@
+// 为有权岗位准备从国家储委会安全基金发起的转账提案。
+
 import 'package:citizen_widgets/chain_balance_scope.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';

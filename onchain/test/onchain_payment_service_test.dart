@@ -1,3 +1,5 @@
+// 验证地址映射、金额备注和准确Runtime上下文的转账准备。
+
 import 'dart:convert';
 import 'dart:typed_data';
 

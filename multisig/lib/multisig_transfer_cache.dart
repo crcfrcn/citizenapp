@@ -1,3 +1,5 @@
+// 缓存多签转账业务详情，隔离通用提案和其他业务缓存。
+
 import 'package:citizen_multisig/multisig_transfer_models.dart';
 
 /// 多签转账提案详情缓存。

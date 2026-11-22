@@ -1,3 +1,5 @@
+// 定义基础聊天文本等内容的唯一Protobuf字段协议。
+
 syntax = "proto3";
 
 package chat.protocol;

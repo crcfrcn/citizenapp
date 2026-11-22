@@ -1,3 +1,5 @@
+// 通过真实Core核对冻结SCALE字符串和u64边界。
+
 import 'dart:convert';
 import 'dart:io';
 

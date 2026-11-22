@@ -1,3 +1,5 @@
+// 读取SDK真实目录，展示并管理钱包账户及名称、默认选择和入口。
+
 import 'package:citizen_widgets/chain_balance_scope.dart';
 import 'package:citizen_topup/store.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
@@ -595,7 +597,7 @@ class _WalletTabState extends State<WalletTab> {
           content: TextField(
             controller: controller,
             autofocus: true,
-            maxLength: 30,
+            maxLength: 10,
             decoration: const InputDecoration(
               hintText: '输入新的钱包名称',
               border: OutlineInputBorder(),
@@ -778,7 +780,7 @@ class _WalletTabState extends State<WalletTab> {
           content: TextField(
             controller: controller,
             autofocus: true,
-            maxLength: 30,
+            maxLength: 10,
             decoration: const InputDecoration(
               hintText: '输入新的账户名称',
               border: OutlineInputBorder(),
@@ -1127,11 +1129,8 @@ class _WalletTabState extends State<WalletTab> {
     }
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
-        builder: (_) => WalletDetailPage(
-          wallet: account,
-          walletName: _walletName(account),
-          expectedRevision: _state!.revision,
-        ),
+        builder: (_) =>
+            WalletDetailPage(wallet: account, walletName: _walletName(account)),
       ),
     );
     if (mounted) {
@@ -2208,12 +2207,10 @@ class WalletDetailPage extends StatefulWidget {
     super.key,
     required this.wallet,
     required this.walletName,
-    required this.expectedRevision,
   });
 
   final CitizenWalletStateAccount wallet;
   final String walletName;
-  final BigInt expectedRevision;
 
   @override
   State<WalletDetailPage> createState() => _WalletDetailPageState();
@@ -2224,7 +2221,6 @@ class _WalletDetailPageState extends State<WalletDetailPage>
         TxAutoRefreshMixin<WalletDetailPage>,
         WidgetsBindingObserver,
         WalletPrivateDisplay<WalletDetailPage> {
-  late BigInt _walletRevision;
   List<wallet_store.Entry> _recentRecords = const [];
 
   /// 此 key 仅用于链下清算行操作卡，链上余额由 SDK 管理。
@@ -2271,7 +2267,6 @@ class _WalletDetailPageState extends State<WalletDetailPage>
   @override
   void initState() {
     super.initState();
-    _walletRevision = widget.expectedRevision;
     _loadRecentRecords();
     startTxAutoRefresh(widget.wallet.accountId);
   }
@@ -2319,38 +2314,6 @@ class _WalletDetailPageState extends State<WalletDetailPage>
     }
   }
 
-  /// 钱包名持久化（纯本机落盘）。
-  ///
-  ///
-  /// - 编辑态和回滚逻辑已搬到 [WalletIdentityCard]，这里只负责本机落盘。
-  /// - 调用方保留原编辑交互；SDK校验名称并对当前目录修订执行唯一CAS。
-  /// - 本次成功后只更新修订，禁止修改账户名称、默认顺序或触发签名。
-  /// - 公开昵称、聊天联系人名均有独立真源，本方法不得触发资料或聊天同步。
-  /// - 出错时重新抛出,让 WalletIdentityCard 走回滚分支。
-  Future<void> _saveWalletName(String newName) async {
-    try {
-      final state = await context
-          .read<CitizenSdk>()
-          .renameWallet(
-            expectedRevision: _walletRevision,
-            walletIndex: widget.wallet.walletIndex,
-            name: newName,
-          )
-          .result;
-      _walletRevision = state.revision;
-      if (!mounted) {
-        return;
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('$e')));
-      }
-      rethrow;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     // 不拦截普通路由返回；iOS 左边缘手势、Android 系统返回和 AppBar 返回
@@ -2376,7 +2339,6 @@ class _WalletDetailPageState extends State<WalletDetailPage>
       body: WalletDetailBody(
         account: widget.wallet,
         name: widget.walletName,
-        onNameChanged: _saveWalletName,
         onRefresh: _onPullRefresh,
         actionKey: _actionCardKey,
         records: _recentRecords,

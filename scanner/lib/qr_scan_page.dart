@@ -1,3 +1,6 @@
+// 按扫码用途展示SDK采集预览并交付受限文档或收款目标。
+
+import 'package:citizen_system/identity_cid_display.dart';
 import 'dart:async';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -307,7 +310,7 @@ class _QrScanPageState extends State<QrScanPage> {
         SnackBar(
           content: Text(
             // 扫码只识别 CID，通讯录展示本机已有资料。
-            created ? '已加入通讯录：${body.cidNumber}' : '已在通讯录：${body.cidNumber}',
+            created ? '已加入通讯录：${formatIdentityCidText(body.cidNumber!)}' : '已在通讯录：${formatIdentityCidText(body.cidNumber!)}',
           ),
         ),
       );
@@ -367,7 +370,7 @@ class _QrScanPageState extends State<QrScanPage> {
       builder: (context) => AlertDialog(
         title: const Text('这不是用户码'),
         content: const Text(
-          '通讯录关系必须锚定对方的永久 CID，只有「用户主页」出示的用户码携带 CID。'
+          '通讯录关系必须锚定对方的永久身份CID号，只有「用户主页」出示的用户码携带身份CID号。'
           '账户码和收款码只声明账户，不能加为联系人。',
         ),
         actions: [

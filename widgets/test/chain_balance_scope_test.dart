@@ -1,3 +1,5 @@
+// 验证隐藏页停止余额读取，返回后重新订阅并补齐状态。
+
 import 'dart:ffi';
 import 'dart:io';
 import 'package:citizen_sdk/citizen_sdk.dart';

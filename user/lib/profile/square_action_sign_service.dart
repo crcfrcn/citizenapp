@@ -1,3 +1,5 @@
+// 解析并审阅账户动作请求，定位准确本机账户后生成签名响应。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'package:flutter/widgets.dart' show BuildContext;

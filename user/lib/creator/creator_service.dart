@@ -1,3 +1,5 @@
+// 协调创作者资格、档位管理和概览读取，并按最终链事实确认。
+
 import 'package:citizen_storage/user_isar.dart' as wallet_store show Creator;
 
 import 'dart:async';

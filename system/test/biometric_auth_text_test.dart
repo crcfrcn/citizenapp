@@ -1,3 +1,5 @@
+// 验证生物识别文案语言回退及各平台认证字段。
+
 import 'dart:ui' show Locale;
 
 import 'package:flutter_test/flutter_test.dart';

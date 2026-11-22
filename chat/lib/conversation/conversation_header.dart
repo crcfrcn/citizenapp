@@ -1,3 +1,5 @@
+// 读取并展示聊天对象产品资料，连接统一主页入口。
+
 part of '../chat.dart';
 
 /// 公民资料标题只负责产品资料读取和主页入口，不持有消息运行逻辑。
@@ -178,7 +180,7 @@ class _CitizenChatHeaderState extends State<_CitizenChatHeader> {
                   ),
                 ),
                 Text(
-                  _shortAccount(widget.peerUserId),
+                  '身份CID号：${formatIdentityCidText(widget.peerUserId)}',
                   style: TextStyle(
                     fontSize: AppLayout.scaled(context, 12),
                     color: AppTheme.textSecondary,
@@ -191,11 +193,4 @@ class _CitizenChatHeaderState extends State<_CitizenChatHeader> {
       ),
     );
   }
-}
-
-String _shortAccount(String value) {
-  if (value.length <= 16) {
-    return value;
-  }
-  return '${value.substring(0, 8)}...${value.substring(value.length - 6)}';
 }

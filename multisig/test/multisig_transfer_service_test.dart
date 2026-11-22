@@ -1,3 +1,5 @@
+// 验证多签冷热执行的真实交易事件、岗位及资金和备注绑定。
+
 import 'dart:typed_data';
 import 'dart:convert';
 

@@ -1,3 +1,5 @@
+// 统一显示受保护头像、默认图形和身份徽章。
+
 import 'package:citizen_chain/citizen_chain.dart';
 import 'package:provider/provider.dart';
 

@@ -1,3 +1,5 @@
+// 验证付款发送后的未知状态及发送前取消不被误判成功。
+
 import 'package:citizen_offchain/clearing_bank_directory.dart';
 
 import 'dart:async';

@@ -1,3 +1,5 @@
+// 展示管理员姓名和账户及entity中的岗位任职资料。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 

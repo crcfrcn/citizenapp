@@ -1,3 +1,5 @@
+// 定义注册选择、瞬时人验、广播阶段和最终链记录模型。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:convert';

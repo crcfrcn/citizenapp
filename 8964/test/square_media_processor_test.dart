@@ -1,3 +1,5 @@
+// 验证下发媒体规格、原生保护路径及图片视频处理和清理。
+
 import 'package:citizen_testing/membergate_fixture.dart'
     show membergatePlansFixture, membergatePlanFixture;
 

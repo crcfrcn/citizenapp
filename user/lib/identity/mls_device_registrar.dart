@@ -1,3 +1,5 @@
+// 仅在明确未登记时取得并持久保存钱包证明，完成MLS设备登记。
+
 import 'package:citizen_user/identity/public_identity_store.dart';
 
 import 'dart:convert';

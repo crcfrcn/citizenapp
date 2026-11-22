@@ -1,3 +1,5 @@
+// 通过统一原生通道选择单文件和探测视频缩略图，消费当前业务上限。
+
 import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;

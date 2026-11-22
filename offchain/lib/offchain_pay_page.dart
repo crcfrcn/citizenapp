@@ -1,3 +1,5 @@
+// 审阅清算付款并签发原支付意图，保留发送后的未知结果。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:convert';

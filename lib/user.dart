@@ -1,3 +1,6 @@
+// 展示我的资料和设置，管理隐私、黑名单、首页偏好及账户相关导航。
+
+import 'package:citizen_system/identity_cid_display.dart';
 import 'package:citizen_chain/citizen_chain.dart';
 import 'package:provider/provider.dart';
 
@@ -401,7 +404,7 @@ class _ProfilePageState extends State<MyTab> {
       if (cidNumber.isEmpty) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('本地尚未保存公民号，请主动刷新身份')));
+        ).showSnackBar(const SnackBar(content: Text('本地尚未保存身份CID号，请主动刷新身份')));
         return null;
       }
       return (accountId: identity.accountId, cidNumber: cidNumber);
@@ -1114,7 +1117,7 @@ class _SettingsPageState extends State<SettingsPage> {
     unawaited(_loadPrivacy());
   }
 
-  Future<SquareSession> _privacySession() async {
+  Future<SquareSession> _privacySession({bool refresh = false}) async {
     final user =
         await (widget.privacyUserContext ?? context.read<CurrentUserContext>())
             .resolve();
@@ -1122,7 +1125,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final resolution =
         await (widget.privacySessionProvider ??
                 context.read<SquareSessionProvider>())
-            .resolveSession();
+            .resolveSession(refresh: refresh);
     final session = resolution.session;
     if (session == null ||
         session.cidNumber != user!.cidNumber ||
@@ -1178,6 +1181,11 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  TextStyle get _settingValueStyle => TextStyle(
+    fontSize: AppLayout.scaledValue(13),
+    color: AppTheme.textSecondary,
+  );
+
   Future<void> _chooseDmPolicy() async {
     if (_privacyLoading || _privacySaving) return;
     if (_privacyFailed) {
@@ -1200,7 +1208,7 @@ class _SettingsPageState extends State<SettingsPage> {
               children: [
                 for (final value in DmPolicy.values)
                   RadioListTile<DmPolicy>(
-                    title: Text(value.label),
+                    title: Text(value.label, style: _settingValueStyle),
                     value: value,
                   ),
               ],
@@ -1239,7 +1247,7 @@ class _SettingsPageState extends State<SettingsPage> {
               children: [
                 for (final value in ProfileVisibility.values)
                   RadioListTile<ProfileVisibility>(
-                    title: Text(value.label),
+                    title: Text(value.label, style: _settingValueStyle),
                     value: value,
                   ),
               ],
@@ -1314,11 +1322,11 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _openBlocks() async {
     try {
-      final session = await _privacySession();
+      await _privacySession();
       if (!mounted) return;
       await Navigator.of(context).push<void>(MaterialPageRoute(
         builder: (_) => _BlockedUsersPage(
-          api: _privacyApi, session: session, revision: _privacyRevision,
+          api: _privacyApi, resolveSession: _privacySession, revision: _privacyRevision,
         ),
       ));
     } on Object {
@@ -1390,6 +1398,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   children: [
                     Text(
                       _privacySaving ? '保存中' : _dmPolicy.label,
+                      style: _settingValueStyle,
                     ),
                     const Icon(Icons.chevron_right),
                   ],
@@ -1408,6 +1417,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   children: [
                     Text(
                       _privacySaving ? '保存中' : _profileVisibility.label,
+                      style: _settingValueStyle,
                     ),
                     const Icon(Icons.chevron_right),
                   ],
@@ -1877,10 +1887,7 @@ class _SettingsPageState extends State<SettingsPage> {
             Text(
               _openChatOnLaunch ? '聊天' : '广场',
               key: const ValueKey('home-tab-setting-value'),
-              style: TextStyle(
-                fontSize: AppLayout.scaledValue(13),
-                color: AppTheme.textSecondary,
-              ),
+              style: _settingValueStyle,
             ),
             SizedBox(width: AppLayout.scaledValue(8)),
             Switch(
@@ -1923,9 +1930,9 @@ class _SettingsPageState extends State<SettingsPage> {
 
 
 class _BlockedUsersPage extends StatefulWidget {
-  const _BlockedUsersPage({required this.api, required this.session, this.revision});
+  const _BlockedUsersPage({required this.api, required this.resolveSession, this.revision});
   final SquareApiClient api;
-  final SquareSession session;
+  final Future<SquareSession> Function({bool refresh}) resolveSession;
   final Listenable? revision;
 
   @override
@@ -1958,9 +1965,21 @@ class _BlockedUsersPageState extends State<_BlockedUsersPage> {
   }
 
   Future<void> _load() async {
+    if (_changed) return;
     setState(() => _failed = false);
     try {
-      final rows = await widget.api.blockedUsers(widget.session, refresh: true);
+      var session = await widget.resolveSession();
+      if (!mounted || _changed) return;
+      Set<String> rows;
+      try {
+        rows = await widget.api.blockedUsers(session, refresh: true);
+      } on SquareApiException catch (error) {
+        if (error.statusCode != 401) rethrow;
+        // 仅明确401刷新一次；503和普通失败保留原重试入口，不反复握手。
+        session = await widget.resolveSession(refresh: true);
+        if (!mounted || _changed) return;
+        rows = await widget.api.blockedUsers(session, refresh: true);
+      }
       if (mounted && !_changed) setState(() => _users = rows.toList());
     } on Object {
       if (mounted && !_changed) setState(() => _failed = true);
@@ -1981,7 +2000,9 @@ class _BlockedUsersPageState extends State<_BlockedUsersPage> {
     );
     if (confirmed != true || !mounted || _changed) return false;
     try {
-      await widget.api.setBlocked(widget.session, cid, false);
+      final session = await widget.resolveSession();
+      if (!mounted || _changed) return false;
+      await widget.api.setBlocked(session, cid, false);
       return mounted && !_changed;
     } on Object {
       if (mounted && !_changed) {
@@ -2021,7 +2042,7 @@ class _BlockedUsersPageState extends State<_BlockedUsersPage> {
                   ),
                   confirmDismiss: (_) => _unblock(cid),
                   onDismissed: (_) => setState(() => _users?.remove(cid)),
-                  child: ListTile(title: Text(cid)),
+                  child: ListTile(title: Text(formatIdentityCidText(cid))),
                 );
               },
             ),

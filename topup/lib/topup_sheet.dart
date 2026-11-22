@@ -1,3 +1,5 @@
+// 采集充值金额和支付网络，签后建单并打开MetaMask付款。
+
 import 'package:citizen_sdk/citizen_sdk.dart'
     show CitizenSdk, CitizenSigningTransform, CitizenSdkException;
 import 'package:citizen_scanner/qr_sign_session_page.dart'

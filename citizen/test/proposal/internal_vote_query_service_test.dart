@@ -1,3 +1,5 @@
+// 验证准确机构岗位票据键、批量读取及缺项或坏数据拒绝。
+
 import 'dart:convert';
 import 'dart:typed_data';
 

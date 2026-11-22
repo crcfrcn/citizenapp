@@ -1,3 +1,5 @@
+// 按CID管理联系人与私有备注，协调增量备份、合并和身份隔离。
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';

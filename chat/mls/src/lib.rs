@@ -1,4 +1,4 @@
-//! 公民聊天 native OpenMLS engine.
+//! 导出聊天原生OpenMLS C接口，管理错误和返回字符串所有权。
 
 use std::ffi::CString;
 use std::os::raw::c_char;

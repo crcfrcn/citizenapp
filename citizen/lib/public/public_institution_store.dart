@@ -1,3 +1,5 @@
+// 定义公权目录及分片同步的本地存储接口。
+
 import 'package:citizen_storage/user_isar.dart' as app_store show Entity;
 // 公权机构快照缓存本地存储抽象(ADR-018 §九)。
 //

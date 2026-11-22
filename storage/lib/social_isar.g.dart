@@ -1,3 +1,5 @@
+// 定义广场帖子、草稿和媒体的Isar结构及访问扩展。
+
 // GENERATED CODE - DO NOT MODIFY BY HAND
 
 part of 'social_isar.dart';

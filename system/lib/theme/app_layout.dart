@@ -1,3 +1,5 @@
+// 定义统一视觉尺寸令牌，并按设计视口计算界面倍率。
+
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';

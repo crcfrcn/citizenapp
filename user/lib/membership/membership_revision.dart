@@ -1,3 +1,5 @@
+// 在会员交易后按CID通知页面重新核验资源授权。
+
 import 'package:flutter/foundation.dart';
 
 /// 会员交易确认后资源授权需要重新核验的定向事件。

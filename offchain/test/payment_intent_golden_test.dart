@@ -1,3 +1,5 @@
+// 以跨端黄金向量核对支付意图SCALE和操作域摘要。
+
 import 'dart:convert';
 import 'dart:typed_data';
 

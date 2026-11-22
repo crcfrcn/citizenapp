@@ -1,3 +1,5 @@
+// 展示宪法和国家、省市立法机构目录及法律阅读入口。
+
 import 'package:flutter/material.dart';
 
 import 'package:citizen_citizen/institution/institution.dart';

@@ -1,8 +1,4 @@
-// CitizenIdentity(pallet 10)自助占号 / 换绑 call data SCALE 布局测试。
-//
-// 逐字节钉死 pallet/call 前缀、CidNumberBound(BoundedVec<u8>)与 SignatureOf
-// (BoundedVec<u8>)编码,以及当前账户换绑授权摘要 signing_message(0x11, ...),
-// 防与链端 `self_occupy_cid` / `self_rebind_cid_account_id` 漂移。
+// 验证自助占号和换绑SCALE布局、完整授权域及版本绑定。
 
 import 'dart:typed_data';
 

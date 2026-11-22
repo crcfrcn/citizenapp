@@ -1,3 +1,5 @@
+// 编码立法表决和签署调用，经SDK执行并核对准确业务事件。
+
 import 'dart:convert';
 
 import 'package:citizen_citizen/pallet_registry.dart';

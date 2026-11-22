@@ -1,3 +1,5 @@
+// 验证立法冷热表决的岗位、执行块、事件及账本一致性。
+
 import 'package:citizen_citizen/legislation/legislation_vote_query_service.dart';
 import 'package:citizen_citizen/proposal/proposal_query_service.dart';
 

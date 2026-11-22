@@ -1,3 +1,5 @@
+// 定义MLS消息内媒体附件的公开描述和互斥内容字段。
+
 syntax = "proto3";
 
 package chat.protocol;

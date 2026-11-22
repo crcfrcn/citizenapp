@@ -1,3 +1,6 @@
+// 展示当前创作者会员、档位及统计，并复用按身份隔离的链缓存。
+
+import 'package:citizen_system/identity_cid_display.dart';
 import 'package:citizen_chain/citizen_chain.dart';
 import 'package:provider/provider.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -218,7 +221,7 @@ class _CreatorPageState extends State<CreatorPage> {
               (binding == null ||
                   binding.cidNumber != cid ||
                   binding.accountId != current?.accountId))) {
-        setState(() => _error = '暂时无法核实公民号身份，请重试');
+        setState(() => _error = '暂时无法核实身份CID号，请重试');
         return;
       }
       setState(() {
@@ -233,7 +236,7 @@ class _CreatorPageState extends State<CreatorPage> {
       ]);
     } on Object {
       if (!mounted || generation != _loadGeneration) return;
-      setState(() => _error = '暂时无法核实公民号身份，请重试');
+      setState(() => _error = '暂时无法核实身份CID号，请重试');
     }
   }
 
@@ -589,7 +592,7 @@ class _CreatorPageState extends State<CreatorPage> {
           SizedBox(width: AppLayout.scaledValue(10)),
           Expanded(
             child: Text(
-              message,
+              identityCidUiText(message),
               style: TextStyle(
                 fontSize: AppLayout.scaledValue(13),
                 color: AppTheme.textSecondary,

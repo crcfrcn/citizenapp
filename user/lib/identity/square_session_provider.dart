@@ -1,3 +1,5 @@
+// 解析建立公民服务会话后的明确状态，保留设备和网络失败类别。
+
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:citizen_system/app_log.dart';
 import 'package:citizen_sdk/citizen_sdk.dart'

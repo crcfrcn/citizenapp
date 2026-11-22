@@ -1,3 +1,5 @@
+// 验证管理员容量和多数阈值、冷热执行及失败或取消的资源释放。
+
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';

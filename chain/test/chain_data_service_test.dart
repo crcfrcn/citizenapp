@@ -1,3 +1,5 @@
+// 验证共享同步、账户代次、后台暂停及失败保留和重试。
+
 import 'dart:async';
 import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';

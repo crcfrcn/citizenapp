@@ -1,3 +1,5 @@
+// 核对创作者当前档位和价格，协调订阅、换档或取消的单笔交易。
+
 import 'creator_plan.dart';
 import 'dart:typed_data';
 

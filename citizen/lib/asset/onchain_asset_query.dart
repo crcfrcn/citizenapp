@@ -1,11 +1,4 @@
-// OnchainIssuance 资产查询模型与严格 SCALE 解码。
-//
-// 链端唯一布局：
-// - OnchainAssetMeta = actor_cid_number + execution_account_id + class + decimals + state
-// - AssetIssued = asset_id + actor_cid_number + execution_account_id
-//
-// actor_cid_number 是发行机构身份唯一真源；execution_account_id 只承担该资产的
-// 链上执行，不得作为机构身份、管理员或权限查询 key。
+// 定义资产元数据及发行结果模型，并严格解码其SCALE布局。
 
 import 'dart:convert';
 import 'dart:typed_data';

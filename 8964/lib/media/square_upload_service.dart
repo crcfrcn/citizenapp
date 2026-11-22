@@ -1,3 +1,5 @@
+// 以当前会话准备Manifest和媒体上传，处理授权、实际用量及文件重试。
+
 import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:math';

@@ -1,3 +1,5 @@
+// 定义群成员、Commit、处理状态及OpenMLS群操作接口。
+
 import 'dart:io';
 
 import 'package:citizen_network/protocol/message.dart';

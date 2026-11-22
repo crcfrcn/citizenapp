@@ -1,3 +1,5 @@
+// 以独占设备目录验证原生注册记录保护和CAS，不启动钱包或网络。
+
 package com.crcfrcn.citizenapp
 
 import android.net.Uri

@@ -1,3 +1,5 @@
+// 前置校验管理员唯一性、容量及动态严格多数阈值。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:convert';

@@ -1,7 +1,4 @@
-// 卡B widget 测试脚手架:构造无网络/无 Isar 的 repo(seeded fake store)。
-//
-// ADR-021:机构只存 code,行政区名字来自字典。harness 同时 seed 机构 fake store +
-// 行政区字典 fake store(市名 join 用),并按 province_code 落库/查询。
+// 装配机构及行政区内存目录，支持导航和字典延迟就绪测试。
 
 import 'package:flutter/services.dart';
 import 'package:citizen_citizen/public/admin_division_bundle_loader.dart';

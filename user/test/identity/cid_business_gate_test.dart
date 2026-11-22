@@ -1,3 +1,5 @@
+// 验证CID就绪、未知与未注册区分及并发恢复和身份变化。
+
 import 'dart:async';
 
 import 'package:citizen_sdk/citizen_sdk.dart';

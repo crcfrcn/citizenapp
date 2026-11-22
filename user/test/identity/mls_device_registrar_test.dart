@@ -1,3 +1,5 @@
+// 验证明确未登记时的一次钱包授权、持久尝试及取消和设备恢复。
+
 import 'package:flutter/widgets.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:chat/chat.dart' as chat_sdk;

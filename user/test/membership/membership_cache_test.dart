@@ -1,3 +1,5 @@
+// 验证会员页面缓存、当前身份核对及价格按需刷新。
+
 import 'dart:async';
 import 'dart:convert';
 import 'package:citizen_chain/citizen_chain.dart';

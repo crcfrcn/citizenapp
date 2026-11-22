@@ -1,3 +1,5 @@
+// 展示尚未接入具体公权业务的选举提案说明。
+
 import 'package:flutter/material.dart';
 
 import 'package:citizen_citizen/proposal/proposal_placeholder.dart';

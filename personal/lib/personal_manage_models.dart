@@ -1,3 +1,5 @@
+// 定义个人多签创建、关闭提案及账户生命周期模型。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:typed_data';

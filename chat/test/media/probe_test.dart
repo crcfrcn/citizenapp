@@ -1,3 +1,5 @@
+// 验证媒体尺寸、时长和小图blurhash及失败留空。
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;

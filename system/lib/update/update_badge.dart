@@ -1,3 +1,5 @@
+// 根据当前可安装更新状态显示提醒红点。
+
 import 'package:flutter/material.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_system/theme/app_layout.dart';

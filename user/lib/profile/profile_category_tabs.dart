@@ -1,3 +1,5 @@
+// 按帖子语义展示竞选、文章、视频和公文互斥分类。
+
 import 'package:flutter/material.dart';
 
 import 'package:citizen_system/theme/app_theme.dart';

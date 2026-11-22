@@ -1,3 +1,5 @@
+// 播放本机视频并提供保存到相册操作。
+
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:chat/media/gallery_saver.dart';

@@ -1,3 +1,5 @@
+// 按CID增量恢复远端发布事实，逐页原子落盘且保留本地历史。
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';

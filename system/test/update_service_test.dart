@@ -1,3 +1,5 @@
+// 验证Google Play及Apple商店更新查询和失败边界。
+
 import 'dart:convert';
 import 'package:citizen_testing/fixture.dart';
 import 'package:citizen_system/update/app_update_controller.dart';

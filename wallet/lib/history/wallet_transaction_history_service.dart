@@ -1,3 +1,5 @@
+// 复用SDK验证链和执行历史，原子同步账户业务事件及扫描进度。
+
 import 'package:citizen_storage/user_isar.dart'
     as wallet_store
     show WalletCursor, Entry;

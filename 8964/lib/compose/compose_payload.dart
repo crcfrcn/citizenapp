@@ -1,3 +1,5 @@
+// 定义编辑器提交载荷、不可变快照及草稿媒体保存接口。
+
 import 'package:citizen_square/post/square_models.dart';
 
 /// 选中媒体后把临时文件持久化到当前 CID 草稿目录；null 时沿用原路径。

@@ -1,3 +1,5 @@
+// 验证各扫码用途的码型拒绝、签名指引及文档分派。
+
 import 'dart:async';
 import 'dart:typed_data';
 

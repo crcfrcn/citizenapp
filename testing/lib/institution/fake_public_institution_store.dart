@@ -1,3 +1,5 @@
+// 以内存实现机构快照、同步和关注测试仓库。
+
 import 'package:citizen_storage/user_isar.dart' as app_store show Entity;
 // 内存 fake store —— 测同步/载入/订阅逻辑,不依赖 Isar 真库。
 

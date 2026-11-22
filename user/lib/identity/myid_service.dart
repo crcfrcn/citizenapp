@@ -1,3 +1,5 @@
+// 读取并持久展示身份页事实，协调当前CID绑定及身份变更操作。
+
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:citizen_user/identity/registration_models.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
@@ -681,7 +683,11 @@ class MyIdService {
               ),
             ),
     );
-    // SDK 已核验交易执行，业务层已在同一 finalized 块核对目标绑定。
+    // SDK 已用同次换绑证明提交默认目录；展示不能先于该真实提交接管。
+    final wallet = await _getWalletState().result;
+    if (wallet.defaultAccount?.accountId != newAccount.accountId) {
+      throw const AccountSecurityException('链上已换绑，本机默认账户尚未同步，请勿重复换绑');
+    }
     await _finishFinalizedBinding(target);
   }
 

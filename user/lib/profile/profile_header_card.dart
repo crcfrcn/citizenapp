@@ -1,3 +1,6 @@
+// 展示头图、头像、身份、昵称、签名及统计和主页动作。
+
+import 'package:citizen_system/identity_cid_display.dart';
 import 'package:flutter/material.dart';
 
 import 'package:citizen_user/profile/citizen_profile.dart';
@@ -8,7 +11,7 @@ import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
 /// 推特式资料卡：头图下方白底，圆角方形头像跨压头图下缘 + 认证勾 +
-/// 展示名/公民号/签名/计数 + 右上三图标。
+/// 展示名/身份CID号/签名/计数 + 右上三图标。
 ///
 /// 头像用 [Positioned] 上移半个身位跨到头图上；文字为深色（落在白底）；
 /// 数据来自已加载的 [profile]（可空 → 占位）。
@@ -127,7 +130,7 @@ class ProfileHeaderCard extends StatelessWidget {
         8 +
         textHeight('昵称', nameStyle) +
         3 +
-        textHeight('公民号', cidStyle) +
+        textHeight('身份CID号', cidStyle) +
         bioHeight +
         12 +
         textHeight('0 关注者', statStyle, rich: true) +
@@ -262,9 +265,9 @@ class _IdentityDetails extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cid = cidNumber.trim();
+    final cid = formatIdentityCidText(cidNumber.trim());
     return Text(
-      cid.isEmpty ? '公民号：暂不可用' : '公民号：$cid',
+      cid.isEmpty ? '身份CID号：暂不可用' : '身份CID号：$cid',
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
       style: TextStyle(

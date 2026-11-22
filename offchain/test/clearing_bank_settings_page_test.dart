@@ -1,3 +1,5 @@
+// 验证清算目录、同块绑定和节点读取及Runtime调用编码。
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';

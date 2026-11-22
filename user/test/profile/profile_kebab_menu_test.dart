@@ -1,3 +1,5 @@
+// 验证本人资料编辑注销及他人仅用户码菜单。
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

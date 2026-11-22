@@ -1,3 +1,5 @@
+// 验证持久余额共享、账户隔离、并发刷新及失败保留。
+
 import 'package:provider/provider.dart';
 import 'package:citizen_storage/user_isar.dart';
 import 'package:citizen_testing/fake_citizen_sdk.dart';

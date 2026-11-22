@@ -1,3 +1,5 @@
+// 提供基础文本、表情和贴纸内容的Protobuf JSON描述及二进制描述符。
+
 // This is a generated file - do not edit.
 //
 // Generated from basic_content.proto.

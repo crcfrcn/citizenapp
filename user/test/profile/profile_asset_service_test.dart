@@ -1,3 +1,5 @@
+// 验证资料图片WebP成品、授权对象键及上传失败。
+
 import 'package:citizen_testing/membergate_fixture.dart'
     show preflightGateFixture;
 

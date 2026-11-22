@@ -1,3 +1,5 @@
+// 验证一次人验和原链交易，未知结果只恢复同一交易。
+
 import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_user/identity/identity_binding.dart';

@@ -1,3 +1,6 @@
+// 组合机构资料、账户、管理员、提案和关注等统一详情。
+
+import 'package:citizen_system/identity_cid_display.dart';
 import 'package:citizen_widgets/chain_balance_scope.dart';
 import 'package:provider/provider.dart';
 
@@ -474,7 +477,7 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
             _infoTile(
               icon: Icons.badge_outlined,
               label: '身份CID号',
-              value: inst.cidNumber,
+              value: formatIdentityCidText(inst.cidNumber),
             ),
             Divider(height: AppLayout.scaledValue(18)),
             _infoTile(

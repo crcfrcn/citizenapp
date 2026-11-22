@@ -1,3 +1,5 @@
+// 验证HTTPS请求证明的正文目标绑定、会话并发和关闭后的迟到拒绝。
+
 import 'package:citizen_network/citizen_serve_api_config.dart';
 import 'dart:async';
 import 'dart:convert';

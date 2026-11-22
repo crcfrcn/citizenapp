@@ -1,3 +1,5 @@
+// 从用户码取得CID并保存联系人，再交后台同步备份。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:citizen_user/contacts/contact_service.dart';

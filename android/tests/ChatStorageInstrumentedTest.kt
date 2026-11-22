@@ -1,3 +1,5 @@
+// 在Android设备验证聊天保护目录及存储路径边界。
+
 package com.crcfrcn.citizenapp
 
 import android.system.Os

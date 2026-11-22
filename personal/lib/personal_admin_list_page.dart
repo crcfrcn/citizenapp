@@ -1,18 +1,4 @@
-// 个人多签管理员列表页(req 1+2)。
-//
-// 从详情页"管理员列表"卡片折叠入口跳转进来,展示该多签的所有管理员,并按
-// admin 投票状态渲染三态激活按钮:
-//
-//   - 创建者:无按钮(创建即同意)
-//   - 非本钱包成员:无按钮(仅展示)
-//   - 本钱包未投 + 多签 Pending:蓝色"激活"(可点)→ 跳 MultisigProposalDetailPage
-//   - 本钱包已投赞成:灰色"已激活"(禁用)
-//   - 本钱包已投反对:灰色"已拒绝"(禁用)
-//   - 多签 Active:无按钮(创建已完成)
-//
-// "激活"行为本质是 votingengine `internal_vote(proposal_id, approve=true)`,
-// 沿用现有 [MultisigProposalDetailPage] 的 CitizenSDK二维码编解码 签名 + InternalVoteService 投票流程,
-// 不引入新的签名逻辑。
+// 展示个人多签管理员及本人钱包可执行的激活投票。
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 

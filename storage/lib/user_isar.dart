@@ -1,3 +1,5 @@
+// 保存用户、目录、资料、关注及钱包业务读模型，协调本库事务和生命周期。
+
 import 'dart:async';
 import 'dart:convert';
 

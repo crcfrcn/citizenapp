@@ -1,3 +1,5 @@
+// 通过FFI调用Rust OpenMLS，管理原生上下文和返回结果。
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';

@@ -1,3 +1,5 @@
+// 装配随包付款文档和受限桥接，隔离导航及跨文档调用。
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';

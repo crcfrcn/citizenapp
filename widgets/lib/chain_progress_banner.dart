@@ -1,3 +1,5 @@
+// 订阅同一SDK链状态，仅在交易页显示统一状态顶栏。
+
 import 'dart:async';
 import 'dart:io' show Platform;
 

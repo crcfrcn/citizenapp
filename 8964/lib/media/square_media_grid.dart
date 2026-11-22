@@ -1,3 +1,5 @@
+// 展示信息流图片和视频，并提供受控本地或远端媒体读取。
+
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';

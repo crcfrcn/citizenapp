@@ -1,3 +1,5 @@
+// 订阅账户流水变更，合并刷新并撤销旧账户的排队回调。
+
 import 'dart:async';
 
 import 'package:flutter/widgets.dart';

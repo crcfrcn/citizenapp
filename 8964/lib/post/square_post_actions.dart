@@ -1,3 +1,5 @@
+// 呈现帖子点赞、评论和收藏的共用互动栏。
+
 import 'dart:async';
 
 import 'package:provider/provider.dart';

@@ -1,3 +1,5 @@
+// 封装设备相册选择，向编辑器交付已确定类型的文件和选择状态。
+
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:wechat_assets_picker/wechat_assets_picker.dart';

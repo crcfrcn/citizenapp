@@ -1,3 +1,5 @@
+// 提供应用内拍照和限时录像，并在取消或退出时清理媒体。
+
 import 'package:citizen_system/theme/app_layout.dart';
 import 'dart:async';
 import 'dart:io';

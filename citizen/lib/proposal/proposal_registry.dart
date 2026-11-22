@@ -1,10 +1,4 @@
-// 统一「发起提案」能力注册表。
-//
-//
-// - 机构码仍是制度身份输入,但页面不得散落 `NRC/PRC/CREG` 业务判断。
-// - 本文件先把 InstitutionInfo + institution_code 解析为 ProposalSubject,再由规则表
-//   输出可发起提案。这样个人多签、公权机构、私权机构和创世治理机构共用同一入口。
-// - runtime 仍是最终权限边界;这里仅负责端上展示和页面路由。
+// 按个人或机构主体及制度身份计算允许发起的提案能力。
 
 import 'package:citizen_citizen/institution/institution_code_label.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';

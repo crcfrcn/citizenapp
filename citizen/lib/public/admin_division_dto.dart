@@ -1,3 +1,5 @@
+// 解析行政区自然代码和名称，保留镇代码的完整父级。
+
 import 'package:citizen_storage/user_isar.dart' as app_store show Region;
 
 /// 行政区只保存省、市、镇自然代码与名称，不持久化派生层级和拼接键。

@@ -1,3 +1,5 @@
+// 验证机构关注按永久CID持久化，换绑后保持同一分区。
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_storage/user_isar.dart';
 import 'package:citizen_storage/user_isar.dart' as app_store show Entity;

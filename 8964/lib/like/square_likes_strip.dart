@@ -1,3 +1,5 @@
+// 展示帖子点赞头像及点赞列表入口。
+
 import 'package:citizen_user/notifications.dart';
 
 import 'dart:async';

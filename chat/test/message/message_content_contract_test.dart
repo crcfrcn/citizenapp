@@ -1,3 +1,5 @@
+// 验证基础内容Protobuf严格往返和同会话密码学串行执行。
+
 import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/message/basic_content.dart';

@@ -1,5 +1,4 @@
-// MLS设备登记（0x1C）的SCALE与GMB跨语言固定向量。
-// CID、版本、账户、规范0x MLS公钥和时间按CitizenServe同一合同编码。
+// 以跨语言向量核对MLS设备登记SCALE和GMB操作域。
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_network/hex_codec.dart';

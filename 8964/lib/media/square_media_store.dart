@@ -1,3 +1,5 @@
+// 按CID和内容槽位保存分块媒体字节、摘要及引用关系。
+
 import 'package:citizen_storage/social_isar.dart'
     as social_store
     show Chunk, MediaLink, Media;

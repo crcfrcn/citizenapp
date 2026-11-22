@@ -1,3 +1,5 @@
+// 将已接收的本机图片或视频保存到系统相册。
+
 import 'package:saver_gallery/saver_gallery.dart';
 
 /// 把已收到的本机媒体文件保存到系统相册。相册写入权限已在采集步骤声明。

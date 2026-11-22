@@ -1,3 +1,5 @@
+// 验证资料刷新持久限速、同身份并发合并和失败保留。
+
 import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'package:citizen_user/profile/citizen_profile_api.dart';
@@ -323,6 +325,8 @@ void main() {
     expect(api.gets, 1);
     expect(sessions.calls, 3);
     expect(api.accessChecks, 2);
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byType(SnackBar), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
   testWidgets('重新进入不足十分钟不准备会话，也不重复读取云端资料', (tester) async {

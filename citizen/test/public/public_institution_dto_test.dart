@@ -1,4 +1,4 @@
-// 公权机构 DTO 解析单测。
+// 验证机构快照字段、自然行政代码和代表人转换。
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_citizen/public/public_institution_dto.dart';

@@ -1,3 +1,5 @@
+// 定义机构码的中文名称及治理分类展示。
+
 import 'dart:convert';
 import 'dart:typed_data';
 

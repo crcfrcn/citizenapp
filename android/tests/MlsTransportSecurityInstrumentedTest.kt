@@ -1,3 +1,5 @@
+// 验证Android应用对公网及本地明文网络的系统拒绝。
+
 package com.crcfrcn.citizenapp
 
 import android.net.Uri

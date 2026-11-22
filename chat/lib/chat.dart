@@ -1,6 +1,7 @@
 /// 公民 App 唯一本地聊天包。
 library;
 
+import 'package:citizen_system/identity_cid_display.dart';
 import 'package:citizen_user/navigation.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:provider/provider.dart';

@@ -1,3 +1,5 @@
+// 验证会员价格缓存、并发合并、过期及交易前强制核价。
+
 import 'dart:async';
 import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';

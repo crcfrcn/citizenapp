@@ -1,3 +1,5 @@
+// 加载本轮真实MLS原生库，装配设备和通讯录传输测试。
+
 import 'dart:convert';
 import 'dart:io';
 

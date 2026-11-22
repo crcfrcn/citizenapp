@@ -1,3 +1,5 @@
+// 验证通知缓存、分页、绑定切换及已读意图幂等持久化。
+
 import 'package:citizen_storage/user_isar.dart' as user_store show Notice;
 import 'package:flutter/services.dart';
 

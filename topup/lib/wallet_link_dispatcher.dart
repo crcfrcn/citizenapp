@@ -1,4 +1,7 @@
+// 校验官方MetaMask配对或会话链接，按单次唤起返回固定结果。
+
 /// 单次唤起只返回固定分类，链接及配对资料不进入日志。
+
 enum WalletLinkResult {
   opened,
   urlInvalid,

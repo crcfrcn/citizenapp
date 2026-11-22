@@ -1,3 +1,5 @@
+// 填写并执行当前清算行存款提现，按SDK链报价展示费用。
+
 import 'dart:async';
 
 import 'package:citizen_offchain/clearing_bank_directory.dart';

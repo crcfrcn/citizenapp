@@ -1,3 +1,5 @@
+// 展示指定评论的讨论串和回复交互。
+
 import 'package:flutter/material.dart';
 import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_user/identity/square_session_provider.dart';

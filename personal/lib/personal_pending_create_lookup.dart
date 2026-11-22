@@ -1,3 +1,5 @@
+// 从本地已同步提案反查指定账户的待激活创建提案。
+
 import 'package:citizen_storage/user_isar.dart'
     as wallet_store
     show Action;

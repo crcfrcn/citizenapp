@@ -1,3 +1,5 @@
+// 展示关注及省市公权目录，连接城市列表和机构详情。
+
 import 'package:citizen_storage/user_isar.dart' as app_store show Entity;
 import 'package:provider/provider.dart';
 

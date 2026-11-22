@@ -1,3 +1,5 @@
+// 提供共用媒体添加删除按钮、视频预览和缩略图选择控件。
+
 import 'dart:io';
 
 import 'package:flutter/material.dart';

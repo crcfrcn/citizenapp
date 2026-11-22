@@ -1,3 +1,5 @@
+// 验证语音通话页面显示真实状态并完成挂断清理。
+
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';

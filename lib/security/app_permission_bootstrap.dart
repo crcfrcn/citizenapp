@@ -1,3 +1,5 @@
+// 维护首次启动权限策略及通知权限申请状态。
+
 import 'package:citizen_storage/user_isar.dart' as user_store show Setting;
 import 'package:flutter/services.dart';
 import 'package:citizen_storage/user_isar.dart';

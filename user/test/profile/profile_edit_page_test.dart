@@ -1,3 +1,5 @@
+// 验证签名长度与输入法、按保存建会话及已确认上传恢复。
+
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';

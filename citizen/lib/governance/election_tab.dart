@@ -1,3 +1,5 @@
+// 展示尚未开放的公权选举说明。
+
 import 'package:flutter/material.dart';
 
 import 'package:citizen_system/theme/app_theme.dart';

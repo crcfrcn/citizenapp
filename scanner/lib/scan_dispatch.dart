@@ -1,3 +1,5 @@
+// 定义扫码后业务分派接口，将跨包导航交给根应用。
+
 import 'package:flutter/widgets.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 

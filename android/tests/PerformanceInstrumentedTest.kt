@@ -1,3 +1,5 @@
+// 测量设备启动、创作者入口、钱包滚动和视频转码性能。
+
 package com.crcfrcn.citizenapp
 
 import android.os.Bundle

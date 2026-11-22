@@ -1,3 +1,5 @@
+// 验证钱包卡片显示、异常模式及账户码填表后确认导入。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_testing/fake_citizen_sdk.dart';
 import 'package:flutter/material.dart';

@@ -1,3 +1,5 @@
+// 验证唯一SDK实例启动及根关闭的有序撤销、检查点和排空。
+
 import 'package:chat/chat.dart' as chat;
 
 import 'dart:io';

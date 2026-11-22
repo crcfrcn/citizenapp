@@ -1,3 +1,5 @@
+// 按当前立法阶段提供代表表决、签署、会签或护宪终审。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:async';
@@ -396,7 +398,7 @@ class _LegislationVotePageState extends State<LegislationVotePage> {
         border: Border.all(color: AppTheme.info.withValues(alpha: 0.18)),
       ),
       child: Text(
-        '特别案需立法公投表决。请在「立法投票」入口凭 CID 资格参与，本页仅展示进度。',
+        '特别案需立法公投表决。请在「立法投票」入口凭身份CID号资格参与，本页仅展示进度。',
         style: TextStyle(
           fontSize: AppLayout.scaledValue(13),
           height: 1.5,

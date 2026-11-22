@@ -1,3 +1,5 @@
+// 声明App配置、原锁资源、控制台动作及测试参数。
+
 import {fileURLToPath} from 'node:url';
 // 白皮书正文及配图的唯一源码仓库；本机优先读取同级正式检出。
 export const chainRepository='crcfrcn/citizenchain';

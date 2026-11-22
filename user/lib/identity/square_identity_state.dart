@@ -1,3 +1,5 @@
+// 生成广场本地展示身份，实际发布仍由最终链解析器验真。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_user/profile/profile_presentation.dart';
 import 'package:citizen_user/profile/citizen_profile_cache.dart';

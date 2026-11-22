@@ -1,3 +1,5 @@
+// 验证未明确选择设备测试时不安装集成测试binding。
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/widgets.dart';
 import 'package:integration_test/integration_test.dart';

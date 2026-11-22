@@ -1,3 +1,5 @@
+// 通过Android媒体能力转码广场视频并输出符合规格的成品。
+
 package com.crcfrcn.citizenapp
 
 import android.content.Context

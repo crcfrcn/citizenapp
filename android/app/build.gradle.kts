@@ -1,3 +1,5 @@
+// 配置App Android正式身份、Release构建及设备测试和原生依赖。
+
 plugins {
     id("com.android.application")
     // 当前原锁使用Flutter官方支持的KGP配置。

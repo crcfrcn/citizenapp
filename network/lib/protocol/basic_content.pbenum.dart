@@ -1,3 +1,5 @@
+// 保留基础聊天内容协议的Protobuf枚举输出；当前未声明枚举。
+
 // This is a generated file - do not edit.
 //
 // Generated from basic_content.proto.

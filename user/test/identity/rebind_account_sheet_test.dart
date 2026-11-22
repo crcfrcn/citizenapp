@@ -1,3 +1,5 @@
+// 验证换绑目标空态和选中账户返回。
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';

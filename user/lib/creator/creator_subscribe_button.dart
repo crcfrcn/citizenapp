@@ -1,3 +1,5 @@
+// 在他人主页展示创作者订阅、取消和换档交互。
+
 import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';

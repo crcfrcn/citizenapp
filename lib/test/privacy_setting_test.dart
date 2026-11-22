@@ -1,3 +1,5 @@
+// 验证主页私信隐私保存、身份切换隔离及黑名单解除。
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -41,14 +43,17 @@ class _Identity extends Fake implements CurrentUserContext {
 class _Sessions extends Fake implements SquareSessionProvider {
   _Sessions(this.identity);
   final _Identity identity;
+  int refreshes = 0;
   @override
   Future<SquareSessionResolution> resolveSession({
     bool refresh = false,
-  }) async => SquareSessionResolution(
+  }) async {
+    if (refresh) refreshes++;
+    return SquareSessionResolution(
     SquareSessionStatus.ready,
     session: SquareSession(
       deviceId: testMlsDeviceId,
-      sessionToken: 'synthetic',
+      sessionToken: 'synthetic-$refreshes',
       cidNumber: identity.cid,
       accountId: testMlsAccountId,
       bindRev: 1,
@@ -56,6 +61,7 @@ class _Sessions extends Fake implements SquareSessionProvider {
       authenticateRequest: fakeMlsRequestHeaders,
     ),
   );
+  }
 }
 
 class _Api extends SquareApiClient {
@@ -67,10 +73,17 @@ class _Api extends SquareApiClient {
   final writes = <DmPolicy>[];
   final blocked = <String>{};
   final blockWrites = <(String, bool)>[];
+  final blockErrors = <Object>[];
+  final blockSessions = <String>[];
+  Completer<Set<String>>? blockPending;
 
   @override
-  Future<Set<String>> blockedUsers(SquareSession session, {bool refresh = false}) async =>
-      Set<String>.unmodifiable(blocked);
+  Future<Set<String>> blockedUsers(SquareSession session, {bool refresh = false}) async {
+    blockSessions.add(session.sessionToken);
+    if (blockErrors.isNotEmpty) throw blockErrors.removeAt(0);
+    if (blockPending != null) return blockPending!.future;
+    return Set<String>.unmodifiable(blocked);
+  }
 
   @override
   Future<void> setBlocked(SquareSession session, String peer, bool value) async {
@@ -135,6 +148,7 @@ void main() {
     _Api api,
     _Identity user, {
     Listenable? revision,
+    _Sessions? sessions,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -143,7 +157,7 @@ void main() {
           homeTabPreferenceWriter: (_) async {},
           privacyApi: api,
           privacyUserContext: user,
-          privacySessionProvider: _Sessions(user),
+          privacySessionProvider: sessions ?? _Sessions(user),
           privacyRevision: revision,
         ),
       ),
@@ -181,6 +195,12 @@ void main() {
     );
     expect(find.text('允许私信'), findsOneWidget);
     expect(find.text('公开可见'), findsOneWidget);
+    final home = tester.widget<Text>(
+      find.byKey(const ValueKey('home-tab-setting-value'), skipOffstage: false),
+    );
+    for (final value in ['允许私信', '公开可见']) {
+      expect(tester.widget<Text>(find.text(value)).style, home.style);
+    }
     await choose(tester, 'profile-visibility-setting', '仅自己可见');
     expect(find.text('仅自己可见'), findsOneWidget);
     expect(api.profileWrites, [ProfileVisibility.private]);
@@ -269,6 +289,72 @@ void main() {
     expect(find.text('黑名单为空'), findsOneWidget);
   });
 
+  testWidgets('黑名单503保留失败，用户重试恢复且不刷新会话', (tester) async {
+    final identity = _Identity(), api = _Api()
+      ..blockErrors.add(const SquareApiException('fixture', statusCode: 503));
+    final sessions = _Sessions(identity);
+    await open(tester, api, identity, sessions: sessions);
+    await Scrollable.ensureVisible(tester.element(tile('blocked-users-setting')));
+    await tester.tap(tile('blocked-users-setting'));
+    await tester.pumpAndSettle();
+    expect(find.text('读取失败，重试'), findsOneWidget);
+    expect(find.text('黑名单为空'), findsNothing);
+    expect(sessions.refreshes, 0);
+    expect(api.blockSessions, ['synthetic-0']);
+    await tester.tap(find.text('读取失败，重试'));
+    await tester.pumpAndSettle();
+    expect(find.text('黑名单为空'), findsOneWidget);
+    expect(sessions.refreshes, 0);
+    expect(api.blockSessions, ['synthetic-0', 'synthetic-0']);
+  });
+  for (final repeat in [false, true]) {
+    testWidgets('黑名单401最多刷新一次，重复拒绝=$repeat', (tester) async {
+      final identity = _Identity(), api = _Api();
+      api.blockErrors.add(const SquareApiException('fixture', statusCode: 401));
+      if (repeat) api.blockErrors.add(const SquareApiException('fixture', statusCode: 401));
+      final sessions = _Sessions(identity);
+      await open(tester, api, identity, sessions: sessions);
+      await Scrollable.ensureVisible(tester.element(tile('blocked-users-setting')));
+      await tester.tap(tile('blocked-users-setting'));
+      await tester.pumpAndSettle();
+      expect(sessions.refreshes, 1);
+      expect(api.blockSessions, ['synthetic-0', 'synthetic-1']);
+      expect(find.text(repeat ? '读取失败，重试' : '黑名单为空'), findsOneWidget);
+    });
+  }
+  testWidgets('黑名单身份切换后丢弃在途旧名单', (tester) async {
+    final identity = _Identity(), api = _Api()..blockPending = Completer<Set<String>>();
+    final revision = ValueNotifier<int>(0);
+    addTearDown(revision.dispose);
+    await open(tester, api, identity, revision: revision);
+    await Scrollable.ensureVisible(tester.element(tile('blocked-users-setting')));
+    await tester.tap(tile('blocked-users-setting'));
+    await tester.pump();
+    revision.value++;
+    api.blockPending!.complete({'CN583-CTZN2-100000002-2026'});
+    await tester.pumpAndSettle();
+    expect(find.text('身份已切换，请返回'), findsOneWidget);
+    expect(find.text('CN583-CTZN2-100000002-2026'), findsNothing);
+  });
+  test('黑名单完整翻页后合并，损坏回执失败而非空名单', () async {
+    final session = (await _Sessions(_Identity()).resolveSession()).session!;
+    const first = 'CN100-CTZN2-100000001-2026', last = 'CN200-CTZN2-100000002-2026';
+    final cursors = <String?>[];
+    var invalid = false;
+    final api = SquareApiClient(baseUrl: 'https://square.test/api', httpClient: MockClient((request) async {
+      cursors.add(request.url.queryParameters['cursor']);
+      return http.Response(jsonEncode(invalid ? {'is_ok':true,'items':null} : {
+        'is_ok':true, 'items':[cursors.length == 1 ? first : last],
+        'next_cursor':cursors.length == 1 ? first : null,
+      }), 200);
+    }));
+    addTearDown(api.close);
+    expect(await api.blockedUsers(session, refresh: true), {first, last});
+    expect(cursors, [null, first]);
+    invalid = true;
+    await expectLater(api.blockedUsers(session, refresh: true), throwsA(isA<SquareApiException>()));
+    expect(api.isBlocked(session.cidNumber, first), isTrue);
+  });
   test('名单读一次，拉黑与解除只提交空正文并更新本机名单', () async {
     const peer = 'CN583-CTZN2-100000002-2026';
     final resolver = _Sessions(_Identity());

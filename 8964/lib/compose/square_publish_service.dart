@@ -1,3 +1,5 @@
+// 协调身份验真、媒体上传、链确认和本地收尾及发布恢复。
+
 import 'dart:async';
 import 'dart:typed_data';
 

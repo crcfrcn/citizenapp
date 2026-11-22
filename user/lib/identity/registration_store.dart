@@ -1,3 +1,5 @@
+// 通过受保护原子通道保存真实注册交易事实。
+
 import 'package:citizen_system/security/system_protected_storage.dart';
 import 'package:citizen_user/identity/registration_models.dart';
 

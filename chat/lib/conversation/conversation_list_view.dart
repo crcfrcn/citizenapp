@@ -1,3 +1,5 @@
+// 呈现会话概览、搜索和滑动操作，协调菜单布局及防重复动作。
+
 import 'package:citizen_system/theme/app_layout.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'dart:math' as math;
@@ -135,9 +137,11 @@ class ChatConversationOverview extends StatelessWidget {
     required this.onRefresh,
     required this.onSearch,
     required this.items,
+    this.showConnectionIndicator = false,
   });
 
   final Widget header;
+  final bool showConnectionIndicator;
   final Future<void> Function() onRefresh;
   final VoidCallback onSearch;
   final List<ChatConversationListItem> items;
@@ -169,6 +173,20 @@ class ChatConversationOverview extends StatelessWidget {
                 ],
               ),
             ),
+            if (showConnectionIndicator)
+              const Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: IgnorePointer(
+                  child: Center(
+                    child: ColoredBox(
+                      color: AppTheme.scaffoldBg,
+                      child: ChatConnectionIndicator(),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -755,7 +773,7 @@ class _ChatConnectionIndicatorState extends State<ChatConnectionIndicator>
     with SingleTickerProviderStateMixin {
   late final AnimationController _animation = AnimationController(
     vsync: this,
-    duration: const Duration(seconds: 2),
+    duration: const Duration(milliseconds: 1200),
   )..repeat();
   @override
   void dispose() {
@@ -767,18 +785,18 @@ class _ChatConnectionIndicatorState extends State<ChatConnectionIndicator>
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: _animation,
     builder: (context, child) {
-      final count = (_animation.value * 5).floor() + 1;
+      final count = (_animation.value * 3).floor() + 1;
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const SizedBox(width: 41),
-          const Text('连接中', style: TextStyle(color: AppTheme.textSecondary)),
-          const SizedBox(width: 6),
+          const SizedBox(width: 23),
+          const Text('连接中', style: TextStyle(color: AppTheme.primary)),
+          const SizedBox(width: 2),
           ExcludeSemantics(
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: List.generate(
-                5,
+                3,
                 (i) => Opacity(
                   key: ValueKey('chat-connection-dot-$i'),
                   opacity: i < count ? 1 : 0,
@@ -789,7 +807,7 @@ class _ChatConnectionIndicatorState extends State<ChatConnectionIndicator>
                       height: 3,
                       child: DecoratedBox(
                         decoration: BoxDecoration(
-                          color: AppTheme.textSecondary,
+                          color: AppTheme.primary,
                           shape: BoxShape.circle,
                         ),
                       ),

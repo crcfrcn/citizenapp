@@ -1,3 +1,5 @@
+// 装配公民域二级导航，惰性创建并保留各业务页面状态。
+
 import 'package:flutter/material.dart';
 
 import 'package:citizen_citizen/governance/election_tab.dart';

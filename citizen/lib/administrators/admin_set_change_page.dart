@@ -1,3 +1,5 @@
+// 编辑管理员集合和阈值，校验后进入确认签名流程。
+
 import 'package:citizen_widgets/chain_balance_scope.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 

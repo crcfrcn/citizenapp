@@ -1,3 +1,5 @@
+// 验证损坏或类型冲突消息被逐条隔离而不影响有效历史。
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/message/chat_content.dart';
 import 'package:chat/message/chat_message.dart';

@@ -1,17 +1,5 @@
-// 公民链上身份确认载荷独立解码器。
-//
-// 两色识别模型:签名前必须能从字节独立解码出全部字段并展示给公民,解不开一律拒签。
-// 公民签名覆盖完整授权字节:
-//   genesis_hash(32) ++ payload ++ expected_identity_version(8) ++ expires_at(8)
-// SCALE 布局与链端结构体逐字节一致,字段变更四处必须同步:
-//   citizenchain/runtime/misc/citizen-identity/src/lib.rs
-//     (CitizenIdentityAuthorization / VotingIdentityPayload / CandidateIdentityPayload)
-//   citizenchain/onchina/src/domains/citizens/chain_identity.rs
-//     (build_citizen_identity_authorization_bytes)
-//   citizenwallet/lib/signing/payload_decoder.dart(_readCandidateIdentityPayload)
-//   本文件
-// 注:链上「已存储」的 CandidateIdentity(含 birth_date)另由
-//   citizenapp/lib/user/identity/myid_service.dart(_decodeCandidateIdentity)解码。
+// 完整解码身份确认授权字节及版本和期限，供签名前独立审阅。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:convert';

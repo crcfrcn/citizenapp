@@ -1,3 +1,5 @@
+// 为金额输入插入千分位并校正光标，限制两位小数。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/services.dart';
 

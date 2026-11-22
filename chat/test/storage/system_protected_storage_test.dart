@@ -1,3 +1,5 @@
+// 验证聊天路径保护失败及越界或链接目录拒绝。
+
 import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';

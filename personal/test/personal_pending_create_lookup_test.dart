@@ -1,10 +1,4 @@
-// 个人多签待激活创建提案反查单元测试。
-//
-// 验证:
-// - Isar 无 entity → null
-// - 仅有非 voting 状态 entity → null(只匹配 voting + create 双条件)
-// - 有 voting 状态 entity → 返回其 proposal_id
-// - 同地址多 entity 时按状态过滤选 create+voting
+// 验证待激活提案按账户、创建动作和投票状态精确匹配。
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_personal/personal_pending_create_lookup.dart';

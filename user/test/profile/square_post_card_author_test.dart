@@ -1,3 +1,5 @@
+// 验证作者点击回调及缺资料时稳定昵称和头像。
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

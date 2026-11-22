@@ -1,3 +1,5 @@
+// 按作者和内容分类分页读取帖子并触底续页。
+
 import 'package:citizen_square/post/square_post_store.dart';
 
 import 'dart:async';

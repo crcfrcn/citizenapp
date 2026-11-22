@@ -1,3 +1,5 @@
+// 采集下一个或指定派生序号，调用SDK批量追加账户。
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';

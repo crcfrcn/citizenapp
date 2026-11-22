@@ -1,3 +1,5 @@
+// 管理Firebase推送、系统令牌及原生网络可用性事件。
+
 import 'dart:io';
 
 import 'package:firebase_core/firebase_core.dart';

@@ -1,3 +1,5 @@
+// 提供由SDK词表驱动的助记词输入和单词补全。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/material.dart';

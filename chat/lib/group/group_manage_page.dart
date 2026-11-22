@@ -1,3 +1,5 @@
+// 展示群成员和管理操作，并提供共用联系人选择界面。
+
 part of '../chat.dart';
 
 class GroupManagePage extends StatefulWidget {
@@ -178,6 +180,8 @@ class _GroupManagePageState extends State<GroupManagePage> {
 }
 
 String _shortManageContact(String address) {
+  final cid = formatIdentityCidText(address);
+  if (cid != address) return cid;
   if (address.length <= 14) return address;
   return '${address.substring(0, 8)}…${address.substring(address.length - 6)}';
 }

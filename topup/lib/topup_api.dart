@@ -1,3 +1,5 @@
+// 访问固定付款网络及发币服务，核验单轮链事实和签名通知。
+
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;

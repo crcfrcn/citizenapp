@@ -1,3 +1,5 @@
+// 验证系统名称本地化、竖屏、视觉倍率和统一入口布局。
+
 import 'dart:convert';
 import 'dart:io';
 

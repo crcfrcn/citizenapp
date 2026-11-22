@@ -1,3 +1,5 @@
+// 展示并切换聊天表情与贴纸选择面板。
+
 import 'package:citizen_system/theme/app_layout.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'dart:math' as math;

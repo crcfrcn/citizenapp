@@ -1,3 +1,5 @@
+// 只读渲染公开文章和本地副本的规范富文本。
+
 import 'package:flutter/material.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 

@@ -1,3 +1,5 @@
+// 提供六位PIN设置与验证及独立防共匪密码输入。
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';

@@ -1,3 +1,5 @@
+// 展示机构全部账户并通过SDK可见性订阅读取余额。
+
 import 'package:citizen_widgets/chain_balance_scope.dart';
 import 'package:flutter/material.dart';
 

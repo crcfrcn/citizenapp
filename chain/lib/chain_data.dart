@@ -1,3 +1,5 @@
+// 定义带最终块锚点的公民绑定、会员、创作者及独立价格展示快照。
+
 import 'dart:convert';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'citizen_identity_chain_reader.dart';

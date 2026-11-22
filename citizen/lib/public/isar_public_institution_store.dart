@@ -1,3 +1,5 @@
+// 在统一用户库读写公权目录、省份顺序及关注和同步状态。
+
 import 'package:citizen_storage/user_isar.dart'
     as app_store
     show Catalog, Entity, Province;

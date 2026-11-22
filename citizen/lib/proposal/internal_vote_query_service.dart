@@ -1,3 +1,5 @@
+// 读取统一内部投票票据、计票及准确主体资格。
+
 import 'dart:typed_data';
 import 'dart:convert';
 

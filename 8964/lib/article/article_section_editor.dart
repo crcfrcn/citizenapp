@@ -1,3 +1,5 @@
+// 规范文章Delta及允许样式，并提供段落编辑和工具栏。
+
 import 'package:flutter/material.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 

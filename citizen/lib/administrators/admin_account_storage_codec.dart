@@ -1,9 +1,4 @@
-// 分类管理员模块 `AdminAccounts` 的严格 SCALE 解码器。
-//
-// - PublicAdmins / PrivateAdmins: key=CID，value=institution_code + admins。
-// - PersonalAdmins: key=personal_account，value=个人多签 AdminAccount 完整结构。
-//
-// 机构 CID 只存在 storage key，机构 value 不再保存 CID、kind、生命周期或创建资料。
+// 严格解码机构CID键和个人账户键对应的管理员存储布局。
 
 import 'dart:convert';
 import 'dart:typed_data';

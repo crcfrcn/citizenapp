@@ -1,3 +1,5 @@
+// 持久化本机账户业务流水，以真实事件关联SDK执行状态。
+
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_storage/user_isar.dart'
     as wallet_store
