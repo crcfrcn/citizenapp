@@ -45,6 +45,14 @@ class _ChatSearchPageState extends State<ChatSearchPage> {
   late ChatStore _store = widget.store ?? ChatStore();
   CurrentUserContext? _currentUserContext;
   AccountSecurityService? _security;
+  SquareApiClient? _blocksApi;
+
+  bool _blocked(String peer) => _blocksApi?.isBlocked(_cidNumber, peer) == true;
+
+  void _blocksChanged() {
+    if (mounted) setState(() {});
+  }
+
   int _loadGeneration = 0;
   UserContactService? _contactService;
   bool _dependenciesReady = false;
@@ -74,6 +82,8 @@ class _ChatSearchPageState extends State<ChatSearchPage> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_dependenciesReady) return;
+    _blocksApi = context.read<SquareApiClient?>();
+    _blocksApi?.blockRevision.addListener(_blocksChanged);
     _contactService =
         widget.contactService ?? _contactServiceFromContextOrNull(context);
     _currentUserContext = context.read<CurrentUserContext?>();
@@ -87,6 +97,7 @@ class _ChatSearchPageState extends State<ChatSearchPage> {
 
   @override
   void dispose() {
+    _blocksApi?.blockRevision.removeListener(_blocksChanged);
     if (_currentUserContext != null) {
       _security?.revision.removeListener(_identityChanged);
     }
@@ -138,6 +149,7 @@ class _ChatSearchPageState extends State<ChatSearchPage> {
         throw StateError('本机身份不可用');
       }
       if (!mounted || generation != _loadGeneration) return;
+      unawaited(_loadChatBlocks(_blocksApi, context.read<SquareSessionProvider?>(), cid, account));
       final conversations = await store.readConversationPreviews(
         ownerUserId: cid,
         currentAccountId: account,
@@ -225,9 +237,9 @@ class _ChatSearchPageState extends State<ChatSearchPage> {
     final needle = _query.toLowerCase();
     return _conversations
         .where(
-          (item) =>
-              item.title.toLowerCase().contains(needle) ||
-              item.lastMessage.toLowerCase().contains(needle),
+          (item) => (item.isGroup || !_blocked(item.peerUserId)) &&
+              (item.title.toLowerCase().contains(needle) ||
+              item.lastMessage.toLowerCase().contains(needle)),
         )
         .toList(growable: false);
   }
@@ -238,9 +250,9 @@ class _ChatSearchPageState extends State<ChatSearchPage> {
     // 联系人只按本地备注或 CID 搜索。
     return _contacts
         .where(
-          (item) =>
-              item.contactRemark.toLowerCase().contains(needle) ||
-              item.cidNumber.toLowerCase().contains(needle),
+          (item) => !_blocked(item.cidNumber) &&
+              (item.contactRemark.toLowerCase().contains(needle) ||
+              item.cidNumber.toLowerCase().contains(needle)),
         )
         .toList(growable: false);
   }
@@ -278,6 +290,14 @@ class _ChatSearchPageState extends State<ChatSearchPage> {
     }
     if (preview == null) return;
     await _openConversation(preview);
+  }
+
+  bool _visibleMessage(ChatStoredMessage message) {
+    if (!message.conversationId.startsWith('dm:')) return true;
+    final peer = message.senderUserId == _cidNumber
+        ? message.recipientUserId
+        : message.senderUserId;
+    return !_blocked(peer);
   }
 
   @override
@@ -333,7 +353,7 @@ class _ChatSearchPageState extends State<ChatSearchPage> {
         ChatSearchSection(
           title: '聊天记录',
           items: [
-            for (final item in _messageHits)
+            for (final item in _messageHits.where(_visibleMessage))
               ChatSearchItem(
                 key: ValueKey('search-message-${item.messageId}'),
                 leading: const Icon(

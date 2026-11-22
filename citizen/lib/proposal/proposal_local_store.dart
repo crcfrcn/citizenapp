@@ -2,7 +2,7 @@ import 'package:isar_community/isar.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_storage/user_isar.dart'
     as wallet_store
-    show ProposalList, Summary;
+    show Proposal, ProposalList, Summary;
 
 import 'dart:convert';
 import 'dart:typed_data';
@@ -11,6 +11,8 @@ import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_citizen/proposal/proposal_models.dart';
 import 'package:citizen_storage/user_isar.dart' hide Group;
 import 'package:citizen_multisig/multisig_transfer_models.dart';
+
+import 'proposal_detail_local_store.dart';
 
 /// 提案列表本地持久化读库。
 ///
@@ -22,6 +24,130 @@ class ProposalLocalStore {
   static final ProposalLocalStore instance = ProposalLocalStore._();
 
   static const Duration institutionIndexTtl = Duration(minutes: 5);
+
+  /// 公民 Tab 的索引与机构 CID 索引分属不同命名空间。
+  static String feedKey(String genesis, String? account) =>
+      'feed:$genesis:${account ?? ''}';
+
+  Future<ProposalLocalIndex?> readFeed(String key) => _readIndex(key);
+
+  /// 摘要、索引、已处理区块一起提交，空索引同样标记为已同步。
+  Future<void> saveFeed({
+    required String key,
+    required CitizenBlockRef block,
+    required List<LocalProposalSummary> summaries,
+    List<ProposalDetailSnapshot> details = const [],
+    List<BigInt> added = const [],
+    Set<BigInt> deleted = const {},
+  }) async {
+    if (block.finality != CitizenBlockFinality.finalized) {
+      throw ArgumentError('提案同步进度必须来自最终区块');
+    }
+    final committed = await UserIsar.instance.writeTxn((isar) async {
+      final indexes = isar.collection<wallet_store.ProposalList>();
+      final row =
+          await indexes.getByCidNumber(key) ??
+          (wallet_store.ProposalList()..cidNumber = key);
+      final previous = BigInt.tryParse(row.finalizedHeight ?? '');
+      if (previous == block.number && row.finalizedHash != block.hash) {
+        throw StateError('提案同步进度在同高度遇到不同最终块');
+      }
+      if (previous != null && previous >= block.number) return false;
+      var nextIds = row.proposalIds;
+      if (previous == null) {
+        nextIds = summaries.map((summary) => summary.proposalId).toList();
+      } else if (added.isNotEmpty) {
+        nextIds = {...nextIds, ...added}.toList()
+          ..sort((a, b) => b.compareTo(a));
+      }
+      final kept = nextIds.where((id) => !deleted.contains(id)).toSet();
+      await _writeSummaries(
+        isar,
+        summaries.where((summary) => kept.contains(summary.proposalId)).toList(),
+      );
+      for (final snapshot in details) {
+        if (kept.contains(snapshot.proposalId)) {
+          await ProposalDetailLocalStore.instance.putIn(isar, snapshot);
+        }
+      }
+      await _deleteProposals(isar, deleted);
+      row
+        ..proposalIds = kept.toList()
+        ..syncedAt = DateTime.now().millisecondsSinceEpoch
+        ..finalizedHeight = block.number.toString()
+        ..finalizedHash = block.hash;
+      await indexes.putByCidNumber(row);
+      return true;
+    });
+    if (committed && (details.isNotEmpty || deleted.isNotEmpty)) {
+      ProposalDetailLocalStore.instance.notifyFeedChanged({
+        ...details.map((detail) => detail.proposalId),
+        ...deleted,
+      });
+    }
+  }
+
+  /// 删除核验独立提交，不修改已经处理的最终块进度。
+  Future<void> removeConfirmed(Set<BigInt> ids) async {
+    if (ids.isEmpty) return;
+    await UserIsar.instance.writeTxn((isar) => _deleteProposals(isar, ids));
+    ProposalDetailLocalStore.instance.notifyFeedChanged(ids);
+  }
+
+  Future<void> _deleteProposals(Isar isar, Set<BigInt> deleted) async {
+    final indexes = isar.collection<wallet_store.ProposalList>();
+      for (final id in deleted) {
+        final text = id.toString();
+        final indexesContaining = await indexes
+            .filter()
+            .proposalIdTextsElementEqualTo(text)
+            .findAll();
+        for (final index in indexesContaining) {
+          index.proposalIds = index.proposalIds
+              .where((value) => value != id)
+              .toList();
+          await indexes.putByCidNumber(index);
+        }
+        await isar
+            .collection<wallet_store.Summary>()
+            .filter()
+            .proposalIdTextEqualTo(text)
+            .deleteAll();
+        await isar
+            .collection<wallet_store.Proposal>()
+            .filter()
+            .proposalIdTextEqualTo(text)
+            .deleteAll();
+      }
+  }
+
+  /// 仅对仍在当前索引中的待补项写入正文，防止迟到结果覆盖较新的状态。
+  Future<bool> saveRepairedDetail({
+    required String key,
+    required CitizenBlockRef block,
+    required LocalProposalSummary summary,
+    required ProposalDetailSnapshot? detail,
+  }) async {
+    final committed = await UserIsar.instance.writeTxn((isar) async {
+      final row = await isar.collection<wallet_store.ProposalList>()
+          .getByCidNumber(key);
+      if (row == null ||
+          row.finalizedHash != block.hash ||
+          row.finalizedHeight != block.number.toString() ||
+          !row.proposalIds.contains(summary.proposalId)) return false;
+      final record = await isar.collection<wallet_store.Summary>()
+          .filter().proposalIdTextEqualTo(summary.proposalId.toString()).findFirst();
+      if (LocalProposalSummary.fromJsonString(record?.bodyData,
+              proposalId: summary.proposalId)?.detailPending != true) return false;
+      await _writeSummaries(isar, [summary]);
+      if (detail != null) await ProposalDetailLocalStore.instance.putIn(isar, detail);
+      return true;
+    });
+    if (committed) {
+      ProposalDetailLocalStore.instance.notifyFeedChanged({summary.proposalId});
+    }
+    return committed;
+  }
 
   Future<ProposalLocalIndex?> readInstitutionIndex(String cidNumber) {
     return _readIndex(cidNumber);
@@ -47,7 +173,9 @@ class ProposalLocalStore {
       for (final id in ids) {
         final entity = await isar
             .collection<wallet_store.Summary>()
-            .filter().proposalIdTextEqualTo(id.toString()).findFirst();
+            .filter()
+            .proposalIdTextEqualTo(id.toString())
+            .findFirst();
         final summary = entity == null
             ? null
             : LocalProposalSummary.fromJsonString(
@@ -68,15 +196,34 @@ class ProposalLocalStore {
 
   Future<void> upsertSummaries(List<LocalProposalSummary> summaries) async {
     if (summaries.isEmpty) return;
-    await UserIsar.instance.writeTxn((isar) async {
-      for (final summary in summaries) {
-        final entity =
-            await isar.collection<wallet_store.Summary>().filter().proposalIdTextEqualTo(summary.proposalId.toString()).findFirst() ??
-            (wallet_store.Summary()..proposalId = summary.proposalId);
-        entity.bodyData = jsonEncode(summary.toJson());
-        await isar.collection<wallet_store.Summary>().put(entity);
+    await UserIsar.instance.writeTxn(
+      (isar) => _writeSummaries(isar, summaries, preserveFeed: true),
+    );
+  }
+
+  Future<void> _writeSummaries(
+    Isar isar,
+    List<LocalProposalSummary> summaries, {
+    bool preserveFeed = false,
+  }) async {
+    for (final summary in summaries) {
+      if (preserveFeed &&
+          await isar.collection<wallet_store.ProposalList>().filter()
+              .cidNumberStartsWith('feed:')
+              .proposalIdTextsElementEqualTo(summary.proposalId.toString())
+              .findFirst() != null) {
+        continue;
       }
-    });
+      final entity =
+          await isar
+              .collection<wallet_store.Summary>()
+              .filter()
+              .proposalIdTextEqualTo(summary.proposalId.toString())
+              .findFirst() ??
+          (wallet_store.Summary()..proposalId = summary.proposalId);
+      entity.bodyData = jsonEncode(summary.toJson());
+      await isar.collection<wallet_store.Summary>().put(entity);
+    }
   }
 
   Future<void> clearAllForTest() async {
@@ -96,6 +243,8 @@ class ProposalLocalStore {
           : ProposalLocalIndex(
               ids: List<BigInt>.unmodifiable(entity.proposalIds),
               syncedAt: entity.syncedAt,
+              finalizedHeight: BigInt.tryParse(entity.finalizedHeight ?? ''),
+              finalizedHash: entity.finalizedHash,
             );
     });
   }
@@ -118,10 +267,17 @@ class ProposalLocalStore {
 }
 
 class ProposalLocalIndex {
-  const ProposalLocalIndex({required this.ids, required this.syncedAt});
+  const ProposalLocalIndex({
+    required this.ids,
+    required this.syncedAt,
+    this.finalizedHeight,
+    this.finalizedHash,
+  });
 
   final List<BigInt> ids;
   final int syncedAt;
+  final BigInt? finalizedHeight;
+  final String? finalizedHash;
 
   bool isFresh(Duration ttl) {
     final age = DateTime.now().millisecondsSinceEpoch - syncedAt;
@@ -148,6 +304,9 @@ class LocalProposalSummary {
     this.displaySeqInYear,
     this.cidNumber,
     this.fullName,
+    this.cleanupHeight,
+    this.detailPending = false,
+    this.trackTallies = const {},
   });
 
   final BigInt proposalId;
@@ -162,6 +321,9 @@ class LocalProposalSummary {
   final BigInt? displaySeqInYear;
   final String? cidNumber;
   final String? fullName;
+  final BigInt? cleanupHeight;
+  final bool detailPending;
+  final Map<String, int> trackTallies;
   final String title;
   final String subtitle;
   final String listSubtitle;
@@ -189,10 +351,43 @@ class LocalProposalSummary {
     displayMeta: displayMeta,
   );
 
+  LocalProposalSummary withChainState(
+    ProposalMeta meta, {
+    BigInt? cleanupHeight,
+    Map<String, int> trackTallies = const {},
+  }) {
+    final data = toJson()
+      ..['stage'] = meta.stage
+      ..['status'] = meta.status
+      ..['internal_code'] = meta.internalCode
+      ..['subject_cid_numbers'] = meta.subjectCidNumbers
+      ..['track_tallies'] = {...this.trackTallies, ...trackTallies}
+      ..['cleanup_height'] = (cleanupHeight ?? this.cleanupHeight)?.toString();
+    final separator = subtitle.lastIndexOf(' · ');
+    if (separator >= 0) {
+      data['subtitle'] =
+          '${subtitle.substring(0, separator)} · ${_statusLabel(meta.status)}';
+    }
+    return fromJsonString(jsonEncode(data), proposalId: proposalId)!;
+  }
+
+  LocalProposalSummary withRepairedDetail(ProposalWithDetail? proposal) {
+    final data = toJson()..remove('detail_pending');
+    if (proposal != null) {
+      final display = LocalProposalSummary.fromProposal(proposal);
+      data['title'] = display.title;
+      data['subtitle'] = display.subtitle;
+      data['list_subtitle'] = display.listSubtitle;
+      data['icon_kind'] = display.iconKind;
+    }
+    return fromJsonString(jsonEncode(data), proposalId: proposalId)!;
+  }
+
   static LocalProposalSummary fromProposal(
     ProposalWithDetail proposal, {
     InstitutionInfo? institution,
     int? nowMillis,
+    bool detailPending = false,
   }) {
     final meta = proposal.meta;
     final displayId = formatProposalId(meta.displayMeta);
@@ -211,20 +406,17 @@ class LocalProposalSummary {
 
     if (transfer is TransferProposalInfo) {
       title = '转账提案 $displayId';
-      listSubtitle =
-          '转账 ${formatFen(transfer.amountFen)} 元';
+      listSubtitle = '转账 ${formatFen(transfer.amountFen)} 元';
       subtitle = '$listSubtitle · $status';
       iconKind = 'transfer';
     } else if (safetyFund is SafetyFundProposalInfo) {
       title = '安全基金转账 $displayId';
-      listSubtitle =
-          '安全基金转账 ${formatFen(safetyFund.amountFen)} 元';
+      listSubtitle = '安全基金转账 ${formatFen(safetyFund.amountFen)} 元';
       subtitle = '$listSubtitle · $status';
       iconKind = 'safety_fund';
     } else if (sweep is SweepProposalInfo) {
       title = '手续费划转 $displayId';
-      listSubtitle =
-          '手续费划转 ${formatFen(sweep.amountFen)} 元';
+      listSubtitle = '手续费划转 ${formatFen(sweep.amountFen)} 元';
       subtitle = '$listSubtitle · $status';
       iconKind = 'sweep';
     } else if (proposal.createMultisigDetail != null) {
@@ -283,6 +475,7 @@ class LocalProposalSummary {
       subtitle: subtitle,
       listSubtitle: listSubtitle,
       iconKind: iconKind,
+      detailPending: detailPending,
       updatedAt: nowMillis ?? DateTime.now().millisecondsSinceEpoch,
     );
   }
@@ -304,6 +497,9 @@ class LocalProposalSummary {
     'list_subtitle': listSubtitle,
     'icon_kind': iconKind,
     'updated_at': updatedAt,
+    'cleanup_height': cleanupHeight?.toString(),
+    if (detailPending) 'detail_pending': true,
+    if (trackTallies.isNotEmpty) 'track_tallies': trackTallies,
   };
 
   static LocalProposalSummary? fromJsonString(
@@ -343,7 +539,9 @@ class LocalProposalSummary {
         executionAccountId: _toNullableString(decoded['execution_account_id']),
         subjectCidNumbers: _toStringList(decoded['subject_cid_numbers']),
         displayYear: _toInt(decoded['display_year']),
-        displaySeqInYear: BigInt.tryParse(decoded['display_seq_in_year'].toString()),
+        displaySeqInYear: BigInt.tryParse(
+          decoded['display_seq_in_year'].toString(),
+        ),
         cidNumber: _toNullableString(decoded['cid_number']),
         fullName: _toNullableString(decoded['cid_full_name']),
         title: title,
@@ -351,6 +549,12 @@ class LocalProposalSummary {
         listSubtitle: listSubtitle,
         iconKind: iconKind,
         updatedAt: updatedAt,
+        detailPending: decoded['detail_pending'] == true,
+        trackTallies: (decoded['track_tallies'] as Map<String, dynamic>?)
+            ?.map((name, value) => MapEntry(name, value as int)) ?? const {},
+        cleanupHeight: BigInt.tryParse(
+          decoded['cleanup_height']?.toString() ?? '',
+        ),
       );
     } catch (_) {
       return null;

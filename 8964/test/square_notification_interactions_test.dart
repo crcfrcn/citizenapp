@@ -540,7 +540,7 @@ void main() {
     );
   }
 
-  testWidgets('通知缓存关闭重开后首屏不联网，重新进入也不拉列表', (tester) async {
+  testWidgets('关闭重开后只展示按当前拉黑关系读取的通知', (tester) async {
     await seedList(tester);
     Notifications.instance.stop();
     await driveIo(tester, UserIsar.instance.db().then((db) => db.close()));
@@ -554,20 +554,20 @@ void main() {
     );
     await tester.pumpWidget(page());
     await drain(tester);
-    expect(find.text('缓存互动'), findsOneWidget);
-    expect(api.notificationRequests, isEmpty);
-    expect(sessions.calls, 0);
+    expect(find.text('缓存互动'), findsNothing);
+    expect(find.text('有通知的内容'), findsOneWidget);
+    expect(api.notificationRequests, hasLength(1));
     await tester.pumpWidget(const SizedBox());
     await drain(tester);
     await tester.pumpWidget(page());
     await drain(tester);
-    expect(find.text('缓存互动'), findsOneWidget);
-    expect(api.notificationRequests, isEmpty);
-    expect(sessions.calls, 0);
+    expect(find.text('缓存互动'), findsNothing);
+    expect(find.text('有通知的内容'), findsOneWidget);
+    expect(api.notificationRequests, hasLength(2));
     await tester.pumpWidget(const SizedBox());
     await drain(tester);
   });
-  testWidgets('列表在覆盖路由后到达，返回时读缓存并清通知层，不重复GET', (tester) async {
+  testWidgets('覆盖路由时不清通知，返回只重验一次列表', (tester) async {
     final key = GlobalKey<SquareNotificationsPageState>();
     final held = Completer<Map<String, dynamic>>();
     api.onNotifications = (_, _, _) => held.future;
@@ -598,7 +598,7 @@ void main() {
     navigator.pop();
     await drain(tester);
     expect(find.text('有通知的内容'), findsOneWidget);
-    expect(api.notificationRequests, hasLength(1));
+    expect(api.notificationRequests, hasLength(2));
     expect(
       api.reads.where((read) => read['scope'] == 'notifications'),
       hasLength(1),
@@ -606,7 +606,7 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await drain(tester);
   });
-  testWidgets('主动刷新失败保留已缓存内容，不自动循环重试', (tester) async {
+  testWidgets('主动刷新失败保留本次已核验内容，不自动循环重试', (tester) async {
     await seedList(tester);
     final key = GlobalKey<SquareNotificationsPageState>();
     await tester.pumpWidget(
@@ -623,22 +623,23 @@ void main() {
     api.onNotifications = (_, _, _) async => throw StateError('offline');
     await driveIo(tester, key.currentState!.refresh());
     await drain(tester);
-    expect(api.notificationRequests, hasLength(1));
-    expect(find.text('缓存互动'), findsOneWidget);
+    expect(api.notificationRequests, hasLength(2));
+    expect(find.text('有通知的内容'), findsOneWidget);
     expect(find.text('互动读取失败，请下拉重试'), findsOneWidget);
     await drain(tester);
-    expect(api.notificationRequests, hasLength(1));
+    expect(api.notificationRequests, hasLength(2));
     api.onNotifications = null;
     await driveIo(tester, key.currentState!.refresh());
     await drain(tester);
-    expect(api.notificationRequests, hasLength(2));
+    expect(api.notificationRequests, hasLength(3));
     expect(find.text('有通知的内容'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
     await drain(tester);
   });
-  testWidgets('缓存分页沿用捕获上界，只获取缺失页并保存合并列表', (tester) async {
+  testWidgets('当前会话分页使用新游标，重新进入从首屏校验', (tester) async {
     await seedList(tester, next: 'opaque.cursor');
     api.onNotifications = (session, cursor, through) async {
+      if (cursor == null) return {...api.page(), 'next_cursor': 'opaque.cursor'};
       expect(cursor, 'opaque.cursor');
       expect(through, isNull);
       return {
@@ -663,19 +664,20 @@ void main() {
     );
     await tester.pumpWidget(page());
     await drain(tester);
-    expect(api.notificationRequests, isEmpty);
+    expect(api.notificationRequests, hasLength(1));
     await tester.tap(find.text('更多互动'));
     await drain(tester);
-    expect(api.notificationRequests, hasLength(1));
-    expect(find.text('缓存互动'), findsOneWidget);
+    expect(api.notificationRequests, hasLength(2));
+    expect(find.text('有通知的内容'), findsOneWidget);
     expect(find.text('第二页'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
     await drain(tester);
     Notifications.instance.invalidate();
+    api.onNotifications = null;
     await tester.pumpWidget(page());
     await drain(tester);
-    expect(api.notificationRequests, hasLength(1));
-    expect(find.text('第二页'), findsOneWidget);
+    expect(api.notificationRequests, hasLength(3));
+    expect(find.text('第二页'), findsNothing);
     expect(find.text('更多互动'), findsNothing);
     await tester.pumpWidget(const SizedBox());
     await drain(tester);
@@ -687,7 +689,9 @@ void main() {
     final parameters = <String?>[];
     api.onNotifications = (session, cursor, through) {
       parameters.add(cursor);
-      return cursor == 'opaque.cursor' ? held.future : Future.value(api.page());
+      return cursor == 'opaque.cursor'
+          ? held.future
+          : Future.value({...api.page(), 'next_cursor': 'opaque.cursor'});
     };
     await tester.pumpWidget(
       wrap(
@@ -718,7 +722,7 @@ void main() {
     });
     await driveIo(tester, Future.wait([refresh, duplicate]));
     await drain(tester);
-    expect(parameters, ['opaque.cursor', null]);
+    expect(parameters, [null, 'opaque.cursor', null]);
     expect(find.text('有通知的内容'), findsOneWidget);
     expect(find.text('第二页'), findsNothing);
     await tester.pumpWidget(const SizedBox());
@@ -756,17 +760,17 @@ void main() {
       ];
       await driveIo(tester, Notifications.instance.accept(api.state));
       await drain(tester);
-      expect(api.notificationRequests, isEmpty);
+      expect(api.notificationRequests, hasLength(1));
       selected.value = 0;
       await drain(tester);
-      expect(api.notificationRequests, hasLength(1));
+      expect(api.notificationRequests, hasLength(2));
       expect(find.text('新事件内容'), findsOneWidget);
       expect(find.text('缓存互动'), findsNothing);
       selected.value = 1;
       await drain(tester);
       selected.value = 0;
       await drain(tester);
-      expect(api.notificationRequests, hasLength(1));
+      expect(api.notificationRequests, hasLength(3));
       await tester.pumpWidget(const SizedBox());
       await drain(tester);
       selected.dispose();

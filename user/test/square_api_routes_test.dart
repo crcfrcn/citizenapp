@@ -35,6 +35,43 @@ class _NotificationGate extends Fake implements SquareResourceGate {
 }
 
 void main() {
+  test('冷启动拉黑和解除只请求目标，打开黑名单才读完整名单', () async {
+    final requests = <String>[];
+    final api = SquareApiClient(
+      baseUrl: 'https://square.test/api',
+      httpClient: MockClient((request) async {
+        requests.add(request.method);
+        return http.Response(
+          switch (request.method) {
+            'PUT' => '{"is_ok":true,"blocked":true}',
+            'DELETE' => '{"is_ok":true,"blocked":false}',
+            _ => '{"is_ok":true,"items":["CN003"]}',
+          },
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    );
+    addTearDown(api.close);
+    final session = SquareSession(
+      sessionToken: 'fixture',
+      cidNumber: testMlsCidNumber,
+      accountId: testMlsAccountId,
+      bindRev: 1,
+      deviceId: testMlsDeviceId,
+      expiresAt: DateTime.now().millisecondsSinceEpoch + 60000,
+      authenticateRequest: fakeMlsRequestHeaders,
+    );
+    await api.setBlocked(session, 'CN002', true);
+    expect(api.isBlocked(session.cidNumber, 'CN002'), isTrue);
+    await api.setBlocked(session, 'CN002', false);
+    expect(api.isBlocked(session.cidNumber, 'CN002'), isFalse);
+    expect(requests, ['PUT', 'DELETE']);
+    expect(await api.blockedUsers(session), {'CN003'});
+    expect(await api.blockedUsers(session), {'CN003'});
+    expect(requests, ['PUT', 'DELETE', 'GET']);
+  });
+
   test('通知摘要与服务端一致归广场许可，纯通知和计数仍归account', () async {
     final previous = SquareApiClient.resourceGate;
     final gate = _NotificationGate();

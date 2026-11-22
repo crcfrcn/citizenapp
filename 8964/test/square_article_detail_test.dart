@@ -253,6 +253,31 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
       security.revision.dispose();
     });
+    testWidgets('${article ? "文章" : "动态"}回前台先隐藏旧正文并复核拉黑', (tester) async {
+      final api = _DetailApi()..pending = Completer<SquarePost>();
+      final sessions = _DetailSessions()..active = fakeSession(cidNumber: 'CN002');
+      await tester.pumpWidget(
+        MaterialApp(
+          home: detail(
+            content(), api, sessions,
+            initialRead: SquareDetailRead(
+              session: sessions.active, postId: 'p1', revision: null,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final body = find.textContaining('已经获准读取的受保护正文', findRichText: true);
+      expect(body, findsWidgets);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      expect(api.calls, 1);
+      expect(body, findsNothing);
+      api.pending!.completeError(const SquareApiException('blocked', statusCode: 404));
+      await tester.pumpAndSettle();
+      expect(body, findsNothing);
+    });
     testWidgets('${article ? "文章" : "动态"}通知预读不能跨身份复用', (tester) async {
       final api = _DetailApi(), sessions = _DetailSessions();
       await tester.pumpWidget(

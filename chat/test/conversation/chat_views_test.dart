@@ -13,6 +13,32 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/chat.dart';
 
 void main() {
+  testWidgets('连接点仅在挂载时按1至5循环且居中', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: Center(child: ChatConnectionIndicator())),
+      ),
+    );
+    for (var count = 1; count <= 5; count++) {
+      for (var i = 0; i < 5; i++)
+        expect(
+          tester
+              .widget<Opacity>(find.byKey(ValueKey('chat-connection-dot-$i')))
+              .opacity,
+          i < count ? 1 : 0,
+        );
+      await tester.pump(const Duration(milliseconds: 400));
+    }
+    expect(
+      tester
+          .widget<Opacity>(find.byKey(const ValueKey('chat-connection-dot-1')))
+          .opacity,
+      0,
+    );
+    await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+    expect(tester.binding.transientCallbackCount, 0);
+  });
+
   final messages = <String, Message Function(String)>{
     '文字': (author) => Message.text(
       id: 'row',
@@ -414,13 +440,13 @@ void main() {
     );
     c.start();
     await tester.pump();
-    expect(c.error, isNull);
+    expect(c.loading, isFalse);
     await c.reloadMessages();
     await tester.pump(const Duration(seconds: 60));
-    expect(c.error, isNull);
+    expect(c.loading, isFalse);
     expect(syncs, 0);
     await connection!.call(true);
-    expect(c.error, isNull);
+    expect(c.loading, isFalse);
     c.dispose();
   });
 
@@ -431,15 +457,6 @@ void main() {
       '09:05',
     );
     expect(chatConversationTime(DateTime(2026, 8, 29, 9), now: now), '昨天');
-  });
-
-  test('empty state is hidden during loading and errors', () {
-    expect(shouldShowChatEmptyState(loading: false, error: null), isTrue);
-    expect(shouldShowChatEmptyState(loading: true, error: null), isFalse);
-    expect(
-      shouldShowChatEmptyState(loading: false, error: 'integrity error'),
-      isFalse,
-    );
   });
 
   testWidgets('conversation overview renders cards and unread badges', (
@@ -780,16 +797,6 @@ void main() {
     expect(find.byType(CheckboxListTile), findsNothing);
     await tester.tap(find.text('原通讯录行'));
     expect(toggled, isTrue);
-  });
-
-  // 中文注释：只有读取完成且没有错误时才能显示空态，加载或校验失败不得误导用户为暂无消息。
-  test('只有成功且无错误的零消息读取显示真实空态', () {
-    expect(shouldShowChatEmptyState(loading: false, error: null), isTrue);
-    expect(shouldShowChatEmptyState(loading: true, error: null), isFalse);
-    expect(
-      shouldShowChatEmptyState(loading: false, error: '本机历史消息无法验证'),
-      isFalse,
-    );
   });
 }
 

@@ -49,9 +49,6 @@ class ChatConversationPage extends StatefulWidget {
 }
 
 class _ChatConversationPageState extends State<ChatConversationPage> {
-  String _attachmentTooLargeMessage(ChatMessageKind kind) =>
-      '文件超出当前会员单个附件上限（${SubscriptionService.currentChatFileSizeLabel}）';
-  String _attachmentTooLongMessage(ChatMessageKind kind) => '语音、视频消息每条最长 3 分钟';
   Future<void> _openTransfer(BuildContext context, String targetUserId) async {
     if (!context.mounted) {
       return;
@@ -83,7 +80,6 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
     );
   }
 
-  StreamSubscription<ChatSendRejection>? _sendRejections;
   late final ChatConversationController _conversationController;
   late final VoiceRecorder _voiceRecorder;
   late final MediaCompressor _mediaCompressor;
@@ -97,7 +93,7 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
   VoiceRecordingState _voiceState = VoiceRecordingState.idle;
   Future<void>? _voiceStartInFlight;
   bool _deleting = false;
-  String? _pageError;
+  bool _blocking = false;
   late final bool Function() _attachmentContextCurrent;
 
   /// 头像只消费现有资料入口；FutureBuilder隔离迟到结果，公开缓存事件负责刷新。
@@ -174,11 +170,13 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
     try {
       final cached = await profiles.read(sender);
       if (cached?.cidNumber == sender &&
-          cached!.profileAt >= (profile?.profileAt ?? -1))
+          cached!.profileAt >= (profile?.profileAt ?? -1)) {
         profile = cached;
+      }
       if (profile != null) media = await mediaCache.read(profile);
-      if (!current())
+      if (!current()) {
         return (profile: null, media: const CitizenProfileMediaSnapshot());
+      }
       if (profile == null ||
           profile.avatarKey?.trim().isNotEmpty == true &&
               (media.avatarPath == null ||
@@ -319,20 +317,17 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
       isVisible: () => mounted && (ModalRoute.of(context)?.isCurrent ?? false),
       onPause: _cancelVoiceRecording,
       mediaLimits: widget.runtime.mediaLimits,
-      errorMessage: chatUserErrorMessage,
     );
-    _sendRejections = widget.runtime.sendRejections.listen((event) {
-      if (!mounted ||
-          widget.isGroup ||
-          !(ModalRoute.of(context)?.isCurrent ?? false) ||
-          event.accountId != widget.accountId ||
-          event.userId != widget.currentUserId ||
-          event.conversationId != widget.conversationId)
-        return;
-      _conversationController.showError(dmForbiddenMessage);
-    });
     _conversationController.addListener(_refresh);
     _conversationController.start();
+  }
+
+  void _recordFailure(Object error) {
+    if (mounted) {
+      debugPrint(
+        '[ChatTrace] direction=ui stage=conversation code=${chatDiagnosticCode(error)}',
+      );
+    }
   }
 
   void _refresh() {
@@ -349,7 +344,6 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
 
   @override
   void dispose() {
-    unawaited(_sendRejections?.cancel());
     _conversationController.removeListener(_refresh);
     _conversationController.dispose();
     _composerController.dispose();
@@ -359,28 +353,12 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
     super.dispose();
   }
 
-  bool _requireSendPermission() {
-    if (widget.runtime.canSendCached(widget.currentUserId)) {
-      return true;
-    }
-    if (mounted) {
-      setState(() {
-        _pageError = '当前公民身份或会话尚未就绪，请稍后重试';
-      });
-    }
-    return false;
-  }
-
   Future<void> _sendText(String text) async {
-    if (_requireSendPermission()) {
-      await _conversationController.sendText(text);
-    }
+    await _conversationController.sendText(text);
   }
 
   Future<void> _sendSticker(String packId, String stickerId) async {
-    if (_requireSendPermission()) {
-      await _conversationController.sendSticker(packId, stickerId);
-    }
+    await _conversationController.sendSticker(packId, stickerId);
   }
 
   Future<bool> _prepareAttachment() async {
@@ -392,11 +370,11 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
       accountId: widget.accountId,
     );
     // 整个附件动作归本页初始会话；选取/录音期间换账户也不能交给新会话。
-    return _attachmentContextCurrent() && _requireSendPermission();
+    return _attachmentContextCurrent();
   }
 
   Future<void> _sendMediaDrafts(Iterable<ChatMediaDraft> drafts) async {
-    if (_conversationController.attachmentBusy || !_requireSendPermission()) {
+    if (_conversationController.attachmentBusy) {
       return;
     }
     if (!await _prepareAttachment() || _conversationController.attachmentBusy) {
@@ -408,17 +386,11 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
         draft.kind,
         draft.byteSize,
       )) {
-        setState(() {
-          _pageError = _attachmentTooLargeMessage(draft.kind);
-        });
         return;
       }
       final durationMs = draft.durationMs;
       if (durationMs != null &&
           durationMs > chatMessageMaximumDuration.inMilliseconds) {
-        setState(() {
-          _pageError = _attachmentTooLongMessage(draft.kind);
-        });
         return;
       }
     }
@@ -527,9 +499,6 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
   }
 
   Future<void> _handleAction(ChatComposerAction action) async {
-    if (!_requireSendPermission()) {
-      return;
-    }
     _togglePanel(ChatComposerPanel.none);
     try {
       if ((action == ChatComposerAction.gallery ||
@@ -562,22 +531,12 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
         case ChatComposerAction.videoCall:
           return;
       }
-    } on ChatMediaTooLargeException {
-      if (mounted) {
-        setState(() {
-          _pageError = _attachmentTooLargeMessage(ChatMessageKind.file);
-        });
-      }
+    } on ChatMediaTooLargeException catch (error) {
+      _recordFailure(error);
     } on ChatMediaTooLongException catch (error) {
-      if (mounted) {
-        setState(() {
-          _pageError = _attachmentTooLongMessage(error.kind);
-        });
-      }
+      _recordFailure(error);
     } catch (error) {
-      if (mounted) {
-        setState(() => _pageError = chatUserErrorMessage(error));
-      }
+      _recordFailure(error);
     }
   }
 
@@ -625,9 +584,7 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
   }
 
   Future<void> _startVoiceRecording() async {
-    if (!_requireSendPermission() ||
-        _voiceStartInFlight != null ||
-        _voiceState.recording) {
+    if (_voiceStartInFlight != null || _voiceState.recording) {
       return;
     }
     late final Future<void> pending;
@@ -640,9 +597,7 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
     try {
       await pending;
     } catch (error) {
-      if (mounted) {
-        setState(() => _pageError = chatUserErrorMessage(error));
-      }
+      _recordFailure(error);
     } finally {
       if (identical(_voiceStartInFlight, pending)) {
         _voiceStartInFlight = null;
@@ -662,18 +617,11 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
       }
       if (result.duration < const Duration(milliseconds: 800)) {
         await File(result.path).delete();
-        if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('说话时间太短')));
-        }
         return;
       }
       await _sendVoiceResult(result);
     } catch (error) {
-      if (mounted) {
-        setState(() => _pageError = chatUserErrorMessage(error));
-      }
+      _recordFailure(error);
     }
   }
 
@@ -716,15 +664,32 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
   }
 
   Future<void> _downloadMedia(String controlPlaintext) async {
-    final downloaded = await _conversationController.downloadAttachment(
-      controlPlaintext,
-    );
-    if (!mounted || downloaded == null) {
-      return;
+    await _conversationController.downloadAttachment(controlPlaintext);
+  }
+
+  Future<void> _blockPeer() async {
+    final api = context.read<SquareApiClient?>();
+    final sessions = widget.sessionProvider ?? context.read<SquareSessionProvider?>();
+    if (_blocking || widget.isGroup || api == null || sessions == null) return;
+    setState(() => _blocking = true);
+    try {
+      final session = await sessions.ensureContactSession();
+      if (session == null || session.cidNumber != widget.currentUserId ||
+          session.accountId != widget.accountId) {
+        throw StateError('没有当前身份会话');
+      }
+      if (!mounted) return;
+      await api.setBlocked(session, widget.peerUserId, true);
+      if (mounted) Navigator.of(context).pop();
+    } on Object {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('拉黑用户失败，请重试')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _blocking = false);
     }
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('已保存：${downloaded.fileName}')));
   }
 
   Future<void> _deleteConversation() async {
@@ -752,7 +717,6 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
     }
     final deleter = widget.onDeleteConversation;
     if (deleter == null) {
-      setState(() => _pageError = '当前会话不能删除');
       return;
     }
     setState(() => _deleting = true);
@@ -774,19 +738,6 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
   }
 
   Widget _buildComposer(BuildContext context) {
-    if (!widget.runtime.canSendCached(widget.currentUserId)) {
-      return Container(
-        key: const ValueKey('chat-membership-required'),
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        color: AppTheme.surfaceCard,
-        child: Text(
-          '当前公民身份或会话尚未就绪，请稍后重试',
-          textAlign: TextAlign.center,
-          style: TextStyle(color: AppTheme.textSecondary),
-        ),
-      );
-    }
     final panel = switch (_openPanel) {
       ChatComposerPanel.none => null,
       ChatComposerPanel.expression => ChatExpressionPanel(
@@ -847,10 +798,21 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
           PopupMenuButton<_ChatMenuAction>(
             tooltip: '更多',
             icon: const Icon(Icons.more_vert_rounded),
-            enabled: !_deleting,
-            onSelected: (_) => unawaited(_deleteConversation()),
-            itemBuilder: (_) => const [
-              PopupMenuItem(
+            enabled: !_deleting && !_blocking,
+            onSelected: (action) => unawaited(
+              action == _ChatMenuAction.blockUser ? _blockPeer() : _deleteConversation(),
+            ),
+            itemBuilder: (_) => [
+              if (!widget.isGroup && context.read<SquareApiClient?>() != null)
+                const PopupMenuItem(
+                  value: _ChatMenuAction.blockUser,
+                  child: Row(children: [
+                    Icon(Icons.block_outlined, size: 18),
+                    SizedBox(width: 10),
+                    Text('拉黑用户'),
+                  ]),
+                ),
+              const PopupMenuItem(
                 value: _ChatMenuAction.deleteConversation,
                 child: Row(
                   children: [
@@ -884,10 +846,7 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
         composerBuilder: _buildComposer,
         onDownloadAttachment: _downloadMedia,
         onMessagesChanged: _conversationController.reloadMessages,
-        onRetry: _conversationController.retry,
         isGroup: widget.isGroup,
-        loading: _conversationController.loading,
-        error: _pageError ?? _conversationController.error,
         groupSenderBuilder: widget.isGroup
             ? (context, userId) => Username(
                 userId: userId,
@@ -902,4 +861,4 @@ class _ChatConversationPageState extends State<ChatConversationPage> {
   }
 }
 
-enum _ChatMenuAction { deleteConversation }
+enum _ChatMenuAction { blockUser, deleteConversation }

@@ -9,6 +9,7 @@ import 'dart:math' show Random;
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart' show ValueNotifier, setEquals;
 import 'package:citizen_system/app_log.dart';
 
 import 'package:citizen_square/post/square_models.dart';
@@ -518,6 +519,7 @@ class SquareApiConfig {
 
 /// 与服务端dm_policy一致的收信规则；不从联系人或会员推导。
 enum DmPolicy {
+  all('允许私信'),
   following('我关注的'),
   mutual('相互关注的'),
   none('禁止私信');
@@ -609,10 +611,21 @@ class SquareApiClient
       }
       client._sessions.removeWhere((_, session) => !binding.matches(session));
       client._inflightSessions.clear();
+      client._blockChanges++;
+      client._blocks.removeWhere((key, _) =>
+          key != (binding.cidNumber, binding.accountId, binding.bindRev));
+      client._completeBlocks.retainWhere((key) => client._blocks.containsKey(key));
+      client._blockReads.clear();
     }
   }
 
   static String get defaultBaseUrl => SquareApiConfig.defaultBaseUrl;
+
+  final blockRevision = ValueNotifier<int>(0);
+  final _blocks = <(String, String, int), Set<String>>{};
+  final _completeBlocks = <(String, String, int)>{};
+  final _blockReads = <(String, String, int), Future<Set<String>>>{};
+  int _blockChanges = 0;
 
   final String baseUrl;
   final http.Client _http;
@@ -1169,6 +1182,86 @@ class SquareApiClient
       throw const SquareApiException('云端隐私回执与本次选择不一致');
     }
     return saved;
+  }
+
+  bool isBlocked(String owner, String peer) => _blocks.entries.any(
+    (entry) => entry.key.$1 == owner && entry.value.contains(peer),
+  );
+
+  Future<Set<String>> blockedUsers(
+    SquareSession session, {bool refresh = false}
+  ) async {
+    await session.validateCurrent();
+    final owner = (session.cidNumber, session.accountId, session.bindRev);
+    final cached = _blocks[owner];
+    if (!refresh && cached != null && _completeBlocks.contains(owner)) return cached;
+    final pending = _blockReads[owner];
+    if (pending != null) return pending;
+    final epoch = _blockChanges;
+    final read = () async {
+      final peers = <String>{};
+      String? cursor;
+      do {
+        final page = await _getJson(
+          '/8964/blocks?limit=50${cursor == null ? '' : '&cursor=${Uri.encodeQueryComponent(cursor)}'}',
+          session: session,
+        );
+        final items = page['items'];
+        final next = page['next_cursor'];
+        if (page['is_ok'] != true || items is! List ||
+            items.any((item) => item is! String || item.isEmpty || item == session.cidNumber) ||
+            (next != null && (next is! String || (cursor != null && next.compareTo(cursor) <= 0) ||
+                items.isEmpty || items.last != next))) {
+          throw const SquareApiException('黑名单响应无效');
+        }
+        peers.addAll(items.cast<String>());
+        cursor = next as String?;
+      } while (cursor != null);
+      if (epoch != _blockChanges) {
+        final current = _blocks[owner];
+        if (current != null && _completeBlocks.contains(owner)) return current;
+        throw const SquareApiException('黑名单身份已变化');
+      }
+      final saved = Set<String>.unmodifiable(peers);
+      _blocks[owner] = saved;
+      _completeBlocks.add(owner);
+      if (cached == null || !setEquals(cached, saved)) blockRevision.value++;
+      return saved;
+    }();
+    _blockReads[owner] = read;
+    try {
+      return await read;
+    } finally {
+      if (identical(_blockReads[owner], read)) _blockReads.remove(owner);
+    }
+  }
+
+  Future<void> setBlocked(SquareSession session, String peer, bool blocked) async {
+    if (peer.isEmpty || peer == session.cidNumber) {
+      throw ArgumentError('黑名单目标无效');
+    }
+    final owner = (session.cidNumber, session.accountId, session.bindRev);
+    final request = http.Request(
+      blocked ? 'PUT' : 'DELETE',
+      _uri('/8964/blocks/${Uri.encodeComponent(peer)}'),
+    );
+    final reply = _decodeResponse(await _protectedJsonRequest(request, session));
+    if (reply['is_ok'] != true || reply['blocked'] != blocked) {
+      throw const SquareApiException('黑名单保存回执无效');
+    }
+    await session.validateCurrent();
+    if (_closed) throw http.ClientException('服务客户端已关闭');
+    _blockChanges++;
+    _blockReads.remove(owner);
+    // 写回执立即更新局部状态，完整名单只在实际打开列表时读取。
+    final peers = {...?_blocks[owner]};
+    if (blocked) {
+      peers.add(peer);
+    } else {
+      peers.remove(peer);
+    }
+    _blocks[owner] = Set<String>.unmodifiable(peers);
+    blockRevision.value++;
   }
 
   /// 只检查主页隐私，不下载资料或代替完整主页的会员门禁。
@@ -2340,7 +2433,8 @@ class SquareApiClient
             request.method == 'GET' &&
             uri.queryParameters['group'] == 'post') {
           operation = 'square'; // 含帖子摘要的通知分组沿广场会员规则。
-        } else if (path.startsWith('/8964/')) {
+        } else if (path.startsWith('/8964/') && path != '/8964/blocks' &&
+            !path.startsWith('/8964/blocks/')) {
           operation =
               path.contains('/feed/') ||
                   path == '/8964/posts' && request.method == 'GET'
@@ -3036,9 +3130,14 @@ class SquareApiClient
   }
 
   void close() {
+    if (_closed) return;
     _closed = true;
     _sessions.clear();
     _inflightSessions.clear();
+    _blocks.clear();
+    _completeBlocks.clear();
+    _blockReads.clear();
+    blockRevision.dispose();
     _http.close();
   }
 }

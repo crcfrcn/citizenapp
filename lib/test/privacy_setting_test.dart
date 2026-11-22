@@ -59,12 +59,29 @@ class _Sessions extends Fake implements SquareSessionProvider {
 }
 
 class _Api extends SquareApiClient {
-  DmPolicy value = DmPolicy.none;
+  DmPolicy value = DmPolicy.all;
   ProfileVisibility visibility = ProfileVisibility.public;
   final profileWrites = <ProfileVisibility>[];
   bool fail = false;
   bool failRead = false;
   final writes = <DmPolicy>[];
+  final blocked = <String>{};
+  final blockWrites = <(String, bool)>[];
+
+  @override
+  Future<Set<String>> blockedUsers(SquareSession session, {bool refresh = false}) async =>
+      Set<String>.unmodifiable(blocked);
+
+  @override
+  Future<void> setBlocked(SquareSession session, String peer, bool value) async {
+    blockWrites.add((peer, value));
+    if (value) {
+      blocked.add(peer);
+    } else {
+      blocked.remove(peer);
+    }
+  }
+
   Completer<DmPolicy>? pending;
   @override
   Future<PrivacySettings> fetchPrivacy(SquareSession session) async {
@@ -162,7 +179,7 @@ void main() {
       tester.getTopLeft(find.text('隐私')).dy,
       greaterThan(tester.getTopLeft(find.text('安全')).dy),
     );
-    expect(find.text('禁止私信'), findsOneWidget);
+    expect(find.text('允许私信'), findsOneWidget);
     expect(find.text('公开可见'), findsOneWidget);
     await choose(tester, 'profile-visibility-setting', '仅自己可见');
     expect(find.text('仅自己可见'), findsOneWidget);
@@ -175,21 +192,27 @@ void main() {
   testWidgets('权限读取失败不冒充默认成功，原行可重试', (tester) async {
     final api = _Api()..failRead = true;
     await open(tester, api, _Identity());
-    expect(find.text('暂不可用'), findsNWidgets(2));
-    expect(find.text('禁止私信'), findsNothing);
+    expect(find.text('暂不可用'), findsNothing);
+    expect(find.text('允许私信'), findsOneWidget);
+    expect(find.text('隐私设置读取失败，点击选项可重试'), findsOneWidget);
     api.failRead = false;
+    await Scrollable.ensureVisible(tester.element(tile('dm-policy-setting')));
+    await tester.pumpAndSettle();
     await tester.tap(tile('dm-policy-setting'));
     await tester.pumpAndSettle();
-    expect(find.text('禁止私信'), findsOneWidget);
+    expect(find.text('允许私信'), findsOneWidget);
     expect(api.writes, isEmpty);
   });
 
-  testWidgets('私信三档保存成功才更新，失败保留旧值', (tester) async {
+  testWidgets('私信四档保存成功才更新，失败保留旧值', (tester) async {
     final api = _Api();
     await open(tester, api, _Identity());
     await choose(tester, 'dm-policy-setting', '我关注的');
     expect(api.value, DmPolicy.following);
     expect(find.text('我关注的'), findsOneWidget);
+    await choose(tester, 'dm-policy-setting', '禁止私信');
+    expect(api.value, DmPolicy.none);
+    await choose(tester, 'dm-policy-setting', '我关注的');
     api.fail = true;
     await choose(tester, 'dm-policy-setting', '相互关注的');
     expect(find.text('我关注的'), findsOneWidget);
@@ -223,9 +246,60 @@ void main() {
     await tester.pumpAndSettle();
     api.pending!.complete(DmPolicy.following);
     await tester.pumpAndSettle();
-    expect(find.text('禁止私信'), findsOneWidget);
+    expect(find.text('允许私信'), findsOneWidget);
     expect(find.text('我关注的'), findsNothing);
   });
+  testWidgets('黑名单左滑解除后只更新原名单', (tester) async {
+    const peer = 'CN583-CTZN2-100000002-2026';
+    final api = _Api()..blocked.add(peer);
+    await open(tester, api, _Identity());
+    final entry = tile('blocked-users-setting');
+    await Scrollable.ensureVisible(tester.element(entry));
+    await tester.pumpAndSettle();
+    expect(tester.getTopLeft(entry).dy,
+        lessThan(tester.getTopLeft(tile('dm-policy-setting')).dy));
+    await tester.tap(entry);
+    await tester.pumpAndSettle();
+    await tester.drag(find.byKey(const ValueKey(peer)), const Offset(-600, 0));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, '解除拉黑'));
+    await tester.pumpAndSettle();
+    expect(api.blockWrites, [(peer, false)]);
+    expect(find.text(peer), findsNothing);
+    expect(find.text('黑名单为空'), findsOneWidget);
+  });
+
+  test('名单读一次，拉黑与解除只提交空正文并更新本机名单', () async {
+    const peer = 'CN583-CTZN2-100000002-2026';
+    final resolver = _Sessions(_Identity());
+    final session = (await resolver.resolveSession()).session!;
+    final calls = <String>[];
+    final api = SquareApiClient(
+      baseUrl: 'https://square.test/api',
+      httpClient: MockClient((request) async {
+        calls.add(request.method);
+        expect(request.body, isEmpty);
+        if (request.method == 'GET') {
+          return http.Response(jsonEncode({
+            'is_ok': true, 'items': [], 'next_cursor': null,
+          }), 200);
+        }
+        expect(request.url.path, '/api/8964/blocks/$peer');
+        return http.Response(jsonEncode({
+          'is_ok': true, 'blocked': request.method == 'PUT',
+        }), 200);
+      }),
+    );
+    addTearDown(api.close);
+    expect(await api.blockedUsers(session), isEmpty);
+    await api.setBlocked(session, peer, true);
+    expect(api.isBlocked(session.cidNumber, peer), isTrue);
+    expect(await api.blockedUsers(session), {peer});
+    await api.setBlocked(session, peer, false);
+    expect(api.isBlocked(session.cidNumber, peer), isFalse);
+    expect(calls, ['GET', 'PUT', 'DELETE']);
+  });
+
   test('隐私API严格解析两项，部分提交不附带另一项', () async {
     final sessions = _Sessions(_Identity());
     final session = (await sessions.resolveSession()).session!;

@@ -68,7 +68,6 @@ TestCitizenTransactionFlow flow({
   ..consume = ((_, _) async => result ?? completed())
   ..cancel = ((_) async {});
 
-
 Uint8List eventBytes({
   int index = 2,
   int event = 8,
@@ -118,6 +117,74 @@ class Chain extends TestChainReads {
 }
 
 void main() {
+  test('删除核验只认最终块的空存储结果且透传读取失败', () async {
+    final block = CitizenBlockRef(
+      hash: '0x${'11' * 32}',
+      number: BigInt.from(240),
+      finality: CitizenBlockFinality.finalized,
+    );
+    var fail = false;
+    var calls = 0;
+    final query = ProposalQueryService(
+      getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
+      getStorageBatch: (at, keys) async {
+        expect(at, same(block));
+        expect(keys, hasLength(2));
+        calls++;
+        if (fail) throw StateError('合成读取失败');
+        return [
+          Uint8List.fromList([1]),
+          null,
+        ];
+      },
+    );
+    final ids = [BigInt.one, BigInt.from(2)];
+    expect(await query.deletedProposalIds(block, ids), {BigInt.from(2)});
+    fail = true;
+    await expectLater(query.deletedProposalIds(block, ids), throwsStateError);
+    expect(calls, 2);
+  });
+
+  test('立法和选举计票只读事件涉及的键及同一最终块', () async {
+    final runtime = await CitizenSdkTestFixture.runtimeContext(block);
+    final id = BigInt.from(7);
+    final cid = utf8.encode('CN220');
+    final data = <String, Uint8List>{
+      runtime.storageKey('LegislationVote', 'RepresentativeTallies', [id, 2]).join(','):
+          Uint8List.fromList([3, 0, 0, 0, 2, 0, 0, 0]),
+      runtime.storageKey('ElectionVote', 'ElectionTallyStore', [id]).join(','):
+          Uint8List.fromList([5, 0, 0, 0]),
+      runtime.storageKey('ElectionVote', 'ElectionCandidateTallies', [id, cid]).join(','):
+          Uint8List.fromList([4, 0, 0, 0]),
+    };
+    final read = <String>[];
+    final query = ProposalQueryService(
+      getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
+      getStorage: (at, key) async {
+        expect(at, same(block));
+        read.add(key.join(','));
+        return data[key.join(',')];
+      },
+    );
+    final events = [
+      const CitizenSystemEvent(
+        eventIndex: 0, extrinsicIndex: 0,
+        pallet: 'LegislationVote', name: 'RepresentativeVoteCast',
+        fields: {'proposal_id': '7', 'body_index': '2'},
+      ),
+      CitizenSystemEvent(
+        eventIndex: 1, extrinsicIndex: 0,
+        pallet: 'ElectionVote', name: 'ElectionVoteCast',
+        fields: {'proposal_id': '7', 'candidate_subject': {'cid_number': cid.map((byte) => '$byte').toList()}},
+      ),
+    ];
+    expect(await query.trackTalliesAt(block, id, events), {
+      'representative_2_yes': 3, 'representative_2_no': 2,
+      'election_casted': 5, 'candidate_CN220': 4,
+    });
+    expect(read, unorderedEquals(data.keys));
+  });
+
   test('详情按冻结岗位去重批量取名，缺失、失败和错CID不增删票据；列表不取名', () async {
     final fixture =
         jsonDecode(
@@ -277,7 +344,10 @@ void main() {
       [0, 0, 9, ...chain.data!.skip(3)],
     ]) {
       chain.data = Uint8List.fromList(value);
-      await expectLater(anchored.fetchProposalMeta(BigInt.from(7)), throwsFormatException);
+      await expectLater(
+        anchored.fetchProposalMeta(BigInt.from(7)),
+        throwsFormatException,
+      );
     }
   });
   test('计票、阈值和NextProposalId损坏不伪装成零或缺失', () async {
@@ -305,7 +375,10 @@ void main() {
       block: block,
     );
     await expectLater(anchored.fetchNextProposalId(), throwsFormatException);
-    await expectLater(anchored.fetchVoteTally(BigInt.from(7)), throwsFormatException);
+    await expectLater(
+      anchored.fetchVoteTally(BigInt.from(7)),
+      throwsFormatException,
+    );
     await expectLater(
       anchored.fetchInternalThresholdSnapshot(BigInt.from(7)),
       throwsFormatException,

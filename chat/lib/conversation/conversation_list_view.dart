@@ -17,6 +17,8 @@ class ChatHeaderAction<T> {
 
 /// Reusable title and anchored action menu for a chat overview.
 class ChatSectionHeader<T> extends StatelessWidget {
+  static const contentPadding = EdgeInsets.fromLTRB(20, 18, 24, 12);
+
   const ChatSectionHeader({
     super.key,
     required this.actions,
@@ -52,7 +54,7 @@ class ChatSectionHeader<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 18, 24, 12),
+      padding: contentPadding,
       child: Row(
         children: [
           Expanded(
@@ -133,22 +135,12 @@ class ChatConversationOverview extends StatelessWidget {
     required this.onRefresh,
     required this.onSearch,
     required this.items,
-    this.loading = false,
-    this.errorMessage,
-    this.unavailable,
-    this.loadingLabel = '正在读取本地会话',
-    this.emptyLabel = '暂无会话',
   });
 
   final Widget header;
   final Future<void> Function() onRefresh;
   final VoidCallback onSearch;
   final List<ChatConversationListItem> items;
-  final bool loading;
-  final String? errorMessage;
-  final Widget? unavailable;
-  final String loadingLabel;
-  final String emptyLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -163,22 +155,8 @@ class ChatConversationOverview extends StatelessWidget {
                 physics: const AlwaysScrollableScrollPhysics(),
                 slivers: [
                   SliverToBoxAdapter(child: header),
-                  if (errorMessage != null)
-                    SliverToBoxAdapter(
-                      child: _ErrorBanner(message: errorMessage!),
-                    ),
                   SliverToBoxAdapter(child: _SearchEntry(onTap: onSearch)),
-                  if (loading && items.isEmpty)
-                    SliverFillRemaining(
-                      hasScrollBody: false,
-                      child: ChatConversationPlaceholder(message: loadingLabel),
-                    )
-                  else if (unavailable != null)
-                    SliverFillRemaining(
-                      hasScrollBody: false,
-                      child: unavailable!,
-                    )
-                  else if (items.isNotEmpty)
+                  if (items.isNotEmpty)
                     SliverList.builder(
                       itemCount: items.length,
                       itemBuilder: (context, index) => _ConversationTile(
@@ -187,52 +165,11 @@ class ChatConversationOverview extends StatelessWidget {
                         isFirst: index == 0,
                         isLast: index == items.length - 1,
                       ),
-                    )
-                  else
-                    SliverFillRemaining(
-                      hasScrollBody: false,
-                      child: ChatConversationPlaceholder(message: emptyLabel),
                     ),
                 ],
               ),
             ),
-            if (loading)
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: IgnorePointer(
-                  child: LinearProgressIndicator(
-                    key: const ValueKey('chat-sync-progress'),
-                    minHeight: AppLayout.scaled(context, 2),
-                  ),
-                ),
-              ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class ChatConversationPlaceholder extends StatelessWidget {
-  const ChatConversationPlaceholder({super.key, required this.message});
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(32, 32, 32, 80),
-        child: Text(
-          message,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: AppTheme.textSecondary,
-            fontSize: AppLayout.scaled(context, 15),
-            fontWeight: FontWeight.w500,
-          ),
         ),
       ),
     );
@@ -637,26 +574,6 @@ class _SearchEntry extends StatelessWidget {
   }
 }
 
-class _ErrorBanner extends StatelessWidget {
-  const _ErrorBanner({required this.message});
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-      child: Text(
-        message,
-        style: TextStyle(
-          color: AppTheme.danger,
-          fontSize: AppLayout.scaled(context, 12),
-        ),
-      ),
-    );
-  }
-}
-
 class _ChatEntryMenu<T> extends StatelessWidget {
   const _ChatEntryMenu({
     required this.anchorCenterX,
@@ -824,4 +741,66 @@ String chatConversationTime(DateTime value, {DateTime? now}) {
     return weekdays[local.weekday - 1];
   }
   return '${local.month}/${local.day}';
+}
+
+/// 仅聊天Tab头部在真实连接失败时挂载；离页或连接成功后销毁动画。
+class ChatConnectionIndicator extends StatefulWidget {
+  const ChatConnectionIndicator({super.key});
+  @override
+  State<ChatConnectionIndicator> createState() =>
+      _ChatConnectionIndicatorState();
+}
+
+class _ChatConnectionIndicatorState extends State<ChatConnectionIndicator>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _animation = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 2),
+  )..repeat();
+  @override
+  void dispose() {
+    _animation.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: _animation,
+    builder: (context, child) {
+      final count = (_animation.value * 5).floor() + 1;
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(width: 41),
+          const Text('连接中', style: TextStyle(color: AppTheme.textSecondary)),
+          const SizedBox(width: 6),
+          ExcludeSemantics(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: List.generate(
+                5,
+                (i) => Opacity(
+                  key: ValueKey('chat-connection-dot-$i'),
+                  opacity: i < count ? 1 : 0,
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 2),
+                    child: SizedBox(
+                      width: 3,
+                      height: 3,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: AppTheme.textSecondary,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    },
+  );
 }

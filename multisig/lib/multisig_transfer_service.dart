@@ -528,6 +528,20 @@ class MultisigTransferService {
     return _fetchProposalsForIds(ids);
   }
 
+  /// 后台事件同步固定在该事件所属的最终区块，绕过展示缓存。
+  Future<List<ProposalWithDetail>> fetchProposalsAt(
+    CitizenBlockRef block,
+    List<BigInt> ids, {
+    void Function(BigInt)? onDetailFailure,
+  }) async {
+    return _fetchProposalsForIds(
+      ids,
+      useCache: false,
+      onDetailFailure: onDetailFailure,
+      runtime: await _getStorageRuntimeContext(block),
+    );
+  }
+
   /// 分页查询提案:从 [startId] 往前(含 startId)加载 [count] 个。
   ///
   /// 优先读缓存,未命中的用 [fetchStorageBatch] 批量查询。
@@ -549,6 +563,8 @@ class MultisigTransferService {
   Future<List<ProposalWithDetail>> _fetchProposalsForIds(
     List<BigInt> ids, {
     CitizenRuntimeContext? runtime,
+    bool useCache = true,
+    void Function(BigInt)? onDetailFailure,
   }) async {
     final results = <ProposalWithDetail>[];
     final uncachedMetaKeys = <String>[];
@@ -557,7 +573,7 @@ class MultisigTransferService {
     final runtimeUpgradeService = _runtimeService;
 
     for (final id in ids) {
-      final cached = ProposalCache.getMeta(id);
+      final cached = useCache ? ProposalCache.getMeta(id) : null;
       if (cached != null) {
         cachedMetas[id] = cached;
       } else {
@@ -578,7 +594,7 @@ class MultisigTransferService {
           final meta = _decodeProposalMeta(id, data);
           if (meta != null) {
             cachedMetas[id] = meta;
-            ProposalCache.putMeta(id, meta);
+            if (useCache) ProposalCache.putMeta(id, meta);
           }
         }
       }
@@ -600,7 +616,7 @@ class MultisigTransferService {
             displayMeta: dm,
           );
           cachedMetas[id] = patched;
-          ProposalCache.putMeta(id, patched);
+          if (useCache) ProposalCache.putMeta(id, patched);
         }
       }
     }
@@ -615,16 +631,17 @@ class MultisigTransferService {
     final cachedCreateMultisigDetails = <BigInt, CreateProposalInfo>{};
     final cachedCloseMultisigDetails = <BigInt, CloseProposalInfo>{};
     final institutionCloseIds = <BigInt>{};
+    final rawDetails = <BigInt, Uint8List>{};
 
     for (final entry in cachedMetas.entries) {
       final meta = entry.value;
-      if (meta.kind == 1) {
+      if (useCache && meta.kind == 1) {
         final cachedDetail = ProposalCache.getRuntimeUpgradeDetail(entry.key);
         if (cachedDetail != null) {
           cachedRuntimeUpgradeDetails[entry.key] = cachedDetail;
           continue;
         }
-      } else {
+      } else if (useCache) {
         // 内部投票提案：先查转账缓存，再查管理缓存
         final cachedTransfer = MultisigTransferCache.getTransferDetail(
           entry.key,
@@ -653,7 +670,23 @@ class MultisigTransferService {
     if (uncachedDetailKeys.isNotEmpty) {
       final manageService = InstitutionChainService();
       final personalManageService = _personalService;
-      final batchResult = await _fetchStorageBatch(runtime!.block, uncachedDetailKeys);
+      final block = runtime!.block;
+      late final Map<String, Uint8List?> batchResult;
+      try {
+        batchResult = await _fetchStorageBatch(block, uncachedDetailKeys);
+      } on Object {
+        if (onDetailFailure == null) rethrow;
+        batchResult = {};
+        // 只在批读失败时定位单条；已成功的正文继续落盘。
+        for (var i = 0; i < uncachedDetailKeys.length; i++) {
+          final key = uncachedDetailKeys[i];
+          try {
+            batchResult[key] = await _getStorage(block, _hexDecode(key));
+          } on Object {
+            onDetailFailure(uncachedDetailIds[i]);
+          }
+        }
+      }
       for (var i = 0; i < uncachedDetailIds.length; i++) {
         final id = uncachedDetailIds[i];
         final meta = cachedMetas[id];
@@ -661,12 +694,13 @@ class MultisigTransferService {
         if (meta == null || raw == null || raw.isEmpty) {
           continue;
         }
+        rawDetails[id] = raw;
         if (meta.kind == 1) {
           final runtimeDetail = runtimeUpgradeService
               .decodeRuntimeUpgradeStorageValue(id, raw);
           if (runtimeDetail != null) {
             cachedRuntimeUpgradeDetails[id] = runtimeDetail;
-            ProposalCache.putRuntimeUpgradeDetail(id, runtimeDetail);
+            if (useCache) ProposalCache.putRuntimeUpgradeDetail(id, runtimeDetail);
           }
           continue;
         }
@@ -679,12 +713,12 @@ class MultisigTransferService {
         );
         if (personalDetail is CreateProposalInfo) {
           cachedCreateMultisigDetails[id] = personalDetail;
-          ProposalCache.putCreateMultisigDetail(id, personalDetail);
+          if (useCache) ProposalCache.putCreateMultisigDetail(id, personalDetail);
           continue;
         }
         if (personalDetail is CloseProposalInfo) {
           cachedCloseMultisigDetails[id] = personalDetail;
-          ProposalCache.putCloseMultisigDetail(id, personalDetail);
+          if (useCache) ProposalCache.putCloseMultisigDetail(id, personalDetail);
           continue;
         }
         final orgManageDetail = manageService.decodeManageProposalData(id, raw);
@@ -698,7 +732,7 @@ class MultisigTransferService {
         final transferDetail = _decodeProposalData(id, raw);
         if (transferDetail != null) {
           cachedTransferDetails[id] = transferDetail;
-          MultisigTransferCache.putTransferDetail(id, transferDetail);
+          if (useCache) MultisigTransferCache.putTransferDetail(id, transferDetail);
         }
       }
     }
@@ -726,15 +760,17 @@ class MultisigTransferService {
           closeMultisigDetail == null &&
           meta.kind == 0) {
         try {
-          safetyFundDetail = await fetchSafetyFundAction(id);
+          safetyFundDetail = await fetchSafetyFundAction(id, atRuntime: runtime);
         } catch (e) {
           // 查询失败必须留痕，否则与"确实不是安全基金提案"无法区分。
+          onDetailFailure?.call(id);
           AppLog.d('[MultisigTransfer] fetchSafetyFundAction($id) 失败: $e');
         }
         if (safetyFundDetail == null) {
           try {
-            sweepDetail = await fetchSweepAction(id);
+            sweepDetail = await fetchSweepAction(id, atRuntime: runtime);
           } catch (e) {
+            onDetailFailure?.call(id);
             AppLog.d('[MultisigTransfer] fetchSweepAction($id) 失败: $e');
           }
         }
@@ -744,7 +780,9 @@ class MultisigTransferService {
       String? resDestroySummary;
       if (meta.kind == 1 && runtimeUpgradeDetail == null) {
         try {
-          final raw = await fetchProposalDataRaw(id);
+          final raw = rawDetails[id] ?? (useCache
+              ? await _fetchStorage('VotingEngine', 'ProposalData', [id], atRuntime: runtime)
+              : null);
           if (raw != null) {
             final tag = _detectJointProposalTag(raw);
             if (tag == 'res-iss') {
@@ -788,17 +826,24 @@ class MultisigTransferService {
   /// "全部存活提案"。公民-提案 / 机构详情 / 个人多签统一从这一份结果客户端按
   /// 已解码 `subject_cid_numbers` 过滤,替代旧的账户归属过滤。
   /// 长前缀扫描,并让多页面共用一次查询(见 ProposalFeedCache,降全节点负载)。
-  Future<List<ProposalWithDetail>> fetchCurrentYearProposals() async {
+  Future<List<ProposalWithDetail>> fetchCurrentYearProposals({
+    CitizenBlockRef? at,
+    void Function(BigInt)? onDetailFailure,
+  }) async {
     // 仅标记原读取失败边界，不记年份/索引内容，不把失败改成空列表。
     var stage = 'proposal_year';
     try {
-      final runtime = await _finalizedRuntime();
+      final runtime = at == null
+          ? await _finalizedRuntime()
+          : await _getStorageRuntimeContext(at);
       final currentYear = await _resolveCurrentYear(runtime);
       if (currentYear == null) return const [];
       stage = 'proposal_index';
       final ids = await _fetchProposalIdsByYear(runtime, currentYear);
       stage = 'proposal_details';
-      return await _fetchProposalsForIds(ids, runtime: runtime);
+      return await _fetchProposalsForIds(
+        ids, runtime: runtime, useCache: at == null, onDetailFailure: onDetailFailure,
+      );
     } on Object catch (error) {
       AppLog.proposalFailure(stage: stage, error: error);
       rethrow;
@@ -1172,8 +1217,10 @@ class MultisigTransferService {
       : (variant: 'Some', fields: [bytes]);
 
   /// 从链上 SafetyFundProposalActions 存储查询安全基金转账提案详情。
-  Future<SafetyFundProposalInfo?> fetchSafetyFundAction(BigInt proposalId) async {
-    final raw = await _fetchStorage('MultisigTransfer', 'SafetyFundProposalActions', [proposalId]);
+  Future<SafetyFundProposalInfo?> fetchSafetyFundAction(
+    BigInt proposalId, {CitizenRuntimeContext? atRuntime}
+  ) async {
+    final raw = await _fetchStorage('MultisigTransfer', 'SafetyFundProposalActions', [proposalId], atRuntime: atRuntime);
     // SafetyFundAction: actor CID + institution_account_id + beneficiary + amount + remark + proposer。
     if (raw == null || raw.length < 1 + 32 + 32 + 16 + 1 + 32) {
       return null;
@@ -1217,8 +1264,10 @@ class MultisigTransferService {
   }
 
   /// 从链上 SweepProposalActions 存储查询手续费划转提案详情。
-  Future<SweepProposalInfo?> fetchSweepAction(BigInt proposalId) async {
-    final raw = await _fetchStorage('MultisigTransfer', 'SweepProposalActions', [proposalId]);
+  Future<SweepProposalInfo?> fetchSweepAction(
+    BigInt proposalId, {CitizenRuntimeContext? atRuntime}
+  ) async {
+    final raw = await _fetchStorage('MultisigTransfer', 'SweepProposalActions', [proposalId], atRuntime: atRuntime);
     // SweepAction: actor CID + institution_account_id + amount + proposer。
     if (raw == null || raw.length < 1 + 32 + 16 + 32) return null;
     try {
@@ -1251,8 +1300,10 @@ class MultisigTransferService {
   Future<CitizenRuntimeContext> _finalizedRuntime() async =>
       _getStorageRuntimeContext(await _getFinalizedHead());
 
-  Future<Uint8List?> _fetchStorage(String pallet, String storage, List<Object> keys) async {
-    final runtime = await _finalizedRuntime();
+  Future<Uint8List?> _fetchStorage(String pallet, String storage, List<Object> keys, {
+    CitizenRuntimeContext? atRuntime,
+  }) async {
+    final runtime = atRuntime ?? await _finalizedRuntime();
     return _getStorage(runtime.block, runtime.storageKey(pallet, storage, keys));
   }
 

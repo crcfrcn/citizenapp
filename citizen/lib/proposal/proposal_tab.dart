@@ -15,8 +15,8 @@ import 'package:citizen_widgets/pressable_card.dart';
 import 'package:citizen_widgets/shimmer_loading.dart';
 import 'package:citizen_citizen/administrators/institution_admin_service.dart';
 import 'package:citizen_citizen/administrators/admin_activation_service.dart';
-import 'package:citizen_citizen/proposal/proposal_cache.dart';
 import 'package:citizen_citizen/proposal/proposal_context.dart';
+import 'package:citizen_citizen/proposal/proposal_detail_local_store.dart';
 import 'package:citizen_citizen/proposal/proposal_local_store.dart';
 import 'package:citizen_citizen/runtime/runtime_upgrade_detail_page.dart';
 import 'package:citizen_citizen/proposal/proposal_models.dart';
@@ -24,20 +24,18 @@ import 'package:citizen_citizen/proposal/proposal_vote_widgets.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_multisig/multisig_transfer_proposal_adapter.dart';
 import 'package:citizen_multisig/multisig_transfer_service.dart';
-import 'package:citizen_citizen/runtime/runtime_upgrade_service.dart';
 import 'package:citizen_citizen/proposal/proposal_query_service.dart';
-import 'package:citizen_citizen/proposal/internal_vote_query_service.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
 /// 公民 tab「提案」统一列表:默认公共机构 + 当前钱包订阅公权机构,按 ID 倒序。
 ///
-/// **数据源(v1 双层 ID + 当前年缓存)**:
+/// 本机保存提案数据，可见范围按下列规则在手机上过滤。
 /// - 默认机构码: NRC/NLG/NSN/NRP/NED/NJD/NSP/PRS。
 /// - 订阅机构:按当前热钱包订阅的公权机构 CID 精确命中。
 /// - 不把全部公权机构提案塞进列表,订阅范围也不得按机构码放大。
 ///
 /// **分页**:cursor 模式按 `_allIds` 切分,翻页天然不会卡空页。
-/// **新区块订阅**:周期性重 fetch 可见提案 id 列表,补差异。
+/// 最终区块事件只更新涉及的提案，列表和翻页直接读本机。
 class ProposalTab extends StatefulWidget {
   const ProposalTab({
     super.key,
@@ -45,11 +43,14 @@ class ProposalTab extends StatefulWidget {
     this.feed,
     this.repository,
     this.contextResolver,
-    this.voteChecker,
     this.capabilitiesReader,
     this.sdkEvents,
     this.lifecycleReader,
     this.walletStateReader,
+    this.genesisReader,
+    this.finalizedHeadReader,
+    this.finalizedBlockReader,
+    this.query,
   });
 
   /// 待投票数变化时的回调（用于底部 tab 红点数字）。
@@ -59,13 +60,16 @@ class ProposalTab extends StatefulWidget {
   final MultisigTransferProposalFeed? feed;
   final InstitutionRepository? repository;
   final ProposalContextResolver? contextResolver;
-  final VoteChecker? voteChecker;
 
   /// 公开SDK只读事实边界，生产缺省仍读取同一会话。
   final Future<CitizenCapabilitySnapshot> Function()? capabilitiesReader;
   final Stream<CitizenSdkEvent>? sdkEvents;
   final CitizenSdkLifecycle Function()? lifecycleReader;
   final CitizenSdkOperation<CitizenWalletState> Function()? walletStateReader;
+  final Future<String> Function()? genesisReader;
+  final Future<CitizenBlockRef> Function()? finalizedHeadReader;
+  final Future<CitizenBlockRef> Function(BigInt)? finalizedBlockReader;
+  final ProposalQueryService? query;
 
   @override
   State<ProposalTab> createState() => _ProposalViewState();
@@ -73,7 +77,9 @@ class ProposalTab extends StatefulWidget {
 
 class _ProposalViewState extends State<ProposalTab> {
   static const int _pageSize = 10;
-  static const Duration _newBlockIndexCheckMinInterval = Duration(seconds: 60);
+  // 与 VotingEngine 清理排程的 90 天、每天 240 块一致。时间只安排核验。
+  static const int _blocksPerDay = 240;
+  static const int _retentionBlocks = 90 * _blocksPerDay;
 
   // 提案页默认公共机构集合独立于“治理”子 tab。
   // 省储委会/省储行不默认进入提案流,只有用户订阅对应机构后才展示。
@@ -91,7 +97,6 @@ class _ProposalViewState extends State<ProposalTab> {
   late final MultisigTransferProposalFeed _multisigTransferFeed;
   late final InstitutionAdminService _adminService;
   late final ProposalContextResolver _contextResolver;
-  late final VoteChecker _voteChecker;
   final ScrollController _scrollController = ScrollController();
   late final InstitutionRepository _institutionRepo;
   late final CitizenSdk _wallet;
@@ -103,17 +108,16 @@ class _ProposalViewState extends State<ProposalTab> {
 
   // 分页状态
   bool _loading = true;
-  bool _loadingMore = false;
   bool _refreshing = false;
-  bool _checkingIndex = false;
-  bool _pageFailed = false;
   int _generation = 0;
 
   bool _isCurrent(int generation) => mounted && generation == _generation;
   // 机构/行政区数据包是否已后台同步（首次进「公民」才触发，不阻塞首屏）。
-  bool _directorySynced = false;
+  Future<void>? _directorySync;
+  Map<String, Institution> _directoryNames = const {};
   String? _error;
   List<_ProposalDisplayItem> _items = [];
+  List<_ProposalDisplayItem> _localItems = const [];
 
   /// 当前钱包可见提案 ID(降序排列)。
   /// 列表页基于此切分翻页 — cursor `_items.length` 标记已加载到第几条,
@@ -126,7 +130,23 @@ class _ProposalViewState extends State<ProposalTab> {
   /// 待投票计数。
   int _pendingVoteCount = 0;
 
-  DateTime? _lastProposalIndexCheckAt;
+  late final ProposalQueryService _proposalQuery;
+  final _store = ProposalLocalStore.instance;
+  String? _feedKey;
+  CitizenBlockRef? _pendingHead;
+  Future<void>? _feedSync;
+  Future<void>? _headRead;
+  Timer? _retry;
+  int _retrySeconds = 2;
+  bool _checkCleanup = false;
+  bool _cleanupFailed = false;
+  bool _chainReady = false;
+  CitizenBlockRef? _maintenanceHead;
+  bool _maintenanceRunning = false;
+  bool _syncBlocked = false;
+  final _pendingDetails = <BigInt>{};
+  int _pageLimit = _pageSize;
+  int _renderRevision = 0;
 
   bool get _hasMore => _items.length < _allIds.length;
   bool get _isFlutterTest => Platform.environment.containsKey('FLUTTER_TEST');
@@ -160,14 +180,7 @@ class _ProposalViewState extends State<ProposalTab> {
           adminService: _adminService,
           activationService: activationService,
         );
-    final proposalQuery = ProposalQueryService(chain: sdk);
-    _voteChecker =
-        widget.voteChecker ??
-        VoteChecker(
-          internalVoteService: InternalVoteQueryService(chain: sdk),
-          runtimeService: RuntimeUpgradeService(chain: sdk, transactions: sdk),
-          proposalQueryService: proposalQuery,
-        );
+    _proposalQuery = widget.query ?? ProposalQueryService(chain: sdk);
     _dependenciesReady = true;
     if (_isFlutterTest && widget.feed == null) {
       // App 启动 widget test 只验证首屏结构，不验证隐藏提案页的轻节点订阅。
@@ -183,7 +196,23 @@ class _ProposalViewState extends State<ProposalTab> {
         _wakeChainReaders();
       }
       if (event is CitizenSdkFinalizedBlockChanged) {
-        _checkForNewProposals();
+        _queueFinalized(event.finalized);
+      }
+      if (event is CitizenSdkCapabilitiesChanged) {
+        final status = event.snapshot[CitizenCapabilityName.chainRead];
+        final ready = status.supported && status.available && status.enabled && status.ready;
+        if (ready && !_chainReady && _feedKey != null && !_refreshing) {
+          _checkCleanup = true;
+          _retry?.cancel();
+          _retry = null;
+          _syncBlocked = false;
+          unawaited(_resumeFinalized(_generation));
+        }
+        _chainReady = ready;
+      }
+      if (event is CitizenSdkWalletChanged) {
+        _contextResolver.clearWalletCache();
+        unawaited(_refresh());
       }
     });
     _loadFirstPage();
@@ -193,6 +222,7 @@ class _ProposalViewState extends State<ProposalTab> {
   void dispose() {
     ++_generation;
     _wakeChainReaders();
+    _retry?.cancel();
     _scrollController.dispose();
     _eventSub?.cancel();
     super.dispose();
@@ -228,8 +258,10 @@ class _ProposalViewState extends State<ProposalTab> {
           status.available &&
           status.enabled &&
           status.ready) {
+        _chainReady = true;
         return true;
       }
+      _chainReady = false;
       if (!status.supported ||
           !status.available ||
           !status.enabled ||
@@ -250,56 +282,322 @@ class _ProposalViewState extends State<ProposalTab> {
     return false;
   }
 
-  Future<void> _checkForNewProposals() async {
-    if (_refreshing || _loadingMore || _checkingIndex) return;
-    final now = DateTime.now();
-    final lastCheck = _lastProposalIndexCheckAt;
-    if (lastCheck != null &&
-        now.difference(lastCheck) < _newBlockIndexCheckMinInterval) {
+  void _scheduleRetry() {
+    if (!mounted || _retry != null) return;
+    _retry = Timer(Duration(seconds: _retrySeconds), () {
+      _syncBlocked = false;
+      _retry = null;
+      unawaited(_resumeFinalized(_generation));
+    });
+    if (_retrySeconds < 32) _retrySeconds *= 2;
+  }
+
+  void _queueFinalized(CitizenBlockRef head) {
+    if (!mounted) return;
+    if (_pendingHead == null || _pendingHead!.number <= head.number) {
+      _pendingHead = head;
+    }
+    if (_feedSync != null || _feedKey == null || _refreshing || _syncBlocked) return;
+    _feedSync = _syncPendingBlocks().whenComplete(() {
+      _feedSync = null;
+      final pending = _pendingHead;
+      if (pending != null && mounted && !_syncBlocked) _queueFinalized(pending);
+    });
+  }
+
+  Future<void> _syncPendingBlocks() async {
+    final key = _feedKey!;
+    CitizenBlockRef? target;
+    try {
+      while (mounted && _pendingHead != null) {
+        final head = target = _pendingHead!;
+        _pendingHead = null;
+        final local = await _store.readFeed(key);
+        if (local?.finalizedHeight == null) return;
+        var changed = false;
+        try {
+          for (
+            var height = local!.finalizedHeight! + BigInt.one;
+            mounted && height <= head.number;
+            height += BigInt.one
+          ) {
+            final block = height == head.number
+                ? head
+                : await (widget.finalizedBlockReader ?? _sdk.getFinalizedBlockAt)(height);
+            changed = await _applyBlock(key, block) || changed;
+            if (height % BigInt.from(_blocksPerDay) == BigInt.zero) _checkCleanup = true;
+          }
+          if (mounted && head.number >= local.finalizedHeight!) _queueMaintenance(head);
+        } finally {
+          if (changed && mounted) await _renderLocal(key);
+        }
+        target = null;
+      }
+    } on Object catch (error) {
+      if (target != null && (_pendingHead == null || _pendingHead!.number < target.number)) {
+        _pendingHead = target;
+      }
+      AppLog.proposalFailure(stage: 'proposal_feed', error: error);
+      _syncBlocked = true;
+      _scheduleRetry();
+    }
+  }
+
+  void _queueMaintenance(CitizenBlockRef block) {
+    if (!_checkCleanup && !_cleanupFailed && _pendingDetails.isEmpty) {
+      _maintenanceHead = null;
+      if (_retry == null) _retrySeconds = 2;
       return;
     }
-    _lastProposalIndexCheckAt = now;
-    final generation = _generation;
-    _checkingIndex = true;
+    _maintenanceHead = block;
+    if (_maintenanceRunning) return;
+    _maintenanceRunning = true;
+    unawaited(_maintainFeed().whenComplete(() {
+      _maintenanceRunning = false;
+      final next = _maintenanceHead;
+      if (mounted && next != null && _retry == null) _queueMaintenance(next);
+    }));
+  }
 
+  Future<void> _maintainFeed() async {
+    final key = _feedKey!;
+    final block = _maintenanceHead!;
+    _maintenanceHead = null;
+    var changed = false;
     try {
-      if (!await _waitForChainRead(generation)) return;
-      final scope = await _fetchVisibleProposalScope();
-      if (!_isCurrent(generation)) return;
-      final fresh = scope.ids;
-      final knownSet = _allIds.toSet();
-      final newIds = fresh.where((id) => !knownSet.contains(id)).toList();
-      if (newIds.isEmpty) {
-        if (!_pageFailed) setState(() => _error = null);
-        return;
+      if (_checkCleanup || _cleanupFailed) {
+        final index = await _store.readFeed(key);
+        // 候选必须已在被核验的区块出现。游标已经领先时交给新任务，
+        // 避免把较晚入库的提案在旧块中的空值误认为已删除。
+        if (index?.finalizedHeight != block.number ||
+            index?.finalizedHash != block.hash) return;
+        _checkCleanup = false;
+        _cleanupFailed = false;
+        final candidates = (await _store.readSummariesForIds(index!.ids))
+            .where((item) => item.status >= 2 &&
+                (item.cleanupHeight == null || item.cleanupHeight! <= block.number))
+            .map((item) => item.proposalId).toList();
+        for (var offset = 0; mounted && offset < candidates.length; offset += 128) {
+          try {
+            final confirmed = await _proposalQuery.deletedProposalIds(
+              block, candidates.skip(offset).take(128),
+            );
+            if (!mounted) return;
+            await _store.removeConfirmed(confirmed);
+            _pendingDetails.removeAll(confirmed);
+            changed = changed || confirmed.isNotEmpty;
+          } on Object catch (error) {
+            _cleanupFailed = true;
+            AppLog.proposalFailure(stage: 'proposal_feed', error: error);
+          }
+        }
       }
-
-      // 新增提案插到列表顶部。按 proposal_id 去重(fresh 在前优先保留),避免
-      // 本地缓存 _items 与 _allIds 口径不同步时同一提案出现两张卡片。
-      final newItems = await _loadItemsForIds(
-        newIds,
-        generation: generation,
-        knownInstitutionsByCidNumber: scope.knownInstitutionsByCidNumber,
-      );
-      if (_isCurrent(generation)) {
-        setState(() {
-          if (!_pageFailed) _error = null;
-          _items = _dedupById([...newItems, ..._items]);
-          _allIds = fresh;
-          _knownInstitutionsByCidNumber = scope.knownInstitutionsByCidNumber;
-        });
-        _updatePendingVoteCount();
+      final requested = _pendingDetails.toList();
+      final missing = await _store.readSummariesForIds(requested);
+      final stillPending = missing.where((summary) => summary.detailPending)
+          .map((summary) => summary.proposalId).toSet();
+      _pendingDetails.removeAll(requested.where((id) => !stillPending.contains(id)));
+      for (final summary in missing.where((item) => item.detailPending)) {
+        if (!mounted) return;
+        final id = summary.proposalId;
+        try {
+          final failed = <BigInt>{};
+          final result = await _multisigTransferFeed.proposalsAt(
+            block, [id], onDetailFailure: failed.add,
+          );
+          if (failed.contains(id) || !mounted) continue;
+          final proposal = result.firstOrNull;
+          var detail = proposal == null ? null : ProposalDetailSnapshot.fromProposal(proposal);
+          if (detail != null) detail = await _snapshotAt(block, proposal!.meta, detail);
+          if (!mounted) return;
+          if (await _store.saveRepairedDetail(
+            key: key, block: block, summary: summary.withRepairedDetail(proposal), detail: detail,
+          )) {
+            _pendingDetails.remove(id);
+            changed = true;
+          }
+        } on Object catch (error) {
+          AppLog.proposalFailure(stage: 'proposal_details', error: error);
+        }
       }
-    } on Object {
-      // 后台读取失败保留现有列表和红点；旧请求不得改变新刷新状态。
-      if (_isCurrent(generation)) {
-        setState(() {
-          _error = _items.isEmpty ? '提案读取失败，请重试' : '提案刷新失败，已保留当前列表';
-        });
-      }
+    } on Object catch (error) {
+      _cleanupFailed = true;
+      AppLog.proposalFailure(stage: 'proposal_feed', error: error);
     } finally {
-      _checkingIndex = false;
+      if (mounted && (_cleanupFailed || _pendingDetails.isNotEmpty)) {
+        _scheduleRetry();
+      }
+      if (mounted && changed) {
+        try {
+          await _renderLocal(key);
+        } on Object catch (error) {
+          AppLog.proposalFailure(stage: 'proposal_feed', error: error);
+        }
+      }
     }
+  }
+
+  Future<bool> _applyBlock(String key, CitizenBlockRef block) async {
+    final local = (await _store.readFeed(key))!;
+    final events = await _proposalQuery.proposalEvents(block);
+    final newIds = <BigInt>{};
+    final changedEvents = <BigInt, List<CitizenSystemEvent>>{};
+    final stateChanges = <BigInt>{};
+    final known = local.ids.toSet();
+    for (final event in events) {
+      final id = event.fieldUnsigned('proposal_id');
+      (changedEvents[id] ??= []).add(event);
+      if (known.contains(id)) {
+        if (event.pallet == 'VotingEngine' ||
+            ((event.pallet == 'LegislationVote' || event.pallet == 'ElectionVote') &&
+                !event.name.endsWith('VoteCast'))) {
+          stateChanges.add(id);
+        }
+      } else if (event.pallet == 'VotingEngine' &&
+          event.name == 'ProposalCreated') {
+        newIds.add(id);
+      }
+    }
+    final detailFailures = <BigInt>{};
+    final proposals = newIds.isEmpty
+        ? const <ProposalWithDetail>[]
+        : await _multisigTransferFeed.proposalsAt(
+            block, newIds.toList(), onDetailFailure: detailFailures.add,
+          );
+    final details = await _detailsAt(block, proposals);
+    detailFailures.removeAll(details.map((detail) => detail.proposalId));
+    final summaries = [
+      for (final proposal in proposals)
+        LocalProposalSummary.fromProposal(proposal,
+            detailPending: detailFailures.contains(proposal.meta.proposalId))
+            .withChainState(proposal.meta, trackTallies: await _proposalQuery.trackTalliesAt(
+              block, proposal.meta.proposalId, changedEvents[proposal.meta.proposalId] ?? const [],
+            )),
+    ];
+    final deleted = <BigInt>{};
+    for (final summary in await _store.readSummariesForIds(
+      changedEvents.keys.where(known.contains).toList(),
+    )) {
+      final meta = stateChanges.contains(summary.proposalId)
+          ? await _proposalQuery.proposalMetaAt(block, summary.proposalId)
+          : summary.meta;
+      if (meta == null) {
+        deleted.add(summary.proposalId);
+      } else {
+        summaries.add(
+          summary.withChainState(
+            meta,
+            trackTallies: await _proposalQuery.trackTalliesAt(
+              block, summary.proposalId, changedEvents[summary.proposalId]!,
+            ),
+            cleanupHeight: summary.status < 2 && meta.status >= 2
+                ? block.number + BigInt.from(_retentionBlocks)
+                : null,
+          ),
+        );
+        final detail = await ProposalDetailLocalStore.instance.readForFeed(
+          meta.proposalId,
+        );
+        if (detail != null) {
+          details.add(await _snapshotAt(block, meta, detail));
+        }
+      }
+    }
+    if (!mounted) return false;
+    await _store.saveFeed(
+      key: key,
+      block: block,
+      summaries: summaries,
+      details: details,
+      added: proposals.map((proposal) => proposal.meta.proposalId).toList(),
+      deleted: deleted,
+    );
+    _pendingDetails.addAll(summaries.where((item) => item.detailPending).map((item) => item.proposalId));
+    _pendingDetails.removeAll(deleted);
+    return summaries.isNotEmpty || deleted.isNotEmpty;
+  }
+
+  Future<List<ProposalDetailSnapshot>> _detailsAt(
+    CitizenBlockRef block,
+    List<ProposalWithDetail> proposals,
+  ) async {
+    final details = <ProposalDetailSnapshot>[];
+    for (final proposal in proposals) {
+      final detail = ProposalDetailSnapshot.fromProposal(proposal);
+      if (detail == null) continue;
+      details.add(await _snapshotAt(block, proposal.meta, detail));
+    }
+    return details;
+  }
+
+  Future<ProposalDetailSnapshot> _snapshotAt(
+    CitizenBlockRef block,
+    ProposalMeta meta,
+    ProposalDetailSnapshot detail,
+  ) async {
+    final counts = await _proposalQuery.proposalTalliesAt(block, meta);
+    final cid = meta.actorCidNumber;
+    List<String>? accounts;
+    Map<String, bool?>? votes;
+    List<EligibleVoterTicket>? tickets;
+    int? threshold;
+    ({bool? result, ({int yes, int no}) tally})? institutionVote;
+    if (detail.proposalKind == 'runtime_upgrade' && cid != null) {
+      final institution = await _localInstitution(cid);
+      if (institution != null) {
+        final joint = await _proposalQuery.jointInstitutionAt(
+          block,
+          meta,
+          institution,
+          detail.admins,
+        );
+        accounts = joint.accounts;
+        votes = joint.votes;
+        institutionVote = (result: joint.result, tally: joint.tally);
+      }
+    } else if (meta.kind == 0 &&
+        cid != null &&
+        (meta.status == 0 || detail.voterTickets.isNotEmpty)) {
+      final institution = await _localInstitution(cid);
+      if (institution != null) {
+        final query = ProposalQueryService(chain: _sdk, block: block);
+        tickets = detail.voterTickets;
+        if (tickets.isEmpty) {
+          tickets = await query.fetchEligibleVoterTickets(
+            meta.proposalId,
+            institution,
+            includeRoleNames: true,
+          );
+        }
+        accounts = tickets
+            .map((ticket) => ticket.voterAccountId)
+            .toSet()
+            .toList();
+        votes = await query.fetchTicketVotesBatch(meta.proposalId, tickets);
+        threshold =
+            detail.threshold ??
+            await query.fetchInternalThresholdSnapshot(meta.proposalId);
+      }
+    }
+    return detail.withState(
+      meta,
+      tally: counts.tally,
+      referendum: counts.referendum,
+      institution: institutionVote,
+      eligibleAccounts: accounts,
+      votes: votes,
+      tickets: tickets,
+      thresholdSnapshot: threshold,
+    );
+  }
+
+  Future<InstitutionInfo?> _localInstitution(String cid) async {
+    final known =
+        _knownInstitutionsByCidNumber[cid] ??
+        _institutionRepo.governanceInfo(cid);
+    if (known != null) return known;
+    final local = await _institutionRepo.getByCid(cid);
+    return local == null ? null : _institutionInfoFromInstitution(local);
   }
 
   // ──── 分页加载 ────
@@ -321,7 +619,7 @@ class _ProposalViewState extends State<ProposalTab> {
     // 机构/行政区数据包（首装 4.2 万条行政区，秒级~十几秒）**不阻塞**提案流
     // 首屏：后台同步，首次未就绪先按链上机构码兜底显示（代码本就容忍缺数据），
     // 就绪后回刷一次填充机构名。避免首次进「公民」卡十几秒。
-    unawaited(_ensureDirectorySyncedThenRefresh());
+    unawaited(_directorySync ??= _syncDirectoryNames());
 
     final defaultInstitutions = await _institutionRepo
         .listByCodes(_defaultProposalCodes)
@@ -356,19 +654,29 @@ class _ProposalViewState extends State<ProposalTab> {
     );
   }
 
-  /// 后台同步机构/行政区数据包；首次就绪且有变更时回刷一次提案流以填机构名。
-  /// 幂等：同步过一次后直接返回，回刷再进本方法不会二次同步或二次回刷。
-  Future<void> _ensureDirectorySyncedThenRefresh() async {
-    if (_directorySynced) return;
+  /// 目录就绪只更新机构名称，提案列表和待投票数沿用已取得的结果。
+  Future<void> _syncDirectoryNames() async {
     try {
-      final changed = await _institutionRepo.directory.ensureSynced();
-      _directorySynced = true;
-      if (changed && mounted) {
-        // 名称就绪后静默回刷（_items 非空则不显示 loading，不闪屏）。
-        unawaited(_loadFirstPage(force: true));
-      }
+      if (!await _institutionRepo.directory.ensureSynced() || !mounted) return;
+      final defaults = await _institutionRepo.listByCodes(
+        _defaultProposalCodes,
+      );
+      final wallet =
+          (await (widget.walletStateReader?.call() ?? _wallet.getWalletState())
+                  .result)
+              .defaultAccount;
+      final subscribed = wallet == null
+          ? <Institution>[]
+          : await _institutionRepo.listSubscribed(wallet.accountId);
+      if (!mounted) return;
+      setState(() {
+        _directoryNames = {
+          for (final institution in [...defaults, ...subscribed])
+            institution.cidNumber: institution,
+        };
+      });
     } catch (_) {
-      // 同步失败：保持按机构码兜底显示，不阻塞。
+      // 目录不可用时继续显示已取得的机构名称。
     }
   }
 
@@ -394,225 +702,155 @@ class _ProposalViewState extends State<ProposalTab> {
     );
   }
 
-  Future<
-    ({List<BigInt> ids, Map<String, InstitutionInfo> knownInstitutionsByCidNumber})
-  >
-  _fetchVisibleProposalScope({bool forceRefresh = false}) async {
+  Future<void> _renderLocal(String key) async {
     final generation = _generation;
-    var stage = 'proposal_institutions';
-    try {
-      final institutionScope = await _loadInstitutionScope();
-      stage = 'proposal_feed';
-      final ids = await _multisigTransferFeed.fetchCitizenProposalFeedIds(
-        defaultCodes: _defaultProposalCodes,
-        subscribedInstitutionCidNumbers:
-            institutionScope.subscribedInstitutionCidNumbers,
-        forceRefresh: forceRefresh,
-      );
-      return (
-        ids: ids,
-        knownInstitutionsByCidNumber:
-            institutionScope.knownInstitutionsByCidNumber,
-      );
-    } on Object catch (error) {
-      // 页面诊断同样服从原请求代次；服务层事件是独立的链读失败事实。
-      if (_isCurrent(generation)) {
-        AppLog.proposalFailure(stage: stage, error: error);
+    final revision = ++_renderRevision;
+    final scope = await _loadInstitutionScope();
+    if (!_isCurrent(generation) || revision != _renderRevision) return;
+    final index = await _store.readFeed(key);
+    if (index == null) return;
+    final summaries = await _store.readSummariesForIds(index.ids);
+    if (!_isCurrent(generation) || revision != _renderRevision) return;
+    final visible = summaries
+        .where(
+          (summary) =>
+              _defaultProposalCodes.contains(
+                summary.internalCode?.toUpperCase(),
+              ) ||
+              summary.subjectCidNumbers.any(
+                scope.subscribedInstitutionCidNumbers.contains,
+              ),
+        )
+        .toList();
+    final wallet =
+        await (widget.walletStateReader?.call() ?? _wallet.getWalletState())
+            .result;
+    final accounts = wallet.accounts.map((entry) => entry.accountId).toSet();
+    final pending = <BigInt>{};
+    if (accounts.isNotEmpty) {
+      for (final summary in visible.where((summary) => summary.status == 0)) {
+        final detail = await ProposalDetailLocalStore.instance.readForFeed(
+          summary.proposalId,
+        );
+        if (detail != null &&
+            (summary.kind != 1 ||
+                (summary.stage == 1 && detail.extra['institution_vote'] == null)) &&
+            detail.adminVotes.entries.any(
+              (vote) =>
+                  vote.value == null &&
+                  accounts.contains(vote.key.split(':').last),
+            )) {
+          pending.add(summary.proposalId);
+        }
       }
-      rethrow;
     }
+    if (!_isCurrent(generation) || revision != _renderRevision) return;
+    setState(() {
+      _knownInstitutionsByCidNumber = scope.knownInstitutionsByCidNumber;
+      _allIds = visible.map((summary) => summary.proposalId).toList();
+      _localItems = [
+        for (final summary in visible)
+          _ProposalDisplayItem(
+            summary: summary,
+            institution:
+                scope.knownInstitutionsByCidNumber[summary.actorCidNumber] ??
+                (summary.actorCidNumber == null
+                    ? null
+                    : _institutionRepo.governanceInfo(summary.actorCidNumber!)),
+            needsVote: pending.contains(summary.proposalId),
+          ),
+      ];
+      _items = _localItems.take(_pageLimit).toList();
+      _loading = false;
+      _error = null;
+    });
+    _updatePendingVoteCount(pending.length);
   }
 
-  /// 每次整页刷新作废旧首批、翻页和后台索引结果。
-  Future<void> _loadFirstPage({bool force = false}) async {
+  Future<void> _loadFirstPage() async {
+    if (_refreshing) return;
     final generation = ++_generation;
-    _wakeChainReaders();
-    setState(() {
-      _refreshing = true;
-      _pageFailed = false;
-      _loading = _items.isEmpty;
-      _error = null;
-      _loadingMore = false;
-    });
-
+    _refreshing = true;
     try {
-      if (!await _waitForChainRead(generation, reportWaiting: true)) return;
-      AppLog.proposalRead(state: 'started');
-      final scope = await _fetchVisibleProposalScope(forceRefresh: force);
-      if (!_isCurrent(generation)) return;
-      final ids = scope.ids;
-
-      if (ids.isEmpty) {
+      final key = _feedKey ??= ProposalLocalStore.feedKey(
+        await (widget.genesisReader ?? _sdk.getGenesisHash)(),
+        null,
+      );
+      final saved = await _store.readFeed(key);
+      if (saved == null) {
+        if (!await _waitForChainRead(generation, reportWaiting: true)) return;
+        final head =
+            await (widget.finalizedHeadReader ?? _sdk.getFinalizedHead)();
+        AppLog.proposalRead(state: 'started');
+        final detailFailures = <BigInt>{};
+        final proposals = await _multisigTransferFeed.bootstrapAt(
+          head, onDetailFailure: detailFailures.add,
+        );
+        final details = await _detailsAt(head, proposals);
+        detailFailures.removeAll(details.map((detail) => detail.proposalId));
         if (!_isCurrent(generation)) return;
-        setState(() {
-          _allIds = const [];
-          _items = const [];
-          _knownInstitutionsByCidNumber = scope.knownInstitutionsByCidNumber;
-          _loading = false;
-        });
-        _updatePendingVoteCount();
-        // 只有当前代次真实取得空可见范围并完成页面更新，才能报告成功空结果。
-        if (_isCurrent(generation)) AppLog.proposalRead(state: 'empty');
-        return;
+        await _store.saveFeed(
+          key: key,
+          block: head,
+          summaries: [
+            for (final proposal in proposals)
+              LocalProposalSummary.fromProposal(proposal,
+                  detailPending: detailFailures.contains(proposal.meta.proposalId)),
+          ]..sort((a, b) => b.proposalId.compareTo(a.proposalId)),
+          details: details,
+        );
       }
-
-      // 切前 _pageSize 条
-      final firstPageIds = ids.sublist(
-        0,
-        ids.length < _pageSize ? ids.length : _pageSize,
-      );
-      final items = await _loadItemsForIds(
-        firstPageIds,
-        generation: generation,
-        knownInstitutionsByCidNumber: scope.knownInstitutionsByCidNumber,
-      );
-
-      if (!_isCurrent(generation)) return;
-      setState(() {
-        _allIds = ids;
-        _items = items;
-        _knownInstitutionsByCidNumber = scope.knownInstitutionsByCidNumber;
-        _loading = false;
-      });
-
-      _updatePendingVoteCount();
-      // 可见ID非空但详情尚无可展示项时不冒充空范围；失败/迟到/销毁均无成功回执。
-      if (_isCurrent(generation) && items.isNotEmpty) {
-        AppLog.proposalRead(state: 'nonempty');
+      final index = await _store.readFeed(key);
+      final cached = await _store.readSummariesForIds(index?.ids ?? const []);
+      _pendingDetails.addAll(cached.where((item) => item.detailPending).map((item) => item.proposalId));
+      _checkCleanup = saved != null;
+      await _renderLocal(key);
+      if (_isCurrent(generation) && saved == null) {
+        AppLog.proposalRead(state: _items.isEmpty ? 'empty' : 'nonempty');
       }
-    } catch (e) {
+      // 旧本机副本先显示，补读走独立任务。
+      unawaited(_resumeFinalized(generation));
+    } on Object catch (error) {
       if (!_isCurrent(generation)) return;
+      AppLog.proposalFailure(stage: 'proposal_feed', error: error);
       setState(() {
-        _error = _items.isEmpty ? '提案读取失败，请重试' : '提案刷新失败，已保留当前列表';
         _loading = false;
+        if (_items.isEmpty) _error = '提案读取失败，请重试';
       });
     } finally {
       if (_isCurrent(generation)) _refreshing = false;
+      final head = _pendingHead;
+      if (mounted && head != null) _queueFinalized(head);
     }
   }
 
-  Future<void> _loadNextPage() async {
-    if (_refreshing || _checkingIndex || _loadingMore || !_hasMore) return;
-    final generation = _generation;
-
-    setState(() {
-      _loadingMore = true;
-      _pageFailed = false;
-      _error = null;
+  Future<void> _resumeFinalized(int generation) {
+    return _headRead ??= _readFinalizedHead(generation).whenComplete(() {
+      _headRead = null;
     });
+  }
 
+  Future<void> _readFinalizedHead(int generation) async {
     try {
       if (!await _waitForChainRead(generation)) return;
-      final from = _items.length;
-      final to = (from + _pageSize) > _allIds.length
-          ? _allIds.length
-          : (from + _pageSize);
-      final pageIds = _allIds.sublist(from, to);
-      final newItems = await _loadItemsForIds(
-        pageIds,
-        generation: generation,
-        knownInstitutionsByCidNumber: _knownInstitutionsByCidNumber,
-      );
-
-      if (!_isCurrent(generation)) return;
-      setState(() {
-        _items = _dedupById([..._items, ...newItems]);
-        _loadingMore = false;
-      });
-
-      _updatePendingVoteCount();
-    } catch (e) {
-      if (_isCurrent(generation)) {
-        setState(() {
-          _loadingMore = false;
-          _pageFailed = true;
-          _error = '更多提案读取失败，请重试';
-        });
-      }
-    }
-  }
-
-  /// 给定一组 proposal_id,batch fetch 详情 + 上下文 + 待投票判定,
-  /// 返回 `_ProposalDisplayItem` 列表(顺序与入参一致)。
-  Future<List<_ProposalDisplayItem>> _loadItemsForIds(
-    List<BigInt> ids, {
-    required int generation,
-    Map<String, InstitutionInfo> knownInstitutionsByCidNumber = const {},
-  }) async {
-    if (ids.isEmpty) return const [];
-
-    // 只定位原步骤，不吞错或增加读取；旧代次仍不得更新页面。
-    var stage = 'proposal_details';
-    try {
-      // 批量取提案详情(meta + 业务详情)
-      final proposals = await _multisigTransferFeed.fetchProposalsByIds(ids);
-
-      stage = 'proposal_context';
-      // 批量解析提案上下文
-      final contexts = await _contextResolver.resolveBatch(
-        proposals.map((p) => p.meta.actorCidNumber).toList(),
-        executionAccountIds: proposals
-            .map((p) => p.meta.executionAccountId?.toList())
-            .toList(),
-        internalCodeList: proposals.map((p) => p.meta.internalCode).toList(),
-        knownInstitutionsByCidNumber: knownInstitutionsByCidNumber,
-      );
-
-      // ADR-018 R2:一次性批量算出"哪些提案需要投票",替代过去每提案各发一次
-      // 投票查询 RPC(P 个提案 = P 次往返)。
-      stage = 'proposal_votes';
-      final needVote = await _voteChecker.proposalsNeedingVote([
-        for (var i = 0; i < proposals.length; i++)
-          VoteCheckTarget(
-            proposalId: proposals[i].meta.proposalId,
-            kind: proposals[i].meta.kind,
-            status: proposals[i].meta.status,
-            adminWallets: contexts[i].adminWallets,
-            institution: contexts[i].institution,
-          ),
-      ]);
-
-      stage = 'proposal_display';
-      final items = <_ProposalDisplayItem>[];
-      for (var i = 0; i < proposals.length; i++) {
-        items.add(
-          _ProposalDisplayItem.fromProposal(
-            proposal: proposals[i],
-            context: contexts[i],
-            needsVote: needVote.contains(proposals[i].meta.proposalId),
-          ),
-        );
-      }
-
-      if (!_isCurrent(generation)) return const [];
-      stage = 'proposal_summary';
-      await ProposalLocalStore.instance.upsertSummaries(
-        items.map((item) => item.summary).toList(growable: false),
-      );
-      return items;
+      final head = await (widget.finalizedHeadReader ?? _sdk.getFinalizedHead)();
+      if (_isCurrent(generation)) _queueFinalized(head);
     } on Object catch (error) {
-      if (_isCurrent(generation)) {
-        AppLog.proposalFailure(stage: stage, error: error);
-      }
-      rethrow;
+      AppLog.proposalFailure(stage: 'proposal_feed', error: error);
+      _scheduleRetry();
     }
   }
 
-  /// 按 proposal_id 去重,保留首次出现(prepend 的 fresh 项优先)。
-  /// 防止本地缓存项与新查项口径不同步时同一提案重复成卡片。
-  static List<_ProposalDisplayItem> _dedupById(
-    List<_ProposalDisplayItem> items,
-  ) {
-    final seen = <BigInt>{};
-    final result = <_ProposalDisplayItem>[];
-    for (final item in items) {
-      if (seen.add(item.proposalId)) result.add(item);
-    }
-    return result;
+  void _loadNextPage() {
+    if (_refreshing || !_hasMore) return;
+    setState(() {
+      _pageLimit += _pageSize;
+      _items = _localItems.take(_pageLimit).toList();
+    });
   }
 
-  void _updatePendingVoteCount() {
-    _pendingVoteCount = _items.where((i) => i.needsVote).length;
+  void _updatePendingVoteCount(int count) {
+    _pendingVoteCount = count;
     widget.onPendingVoteCountChanged?.call(_pendingVoteCount);
   }
 
@@ -634,10 +872,7 @@ class _ProposalViewState extends State<ProposalTab> {
                   ),
                 ),
               ),
-              TextButton(
-                onPressed: _pageFailed ? _loadNextPage : _refresh,
-                child: const Text('重试'),
-              ),
+              TextButton(onPressed: _refresh, child: const Text('重试')),
             ],
           ),
         Expanded(child: _buildForeground()),
@@ -645,13 +880,13 @@ class _ProposalViewState extends State<ProposalTab> {
     );
   }
 
-  /// 下拉与错误按钮共用强制刷新，不能命中上一次失败前的年缓存。
   Future<void> _refresh() async {
-    _adminService.clearCache();
-    _contextResolver.clearWalletCache();
-    ProposalCache.clear();
-    MultisigTransferProposalAdapter.clearCache();
-    await _loadFirstPage(force: true);
+    final key = _feedKey;
+    if (key == null || await _store.readFeed(key) == null) {
+      await _loadFirstPage();
+    } else if (mounted) {
+      await _renderLocal(key);
+    }
   }
 
   Widget _buildForeground() {
@@ -721,19 +956,8 @@ class _ProposalViewState extends State<ProposalTab> {
           if (index < _items.length) {
             return _buildProposalCard(_items[index]);
           }
-          // 底部加载指示器
-          return Padding(
-            padding: EdgeInsets.symmetric(
-              vertical: AppLayout.scaled(context, 16),
-            ),
-            child: Center(
-              child: SizedBox(
-                width: AppLayout.scaled(context, 24),
-                height: AppLayout.scaled(context, 24),
-                child: const CircularProgressIndicator(strokeWidth: 2),
-              ),
-            ),
-          );
+          // 留出滚动触发下一页的空间，分页数据已经来自本机。
+          return const SizedBox(height: 56);
         },
       ),
     );
@@ -742,7 +966,11 @@ class _ProposalViewState extends State<ProposalTab> {
   Widget _buildProposalCard(_ProposalDisplayItem item) {
     final statusColor = _statusColor(item.status);
     final statusLabel = _statusLabel(item.status);
-    final shortName = item.shortName;
+    final directoryName = _directoryNames[item.summary.cidNumber]?.shortName
+        ?.trim();
+    final shortName = directoryName == null || directoryName.isEmpty
+        ? item.shortName
+        : directoryName;
 
     return PressableCard(
       child: Card(
@@ -788,7 +1016,7 @@ class _ProposalViewState extends State<ProposalTab> {
                         subjectName: shortName,
                         proposalNumber: item.displayId,
                         personal:
-                            item.context?.institution?.orgType ==
+                            item.institution?.orgType ==
                             OrgType.personalMultisig,
                       ),
                       SizedBox(height: AppLayout.scaledValue(2)),
@@ -890,106 +1118,54 @@ class _ProposalViewState extends State<ProposalTab> {
   }
 
   Future<void> _openProposalDetail(_ProposalDisplayItem item) async {
-    final resolved = await _resolveProposalDetail(item);
+    final summary = item.summary;
+    final id = summary.proposalId;
+    final snapshot = await ProposalDetailLocalStore.instance.readForFeed(id);
+    if (!mounted || snapshot == null) return;
+    final cid = summary.actorCidNumber;
+    final institution = cid == null ? null : await _localInstitution(cid);
     if (!mounted) return;
-    if (resolved == null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('提案详情读取失败，请稍后重试')));
-      return;
+    final local = ProposalContext(institution: institution);
+    Future<ProposalContext> resolveVoteContext() {
+      _contextResolver.clearWalletCache();
+      return _contextResolver.resolve(
+        actorCidNumber: summary.actorCidNumber,
+        executionAccountId: summary.meta.executionAccountId?.toList(),
+        internalCode: summary.internalCode,
+        knownInstitution: institution,
+      );
     }
-    final (:proposal, :proposalContext) = resolved;
-    final inst = proposalContext.institution;
-    final proposalId = proposal.meta.proposalId;
-
-    // 协议升级提案（联合投票，kind=1）
-    if (proposal.runtimeUpgradeDetail != null) {
+    if (snapshot.proposalKind == 'runtime_upgrade') {
       await Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => RuntimeUpgradeDetailPage(
-            proposalId: proposalId,
-            proposalContext: proposalContext,
+            proposalId: id,
+            proposalContext: local,
+            resolveVoteContext: resolveVoteContext,
           ),
         ),
       );
-    } else if (MultisigTransferProposalAdapter.matches(proposal)) {
-      await MultisigTransferProposalAdapter.openDetail(
-        context,
-        proposal: proposal,
-        institution: inst,
-        proposalContext: proposalContext,
-      );
-    } else if ((proposal.createMultisigDetail != null ||
-            proposal.closeMultisigDetail != null) &&
-        inst != null) {
-      // 多签管理提案
+    } else if (snapshot.proposalKind == 'institution_multisig' &&
+        institution != null) {
       await Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => MultisigProposalDetailPage(
-            institution: inst,
-            proposalId: proposalId,
-            proposalContext: proposalContext,
+            institution: institution,
+            proposalId: id,
+            proposalContext: local,
+            resolveVoteContext: resolveVoteContext,
           ),
         ),
       );
-    } else {
-      // 其他未知类型
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('该提案类型的详情页面正在开发中')));
-      return;
-    }
-
-    // 返回后刷新
-    if (mounted) {
-      _adminService.clearCache();
-      ProposalCache.clear();
-      MultisigTransferProposalAdapter.clearCache();
-      _loadFirstPage(force: true);
-    }
-  }
-
-  Future<({ProposalWithDetail proposal, ProposalContext proposalContext})?>
-  _resolveProposalDetail(_ProposalDisplayItem item) async {
-    final existingProposal = item.proposal;
-    final existingContext = item.context;
-    if (existingProposal != null && existingContext != null) {
-      return (proposal: existingProposal, proposalContext: existingContext);
-    }
-
-    try {
-      final proposals = await _multisigTransferFeed.fetchProposalsByIds([
-        item.proposalId,
-      ]);
-      if (proposals.isEmpty) return null;
-      final proposal = proposals.first;
-      final contexts = await _contextResolver.resolveBatch(
-        [proposal.meta.actorCidNumber],
-        executionAccountIds: [proposal.meta.executionAccountId?.toList()],
-        internalCodeList: [proposal.meta.internalCode],
-        knownInstitutionsByCidNumber: _knownInstitutionsByCidNumber,
+    } else if (institution != null) {
+      await MultisigTransferProposalAdapter.openLocalDetail(
+        context,
+        proposalId: id,
+        kind: snapshot.proposalKind,
+        institution: institution,
+        proposalContext: local,
+        resolveVoteContext: resolveVoteContext,
       );
-      final proposalContext = contexts.isEmpty
-          ? const ProposalContext()
-          : contexts.first;
-      final resolvedItem = _ProposalDisplayItem.fromProposal(
-        proposal: proposal,
-        context: proposalContext,
-        needsVote: item.needsVote,
-      );
-      await ProposalLocalStore.instance.upsertSummaries([resolvedItem.summary]);
-      if (mounted) {
-        setState(() {
-          _items = [
-            for (final current in _items)
-              if (current.proposalId == item.proposalId)
-                resolvedItem
-              else
-                current,
-          ];
-        });
-      }
-      return (proposal: proposal, proposalContext: proposalContext);
-    } catch (_) {
-      return null;
     }
   }
 }
@@ -997,37 +1173,19 @@ class _ProposalViewState extends State<ProposalTab> {
 class _ProposalDisplayItem {
   const _ProposalDisplayItem({
     required this.summary,
-    this.proposal,
-    this.context,
-    this.needsVote = false,
+    this.institution,
+    required this.needsVote,
   });
 
-  factory _ProposalDisplayItem.fromProposal({
-    required ProposalWithDetail proposal,
-    required ProposalContext context,
-    bool needsVote = false,
-  }) {
-    return _ProposalDisplayItem(
-      proposal: proposal,
-      context: context,
-      summary: LocalProposalSummary.fromProposal(
-        proposal,
-        institution: context.institution,
-      ),
-      needsVote: needsVote,
-    );
-  }
-
   final LocalProposalSummary summary;
-  final ProposalWithDetail? proposal;
-  final ProposalContext? context;
+  final InstitutionInfo? institution;
   final bool needsVote;
 
   BigInt get proposalId => summary.proposalId;
   int get status => summary.status;
   String get displayId => summary.displayId;
   String? get shortName {
-    final name = context?.institution?.shortName.trim();
+    final name = institution?.shortName.trim();
     return name == null || name.isEmpty ? null : name;
   }
 }

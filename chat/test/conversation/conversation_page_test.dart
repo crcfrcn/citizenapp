@@ -60,6 +60,29 @@ void main() {
     await tester.pump();
   }
 
+  testWidgets('会话缓存未就绪仍始终显示输入框且没有提示', (tester) async {
+    await page(tester, _PageRuntime());
+    expect(find.byType(ComposerBar), findsOneWidget);
+    expect(find.text('当前公民身份或会话尚未就绪，请稍后重试'), findsNothing);
+    expect(find.text('连接中'), findsNothing);
+    expect(find.byType(SnackBar), findsNothing);
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+  });
+  testWidgets('真实发送拒绝仍经过Runtime且窗口无提示、输入框保留', (tester) async {
+    final runtime = _PageRuntime()..rejectText = true;
+    await page(tester, runtime);
+    tester.widget<ComposerBar>(find.byType(ComposerBar)).onSendText('受保护消息');
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(runtime.texts, 1);
+    expect(find.byType(ComposerBar), findsOneWidget);
+    expect(find.text('synthetic_auth_rejected'), findsNothing);
+    expect(find.text('连接中'), findsNothing);
+    expect(find.byType(SnackBar), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 1));
+  });
   testWidgets('打开页面和文字发送不调用附件准备', (tester) async {
     final runtime = _PageRuntime();
     var checks = 0;
@@ -76,6 +99,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(runtime.texts, 1);
     expect(checks, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 1));
   });
   testWidgets('附件先等待宿主，再选取并发送；发送前再次复核', (tester) async {
     final runtime = _PageRuntime(), gate = Completer<void>();
@@ -120,7 +145,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(picks, 0);
     expect(runtime.media, 0);
-    expect(find.text('聊天暂时无法使用，请稍后重试'), findsOneWidget);
+    expect(find.text('聊天暂时无法使用，请稍后重试'), findsNothing);
   });
   testWidgets('长时间选取后宿主失效，发送前复核拒绝', (tester) async {
     final runtime = _PageRuntime();
@@ -139,7 +164,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(checks, 2);
     expect(runtime.media, 0);
-    expect(find.text('聊天暂时无法使用，请稍后重试'), findsOneWidget);
+    expect(find.text('聊天暂时无法使用，请稍后重试'), findsNothing);
   });
   testWidgets('附件准备期间页面退出，迟到结果不继续选取', (tester) async {
     final runtime = _PageRuntime(), gate = Completer<void>();
@@ -293,7 +318,7 @@ void main() {
         tooLong
             ? find.text('语音、视频消息每条最长 3 分钟')
             : find.textContaining('文件超出当前会员单个附件上限'),
-        findsOneWidget,
+        findsNothing,
       );
     });
   }
@@ -331,8 +356,6 @@ class _PageRuntime extends TestChatRuntime {
   @override
   ChatMediaLimits get mediaLimits => limits;
   @override
-  bool canSendCached(String userId) => true;
-  @override
   Future<void> prepareAttachmentForUser({
     required String userId,
     required String accountId,
@@ -342,6 +365,7 @@ class _PageRuntime extends TestChatRuntime {
 
   _PageRuntime() : super(host: _Host(), store: _PageStore());
   int texts = 0, media = 0;
+  bool rejectText = false;
   @override
   Future<int> retryOutgoing({
     String? recipientUserId,
@@ -369,6 +393,7 @@ class _PageRuntime extends TestChatRuntime {
     required String text,
   }) async {
     texts++;
+    if (rejectText) throw StateError('synthetic_auth_rejected');
     return [];
   }
 

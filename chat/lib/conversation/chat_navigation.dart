@@ -43,10 +43,12 @@ ChatOwner? _chatOwner(CurrentUser? user) {
 
 ({String cidNumber, String accountId}) _chatIdentity(CurrentUser? identity) {
   if (identity == null) return (cidNumber: '', accountId: '');
-  if (identity.isRegistered)
+  if (identity.isRegistered) {
     return (cidNumber: identity.cidNumber, accountId: identity.accountId);
-  if (identity.isUnregistered)
+  }
+  if (identity.isUnregistered) {
     return (cidNumber: '', accountId: identity.accountId);
+  }
   throw const SquareApiException(
     '身份信息暂不可用，请在身份页刷新后重试',
     errorCode: 'identity_local_missing',
@@ -70,20 +72,9 @@ Future<({String cidNumber, String accountId})?> _readChatEntryIdentity(
     if (expectedOwner != null && _chatOwner(user) != expectedOwner) return null;
     return _chatIdentity(user);
   } on Exception catch (error) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            error is SquareApiException &&
-                    error.errorCode == 'identity_local_missing'
-                ? SquareSessionResolution.fromError(error).message
-                : error is AccountSecurityException
-                ? error.message
-                : chatUserErrorMessage(error),
-          ),
-        ),
-      );
-    }
+    debugPrint(
+      '[ChatTrace] direction=ui stage=identity code=${chatDiagnosticCode(error)}',
+    );
     return null;
   }
 }
@@ -134,6 +125,21 @@ Future<void> openGroupChat(
   );
 }
 
+Future<void> _loadChatBlocks(
+  SquareApiClient? api, SquareSessionProvider? sessions, String cid, String account,
+  {bool refresh = false}
+) async {
+  if (api == null || sessions == null || cid.isEmpty) return;
+  try {
+    final session = await sessions.ensureContactSession();
+    if (session?.cidNumber == cid && session?.accountId == account) {
+      await api.blockedUsers(session!, refresh: refresh);
+    }
+  } on Object {
+    // 本地聊天仍可读取，后续刷新重试；发送权限以服务端为准。
+  }
+}
+
 /// 打开私聊详情；产品身份与自聊门禁留在 CitizenApp，消息链路由 聊天路由组装。
 Future<void> openDirectChat(
   BuildContext context, {
@@ -165,6 +171,14 @@ Future<void> openDirectChat(
         context,
       ).showSnackBar(const SnackBar(content: Text('不能和自己发起聊天')));
     }
+    return;
+  }
+  final api = context.read<SquareApiClient?>();
+  if (!context.mounted) return;
+  if (api?.isBlocked(currentUserId, peerUserId) == true) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('请先在黑名单解除拉黑')),
+    );
     return;
   }
   await Navigator.of(context).push<void>(

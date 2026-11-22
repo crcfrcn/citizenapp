@@ -2,11 +2,13 @@ import 'package:citizen_testing/membergate_fixture.dart';
 import 'package:flutter/services.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:citizen_testing/mls_authentication_fixture.dart';
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:citizen_user/identity/identity_binding.dart';
@@ -370,7 +372,7 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 100));
-    expect(find.text('聊天暂时无法使用，请稍后重试'), findsWidgets);
+    expect(find.text('聊天暂时无法使用，请稍后重试'), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
@@ -393,15 +395,9 @@ void main() {
 
     expect(find.text('聊天'), findsOneWidget);
     expect(find.text('搜索会话、联系人和聊天记录'), findsOneWidget);
-    expect(find.byKey(const ValueKey('chat-sync-progress')), findsOneWidget);
+    expect(find.byKey(const ValueKey('chat-sync-progress')), findsNothing);
     final searchTopBefore = tester.getTopLeft(find.text('搜索会话、联系人和聊天记录')).dy;
-    expect(
-      tester.getTopLeft(find.byKey(const ValueKey('chat-sync-progress'))).dy,
-      lessThan(
-        tester.getTopLeft(find.byKey(const ValueKey('chat-add-button'))).dy,
-      ),
-    );
-    expect(find.text('正在读取本地会话'), findsOneWidget);
+    expect(find.text('正在读取本地会话'), findsNothing);
     expect(find.byType(CircularProgressIndicator), findsNothing);
 
     store.completer.complete(const <ChatConversationPreview>[]);
@@ -413,7 +409,7 @@ void main() {
     await tester.pump();
   });
 
-  testWidgets('聊天本机绑定未知提示身份刷新，不调用会话/会员/加密存储', (tester) async {
+  testWidgets('聊天本机绑定未知保持静默，不调用会话/会员/加密存储', (tester) async {
     final store = _FakeChatStore(), sessions = _FakeProfileSessionProvider();
     final memberships = _AttachmentOnlySubscription(),
         security = _UnusedSecurity();
@@ -458,8 +454,8 @@ void main() {
     );
     await tester.pump();
     await tester.pump();
-    // 原错误横幅和空态各显示同一固定提示。
-    expect(find.textContaining('身份信息暂不可用，请在身份页刷新后重试'), findsNWidgets(2));
+    // 身份尚不可用时不显示提示；所属账户隔离与原请求短路仍保留。
+    expect(find.textContaining('身份信息暂不可用，请在身份页刷新后重试'), findsNothing);
     expect(find.text('尚未注册'), findsNothing);
     expect(sessions.calls, 0);
     expect(memberships.requests, 0);
@@ -488,9 +484,9 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    // 统一引导态(标题 + 注册按钮),不是错误横幅。
-    expect(find.text('尚未注册'), findsOneWidget);
-    expect(find.text('注册'), findsOneWidget);
+    // 聊天列表不展示身份引导，缺失身份仍不能读取加密记录。
+    expect(find.text('尚未注册'), findsNothing);
+    expect(find.text('注册'), findsNothing);
     expect(find.textContaining('尚未激活'), findsNothing);
     // 短路铁证:加密会话存储一次都不读——其密钥绑定解析对未注册身份必抛
     // AccountSecurityException，读了就会以错误横幅盖住引导。
@@ -619,62 +615,6 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(ChatConversationPage), findsNothing);
     expect(find.text('打开旧选择结果'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('私信拒绝只显示于匹配账户与会话，退出后取消监听', (tester) async {
-    const record = MethodChannel('com.llfbandit.record/messages');
-    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-      record,
-      (_) async => null,
-    );
-    addTearDown(
-      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        record,
-        null,
-      ),
-    );
-    final runtime = _RejectionRuntime(_FakeChatStore());
-    addTearDown(runtime.events.close);
-    await tester.pumpWidget(
-      MaterialApp(
-        home: ChatConversationPage(
-          runtime: runtime,
-          conversationId: _directConversationId,
-          currentUserId: _ownerUserId,
-          accountId: testMlsAccountId,
-          peerUserId: _peerUserId,
-          title: '测试私聊',
-        ),
-      ),
-    );
-    await settleLocal(tester);
-    runtime.events.add((
-      accountId: 'other',
-      userId: _ownerUserId,
-      conversationId: _directConversationId,
-      messageId: 'wrong',
-    ));
-    await tester.pump();
-    expect(find.text('对方不接收你的私信'), findsNothing);
-    runtime.events.add((
-      accountId: testMlsAccountId,
-      userId: _ownerUserId,
-      conversationId: _directConversationId,
-      messageId: 'denied',
-    ));
-    await tester.pump();
-    await tester.pump();
-    expect(find.text('对方不接收你的私信'), findsOneWidget);
-    await tester.pumpWidget(const SizedBox.shrink());
-    runtime.events.add((
-      accountId: testMlsAccountId,
-      userId: _ownerUserId,
-      conversationId: _directConversationId,
-      messageId: 'late',
-    ));
-    await tester.pump(const Duration(seconds: 1));
-    expect(runtime.events.hasListener, isFalse);
     expect(tester.takeException(), isNull);
   });
 
@@ -1536,6 +1476,76 @@ void main() {
     expect(find.text('Bob'), findsNothing);
   });
 
+  testWidgets('拉黑隐藏原会话，解除恢复原摘要和未读', (tester) async {
+    var blocked = false;
+    final api = SquareApiClient(
+      baseUrl: 'https://square.test/api',
+      httpClient: MockClient((request) async {
+        if (request.method == 'GET') {
+          return http.Response(jsonEncode({
+            'is_ok': true,
+            'items': blocked ? [_peerUserId] : [],
+            'next_cursor': null,
+          }), 200);
+        }
+        expect(request.url.path, '/api/8964/blocks/$_peerUserId');
+        blocked = request.method == 'PUT';
+        return http.Response(jsonEncode({'is_ok': true, 'blocked': blocked}), 200);
+      }),
+    );
+    addTearDown(api.close);
+    final session = SquareSession(
+      deviceId: testMlsDeviceId,
+      sessionToken: 'synthetic',
+      cidNumber: _ownerUserId,
+      accountId: testMlsAccountId,
+      bindRev: 1,
+      expiresAt: 9999999999999,
+      authenticateRequest: fakeMlsRequestHeaders,
+    );
+    final store = _FakeChatStore(conversations: [
+      ChatConversationPreview(
+        conversationId: _directConversationId,
+        title: 'Bob',
+        peerUserId: _peerUserId,
+        lastMessage: '原有消息',
+        lastUpdatedAt: DateTime.fromMillisecondsSinceEpoch(2),
+        unreadCount: 3,
+      ),
+    ]);
+    await tester.pumpWidget(Provider<SquareApiClient>.value(
+      value: api,
+      child: MaterialApp(home: ChatTab(
+        store: store,
+        cidNumber: _ownerUserId,
+        accountId: testMlsAccountId,
+        runtime: _FakeRuntime(address: testMlsAccountId, store: store),
+        sessionProvider: _BlockSessions(session),
+      )),
+    ));
+    await tester.pump(const Duration(milliseconds: 400));
+    final row = find.byKey(const ValueKey('chat-conversation-$_directConversationId'));
+    expect(row, findsOneWidget);
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.more_vert_rounded));
+    await tester.pumpAndSettle();
+    expect(tester.getTopLeft(find.text('拉黑用户')).dy,
+        lessThan(tester.getTopLeft(find.text('删除聊天记录')).dy));
+    await tester.tap(find.text('拉黑用户'));
+    await tester.pumpAndSettle();
+    expect(blocked, isTrue);
+    expect(row, findsNothing);
+    expect(store.deletedConversationIds, isEmpty);
+    await api.setBlocked(session, _peerUserId, false);
+    await tester.pumpAndSettle();
+    expect(row, findsOneWidget);
+    expect(find.text('原有消息'), findsOneWidget);
+    expect(find.text('3'), findsOneWidget);
+    expect(store.deletedConversationIds, isEmpty);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('聊天 Tab 鉴权仍要求当前绑定钱包账户', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -1551,7 +1561,7 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 100));
 
-    expect(find.text('请先在「我的 → 我的钱包」添加钱包账户'), findsOneWidget);
+    expect(find.text('请先在「我的 → 我的钱包」添加钱包账户'), findsNothing);
   });
 
   testWidgets('聊天列表只订阅Hub，停留期间不轮询或再次补发', (tester) async {
@@ -1617,7 +1627,7 @@ void main() {
     await tester.pump();
 
     expect(runtime.syncCount, 0);
-    expect(find.text('暂无会话'), findsOneWidget);
+    expect(find.text('暂无会话'), findsNothing);
     expect(find.text('正在读取本地会话'), findsNothing);
     expect(find.byKey(const ValueKey('chat-sync-progress')), findsNothing);
     expect(find.textContaining('正在连接'), findsNothing);
@@ -1685,20 +1695,20 @@ void main() {
     expect(find.text('本地会话必须保留'), findsOneWidget);
     expect(find.text('连接中'), findsOneWidget);
     expect(
+      tester.getCenter(find.text('连接中')).dx,
+      tester.getCenter(find.byType(ChatConversationOverview)).dx,
+    );
+    expect(
+      tester.getCenter(find.text('连接中')).dy,
+      tester.getCenter(find.text('聊天')).dy,
+    );
+    expect(
       tester.widget<Text>(find.text('连接中')).style?.color,
       AppTheme.textSecondary,
     );
     expect(find.byType(AlertDialog), findsNothing);
     expect(find.byType(SnackBar), findsNothing);
     expect(find.text('聊天连接暂不可用，正在自动重试'), findsNothing);
-    expect(
-      tester
-          .widget<ChatConversationOverview>(
-            find.byType(ChatConversationOverview),
-          )
-          .errorMessage,
-      isNull,
-    );
     expect(find.text('正在读取本地会话'), findsNothing);
     expect(find.textContaining('正在连接'), findsNothing);
 
@@ -2100,6 +2110,14 @@ class _MemoryProfileMediaCache extends CitizenProfileMediaCache {
   }) async => snapshot;
 }
 
+class _BlockSessions extends Fake implements SquareSessionProvider {
+  _BlockSessions(this.session);
+  final SquareSession session;
+
+  @override
+  Future<SquareSession?> ensureContactSession() async => session;
+}
+
 class _PendingPreparationSessions implements SquareSessionProvider {
   final pending = Completer<SquareSessionResolution>();
   int calls = 0;
@@ -2366,13 +2384,6 @@ class _DelayedProfileCache extends CitizenProfileCache {
   final held = Completer<CitizenProfile?>();
   @override
   Future<CitizenProfile?> read(String cidNumber) => held.future;
-}
-
-class _RejectionRuntime extends _AvatarRuntime {
-  _RejectionRuntime(super.store);
-  final events = StreamController<ChatSendRejection>.broadcast();
-  @override
-  Stream<ChatSendRejection> get sendRejections => events.stream;
 }
 
 class _HeldEntryIdentity extends _LocalChatIdentity {

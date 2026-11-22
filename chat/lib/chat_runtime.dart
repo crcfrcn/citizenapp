@@ -1453,14 +1453,6 @@ class _ChatSignalContext {
   final ChatServiceTransport transport;
 }
 
-/// 只交付本次发送拒绝的公开路由事实，不保存密文或身份凭证。
-typedef ChatSendRejection = ({
-  String accountId,
-  String userId,
-  String conversationId,
-  String messageId,
-});
-
 /// App用户 Chat 运行态编排服务。
 ///
 /// 页面层不直接操作 OpenMLS、聊天服务模块瞬时转发、近场通道和 Isar。
@@ -1567,24 +1559,6 @@ class ChatRuntime {
       _ChatUserMutationGate();
   static final Object _userMutationZoneKey = Object();
 
-  final _sendRejections = StreamController<ChatSendRejection>.broadcast();
-  final Map<String, List<ChatSendRejection>> _pendingSendRejections = {};
-  Stream<ChatSendRejection> get sendRejections => _sendRejections.stream;
-
-  void _notifySendRejected(
-    ChatRuntimeAccountContext context,
-    String conversationId,
-    String messageId,
-  ) {
-    if (!_closed)
-      (_pendingSendRejections[context.account.accountId] ??= []).add((
-        accountId: context.account.accountId,
-        userId: context.account.userId,
-        conversationId: conversationId,
-        messageId: messageId,
-      ));
-  }
-
   bool _closed = false;
   final Set<Future<void>> _contextDisposals = <Future<void>>{};
   final Set<ChatRuntimeAccountContext> _contextsPendingDisposal =
@@ -1608,8 +1582,6 @@ class ChatRuntime {
   ChatPushService get push => _pushService;
   ChatMediaLimits get mediaLimits => const ChatMediaLimits();
 
-  bool canSendCached(String userId) =>
-      SubscriptionService.chatAuthorizedFor(userId);
   Future<void> prepareAttachmentForUser({
     required String userId,
     required String accountId,
@@ -2211,8 +2183,6 @@ class ChatRuntime {
 
   Future<void> _close() async {
     _closed = true;
-    _pendingSendRejections.clear();
-    if (!_sendRejections.isClosed) await _sendRejections.close();
     for (final timer in _mailboxRetryTimers.values) {
       timer.cancel();
     }
@@ -3033,8 +3003,9 @@ class ChatRuntime {
               '[ChatTrace] direction=outbound stage=delivery code=${chatDiagnosticCode(error)}',
             );
             if (error is ChatConnectionException &&
-                error.code == 'dm_forbidden')
+                error.code == 'dm_forbidden') {
               return;
+            }
             final hub = _realtimeHubs[account.accountId];
             // 未就绪只等待同一Hub；不能由每个会话重新鉴权或重置网络退避。
             if (hub == null || hub.stopPhysical != null) {
@@ -4042,13 +4013,6 @@ class ChatRuntime {
         if (hub != null) {
           await _notifyRealtimeHub(hub);
         }
-        // 先让原消息刷新收尾，再显示拒绝，避免成功读取快照立即清除错误文案。
-        final rejected =
-            _pendingSendRejections.remove(context.account.accountId) ??
-            const <ChatSendRejection>[];
-        if (!_closed && !_sendRejections.isClosed) {
-          for (final event in rejected) _sendRejections.add(event);
-        }
         if (failed || delivery.errorCode != null) {
           throw ChatConnectionException(
             delivery.errorCode ?? 'outbound_retry_required',
@@ -4136,11 +4100,6 @@ class ChatRuntime {
             messageId: item.localMessageId,
             state: ChatMessageDeliveryState.failed,
             errorMessage: 'dm_forbidden',
-          );
-          _notifySendRejected(
-            context,
-            item.conversationId,
-            item.localMessageId,
           );
           continue;
         }
@@ -4766,9 +4725,6 @@ class ChatRuntime {
           state: result.state,
           errorMessage: result.errorMessage,
         );
-        if (result.errorMessage == 'dm_forbidden') {
-          _notifySendRejected(context, message.conversationId, item.messageId);
-        }
         if (result.state == ChatMessageDeliveryState.sent) {
           sent += 1;
         } else if (result.errorMessage != 'commit_required') {

@@ -35,6 +35,7 @@ class SquareNotificationsPageState extends State<SquareNotificationsPage>
       _observedSequence = -1,
       _request = 0;
   bool _loading = false, _dirty = true, _scheduled = false;
+  bool _wasVisible = false;
   bool _networkStarted = false,
       _resetFlight = false,
       _resetRequested = false,
@@ -91,13 +92,24 @@ class SquareNotificationsPageState extends State<SquareNotificationsPage>
   }
 
   void _activityChanged() {
+    final entered = _visible && !_wasVisible;
+    _wasVisible = _visible;
+    if (entered) {
+      // 通知序列只反映通知写入，关系变化不会推进该序列。
+      _dirty = true;
+      _forceRefresh = true;
+      if (_rows.isNotEmpty) setState(() => _rows.clear());
+    }
     _scheduleRefresh();
-    unawaited(_readVisible());
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _activityChanged();
+    if (state != AppLifecycleState.resumed) {
+      _wasVisible = false;
+      return;
+    }
+    _activityChanged();
   }
 
   void _scheduleRefresh() {
@@ -241,17 +253,6 @@ class SquareNotificationsPageState extends State<SquareNotificationsPage>
       if (!await notifications.restore()) throw StateError('当前身份不可用');
       if (!mounted || request != _request) return;
       owner = notifications.scope!;
-      final cached = notifications.cachedList;
-      if (reset && cached != null) {
-        _install(owner, cached);
-        if (!_forceRefresh &&
-            cached.revision >= notifications.listRevision &&
-            cached.sequence >= notifications.interactionSequence) {
-          _dirty = _resetRequested;
-          await _readVisible();
-          return;
-        }
-      }
       _networkStarted = true;
       _forceRefresh = false;
       final session = await widget.sessions?.ensureSession();

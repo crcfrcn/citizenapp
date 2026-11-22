@@ -21528,18 +21528,28 @@ const ProposalListSchema = CollectionSchema(
       name: r'cid_number',
       type: IsarType.string,
     ),
-    r'proposal_id_texts': PropertySchema(
+    r'finalized_hash': PropertySchema(
       id: 1,
+      name: r'finalized_hash',
+      type: IsarType.string,
+    ),
+    r'finalized_height': PropertySchema(
+      id: 2,
+      name: r'finalized_height',
+      type: IsarType.string,
+    ),
+    r'proposal_id_texts': PropertySchema(
+      id: 3,
       name: r'proposal_id_texts',
       type: IsarType.stringList,
     ),
     r'proposal_ids': PropertySchema(
-      id: 2,
+      id: 4,
       name: r'proposal_ids',
       type: IsarType.longList,
     ),
     r'synced_at': PropertySchema(
-      id: 3,
+      id: 5,
       name: r'synced_at',
       type: IsarType.long,
     ),
@@ -21581,6 +21591,18 @@ int _proposalListEstimateSize(
 ) {
   var bytesCount = offsets.last;
   bytesCount += 3 + object.cidNumber.length * 3;
+  {
+    final value = object.finalizedHash;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
+  {
+    final value = object.finalizedHeight;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
   bytesCount += 3 + object.proposalIdTexts.length * 3;
   {
     for (var i = 0; i < object.proposalIdTexts.length; i++) {
@@ -21599,9 +21621,11 @@ void _proposalListSerialize(
   Map<Type, List<int>> allOffsets,
 ) {
   writer.writeString(offsets[0], object.cidNumber);
-  writer.writeStringList(offsets[1], object.proposalIdTexts);
-  writer.writeLongList(offsets[2], object.legacyProposalIds);
-  writer.writeLong(offsets[3], object.syncedAt);
+  writer.writeString(offsets[1], object.finalizedHash);
+  writer.writeString(offsets[2], object.finalizedHeight);
+  writer.writeStringList(offsets[3], object.proposalIdTexts);
+  writer.writeLongList(offsets[4], object.legacyProposalIds);
+  writer.writeLong(offsets[5], object.syncedAt);
 }
 
 ProposalList _proposalListDeserialize(
@@ -21612,10 +21636,12 @@ ProposalList _proposalListDeserialize(
 ) {
   final object = ProposalList();
   object.cidNumber = reader.readString(offsets[0]);
+  object.finalizedHash = reader.readStringOrNull(offsets[1]);
+  object.finalizedHeight = reader.readStringOrNull(offsets[2]);
   object.rowId = id;
-  object.proposalIdTexts = reader.readStringList(offsets[1]) ?? [];
-  object.legacyProposalIds = reader.readLongList(offsets[2]) ?? [];
-  object.syncedAt = reader.readLong(offsets[3]);
+  object.proposalIdTexts = reader.readStringList(offsets[3]) ?? [];
+  object.legacyProposalIds = reader.readLongList(offsets[4]) ?? [];
+  object.syncedAt = reader.readLong(offsets[5]);
   return object;
 }
 
@@ -21629,10 +21655,14 @@ P _proposalListDeserializeProp<P>(
     case 0:
       return (reader.readString(offset)) as P;
     case 1:
-      return (reader.readStringList(offset) ?? []) as P;
+      return (reader.readStringOrNull(offset)) as P;
     case 2:
-      return (reader.readLongList(offset) ?? []) as P;
+      return (reader.readStringOrNull(offset)) as P;
     case 3:
+      return (reader.readStringList(offset) ?? []) as P;
+    case 4:
+      return (reader.readLongList(offset) ?? []) as P;
+    case 5:
       return (reader.readLong(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -21990,6 +22020,324 @@ extension ProposalListQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.greaterThan(property: r'cid_number', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  finalizedHashIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'finalized_hash'),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  finalizedHashIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'finalized_hash'),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  finalizedHashEqualTo(String? value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'finalized_hash',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  finalizedHashGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'finalized_hash',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  finalizedHashLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'finalized_hash',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  finalizedHashBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'finalized_hash',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  finalizedHashStartsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'finalized_hash',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  finalizedHashEndsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'finalized_hash',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  finalizedHashContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'finalized_hash',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  finalizedHashMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'finalized_hash',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  finalizedHashIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'finalized_hash', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  finalizedHashIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'finalized_hash', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  finalizedHeightIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'finalized_height'),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  finalizedHeightIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'finalized_height'),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  finalizedHeightEqualTo(String? value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'finalized_height',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  finalizedHeightGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'finalized_height',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  finalizedHeightLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'finalized_height',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  finalizedHeightBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'finalized_height',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  finalizedHeightStartsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'finalized_height',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  finalizedHeightEndsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'finalized_height',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  finalizedHeightContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'finalized_height',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  finalizedHeightMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'finalized_height',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  finalizedHeightIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'finalized_height', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterFilterCondition>
+  finalizedHeightIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'finalized_height', value: ''),
       );
     });
   }
@@ -22435,6 +22783,33 @@ extension ProposalListQuerySortBy
     });
   }
 
+  QueryBuilder<ProposalList, ProposalList, QAfterSortBy> sortByFinalizedHash() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'finalized_hash', Sort.asc);
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterSortBy>
+  sortByFinalizedHashDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'finalized_hash', Sort.desc);
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterSortBy>
+  sortByFinalizedHeight() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'finalized_height', Sort.asc);
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterSortBy>
+  sortByFinalizedHeightDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'finalized_height', Sort.desc);
+    });
+  }
+
   QueryBuilder<ProposalList, ProposalList, QAfterSortBy> sortBySyncedAt() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'synced_at', Sort.asc);
@@ -22459,6 +22834,33 @@ extension ProposalListQuerySortThenBy
   QueryBuilder<ProposalList, ProposalList, QAfterSortBy> thenByCidNumberDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'cid_number', Sort.desc);
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterSortBy> thenByFinalizedHash() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'finalized_hash', Sort.asc);
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterSortBy>
+  thenByFinalizedHashDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'finalized_hash', Sort.desc);
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterSortBy>
+  thenByFinalizedHeight() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'finalized_height', Sort.asc);
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QAfterSortBy>
+  thenByFinalizedHeightDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'finalized_height', Sort.desc);
     });
   }
 
@@ -22497,6 +22899,27 @@ extension ProposalListQueryWhereDistinct
     });
   }
 
+  QueryBuilder<ProposalList, ProposalList, QDistinct> distinctByFinalizedHash({
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(
+        r'finalized_hash',
+        caseSensitive: caseSensitive,
+      );
+    });
+  }
+
+  QueryBuilder<ProposalList, ProposalList, QDistinct>
+  distinctByFinalizedHeight({bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(
+        r'finalized_height',
+        caseSensitive: caseSensitive,
+      );
+    });
+  }
+
   QueryBuilder<ProposalList, ProposalList, QDistinct>
   distinctByProposalIdTexts() {
     return QueryBuilder.apply(this, (query) {
@@ -22529,6 +22952,20 @@ extension ProposalListQueryProperty
   QueryBuilder<ProposalList, String, QQueryOperations> cidNumberProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'cid_number');
+    });
+  }
+
+  QueryBuilder<ProposalList, String?, QQueryOperations>
+  finalizedHashProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'finalized_hash');
+    });
+  }
+
+  QueryBuilder<ProposalList, String?, QQueryOperations>
+  finalizedHeightProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'finalized_height');
     });
   }
 

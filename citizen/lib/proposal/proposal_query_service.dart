@@ -12,6 +12,8 @@ import 'package:citizen_citizen/proposal/proposal_models.dart';
 import 'package:citizen_citizen/institution/institution_role_models.dart';
 import 'package:citizen_citizen/institution/institution_role_storage_codec.dart';
 import 'package:citizen_citizen/proposal/internal_vote_query_service.dart';
+import 'package:citizen_citizen/runtime/runtime_upgrade_service.dart';
+import 'package:citizen_citizen/legislation/legislation_vote_query_service.dart';
 
 /// 详情只等待同一SDK的公开就绪事件；不轮询、不重启、不重试真实读取错误。
 /// 先订阅再取能力快照，且作废查询期间迟到的旧快照。
@@ -131,7 +133,8 @@ class ProposalQueryService {
     Future<Uint8List?> Function(CitizenBlockRef block)? getSystemEvents,
     Future<CitizenRuntimeContext> Function(CitizenBlockRef block)?
     getRuntimeContext,
-    Future<CitizenRuntimeContext> Function(CitizenBlockRef)? getStorageRuntimeContext,
+    Future<CitizenRuntimeContext> Function(CitizenBlockRef)?
+    getStorageRuntimeContext,
     Future<CitizenBlockRef> Function()? getFinalizedHead,
     Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)?
     getStorage,
@@ -141,6 +144,7 @@ class ProposalQueryService {
     )?
     getStorageBatch,
   }) : _block = block,
+       _getStorageBatch = getStorageBatch ?? chain?.getStorageBatch,
        _adminService = InstitutionAdminService(
          chain: chain,
          getFinalizedHead: block == null ? getFinalizedHead : () async => block,
@@ -157,14 +161,21 @@ class ProposalQueryService {
          getStorageBatch: getStorageBatch,
        ),
        _getFinalizedEvents = ((block) => readCitizenFinalizedEvents(
-             block,
-             readEvents: getSystemEvents ?? chain?.getSystemEvents ??
-                 ((_) => throw StateError('未配置事件读取')),
-             readRuntime: getRuntimeContext ?? chain?.getRuntimeContext ??
-                 ((_) => throw StateError('未配置事件 metadata')),
-           )),
-       _getStorageRuntimeContext = getStorageRuntimeContext ?? getRuntimeContext ??
-           chain?.getRuntimeContext ?? ((block) => throw StateError('未配置getRuntimeContext')),
+         block,
+         readEvents:
+             getSystemEvents ??
+             chain?.getSystemEvents ??
+             ((_) => throw StateError('未配置事件读取')),
+         readRuntime:
+             getRuntimeContext ??
+             chain?.getRuntimeContext ??
+             ((_) => throw StateError('未配置事件 metadata')),
+       )),
+       _getStorageRuntimeContext =
+           getStorageRuntimeContext ??
+           getRuntimeContext ??
+           chain?.getRuntimeContext ??
+           ((block) => throw StateError('未配置getRuntimeContext')),
        _getFinalizedHead =
            getFinalizedHead ??
            chain?.getFinalizedHead ??
@@ -174,12 +185,16 @@ class ProposalQueryService {
            chain?.getStorage ??
            ((CitizenBlockRef block, Uint8List key) =>
                throw StateError('未配置getStorage'));
-  final Future<List<CitizenSystemEvent>> Function(CitizenBlockRef) _getFinalizedEvents;
+  final Future<List<CitizenSystemEvent>> Function(CitizenBlockRef)
+  _getFinalizedEvents;
   final Future<CitizenBlockRef> Function() _getFinalizedHead;
   final Future<CitizenRuntimeContext> Function(CitizenBlockRef)
   _getStorageRuntimeContext;
   final Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)
   _getStorage;
+
+  final Future<List<Uint8List?>> Function(CitizenBlockRef, List<Uint8List>)?
+  _getStorageBatch;
 
   final CitizenBlockRef? _block;
   final InstitutionAdminService _adminService;
@@ -196,17 +211,213 @@ class ProposalQueryService {
       throw StateError('事件确认需要成功的finalized执行');
     }
     final events = await _getFinalizedEvents(execution.block);
-    return events.where((event) =>
-        event.extrinsicIndex == execution.extrinsicIndex).toList();
+    return events
+        .where((event) => event.extrinsicIndex == execution.extrinsicIndex)
+        .toList();
+  }
+
+  /// 只消费能归到具体提案的治理事件。
+  Future<List<CitizenSystemEvent>> proposalEvents(CitizenBlockRef block) async {
+    final events = await _getFinalizedEvents(block);
+    const pallets = {
+      'VotingEngine', 'InternalVote', 'JointVote', 'LegislationVote', 'ElectionVote',
+    };
+    return [
+      for (final event in events)
+        if (pallets.contains(event.pallet) &&
+            event.fields is Map &&
+            (event.fields as Map).containsKey('proposal_id'))
+          event,
+    ];
+  }
+
+  Future<ProposalMeta?> proposalMetaAt(CitizenBlockRef block, BigInt id) async {
+    final runtime = await _getStorageRuntimeContext(block);
+    final key = runtime.storageKey('VotingEngine', 'Proposals', [id]);
+    final bytes = await _getStorage(block, key);
+    if (bytes == null) return null;
+    return decodeProposalMeta(id, bytes) ??
+        (throw const FormatException('提案元数据编码无效'));
+  }
+
+  /// 在事件所属块读取绝对计数，重放区块不会重复累加投票。
+  Future<({({int yes, int no}) tally, ({int yes, int no})? referendum})>
+  proposalTalliesAt(CitizenBlockRef block, ProposalMeta meta) async {
+    final runtime = await _getStorageRuntimeContext(block);
+    Future<({int yes, int no})> read(
+      String pallet,
+      String entry,
+      int width,
+    ) async {
+      final bytes = await _getStorage(
+        block,
+        runtime.storageKey(pallet, entry, [meta.proposalId]),
+      );
+      if (bytes == null) return (yes: 0, no: 0);
+      if (bytes.length != width * 2) {
+        throw FormatException('$entry 长度无效');
+      }
+      return (
+        yes: CitizenScale.readUnsigned(bytes, 0, width).toInt(),
+        no: CitizenScale.readUnsigned(bytes, width, width).toInt(),
+      );
+    }
+
+    if (meta.kind == 1) {
+      return (
+        tally: await read('JointVote', 'JointTallies', 4),
+        referendum: await read('JointVote', 'ReferendumTallies', 8),
+      );
+    }
+    return (
+      tally: await read('InternalVote', 'InternalTallies', 4),
+      referendum: null,
+    );
+  }
+
+  /// 立法和选举使用各自的链上计票结构，只处理本块涉及的岗位机构或候选人。
+  Future<Map<String, int>> trackTalliesAt(
+    CitizenBlockRef block,
+    BigInt id,
+    List<CitizenSystemEvent> events,
+  ) async {
+    final representativeBodies = <int>{};
+    final candidates = <String>{};
+    var referendum = false;
+    for (final event in events) {
+      if (event.pallet == 'LegislationVote') {
+        if (event.name == 'RepresentativeVoteCast') {
+          representativeBodies.add(event.fieldUnsigned('body_index').toInt());
+        } else if (event.name == 'LegislationReferendumVoteCast' ||
+            event.name == 'ReferendumVoteCast') {
+          referendum = true;
+        }
+      } else if (event.pallet == 'ElectionVote' && event.name == 'ElectionVoteCast') {
+        final subject = (event.fields as Map)['candidate_subject'];
+        final bytes = CitizenSystemEvent(
+          eventIndex: event.eventIndex, extrinsicIndex: event.extrinsicIndex,
+          pallet: event.pallet, name: event.name, fields: subject,
+        ).fieldBytes('cid_number');
+        candidates.add(utf8.decode(bytes));
+      }
+    }
+    final counts = <String, int>{};
+    final legislation = LegislationVoteQueryService(
+      block: block,
+      getRuntimeContext: _getStorageRuntimeContext,
+      getStorage: _getStorage,
+    );
+    for (final body in representativeBodies) {
+      final tally = await legislation.fetchRepresentativeTally(id, body);
+      counts['representative_${body}_yes'] = tally.yes;
+      counts['representative_${body}_no'] = tally.no;
+    }
+    if (referendum) {
+      final tally = await legislation.fetchReferendumTally(id);
+      counts['referendum_yes'] = tally.yes;
+      counts['referendum_no'] = tally.no;
+    }
+    if (candidates.isNotEmpty) {
+      final runtime = await _getStorageRuntimeContext(block);
+      Future<int> read(String entry, List<Object> args) async {
+        final raw = await _getStorage(block, runtime.storageKey('ElectionVote', entry, args));
+        if (raw == null) return 0;
+        if (raw.length != 4) throw FormatException('$entry 长度无效');
+        return CitizenScale.readUnsigned(raw, 0, 4).toInt();
+      }
+      counts['election_casted'] = await read('ElectionTallyStore', [id]);
+      for (final candidate in candidates) {
+        counts['candidate_$candidate'] =
+            await read('ElectionCandidateTallies', [id, utf8.encode(candidate)]);
+      }
+    }
+    return counts;
+  }
+
+  /// SDK 仅在已验证块成功读取到空值时确认删除。
+  Future<Set<BigInt>> deletedProposalIds(
+    CitizenBlockRef block,
+    Iterable<BigInt> ids,
+  ) async {
+    if (block.finality != CitizenBlockFinality.finalized) {
+      throw ArgumentError('删除核验只接受最终区块');
+    }
+    final candidates = ids.toList();
+    if (candidates.isEmpty) return {};
+    final runtime = await _getStorageRuntimeContext(block);
+    final deleted = <BigInt>{};
+    for (var offset = 0; offset < candidates.length; offset += 128) {
+      final batch = candidates.skip(offset).take(128).toList();
+      final keys = [
+        for (final id in batch)
+          runtime.storageKey('VotingEngine', 'Proposals', [id]),
+      ];
+      final read = _getStorageBatch;
+      final values = read == null
+          ? await Future.wait(keys.map((key) => _getStorage(block, key)))
+          : await read(block, keys);
+      if (values.length != batch.length) {
+        throw StateError('提案删除核验返回的结果数与请求不符');
+      }
+      for (var i = 0; i < batch.length; i++) {
+        if (values[i] == null) deleted.add(batch[i]);
+      }
+    }
+    return deleted;
+  }
+
+  Future<({
+    List<String> accounts,
+    Map<String, bool?> votes,
+    bool? result,
+    ({int yes, int no}) tally,
+  })> jointInstitutionAt(
+    CitizenBlockRef block,
+    ProposalMeta meta,
+    InstitutionInfo institution,
+    List<String> accounts,
+  ) async {
+    final cid = institution.cidNumber;
+    final role = institution.orgType == OrgType.prb
+        ? 'DIRECTOR'
+        : 'COMMITTEE_MEMBER';
+    final query = ProposalQueryService(
+      block: block,
+      getStorageRuntimeContext: _getStorageRuntimeContext,
+      getStorage: _getStorage,
+    );
+    if (accounts.isEmpty && meta.status == 0 && meta.stage == 1) {
+      final plan = await query.fetchVotePlan(meta.proposalId);
+      if (plan?.voterSubjects.any((subject) {
+            final voter = subject.roleSubject;
+            return voter?.cidNumber == cid && voter?.roleCode == role;
+          }) == true) {
+        accounts = await query.fetchRoleVoterSnapshot(meta.proposalId, cid, role);
+      }
+    }
+    final runtime = RuntimeUpgradeService(
+      getFinalizedHead: () async => block,
+      getStorageRuntimeContext: _getStorageRuntimeContext,
+      getStorage: _getStorage,
+      getStorageBatch: _getStorageBatch,
+    );
+    final (result, tally, votes) = await (
+      runtime.fetchJointVoteByInstitution(meta.proposalId, cid),
+      runtime.fetchJointInstitutionTally(meta.proposalId, cid),
+      runtime.fetchJointTicketVotesBatch(meta.proposalId, cid, role, accounts),
+    ).wait;
+    return (accounts: accounts, votes: votes, result: result, tally: tally);
   }
 
   /// 比较业务期待的原字节与 SDK 交付的 metadata 字段。
   static bool eventBytesEqual(Object? value, List<int> expected) {
-    while (value is List<Object?> && value.length == 1 &&
+    while (value is List<Object?> &&
+        value.length == 1 &&
         value.single is List<Object?>) {
       value = value.single;
     }
-    if (value is! List<Object?> || value.length != expected.length) return false;
+    if (value is! List<Object?> || value.length != expected.length)
+      return false;
     for (var i = 0; i < expected.length; i++) {
       if (value[i] != expected[i].toString()) return false;
     }
@@ -214,12 +425,13 @@ class ProposalQueryService {
   }
 
   /// 当前业务的可选 CID／岗位文本使用 metadata 给出的精确 Option 分支。
-  static bool eventOptionalText(Object? value, String? expected) => switch (value) {
-    {'variant': 'None', 'fields': []} => expected == null,
-    {'variant': 'Some', 'fields': [final payload]} =>
-      expected != null && eventBytesEqual(payload, utf8.encode(expected)),
-    _ => false,
-  };
+  static bool eventOptionalText(Object? value, String? expected) =>
+      switch (value) {
+        {'variant': 'None', 'fields': []} => expected == null,
+        {'variant': 'Some', 'fields': [final payload]} =>
+          expected != null && eventBytesEqual(payload, utf8.encode(expected)),
+        _ => false,
+      };
 
   /// 查询 NextProposalId（投票引擎全局递增 ID）。
   Future<BigInt> fetchNextProposalId() async {
@@ -257,7 +469,9 @@ class ProposalQueryService {
 
   /// 查询并严格解码提案绑定的 VotePlan。
   Future<VotePlan?> fetchVotePlan(BigInt proposalId) async {
-    final data = await _readStorage('VotingEngine', 'ProposalVotePlans', [proposalId]);
+    final data = await _readStorage('VotingEngine', 'ProposalVotePlans', [
+      proposalId,
+    ]);
     return data == null
         ? null
         : InstitutionRoleStorageCodec.decodeVotePlan(data);
@@ -341,7 +555,9 @@ class ProposalQueryService {
 
   /// 查询投票计数。
   Future<({int yes, int no})> fetchVoteTally(BigInt proposalId) async {
-    final data = await _readStorage('InternalVote', 'InternalTallies', [proposalId]);
+    final data = await _readStorage('InternalVote', 'InternalTallies', [
+      proposalId,
+    ]);
     if (data == null) return (yes: 0, no: 0);
     if (data.length != 8) throw const FormatException('InternalTallies长度无效');
     return (yes: _decodeU32(data, 0), no: _decodeU32(data, 4));
@@ -349,7 +565,11 @@ class ProposalQueryService {
 
   /// 查询内部投票阈值快照。
   Future<int?> fetchInternalThresholdSnapshot(BigInt proposalId) async {
-    final data = await _readStorage('InternalVote', 'InternalThresholdSnapshot', [proposalId]);
+    final data = await _readStorage(
+      'InternalVote',
+      'InternalThresholdSnapshot',
+      [proposalId],
+    );
     if (data == null) return null;
     if (data.length != 4) {
       throw const FormatException('InternalThresholdSnapshot长度无效');
@@ -480,11 +700,16 @@ class ProposalQueryService {
     if (bytes.isEmpty || bytes.length > maxBytes) {
       throw ArgumentError('$field 长度不合法');
     }
-    return Uint8List.fromList([...CitizenScale.compact(bytes.length), ...bytes]);
+    return Uint8List.fromList([
+      ...CitizenScale.compact(bytes.length),
+      ...bytes,
+    ]);
   }
 
   /// 查询某个提案主体当前的活跃提案 ID。
-  Future<List<BigInt>> fetchActiveProposalIds(InstitutionInfo institution) async {
+  Future<List<BigInt>> fetchActiveProposalIds(
+    InstitutionInfo institution,
+  ) async {
     return _fetchActiveProposalIdsBySubjectKey(proposalSubjectKey(institution));
   }
 
@@ -498,9 +723,11 @@ class ProposalQueryService {
   Future<List<BigInt>> _fetchActiveProposalIdsBySubjectKey(
     Uint8List subjectKey,
   ) async {
-    final data = await _readStorage('VotingEngine', 'ActiveProposalsBySubject', [
-      (scale: subjectKey),
-    ]);
+    final data = await _readStorage(
+      'VotingEngine',
+      'ActiveProposalsBySubject',
+      [(scale: subjectKey)],
+    );
     if (data == null) return const [];
     final decoded = decodeActiveProposalIds(data);
     if (decoded == null) {

@@ -57,6 +57,7 @@ class UserProfilePage extends StatefulWidget {
       final security = context.read<AccountSecurityService?>();
       final revision = security?.revision.value;
       bool Function(SquareSession, int?)? consumeEntry;
+      ProfileEntryRefreshResult? entryProfile;
       final sessions =
           page.sessionProvider ?? context.read<SquareSessionProvider>();
       final identity =
@@ -68,10 +69,26 @@ class UserProfilePage extends StatefulWidget {
         if (session == null) throw StateError('当前会话不可用');
         if (viewer != null && session.cidNumber != viewer)
           throw StateError('当前身份已变化');
-        await (page.api ?? CitizenProfileApi()).requireProfileAccess(
-          page.cidNumber,
-          session,
-        );
+        final api = page.api ?? CitizenProfileApi();
+        final binding = identity?.binding;
+        if (binding != null) {
+          try {
+            entryProfile = await api.refreshOnEntry(
+              page.cidNumber,
+              binding: binding,
+              sessions: sessions,
+              cache: page.cache,
+              mediaCache: page.mediaCache,
+              isCurrentIdentity: () => revision == security?.revision.value,
+            );
+          } on Object catch (error) {
+            // 会员资料读取失败时，主页是否允许进入仍由单独的隐私入口判断。
+            if (_privacyDenied(error)) rethrow;
+          }
+        }
+        if (entryProfile == null) {
+          await api.requireProfileAccess(page.cidNumber, session);
+        }
         await session.validateCurrent();
         if (revision != security?.revision.value) throw StateError('当前身份已变化');
         var consumed = false;
@@ -93,7 +110,7 @@ class UserProfilePage extends StatefulWidget {
         MaterialPageRoute(
           builder: (_) => consumeEntry == null
               ? page
-              : _ProfileEntry(consume: consumeEntry, child: page),
+              : _ProfileEntry(consume: consumeEntry, profile: entryProfile, child: page),
         ),
       );
     } on Object catch (error) {
@@ -116,6 +133,7 @@ class UserProfilePage extends StatefulWidget {
         'profile_private',
         'profile_followers_required',
         'profile_mutual_required',
+        'user_not_found',
       ].contains(error.errorCode);
 
   static Future<void> _showAccessDialog(BuildContext context, String message) =>
@@ -183,8 +201,9 @@ class UserProfilePage extends StatefulWidget {
 
 /// 仅本次导航内部消费一次预检；不写入权限缓存，也不向页面公开放行参数。
 class _ProfileEntry extends InheritedWidget {
-  const _ProfileEntry({required this.consume, required super.child});
+  const _ProfileEntry({required this.consume, required this.profile, required super.child});
   final bool Function(SquareSession, int?) consume;
+  final ProfileEntryRefreshResult? profile;
   @override
   bool updateShouldNotify(_ProfileEntry oldWidget) => false;
 }
@@ -286,19 +305,19 @@ class _UserProfilePageState extends State<UserProfilePage>
     unawaited(_resolvePageAccess());
   }
 
-  void _invalidatePageAccess() {
+  void _invalidatePageAccess({bool refreshOnEntry = true}) {
     _accessGeneration++;
     _profileLoadGeneration++;
     if (!mounted) return;
     setState(() {
       _accessAllowed = false;
-      _relationsReady = false;
+      if (refreshOnEntry) _relationsReady = false;
       _verifiedSelf = false;
       _session = null;
       _sessionFuture = null;
       _sessionResolved = false;
     });
-    unawaited(_resolvePageAccess());
+    unawaited(_resolvePageAccess(refreshOnEntry: refreshOnEntry));
   }
 
   Future<void> _resolvePageAccess({bool refreshOnEntry = true}) async {
@@ -317,6 +336,7 @@ class _UserProfilePageState extends State<UserProfilePage>
       if (citizen == null || citizen.isEmpty) throw StateError('当前公民身份尚未就绪');
       _viewerCid = citizen;
       final isSelf = citizen == widget.cidNumber;
+      ProfileEntryRefreshResult? result;
       if (!isSelf) {
         final session = await _ensureSession();
         if (!current() ||
@@ -328,7 +348,9 @@ class _UserProfilePageState extends State<UserProfilePage>
                     session.bindRev != local.bindRev)) {
           throw StateError('当前公民会话不可用');
         }
-        if (entry?.consume(session, revision) != true) {
+        if (entry?.consume(session, revision) == true) {
+          result = entry?.profile;
+        } else {
           await _api.requireProfileAccess(widget.cidNumber, session);
         }
         await session.validateCurrent();
@@ -340,41 +362,44 @@ class _UserProfilePageState extends State<UserProfilePage>
         _accessError = null;
       });
       if (!refreshOnEntry) return;
-      var binding = local?.binding;
-      if (binding == null) {
-        // 独立页面/注入依赖仍可使用既有会话边界；正式App优先本地绑定并先检查限速。
-        final session = await _ensureSession();
-        if (!current() || session == null || session.cidNumber != citizen)
-          throw StateError('当前公民会话不可用');
-        binding = IdentityBinding(
-          genesisHash: '',
-          cidNumber: session.cidNumber,
-          accountId: session.accountId,
-          bindRev: session.bindRev,
+      if (result == null) {
+        var binding = local?.binding;
+        if (binding == null) {
+          // 独立页面/注入依赖仍可使用既有会话边界；正式App优先本地绑定并先检查限速。
+          final session = await _ensureSession();
+          if (!current() || session == null || session.cidNumber != citizen)
+            throw StateError('当前公民会话不可用');
+          binding = IdentityBinding(
+            genesisHash: '',
+            cidNumber: session.cidNumber,
+            accountId: session.accountId,
+            bindRev: session.bindRev,
+          );
+        }
+        final owner = binding;
+        final security = _profileSecurity;
+        // 与页面mounted解耦，退出首个页面不取消其他同身份等待者的共享任务。
+        result = await _api.refreshOnEntry(
+          widget.cidNumber,
+          binding: owner,
+          sessions: _sessionProvider,
+          cache: _cache,
+          mediaCache: _mediaCache,
+          isCurrentIdentity: () => revision == security?.revision.value,
         );
       }
-      final owner = binding;
-      final security = _profileSecurity;
-      // 与页面mounted解耦，退出首个页面不取消其他同身份等待者的共享任务。
-      final result = await _api.refreshOnEntry(
-        widget.cidNumber,
-        binding: owner,
-        sessions: _sessionProvider,
-        cache: _cache,
-        mediaCache: _mediaCache,
-        isCurrentIdentity: () => revision == security?.revision.value,
-      );
       if (!current()) return;
-      if (result != null) {
+      final authorized = result;
+      if (authorized != null) {
         ++_profileLoadGeneration;
         setState(() {
-          _session = result.session;
+          _session = authorized.session;
           _sessionStatus = SquareSessionStatus.ready;
           _sessionResolved = true;
-          _profile = result.profile.profile;
+          _profile = authorized.profile.profile;
           _relationsReady = true;
         });
-        await _loadProfileMedia(result.profile.profile);
+        await _loadProfileMedia(authorized.profile.profile);
       } else {
         setState(() => _sessionResolved = true);
       }
@@ -426,7 +451,7 @@ class _UserProfilePageState extends State<UserProfilePage>
     if (state == AppLifecycleState.resumed &&
         !_verifiedSelf &&
         !_denyingAccess) {
-      _invalidatePageAccess();
+      _invalidatePageAccess(refreshOnEntry: false);
     }
   }
 
@@ -437,6 +462,9 @@ class _UserProfilePageState extends State<UserProfilePage>
     setState(() {
       _accessAllowed = false;
       _accessError = message;
+      _relationsReady = false;
+      _profile = null;
+      _profileMedia = const CitizenProfileMediaSnapshot();
       _accessGeneration++;
       _profileLoadGeneration++;
       _mediaLoadGeneration++;
@@ -572,18 +600,6 @@ class _UserProfilePageState extends State<UserProfilePage>
       final session = await _ensureSession(refresh: true);
       if (session == null) {
         throw StateError('当前无法建立服务会话');
-      }
-      if (!_verifiedSelf) {
-        try {
-          await _api.requireProfileAccess(widget.cidNumber, session);
-        } on Object catch (error) {
-          if (mounted)
-            setState(() {
-              _accessAllowed = false;
-              _accessError = UserProfilePage._accessMessage(error);
-            });
-          rethrow;
-        }
       }
       if (_isSelf && session.cidNumber != widget.cidNumber) {
         throw StateError('当前用户已变化');

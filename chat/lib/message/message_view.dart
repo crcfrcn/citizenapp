@@ -31,10 +31,7 @@ class ChatMessageListView extends StatelessWidget {
     required this.composerBuilder,
     required this.onDownloadAttachment,
     required this.onMessagesChanged,
-    this.onRetry,
     this.isGroup = false,
-    this.loading = false,
-    this.error,
     this.groupSenderBuilder,
     this.avatarBuilder,
   });
@@ -46,10 +43,7 @@ class ChatMessageListView extends StatelessWidget {
   final Widget Function(BuildContext context) composerBuilder;
   final Future<void> Function(String controlPlaintext) onDownloadAttachment;
   final Future<void> Function() onMessagesChanged;
-  final Future<void> Function()? onRetry;
   final bool isGroup;
-  final bool loading;
-  final String? error;
   final ChatGroupSenderBuilder? groupSenderBuilder;
   final ChatAvatarBuilder? avatarBuilder;
 
@@ -57,47 +51,6 @@ class ChatMessageListView extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        SizedBox(
-          height: AppLayout.scaled(context, 2),
-          child: loading
-              ? const LinearProgressIndicator(
-                  key: ValueKey('chat-page-progress'),
-                )
-              : null,
-        ),
-        SizedBox(
-          height: AppLayout.scaled(context, 36),
-          child: error == null
-              ? const SizedBox.shrink()
-              : Container(
-                  width: double.infinity,
-                  alignment: Alignment.centerLeft,
-                  padding: EdgeInsets.symmetric(
-                    horizontal: AppLayout.scaled(context, 16),
-                  ),
-                  color: AppTheme.danger.withValues(alpha: 0.08),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          error!,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: AppTheme.danger,
-                            fontSize: AppLayout.scaled(context, 12),
-                          ),
-                        ),
-                      ),
-                      if (onRetry != null)
-                        TextButton(
-                          onPressed: () => unawaited(onRetry!()),
-                          child: const Text('重试'),
-                        ),
-                    ],
-                  ),
-                ),
-        ),
         Expanded(
           child: Chat(
             currentUserId: currentUserId,
@@ -113,13 +66,7 @@ class ChatMessageListView extends StatelessWidget {
               audioMessageBuilder: _buildAudioMessage,
               customMessageBuilder: _buildStickerMessage,
               composerBuilder: composerBuilder,
-              emptyChatListBuilder: (context) =>
-                  !shouldShowChatEmptyState(loading: loading, error: error)
-                  ? const SizedBox.shrink()
-                  : const Padding(
-                      padding: EdgeInsets.only(bottom: 120),
-                      child: Center(child: Text('暂无消息')),
-                    ),
+              emptyChatListBuilder: (context) => const SizedBox.shrink(),
             ),
             resolveUser: resolveUser,
           ),
@@ -219,7 +166,7 @@ class ChatMessageListView extends StatelessWidget {
             child: _blurhashOrPlaceholder(
               context,
               message.blurhash,
-              '接收中…',
+              '[图片]',
               key: const ValueKey('chat-image-blurhash'),
             ),
           );
@@ -289,7 +236,7 @@ class ChatMessageListView extends StatelessWidget {
                       right: 0,
                       bottom: AppLayout.scaled(context, 8),
                       child: Text(
-                        '接收中…',
+                        '[视频]',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: AppLayout.scaled(context, 12),
@@ -569,11 +516,6 @@ class ChatMessageListView extends StatelessWidget {
     );
   }
 }
-
-bool shouldShowChatEmptyState({
-  required bool loading,
-  required String? error,
-}) => !loading && error == null;
 
 double _mediaAspectRatio(double? width, double? height) {
   if (width != null && height != null && width > 0 && height > 0) {

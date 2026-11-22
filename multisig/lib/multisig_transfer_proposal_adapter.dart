@@ -127,6 +127,34 @@ class MultisigTransferProposalAdapter {
     return true;
   }
 
+  static Future<void> openLocalDetail(
+    BuildContext context, {
+    required BigInt proposalId,
+    required String kind,
+    required InstitutionInfo institution,
+    required ProposalContext proposalContext,
+    required Future<ProposalContext> Function() resolveVoteContext,
+  }) async {
+    final transferKind = switch (kind) {
+      'transfer' => MultisigTransferKind.transfer,
+      'safety_fund' => MultisigTransferKind.safetyFund,
+      'sweep' => MultisigTransferKind.sweep,
+      _ => null,
+    };
+    if (transferKind == null) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MultisigTransferDetailPage(
+          institution: institution,
+          proposalId: proposalId,
+          kind: transferKind,
+          proposalContext: proposalContext,
+          resolveVoteContext: resolveVoteContext,
+        ),
+      ),
+    );
+  }
+
   static void clearCache() {
     MultisigTransferCache.clear();
     MultisigTransferProposalFeed.clearCache();
@@ -193,6 +221,17 @@ class MultisigTransferProposalFeed {
     final all = await currentYearProposals(forceRefresh: forceRefresh);
     return _service.filterInstitutionVisible(all, institution);
   }
+
+  Future<List<ProposalWithDetail>> bootstrapAt(
+    CitizenBlockRef block, {
+    void Function(BigInt)? onDetailFailure,
+  }) => _service.fetchCurrentYearProposals(at: block, onDetailFailure: onDetailFailure);
+
+  Future<List<ProposalWithDetail>> proposalsAt(
+    CitizenBlockRef block,
+    List<BigInt> ids, {
+    void Function(BigInt)? onDetailFailure,
+  }) => _service.fetchProposalsAt(block, ids, onDetailFailure: onDetailFailure);
 
   /// 公民 tab「提案」统一流 id:默认公共机构码 + 当前钱包订阅机构 CID。
   Future<List<BigInt>> fetchCitizenProposalFeedIds({

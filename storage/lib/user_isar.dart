@@ -405,6 +405,13 @@ class ProposalList {
   }
   @Name('synced_at')
   late int syncedAt;
+
+  /// 公民提案流最后一批完整处理的最终块。机构索引不使用此字段。
+  @Name('finalized_height')
+  String? finalizedHeight;
+
+  @Name('finalized_hash')
+  String? finalizedHash;
 }
 
 /// 链上提案详情展示快照。

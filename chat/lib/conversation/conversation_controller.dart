@@ -1,4 +1,5 @@
 import '../message/message_view.dart';
+import '../chat_error.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';
 import 'package:chat/message/chat_content.dart';
 import 'package:chat/message/chat_message.dart';
@@ -35,10 +36,7 @@ typedef ChatDownloadAttachmentCallback =
 typedef ChatResolveMediaPathsCallback =
     Future<Map<String, String>> Function(List<ChatContent> contents);
 typedef ChatMarkReadCallback = Future<void> Function(int readThroughMillis);
-typedef ChatErrorMessageCallback = String Function(Object error);
 typedef ChatControllerPauseCallback = Future<void> Function();
-
-String _defaultChatErrorMessage(Object _) => '聊天操作失败，请稍后重试';
 
 /// 单个会话的通用 UI 运行控制器。
 ///
@@ -61,7 +59,6 @@ class ChatConversationController extends ChangeNotifier
     required this.isVisible,
     this.onPause,
     this.mediaLimits = const ChatMediaLimits(),
-    this.errorMessage = _defaultChatErrorMessage,
   });
 
   final String conversationId;
@@ -78,7 +75,6 @@ class ChatConversationController extends ChangeNotifier
   final bool Function() isVisible;
   final ChatControllerPauseCallback? onPause;
   final ChatMediaLimits mediaLimits;
-  final ChatErrorMessageCallback errorMessage;
 
   final InMemoryChatController chatController = InMemoryChatController();
   final Map<String, String> _resolvedMediaPaths = <String, String>{};
@@ -92,14 +88,12 @@ class ChatConversationController extends ChangeNotifier
   bool _realtimeConnected = false;
   bool _loading = true;
   bool _attachmentBusy = false;
-  String? _error;
   int _messageReloadGeneration = 0;
   int? _renderedMessageFingerprint;
   int _optimisticMessageSequence = 0;
 
   bool get loading => _loading;
   bool get attachmentBusy => _attachmentBusy;
-  String? get error => _error;
   int get optimisticMessageCount => _optimisticMessages.length;
 
   /// 启动一次控制器。重复调用不会重复注册生命周期或建立实时订阅。
@@ -132,12 +126,10 @@ class ChatConversationController extends ChangeNotifier
     _pauseSync();
   }
 
-  void showError(String? value) {
-    if (_disposed || _error == value) {
-      return;
-    }
-    _error = value;
-    notifyListeners();
+  void _recordFailure(Object error) {
+    debugPrint(
+      '[ChatTrace] direction=ui stage=conversation code=${chatDiagnosticCode(error)}',
+    );
   }
 
   /// 主动暂停实时订阅；再次进入前台时由生命周期统一恢复。
@@ -200,17 +192,11 @@ class ChatConversationController extends ChangeNotifier
         _renderedMessageFingerprint = fingerprint;
       }
       unawaited(_resolveAndApplyMediaPaths(messages, generation));
-      _commitReloadState(
-        generation,
-        batch.integrityFailureCount == 0
-            ? null
-            : batch.messages.isEmpty
-            ? '本机历史消息无法验证'
-            : '部分本机历史消息无法验证，其他记录已正常显示',
-      );
+      _commitReloadState(generation);
       unawaited(_markRead(messages, generation));
     } catch (error) {
-      _commitReloadState(generation, errorMessage(error));
+      _recordFailure(error);
+      _commitReloadState(generation);
     }
   }
 
@@ -235,15 +221,14 @@ class ChatConversationController extends ChangeNotifier
     }
   }
 
-  void _commitReloadState(int generation, String? nextError) {
+  void _commitReloadState(int generation) {
     if (_disposed || generation != _messageReloadGeneration) {
       return;
     }
-    if (!_loading && _error == nextError) {
+    if (!_loading) {
       return;
     }
     _loading = false;
-    _error = nextError;
     notifyListeners();
   }
 
@@ -346,9 +331,7 @@ class ChatConversationController extends ChangeNotifier
   Future<bool> _syncOnly({required bool silent}) async {
     final sync = onSync;
     if (sync == null) {
-      if (!silent) {
-        showError('当前会话尚未绑定同步链路');
-      }
+      if (!silent) {}
       return false;
     }
     try {
@@ -356,7 +339,7 @@ class ChatConversationController extends ChangeNotifier
       return true;
     } catch (error) {
       if (!silent) {
-        showError(errorMessage(error));
+        _recordFailure(error);
       }
       return false;
     }
@@ -503,7 +486,6 @@ class ChatConversationController extends ChangeNotifier
     }
     final sender = onSendText;
     if (sender == null) {
-      showError('当前会话尚未绑定发送链路');
       return;
     }
     final optimistic = _optimisticTextMessage(normalized);
@@ -513,7 +495,7 @@ class ChatConversationController extends ChangeNotifier
       await _discardOptimisticMessages(<String>[optimistic.id]);
     } catch (error) {
       await _discardOptimisticMessages(<String>[optimistic.id]);
-      showError(errorMessage(error));
+      _recordFailure(error);
     }
   }
 
@@ -523,12 +505,10 @@ class ChatConversationController extends ChangeNotifier
     }
     final sender = onSendMedia;
     if (sender == null) {
-      showError('当前会话尚未绑定媒体发送链路');
       return;
     }
     final prepared = drafts.toList(growable: false);
     _attachmentBusy = true;
-    _error = null;
     notifyListeners();
     final pending = <({ChatMediaDraft draft, Message message})>[];
     for (final draft in prepared) {
@@ -555,7 +535,7 @@ class ChatConversationController extends ChangeNotifier
       }
     } catch (error) {
       await _discardOptimisticMessages(pending.map((item) => item.message.id));
-      showError(errorMessage(error));
+      _recordFailure(error);
     } finally {
       if (!_disposed) {
         _attachmentBusy = false;
@@ -570,7 +550,6 @@ class ChatConversationController extends ChangeNotifier
     }
     final sender = onSendSticker;
     if (sender == null) {
-      showError('当前会话尚未绑定发送链路');
       return;
     }
     final optimistic = _optimisticStickerMessage(packId, stickerId);
@@ -580,7 +559,7 @@ class ChatConversationController extends ChangeNotifier
       await _discardOptimisticMessages(<String>[optimistic.id]);
     } catch (error) {
       await _discardOptimisticMessages(<String>[optimistic.id]);
-      showError(errorMessage(error));
+      _recordFailure(error);
     }
   }
 
@@ -589,7 +568,6 @@ class ChatConversationController extends ChangeNotifier
   ) async {
     final downloader = onDownloadAttachment;
     if (downloader == null) {
-      showError('当前会话尚未绑定附件下载链路');
       return null;
     }
     try {
@@ -597,7 +575,7 @@ class ChatConversationController extends ChangeNotifier
       await reloadMessages();
       return downloaded;
     } catch (error) {
-      showError(errorMessage(error));
+      _recordFailure(error);
       return null;
     }
   }

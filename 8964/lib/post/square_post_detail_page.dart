@@ -79,7 +79,8 @@ class SquarePostDetailPage extends StatefulWidget {
   State<SquarePostDetailPage> createState() => _SquarePostDetailPageState();
 }
 
-class _SquarePostDetailPageState extends State<SquarePostDetailPage> {
+class _SquarePostDetailPageState extends State<SquarePostDetailPage>
+    with WidgetsBindingObserver {
   late final SquareApiClient _api;
   late final SquareSessionProvider _sessionProvider;
   late final SquarePostDeleteCoordinator _deletionCoordinator;
@@ -96,12 +97,14 @@ class _SquarePostDetailPageState extends State<SquarePostDetailPage> {
   int? _viewerBindRev;
   bool _verifiedLocal = false;
   bool _hasContent = false;
+  bool _wasCurrent = false;
 
   SquarePost get post => _post;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _post = widget.post;
     _api = widget.api ?? SquareApiClient();
     _deletionCoordinator =
@@ -112,7 +115,13 @@ class _SquarePostDetailPageState extends State<SquarePostDetailPage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_dependenciesReady) return;
+    final current = ModalRoute.isCurrentOf(context) != false;
+    final returned = current && !_wasCurrent;
+    _wasCurrent = current;
+    if (_dependenciesReady) {
+      if (returned) _recheckDetail();
+      return;
+    }
     _sessionProvider =
         widget.sessionProvider ?? context.read<SquareSessionProvider>();
     _dependenciesReady = true;
@@ -124,9 +133,22 @@ class _SquarePostDetailPageState extends State<SquarePostDetailPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _loadGeneration++;
     _security?.revision.removeListener(_onIdentityChanged);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _wasCurrent) _recheckDetail();
+  }
+
+  void _recheckDetail() {
+    if (!_hasContent || _verifiedLocal || _post.author.cidNumber == _viewerCid) return;
+    // 回到他人详情先隐藏旧正文，沿同一个读取入口校验当前权限。
+    _hasContent = false;
+    unawaited(_loadDetail(refresh: true));
   }
 
   void _onIdentityChanged() {

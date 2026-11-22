@@ -1,9 +1,44 @@
+import 'package:citizen_citizen/proposal/proposal_models.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_citizen/proposal/proposal_detail_local_store.dart';
 
 import 'package:citizen_testing/isar_test_env.dart';
 
 void main() {
+  test('最终块状态更新只替换计票值，保留正文和冻结岗位票据', () async {
+    final id = BigInt.from(23);
+    final snapshot = ProposalDetailSnapshot(
+      proposalId: id,
+      proposalKind: 'runtime_upgrade',
+      updatedAt: 1,
+      status: 0,
+      yesCount: 2,
+      noCount: 0,
+      detail: {'reason': '本机正文'},
+    );
+    final ticket = EligibleVoterTicket(
+      voterAccountId: 'account',
+      cidNumber: 'institution',
+      voterRoleCode: 'COMMITTEE_MEMBER',
+    );
+    final state = ProposalMeta(proposalId: id, kind: 1, stage: 1, status: 3);
+    final updated = snapshot.withState(
+      state,
+      tally: (yes: 3, no: 1),
+      tickets: [ticket],
+      votes: {ticket.ticketKey: true},
+    );
+    final store = ProposalDetailLocalStore.instance;
+    await store.put(updated);
+    final restored = (await store.read('runtime_upgrade', id))!;
+    expect(restored.status, 3);
+    expect(restored.yesCount, 3);
+    expect(restored.noCount, 1);
+    expect(restored.detail, snapshot.detail);
+    expect(restored.voterTickets.single.ticketKey, ticket.ticketKey);
+    expect(restored.adminVotes[ticket.ticketKey], isTrue);
+  });
+
   TestWidgetsFlutterBinding.ensureInitialized();
   useIsolatedIsar();
   test('同一钱包的岗位票据键完整保留CID和岗位大小写，不按地址去重', () async {
@@ -43,7 +78,10 @@ void main() {
 
     await ProposalDetailLocalStore.instance.put(snapshot);
 
-    final loaded = await ProposalDetailLocalStore.instance.read('transfer', BigInt.from(77));
+    final loaded = await ProposalDetailLocalStore.instance.read(
+      'transfer',
+      BigInt.from(77),
+    );
 
     expect(loaded, isNotNull);
     expect(loaded!.proposalId, BigInt.from(77));
@@ -76,7 +114,10 @@ void main() {
       ),
     );
     final transfer = (await store.read('transfer', BigInt.from(77)))!;
-    final institution = (await store.read('institution_multisig', BigInt.from(77)))!;
+    final institution = (await store.read(
+      'institution_multisig',
+      BigInt.from(77),
+    ))!;
     expect(transfer.updatedAt, 2);
     expect(transfer.isFinal, true);
     expect(transfer.detail['amount_fen'], '12300');

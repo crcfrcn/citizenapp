@@ -123,15 +123,19 @@ class _PendingProfile extends FakeProfileApi {
 }
 
 class _RetryProfile extends FakeProfileApi {
-  _RetryProfile(super.result, {this.denyRefresh = false});
+  _RetryProfile(super.result, {this.denyRefresh = false, this.blockRefresh = false});
   final bool denyRefresh;
+  final bool blockRefresh;
   @override
   Future<CitizenProfile> fetchProfile(
     String cidNumber, {
     SquareSession? session,
   }) async {
     calls++;
-    if ((!denyRefresh && calls == 1) || (denyRefresh && calls > 1)) {
+    if (blockRefresh && calls > 1) {
+      throw const SquareApiException('blocked', statusCode: 404, errorCode: 'user_not_found');
+    }
+    if ((!denyRefresh && !blockRefresh && calls == 1) || (denyRefresh && calls > 1)) {
       throw SquareApiException(
         'fixture failure',
         statusCode: denyRefresh ? 403 : 503,
@@ -647,6 +651,26 @@ void main() {
       expect(find.text('此前已展示资料'), findsWidgets);
       expect(find.byKey(const ValueKey('profile-error-refresh')), findsNothing);
       expect(find.text('非会员禁止访问用户主页'), findsWidgets);
+      debugDefaultTargetPlatformOverride = null;
+    });
+
+    testWidgets('${platform.name}拉黑拒绝会收起已经打开的主页', (tester) async {
+      prepareView(tester);
+      final api = _RetryProfile(sampleProfile(displayName: '旧主页资料'), blockRefresh: true);
+      await tester.pumpWidget(MaterialApp(home: UserProfilePage(
+        cidNumber: api.result.cidNumber!,
+        isSelf: false,
+        api: api,
+        cache: FakeProfileCache(),
+        sessionProvider: FakeSessionProvider(fakeSession()),
+        subscriptionService: _NonMemberProfileService(),
+      )));
+      await tester.pumpAndSettle();
+      expect(find.text('旧主页资料'), findsWidgets);
+      await tester.drag(find.text('暂无公文内容，请在广场发布'), const Offset(0, 380));
+      await tester.pumpAndSettle();
+      expect(find.text('旧主页资料'), findsNothing);
+      expect(find.text('该用户不存在'), findsWidgets);
       debugDefaultTargetPlatformOverride = null;
     });
 

@@ -97,8 +97,6 @@ class _ChatTabState extends State<ChatTab> {
   final Map<String, String> _peerContactRemarks = <String, String>{};
   String _cidNumber = '';
   String _accountId = '';
-  bool _loading = true;
-  String? _error;
 
   late ChatConversationListController _listController;
   int _controllerGeneration = 0, _identityProbe = 0, _cacheSequence = 0;
@@ -151,8 +149,6 @@ class _ChatTabState extends State<ChatTab> {
     _conversationDeletesInFlight.clear();
     _cidNumber = '';
     _accountId = '';
-    _loading = true;
-    _error = null;
   }
 
   bool _displayCurrent(int generation, String cid, String account) =>
@@ -168,6 +164,8 @@ class _ChatTabState extends State<ChatTab> {
     if (_dependenciesReady) {
       return;
     }
+    _blocksApi = context.read<SquareApiClient?>();
+    _blocksApi?.blockRevision.addListener(_onBlocksChanged);
     if (widget.cidNumber != null && widget.accountId != null) {
       _wallet = widget.wallet;
       _currentUserContext = context.read<CurrentUserContext?>();
@@ -223,6 +221,7 @@ class _ChatTabState extends State<ChatTab> {
 
   @override
   void dispose() {
+    _blocksApi?.blockRevision.removeListener(_onBlocksChanged);
     MembershipRevision.instance.listenable.removeListener(_onMembershipChanged);
     CitizenProfileCache.revision.removeListener(_onProfileRevision);
     _accountSecurity?.revision.removeListener(_onWalletsChanged);
@@ -288,11 +287,12 @@ class _ChatTabState extends State<ChatTab> {
       _checkingIdentity = false;
       _requestCoordinate();
     } on Object catch (error) {
+      debugPrint(
+        '[ChatTrace] direction=local stage=identity code=${chatDiagnosticCode(error)}',
+      );
       if (mounted && probe == _identityProbe) {
         setState(() {
           _resetScope();
-          _loading = false;
-          _error = chatUserErrorMessage(error);
         });
       }
     } finally {
@@ -304,6 +304,15 @@ class _ChatTabState extends State<ChatTab> {
 
   /// 本地加载世代号。切默认钱包后并发 reload 乱序完成时，旧身份不得覆写
   /// 新身份；网络与 MLS 后台任务由 聊天列表控制器的内部世代隔离。
+  SquareApiClient? _blocksApi;
+
+  void _onBlocksChanged() {
+    if (mounted) setState(() {});
+  }
+
+  bool _visibleConversation(ChatConversationPreview preview) =>
+      preview.isGroup || _blocksApi?.isBlocked(_cidNumber, preview.peerUserId) != true;
+
   int _reloadGeneration = 0;
 
   List<ChatConversationPreview> _withoutDeletingConversations(
@@ -320,10 +329,7 @@ class _ChatTabState extends State<ChatTab> {
       return;
     }
     final generation = ++_reloadGeneration;
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    setState(() {});
     String? serviceAccountId;
     String? serviceCidNumber;
     try {
@@ -351,13 +357,15 @@ class _ChatTabState extends State<ChatTab> {
       if (ownerUserId.isEmpty) {
         // 默认账户未注册 CID 是合法状态；禁止回退到其他账户，必须在此
         // 短路。会话存储读取第一步就要解析密钥绑定,对未注册身份必抛
-        // AccountSecurityException,catch 成 _error 横幅后会盖住注册引导;realtime
-        // 同样是注定失败的空转。渲染层 `_cidNumber.isEmpty` 分支显示统一注册引导。
+        // 缺失身份时保持所属账户隔离，不读其它账户缓存或启动实时连接。
         _pauseSync();
         return;
       }
       // 本地阶段只读 ChatIsar。发送队列、Realtime、MLS、FCM 与唤醒端点
-      // 全部在本地结果显示后静默执行，不得延长本地加载提示。
+      // 全部在本地结果显示后静默执行，不得延长本地加载过程。
+      unawaited(_loadChatBlocks(
+        _blocksApi, _sessionProvider, ownerUserId, activeWallet, refresh: syncFirst,
+      ));
       final conversations = await widget.store.readConversationPreviews(
         ownerUserId: ownerUserId,
         currentAccountId: activeWallet,
@@ -369,7 +377,7 @@ class _ChatTabState extends State<ChatTab> {
       setState(() {
         _conversations = visible;
       });
-      unawaited(_hydratePeerProfiles(visible, refreshRemote: syncFirst));
+      unawaited(_hydratePeerProfiles(visible.where(_visibleConversation).toList(), refreshRemote: syncFirst));
       if (activeWallet.isNotEmpty) {
         serviceAccountId = activeWallet;
         serviceCidNumber = ownerUserId;
@@ -379,20 +387,6 @@ class _ChatTabState extends State<ChatTab> {
         debugPrint(
           '[ChatTrace] direction=local stage=preview code=${chatDiagnosticCode(error)}',
         );
-        setState(() {
-          // 本机缺绑定使用已知闭集身份提示，未知底层异常仍走原脱敏文案。
-          _error =
-              error is SquareApiException &&
-                  error.errorCode == 'identity_local_missing'
-              ? SquareSessionResolution.fromError(error).message
-              : chatUserErrorMessage(error);
-        });
-      }
-    } finally {
-      if (mounted && generation == _reloadGeneration) {
-        setState(() {
-          _loading = false;
-        });
       }
     }
     if (serviceAccountId != null && serviceCidNumber != null) {
@@ -435,8 +429,9 @@ class _ChatTabState extends State<ChatTab> {
           final profile = _peerProfiles[peer];
           final path = _peerProfileMedia[peer]?.avatarPath;
           if (profile?.avatarKey?.trim().isNotEmpty != true ||
-              path != null && File(path).existsSync())
+              path != null && File(path).existsSync()) {
             return;
+          }
         }
         final request = ++_cacheSequence;
         _profileRequests[peer] = request;
@@ -516,8 +511,9 @@ class _ChatTabState extends State<ChatTab> {
             binding == null ||
             sessions == null ||
             binding.cidNumber != owner ||
-            binding.accountId != account)
+            binding.accountId != account) {
           return;
+        }
         var next = 0;
         Future<void> read() async {
           while (current() && next < entries.length) {
@@ -655,7 +651,6 @@ class _ChatTabState extends State<ChatTab> {
       _conversations = _conversations
           .where((item) => item.conversationId != conversationId)
           .toList(growable: false);
-      _error = null;
     });
     try {
       await _deleteLocalConversation(conversationId);
@@ -675,9 +670,6 @@ class _ChatTabState extends State<ChatTab> {
       _conversationDeletesInFlight.remove(conversationId);
       if (!_checkingIdentity) {
         await _reload();
-      }
-      if (current() && !_checkingIdentity) {
-        setState(() => _error = chatUserErrorMessage(error));
       }
     }
   }
@@ -732,18 +724,10 @@ class _ChatTabState extends State<ChatTab> {
         );
       }
     } on Object catch (error) {
-      if (current()) setState(() => _error = chatUserErrorMessage(error));
+      debugPrint(
+        '[ChatTrace] direction=local stage=delete code=${chatDiagnosticCode(error)}',
+      );
     }
-  }
-
-  void _showCallUnavailable(ChatConversationPreview preview, bool video) {
-    if (!_requireChatIdentity()) return;
-    final label = preview.isGroup
-        ? (video ? '群内视频' : '群内语音')
-        : (video ? '视频通话' : '语音通话');
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('$label暂不可用')));
   }
 
   void _openConversation(ChatConversationPreview preview) {
@@ -763,13 +747,12 @@ class _ChatTabState extends State<ChatTab> {
     _openDirectConversation(preview);
   }
 
-  /// 没有默认钱包账户时统一提示并拦截；冷热钱包均可作为当前账户。
+  /// 没有默认钱包账户时不发起业务动作；冷热钱包均可作为当前账户。
   bool _requireAccount() {
     if (_checkingIdentity) {
       return false;
     }
     if (_accountId.isEmpty) {
-      setState(() => _error = '请先在「我的 → 我的钱包」添加钱包账户');
       return false;
     }
     return true;
@@ -812,7 +795,6 @@ class _ChatTabState extends State<ChatTab> {
     }
     final walletPort = _wallet;
     if (walletPort == null) {
-      setState(() => _error = '请先在「我的 → 我的钱包」添加钱包账户');
       return;
     }
     final wallet = (await walletPort.getWalletState().result).defaultAccount;
@@ -840,7 +822,6 @@ class _ChatTabState extends State<ChatTab> {
     }
     final walletPort = _wallet;
     if (walletPort == null) {
-      setState(() => _error = '请先在「我的 → 我的钱包」添加钱包账户');
       return;
     }
     final wallet = (await walletPort.getWalletState().result).defaultAccount;
@@ -848,7 +829,6 @@ class _ChatTabState extends State<ChatTab> {
       return;
     }
     if (wallet == null) {
-      setState(() => _error = '请先在「我的 → 我的钱包」添加钱包账户');
       return;
     }
     await showWalletQrDialog(
@@ -940,6 +920,7 @@ class _ChatTabState extends State<ChatTab> {
   }
 
   void _openDirectConversation(ChatConversationPreview preview) {
+    if (!_visibleConversation(preview)) return;
     unawaited(
       Navigator.of(context)
           .push<void>(
@@ -1014,8 +995,8 @@ class _ChatTabState extends State<ChatTab> {
       isPinned: preview.isPinned,
       onTogglePin: () =>
           _toggleConversationPin(preview, generation, cid, account),
-      onVoice: () => _showCallUnavailable(preview, false),
-      onVideo: () => _showCallUnavailable(preview, true),
+      onVoice: () {},
+      onVideo: () {},
       title: title,
       subtitle: preview.lastMessage,
       updatedAt: preview.lastUpdatedAt,
@@ -1029,57 +1010,50 @@ class _ChatTabState extends State<ChatTab> {
 
   @override
   Widget build(BuildContext context) {
-    final Widget? unavailable = _cidNumber.isEmpty && _error != null
-        ? ChatConversationPlaceholder(message: _error!)
-        : _accountId.isEmpty
-        ? const ChatConversationPlaceholder(message: '请先在「我的 → 我的钱包」添加钱包账户')
-        : _cidNumber.isEmpty
-        ? IdentityRegisterGuide(
-            description: '注册后即可使用聊天与通讯录。',
-            onRegistered: _requestCoordinate,
-          )
-        : null;
     return ChatConversationOverview(
       key: ValueKey('$_cidNumber:$_accountId'),
       header: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          ChatSectionHeader<_ChatEntryAction>(
-            onAction: _onEntryAction,
-            actions: [
-              for (final item in _chatEntryItems)
-                ChatHeaderAction<_ChatEntryAction>(
-                  value: item.action,
-                  label: item.label,
-                  icon: item.asset != null
-                      ? SvgPicture.asset(
-                          item.asset!,
-                          width: AppLayout.scaled(context, 18),
-                          height: AppLayout.scaled(context, 18),
-                          colorFilter: const ColorFilter.mode(
-                            Colors.white,
-                            BlendMode.srcIn,
-                          ),
-                        )
-                      : Icon(
-                          item.icon,
-                          size: AppLayout.scaled(context, 20),
-                          color: Colors.white,
-                        ),
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              ChatSectionHeader<_ChatEntryAction>(
+                onAction: _onEntryAction,
+                actions: [
+                  for (final item in _chatEntryItems)
+                    ChatHeaderAction<_ChatEntryAction>(
+                      value: item.action,
+                      label: item.label,
+                      icon: item.asset != null
+                          ? SvgPicture.asset(
+                              item.asset!,
+                              width: AppLayout.scaled(context, 18),
+                              height: AppLayout.scaled(context, 18),
+                              colorFilter: const ColorFilter.mode(
+                                Colors.white,
+                                BlendMode.srcIn,
+                              ),
+                            )
+                          : Icon(
+                              item.icon,
+                              size: AppLayout.scaled(context, 20),
+                              color: Colors.white,
+                            ),
+                    ),
+                ],
+              ),
+              if (_listController.connectionLabel != null)
+                Positioned.fill(
+                  top:
+                      ChatSectionHeader.contentPadding.top -
+                      ChatSectionHeader.contentPadding.bottom,
+                  child: const IgnorePointer(
+                    child: Center(child: ChatConnectionIndicator()),
+                  ),
                 ),
             ],
           ),
-          if (_listController.connectionLabel case final label?)
-            Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: AppLayout.scaled(context, 16),
-                vertical: AppLayout.scaled(context, 6),
-              ),
-              child: Text(
-                label,
-                style: const TextStyle(color: AppTheme.textSecondary),
-              ),
-            ),
         ],
       ),
       onRefresh: () => _reload(syncFirst: true),
@@ -1087,11 +1061,8 @@ class _ChatTabState extends State<ChatTab> {
       items: [
         for (final preview
             in _checkingIdentity ? <ChatConversationPreview>[] : _conversations)
-          _conversationItem(context, preview),
+          if (_visibleConversation(preview)) _conversationItem(context, preview),
       ],
-      loading: _loading || _checkingIdentity,
-      errorMessage: _error,
-      unavailable: unavailable,
     );
   }
 }

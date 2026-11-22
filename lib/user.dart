@@ -1088,14 +1088,16 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _openChatOnLaunch = false;
   bool _savingHomeTab = false;
   bool _loading = true;
-  late final SquareApiClient _privacyApi =
-      widget.privacyApi ?? SquareApiClient();
+  SquareApiClient? _ownedPrivacyApi;
+  SquareApiClient get _privacyApi =>
+      widget.privacyApi ?? context.read<SquareApiClient?>() ??
+      (_ownedPrivacyApi ??= SquareApiClient());
   Listenable? _privacyRevision;
   bool _privacyInitialized = false;
   bool _privacyLoading = true;
   bool _privacyFailed = false;
   bool _privacySaving = false;
-  DmPolicy _dmPolicy = DmPolicy.none;
+  DmPolicy _dmPolicy = DmPolicy.all;
   ProfileVisibility _profileVisibility = ProfileVisibility.public;
   int _privacyGeneration = 0;
   ({String cid, String account, int revision})? _privacyOwner;
@@ -1135,7 +1137,8 @@ class _SettingsPageState extends State<SettingsPage> {
     final generation = ++_privacyGeneration;
     if (mounted)
       setState(() {
-        _dmPolicy = DmPolicy.none;
+        _dmPolicy = DmPolicy.all;
+        _profileVisibility = ProfileVisibility.public;
         _privacyOwner = null;
         _privacyLoading = true;
         _privacyFailed = false;
@@ -1167,6 +1170,11 @@ class _SettingsPageState extends State<SettingsPage> {
           _privacyFailed = true;
           _privacyLoading = false;
         });
+      if (mounted && generation == _privacyGeneration) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('隐私设置读取失败，点击选项可重试')),
+        );
+      }
     }
   }
 
@@ -1304,6 +1312,34 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Future<void> _openBlocks() async {
+    try {
+      final session = await _privacySession();
+      if (!mounted) return;
+      await Navigator.of(context).push<void>(MaterialPageRoute(
+        builder: (_) => _BlockedUsersPage(
+          api: _privacyApi, session: session, revision: _privacyRevision,
+        ),
+      ));
+    } on Object {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('黑名单读取失败，请重试')),
+        );
+      }
+    }
+  }
+
+  Widget _privacyIcon(IconData icon) => Container(
+    width: AppLayout.scaledValue(36),
+    height: AppLayout.scaledValue(36),
+    decoration: BoxDecoration(
+      color: AppTheme.primary.withAlpha(20),
+      borderRadius: BorderRadius.circular(AppLayout.scaledValue(8)),
+    ),
+    child: Icon(icon, size: AppLayout.scaledValue(20), color: AppTheme.primary),
+  );
+
   Widget _buildPrivacy() => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
@@ -1338,20 +1374,22 @@ class _SettingsPageState extends State<SettingsPage> {
           child: Column(
             children: [
               ListTile(
+                key: const ValueKey('blocked-users-setting'),
+                leading: _privacyIcon(Icons.block_outlined),
+                title: const Text('黑名单'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _openBlocks,
+              ),
+              const Divider(height: 1, indent: 56, endIndent: 16),
+              ListTile(
                 key: const ValueKey('dm-policy-setting'),
-                leading: const Icon(Icons.textsms_outlined),
+                leading: _privacyIcon(Icons.textsms_outlined),
                 title: const Text('私信权限'),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      _privacyLoading
-                          ? '读取中'
-                          : _privacySaving
-                          ? '保存中'
-                          : _privacyFailed
-                          ? '暂不可用'
-                          : _dmPolicy.label,
+                      _privacySaving ? '保存中' : _dmPolicy.label,
                     ),
                     const Icon(Icons.chevron_right),
                   ],
@@ -1363,19 +1401,13 @@ class _SettingsPageState extends State<SettingsPage> {
               const Divider(height: 1, indent: 56, endIndent: 16),
               ListTile(
                 key: const ValueKey('profile-visibility-setting'),
-                leading: const Icon(Icons.public),
+                leading: _privacyIcon(Icons.public),
                 title: const Text('主页可见'),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      _privacyLoading
-                          ? '读取中'
-                          : _privacySaving
-                          ? '保存中'
-                          : _privacyFailed
-                          ? '暂不可用'
-                          : _profileVisibility.label,
+                      _privacySaving ? '保存中' : _profileVisibility.label,
                     ),
                     const Icon(Icons.chevron_right),
                   ],
@@ -1403,7 +1435,7 @@ class _SettingsPageState extends State<SettingsPage> {
   void dispose() {
     _privacyGeneration++;
     _privacyRevision?.removeListener(_loadPrivacy);
-    if (widget.privacyApi == null) _privacyApi.close();
+    _ownedPrivacyApi?.close();
     _updateController.removeListener(_handleUpdateStateChanged);
     super.dispose();
   }
@@ -1885,6 +1917,114 @@ class _SettingsPageState extends State<SettingsPage> {
           visualDensity: VisualDensity.compact,
         ),
       ),
+    );
+  }
+}
+
+
+class _BlockedUsersPage extends StatefulWidget {
+  const _BlockedUsersPage({required this.api, required this.session, this.revision});
+  final SquareApiClient api;
+  final SquareSession session;
+  final Listenable? revision;
+
+  @override
+  State<_BlockedUsersPage> createState() => _BlockedUsersPageState();
+}
+
+class _BlockedUsersPageState extends State<_BlockedUsersPage> {
+  List<String>? _users;
+  bool _failed = false;
+  bool _changed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.revision?.addListener(_identityChanged);
+    unawaited(_load());
+  }
+
+  @override
+  void dispose() {
+    widget.revision?.removeListener(_identityChanged);
+    super.dispose();
+  }
+
+  void _identityChanged() {
+    setState(() {
+      _changed = true;
+      _users = null;
+    });
+  }
+
+  Future<void> _load() async {
+    setState(() => _failed = false);
+    try {
+      final rows = await widget.api.blockedUsers(widget.session, refresh: true);
+      if (mounted && !_changed) setState(() => _users = rows.toList());
+    } on Object {
+      if (mounted && !_changed) setState(() => _failed = true);
+    }
+  }
+
+  Future<bool> _unblock(String cid) async {
+    if (_changed) return false;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: const Text('解除拉黑'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(dialog).pop(false), child: const Text('取消')),
+          TextButton(onPressed: () => Navigator.of(dialog).pop(true), child: const Text('解除拉黑')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted || _changed) return false;
+    try {
+      await widget.api.setBlocked(widget.session, cid, false);
+      return mounted && !_changed;
+    } on Object {
+      if (mounted && !_changed) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('解除拉黑失败，请重试')),
+        );
+      }
+      return false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final users = _users;
+    return Scaffold(
+      appBar: AppBar(title: const Text('黑名单')),
+      body: _changed
+          ? const Center(child: Text('身份已切换，请返回'))
+          : _failed
+          ? Center(child: TextButton(onPressed: _load, child: const Text('读取失败，重试')))
+          : users == null
+          ? const Center(child: CircularProgressIndicator())
+          : users.isEmpty
+          ? const Center(child: Text('黑名单为空'))
+          : ListView.builder(
+              itemCount: users.length,
+              itemBuilder: (_, index) {
+                final cid = users[index];
+                return Dismissible(
+                  key: ValueKey(cid),
+                  direction: DismissDirection.endToStart,
+                  background: Container(
+                    color: AppTheme.danger,
+                    alignment: Alignment.centerRight,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: const Text('解除拉黑', style: TextStyle(color: Colors.white)),
+                  ),
+                  confirmDismiss: (_) => _unblock(cid),
+                  onDismissed: (_) => setState(() => _users?.remove(cid)),
+                  child: ListTile(title: Text(cid)),
+                );
+              },
+            ),
     );
   }
 }

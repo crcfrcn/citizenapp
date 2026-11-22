@@ -1,9 +1,12 @@
 import 'package:isar_community/isar.dart';
-import 'package:citizen_storage/user_isar.dart'
-    as wallet_store
-    show Proposal;
+import 'package:citizen_storage/user_isar.dart' as wallet_store show Proposal;
 
+import 'dart:async';
 import 'dart:convert';
+
+import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_citizen/proposal/proposal_models.dart';
+import 'package:citizen_multisig/multisig_transfer_models.dart';
 
 import 'package:citizen_storage/user_isar.dart' hide Group;
 
@@ -21,7 +24,10 @@ class ProposalDetailLocalStore {
     return UserIsar.instance.read((isar) async {
       final entity = await isar
           .collection<wallet_store.Proposal>()
-          .filter().proposalKindEqualTo(proposalKind).proposalIdTextEqualTo(proposalId.toString()).findFirst();
+          .filter()
+          .proposalKindEqualTo(proposalKind)
+          .proposalIdTextEqualTo(proposalId.toString())
+          .findFirst();
       return entity == null
           ? null
           : ProposalDetailSnapshot.fromJsonString(
@@ -32,18 +38,44 @@ class ProposalDetailLocalStore {
     });
   }
 
-  Future<void> put(ProposalDetailSnapshot snapshot) async {
-    await UserIsar.instance.writeTxn((isar) async {
-      final entity = (await isar.collection<wallet_store.Proposal>()
-          .filter().proposalKindEqualTo(snapshot.proposalKind)
-          .proposalIdTextEqualTo(snapshot.proposalId.toString()).findFirst()) ?? wallet_store.Proposal();
-      entity
-        ..proposalKind = snapshot.proposalKind
-        ..proposalId = snapshot.proposalId
-        ..bodyData = jsonEncode(snapshot.toJson());
-      await isar
+  final _changes = StreamController<Set<BigInt>>.broadcast();
+  Stream<Set<BigInt>> get changes => _changes.stream;
+  void notifyFeedChanged(Set<BigInt> ids) =>
+      _changes.add(Set.unmodifiable(ids));
+
+  Future<void> put(ProposalDetailSnapshot snapshot) =>
+      UserIsar.instance.writeTxn((isar) => putIn(isar, snapshot));
+
+  Future<void> putIn(Isar isar, ProposalDetailSnapshot snapshot) async {
+    final rows = isar.collection<wallet_store.Proposal>();
+    final entity =
+        await rows
+            .filter()
+            .proposalKindEqualTo(snapshot.proposalKind)
+            .proposalIdTextEqualTo(snapshot.proposalId.toString())
+            .findFirst() ??
+        wallet_store.Proposal();
+    entity
+      ..proposalKind = snapshot.proposalKind
+      ..proposalId = snapshot.proposalId
+      ..bodyData = jsonEncode(snapshot.toJson());
+    await rows.put(entity);
+  }
+
+  Future<ProposalDetailSnapshot?> readForFeed(BigInt id) async {
+    return UserIsar.instance.read((isar) async {
+      final row = await isar
           .collection<wallet_store.Proposal>()
-          .put(entity);
+          .filter()
+          .proposalIdTextEqualTo(id.toString())
+          .findFirst();
+      return row == null
+          ? null
+          : ProposalDetailSnapshot.fromJsonString(
+              row.bodyData,
+              proposalKind: row.proposalKind,
+              proposalId: id,
+            );
     });
   }
 
@@ -89,6 +121,183 @@ class ProposalDetailSnapshot {
     if (isFinal) return true;
     return DateTime.now().millisecondsSinceEpoch - updatedAt <
         ttl.inMilliseconds;
+  }
+
+  List<EligibleVoterTicket> get voterTickets {
+    final rows = extra['voter_tickets'];
+    if (rows is! List) return const [];
+    return [
+      for (final row in rows)
+        if (row case {'account_id': final String account})
+          EligibleVoterTicket(
+            voterAccountId: account,
+            cidNumber: row['cid_number'] as String?,
+            voterRoleCode: row['role_code'] as String?,
+            voterRoleName: row['role_name'] as String?,
+          ),
+    ];
+  }
+
+  /// 只更新事件影响的字段，保留已经落盘的业务正文。
+  ProposalDetailSnapshot withState(
+    ProposalMeta meta, {
+    ({int yes, int no})? tally,
+    ({int yes, int no})? referendum,
+    ({bool? result, ({int yes, int no}) tally})? institution,
+    List<String>? eligibleAccounts,
+    Map<String, bool?>? votes,
+    List<EligibleVoterTicket>? tickets,
+    int? thresholdSnapshot,
+  }) {
+    return ProposalDetailSnapshot(
+      proposalId: proposalId,
+      proposalKind: proposalKind,
+      updatedAt: DateTime.now().millisecondsSinceEpoch,
+      status: meta.status,
+      yesCount: tally?.yes ?? yesCount,
+      noCount: tally?.no ?? noCount,
+      threshold: thresholdSnapshot ?? threshold,
+      admins: eligibleAccounts ?? admins,
+      adminVotes: votes ?? adminVotes,
+      pendingPublicKeys: pendingPublicKeys,
+      detail: detail,
+      extra: {
+        ...extra,
+        if (tickets != null)
+          'voter_tickets': [
+            for (final ticket in tickets)
+              {
+                'account_id': ticket.voterAccountId,
+                'cid_number': ticket.cidNumber,
+                'role_code': ticket.voterRoleCode,
+                'role_name': ticket.voterRoleName,
+              },
+          ],
+        'meta_status': meta.status,
+        'meta_stage': meta.stage,
+        if (tally != null && proposalKind == 'runtime_upgrade') ...{
+          'joint_yes': tally.yes,
+          'joint_no': tally.no,
+        },
+        if (referendum != null) ...{
+          'referendum_yes': referendum.yes,
+          'referendum_no': referendum.no,
+        },
+        if (institution != null) ...{
+          'institution_vote': institution.result,
+          'institution_yes': institution.tally.yes,
+          'institution_no': institution.tally.no,
+        },
+      },
+    );
+  }
+
+  static ProposalDetailSnapshot? fromProposal(ProposalWithDetail proposal) {
+    final meta = proposal.meta;
+    final upgrade = proposal.runtimeUpgradeDetail;
+    final create = proposal.createMultisigDetail;
+    final close = proposal.closeMultisigDetail;
+    final business = proposal.businessDetails;
+    final transfer = business[MultisigTransferProposalDetailKeys.transfer];
+    final fund = business[MultisigTransferProposalDetailKeys.safetyFund];
+    final sweep = business[MultisigTransferProposalDetailKeys.sweep];
+    final String kind;
+    final Map<String, Object?> detail;
+    if (upgrade != null) {
+      kind = 'runtime_upgrade';
+      detail = {
+        'actor_cid_number': upgrade.actorCidNumber,
+        'proposer': upgrade.proposer,
+        'reason': upgrade.reason,
+        'code_hash_hex': upgrade.codeHashHex,
+        'expected_pow_params_hash_hex': upgrade.expectedPowParamsHashHex,
+        'params_version': upgrade.paramsVersion,
+        'algorithm_version': upgrade.algorithmVersion,
+        'target_block_time_ms': upgrade.targetBlockTimeMs,
+        'adjustment_interval': upgrade.adjustmentInterval,
+        'max_adjust_up_factor': upgrade.maxAdjustUpFactor,
+        'max_adjust_down_divisor': upgrade.maxAdjustDownDivisor,
+      };
+    } else if (create != null) {
+      kind = 'institution_multisig';
+      detail = {
+        'kind': 'create',
+        'account_id': create.accountId,
+        'proposer_ss58_address': create.proposerSs58Address,
+        'amount_fen': create.amountFen.toString(),
+        'fee_fen': create.feeAmount.toString(),
+        'status': create.status,
+      };
+    } else if (close != null) {
+      kind = 'institution_multisig';
+      detail = {
+        'kind': 'close',
+        'account_id': close.accountId,
+        'beneficiary_ss58_address': close.beneficiarySs58Address,
+        'proposer_ss58_address': close.proposerSs58Address,
+        'status': close.status,
+      };
+    } else if (transfer is TransferProposalInfo) {
+      kind = 'transfer';
+      detail = {
+        'kind': kind,
+        'actor_cid_number': transfer.actorCidNumber,
+        'institution_account_id': citizenAccountIdFromBytes(
+          transfer.institutionAccountId,
+        ),
+        'beneficiary': transfer.beneficiary,
+        'amount_fen': transfer.amountFen.toString(),
+        'remark': transfer.remark,
+        'proposer': transfer.proposer,
+        'status': transfer.status,
+      };
+    } else if (fund is SafetyFundProposalInfo) {
+      kind = 'safety_fund';
+      detail = {
+        'kind': kind,
+        'actor_cid_number': fund.actorCidNumber,
+        'institution_account_id': citizenAccountIdFromBytes(
+          fund.institutionAccountId,
+        ),
+        'beneficiary': fund.beneficiary,
+        'amount_fen': fund.amountFen.toString(),
+        'remark': fund.remark,
+        'proposer': fund.proposer,
+        'status': fund.status,
+      };
+    } else if (sweep is SweepProposalInfo) {
+      kind = 'sweep';
+      detail = {
+        'kind': kind,
+        'actor_cid_number': sweep.actorCidNumber,
+        'institution_account_id': citizenAccountIdFromBytes(
+          sweep.institutionAccountId,
+        ),
+        'amount_fen': sweep.amountFen.toString(),
+        'proposer': sweep.proposer,
+        'status': sweep.status,
+      };
+    } else {
+      return null;
+    }
+    return ProposalDetailSnapshot(
+      proposalId: meta.proposalId,
+      proposalKind: kind,
+      updatedAt: DateTime.now().millisecondsSinceEpoch,
+      status: meta.status,
+      detail: detail,
+      extra: {
+        'meta_kind': meta.kind,
+        'meta_stage': meta.stage,
+        'meta_status': meta.status,
+        'meta_internal_code': meta.internalCode,
+        'meta_subject_cid_numbers': meta.subjectCidNumbers,
+        'meta_actor_cid_number': meta.actorCidNumber,
+        'meta_execution_account_id': meta.executionAccountId == null
+            ? null
+            : citizenAccountIdFromBytes(meta.executionAccountId!),
+      },
+    );
   }
 
   Map<String, Object?> toJson() => {
