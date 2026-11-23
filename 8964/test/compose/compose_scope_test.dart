@@ -1,6 +1,7 @@
-// 验证发布范围随草稿保存及CID切换后的编辑和迟到操作隔离。
+// 验证发布身份栏样式、范围草稿及CID切换后的编辑和迟到操作隔离。
 
 import 'package:citizen_system/theme/app_theme.dart';
+import 'package:citizen_user/profile/profile_avatar.dart';
 import 'package:provider/provider.dart';
 import 'package:citizen_user/identity/square_session_provider.dart';
 import 'package:citizen_square/compose/square_publish_service.dart';
@@ -111,18 +112,44 @@ void main() {
       await drain(tester);
       final control = find.byKey(const ValueKey('compose-visibility'));
       final avatar = find.byKey(const ValueKey('compose-user-avatar'));
-      expect(
-        tester.getTopLeft(control).dx,
-        greaterThan(tester.getTopRight(avatar).dx),
-      );
+      expect(tester.getTopLeft(control).dx, tester.getTopRight(avatar).dx + 8);
       expect(
         find.descendant(of: control, matching: find.text('公开可见')),
         findsOneWidget,
       );
-      expect(find.descendant(of: control, matching: find.byType(Icon)), findsNothing);
+      expect(
+        find.descendant(
+          of: control,
+          matching: find.byIcon(Icons.chevron_right),
+        ),
+        findsOneWidget,
+      );
       final button = tester.widget<TextButton>(control);
       expect(button.style?.shape?.resolve({}), isA<StadiumBorder>());
-      expect(button.style?.backgroundColor?.resolve({}), AppTheme.primary);
+      expect(
+        button.style?.backgroundColor?.resolve({}),
+        Theme.of(tester.element(control)).scaffoldBackgroundColor,
+      );
+      expect(button.style?.foregroundColor?.resolve({}), AppTheme.primary);
+      expect(button.style?.side?.resolve({})?.color, AppTheme.primary);
+      expect(tester.widget<ProfileAvatar>(avatar).size, 40);
+      expect(
+        find.byKey(const ValueKey('compose-visibility-chevron')),
+        findsOneWidget,
+      );
+      final chevron = tester.widget<RotatedBox>(
+        find.byKey(const ValueKey('compose-visibility-chevron')),
+      );
+      expect(chevron.quarterTurns, 1);
+      final label = tester.widget<Text>(
+        find.descendant(of: control, matching: find.text('公开可见')),
+      );
+      final theme = Theme.of(tester.element(control));
+      expect(
+        label.style?.fontSize,
+        theme.inputDecorationTheme.hintStyle?.fontSize ??
+            theme.textTheme.bodyLarge?.fontSize,
+      );
       await tester.tap(control);
       await tester.pumpAndSettle();
       expect(
@@ -135,6 +162,14 @@ void main() {
       expect(
         find.descendant(of: control, matching: find.text('公民圈可见')),
         findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<Text>(
+              find.descendant(of: control, matching: find.text('公民圈可见')),
+            )
+            .style,
+        isNull,
       );
       await tester.pumpWidget(const SizedBox());
       await drain(tester);

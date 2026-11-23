@@ -1,4 +1,4 @@
-// 验证通讯录资料并发恢复、身份隔离、就地更新及唯一主页入口。
+// 验证通讯录统一卡片、资料并发恢复、身份隔离及唯一主页入口。
 
 import 'dart:typed_data';
 import 'package:citizen_system/security/account_security_exception.dart';
@@ -32,6 +32,7 @@ import 'package:citizen_user/identity/identity_binding.dart';
 import 'package:citizen_user/contacts/contact_book_page.dart';
 import 'package:citizen_user/contacts/contact_service.dart';
 import 'package:citizen_system/theme/app_theme.dart';
+import 'package:citizen_system/theme/app_layout.dart';
 
 const _accountId =
     '0x2222222222222222222222222222222222222222222222222222222222222222';
@@ -332,6 +333,7 @@ Widget _page({
   SquareSessionProvider? sessionProvider,
   ValueChanged<List<UserContact>>? onSelectionChanged,
   bool selectionEnabled = true,
+  TextScaler textScaler = TextScaler.noScaling,
 }) {
   final page = ContactBookPage(
     mode: mode,
@@ -352,6 +354,10 @@ Widget _page({
     value: _ReadyBusinessGate(),
     child: MaterialApp(
       theme: AppTheme.lightTheme.copyWith(platform: platform),
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(textScaler: textScaler),
+        child: child!,
+      ),
       home: mode == ContactPickMode.pickForChat ? Scaffold(body: page) : page,
     ),
   );
@@ -410,6 +416,48 @@ class _MutableIdentityCache implements CurrentUserContext {
 }
 
 void main() {
+  for (final scale in [1.0, 1.6]) {
+    testWidgets('两种通讯录统一卡片高度且放大文字不溢出 $scale', (tester) async {
+      final heights = <double>[];
+      for (final mode in [
+        ContactPickMode.browse,
+        ContactPickMode.pickForChat,
+      ]) {
+        await tester.pumpWidget(
+          _page(mode: mode, textScaler: TextScaler.linear(scale)),
+        );
+        await tester.pumpAndSettle();
+        final card = find.byKey(
+          const ValueKey('contact-card-$_contactCidNumber'),
+        );
+        heights.add(tester.getSize(card).height);
+        if (scale == 1.0) {
+          final context = tester.element(card);
+          expect(heights.last, AppLayout.scaled(context, 70).roundToDouble());
+        }
+        if (mode == ContactPickMode.pickForChat) {
+          final checkbox = tester.widget<Checkbox>(
+            find.descendant(of: card, matching: find.byType(Checkbox)),
+          );
+          expect(checkbox.side?.color, AppTheme.primary);
+          await tester.tap(card);
+          await tester.pumpAndSettle();
+          expect(
+            tester
+                .widget<Checkbox>(
+                  find.descendant(of: card, matching: find.byType(Checkbox)),
+                )
+                .value,
+            isTrue,
+          );
+        }
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      }
+      expect(heights[0], heights[1]);
+    });
+  }
+
   testWidgets('本机资料缓存固定两项并发，失败继续且离页不扩展读取', (tester) async {
     final cache = _BoundedProfileCache();
     final service = _FakeContacts()
@@ -944,7 +992,8 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('备注：张三'), findsOneWidget);
-    expect(find.text('身份CID号：$_contactCidNumber'), findsOneWidget);
+    expect(find.text('身份CID号：CN220-CTZN2-100000001'), findsOneWidget);
+    expect(find.text('身份CID号：$_contactCidNumber'), findsNothing);
     expect(find.textContaining('SS58：'), findsNothing);
     expect(find.text('建设一个可信、自由的社会'), findsNothing);
     expect(

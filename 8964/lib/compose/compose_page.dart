@@ -993,12 +993,12 @@ class _IdentityBar extends StatelessWidget {
               key: const ValueKey('compose-user-avatar'),
               imagePath: avatarPath,
               userImageSet: avatarSet,
-              size: 34,
+              size: 40,
               seed: identity.cidNumber ?? identity.accountId,
-              borderRadius: 17,
+              borderRadius: 20,
               showBadge: false,
             ),
-            const SizedBox(width: 4),
+            const SizedBox(width: 8),
             Expanded(
               child: Align(
                 alignment: Alignment.centerLeft,
@@ -1006,15 +1006,46 @@ class _IdentityBar extends StatelessWidget {
                   key: const ValueKey('compose-visibility'),
                   onPressed: onVisibility,
                   style: TextButton.styleFrom(
-                    backgroundColor: AppTheme.primary,
-                    disabledBackgroundColor: AppTheme.primary,
-                    foregroundColor: Colors.white,
-                    disabledForegroundColor: Colors.white,
+                    backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+                    disabledBackgroundColor: Theme.of(
+                      context,
+                    ).scaffoldBackgroundColor,
+                    foregroundColor: AppTheme.primary,
+                    disabledForegroundColor: AppTheme.primary,
+                    side: const BorderSide(color: AppTheme.primary),
                     padding: const EdgeInsets.symmetric(horizontal: 10),
                     minimumSize: const Size(0, 28),
                     shape: const StadiumBorder(),
                   ),
-                  child: Text(visibility.label),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        visibility.label,
+                        style: visibility == SquarePostVisibility.public
+                            ? TextStyle(
+                                fontSize:
+                                    Theme.of(context)
+                                        .inputDecorationTheme
+                                        .hintStyle
+                                        ?.fontSize ??
+                                    Theme.of(
+                                      context,
+                                    ).textTheme.bodyLarge?.fontSize,
+                              )
+                            : null,
+                      ),
+                      const SizedBox(width: 5),
+                      const RotatedBox(
+                        key: ValueKey('compose-visibility-chevron'),
+                        quarterTurns: 1,
+                        child: Icon(
+                          Icons.chevron_right,
+                          color: AppTheme.primary,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),

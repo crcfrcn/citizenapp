@@ -895,6 +895,24 @@ class _ContactCard extends StatelessWidget {
       contact.cidNumber,
     ).resolveDisplayName(publicName: profile?.displayName);
     final remark = contact.contactRemark;
+    final baselineHeight = AppLayout.scaled(context, 70).roundToDouble();
+    // 两种列表预留同样三行空间；放大文字时统一增高，避免截断资料。
+    final contentHeight =
+        AppLayout.scaledLineHeight(
+          context,
+          fontSize: 16,
+          height: AppLayout.compactLineHeight,
+        ) +
+        2 *
+            AppLayout.scaledLineHeight(
+              context,
+              fontSize: 12,
+              height: AppLayout.subtitleLineHeight,
+            ) +
+        AppLayout.scaled(context, 20);
+    final cardHeight = contentHeight > baselineHeight
+        ? contentHeight.ceilToDouble()
+        : baselineHeight;
     return Material(
       key: ValueKey('contact-card-${contact.cidNumber}'),
       color: AppTheme.surfaceCard,
@@ -902,21 +920,40 @@ class _ContactCard extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(AppLayout.scaledValue(16)),
         onTap: onTap,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: AppLayout.scaled(context, 88)),
+        child: SizedBox(
+          height: cardHeight,
           child: Padding(
-            padding: EdgeInsets.all(AppLayout.scaled(context, 12)),
+            padding: EdgeInsets.fromLTRB(
+              AppLayout.scaled(context, selected != null ? 6 : 12),
+              AppLayout.scaled(context, 6),
+              AppLayout.scaled(context, 12),
+              AppLayout.scaled(context, 6),
+            ),
             child: Row(
               children: [
                 if (selected != null) ...[
-                  Checkbox(
-                    value: selected,
-                    shape: const CircleBorder(),
-                    onChanged: onTap == null ? null : (_) => onTap!(),
-                    semanticLabel:
-                        '选择${contact.contactRemark.isEmpty ? publicName : contact.contactRemark}',
+                  SizedBox(
+                    width: AppLayout.scaled(context, 28),
+                    height: 40,
+                    child: Transform.scale(
+                      scale: 20 / 18,
+                      child: Checkbox(
+                        value: selected,
+                        shape: const CircleBorder(),
+                        side: const BorderSide(
+                          color: AppTheme.primary,
+                          width: 2,
+                        ),
+                        activeColor: AppTheme.primary,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        visualDensity: VisualDensity.compact,
+                        onChanged: onTap == null ? null : (_) => onTap!(),
+                        semanticLabel:
+                            '选择${contact.contactRemark.isEmpty ? publicName : contact.contactRemark}',
+                      ),
+                    ),
                   ),
-                  SizedBox(width: AppLayout.scaled(context, 8)),
+                  SizedBox(width: AppLayout.scaled(context, 4)),
                 ],
                 ProfileAvatar(
                   seed: contact.cidNumber,
