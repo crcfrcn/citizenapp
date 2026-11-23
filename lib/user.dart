@@ -319,8 +319,9 @@ class _ProfilePageState extends State<MyTab> {
     );
     if (!mounted ||
         generation != _loadGeneration ||
-        session.cidNumber != _identityCidNumber)
+        session.cidNumber != _identityCidNumber) {
       return;
+    }
     setState(() => _publicProfile = result.profile);
     await _loadPublicProfileMedia(result.profile, generation: generation);
     if (mounted && generation == _loadGeneration && result.hasWarning) {
@@ -1097,9 +1098,8 @@ class _SettingsPageState extends State<SettingsPage> {
       (_ownedPrivacyApi ??= SquareApiClient());
   Listenable? _privacyRevision;
   bool _privacyInitialized = false;
-  bool _privacyLoading = true;
-  bool _privacyFailed = false;
-  bool _privacySaving = false;
+  int _privacyEdits = 0;
+  Future<void> _privacyWrites = Future<void>.value();
   DmPolicy _dmPolicy = DmPolicy.all;
   ProfileVisibility _profileVisibility = ProfileVisibility.public;
   int _privacyGeneration = 0;
@@ -1118,14 +1118,12 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<SquareSession> _privacySession({bool refresh = false}) async {
-    final user =
-        await (widget.privacyUserContext ?? context.read<CurrentUserContext>())
-            .resolve();
+    final users = widget.privacyUserContext ?? context.read<CurrentUserContext>();
+    final sessions =
+        widget.privacySessionProvider ?? context.read<SquareSessionProvider>();
+    final user = await users.resolve();
     if (user?.binding == null) throw StateError('没有当前公民身份');
-    final resolution =
-        await (widget.privacySessionProvider ??
-                context.read<SquareSessionProvider>())
-            .resolveSession(refresh: refresh);
+    final resolution = await sessions.resolveSession(refresh: refresh);
     final session = resolution.session;
     if (session == null ||
         session.cidNumber != user!.cidNumber ||
@@ -1138,15 +1136,15 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _loadPrivacy() async {
     final generation = ++_privacyGeneration;
-    if (mounted)
+    if (mounted) {
       setState(() {
         _dmPolicy = DmPolicy.all;
         _profileVisibility = ProfileVisibility.public;
         _privacyOwner = null;
-        _privacyLoading = true;
-        _privacyFailed = false;
-        _privacySaving = false;
+        _privacyEdits = 0;
       });
+    }
+    final edits = _privacyEdits;
     try {
       final session = await _privacySession();
       final privacy = await _privacyApi.fetchPrivacy(session);
@@ -1155,29 +1153,22 @@ class _SettingsPageState extends State<SettingsPage> {
       if (!mounted || generation != _privacyGeneration) return;
       if (current.cidNumber != session.cidNumber ||
           current.accountId != session.accountId ||
-          current.bindRev != session.bindRev)
+          current.bindRev != session.bindRev) {
         throw StateError('隐私身份已变化');
+      }
       setState(() {
-        _dmPolicy = privacy.dmPolicy;
-        _profileVisibility = privacy.profileVisibility;
+        if (edits == _privacyEdits) {
+          _dmPolicy = privacy.dmPolicy;
+          _profileVisibility = privacy.profileVisibility;
+        }
         _privacyOwner = (
           cid: session.cidNumber,
           account: session.accountId,
           revision: session.bindRev,
         );
-        _privacyLoading = false;
       });
     } on Object {
-      if (mounted && generation == _privacyGeneration)
-        setState(() {
-          _privacyFailed = true;
-          _privacyLoading = false;
-        });
-      if (mounted && generation == _privacyGeneration) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('隐私设置读取失败，点击选项可重试')),
-        );
-      }
+      // 读取失败不打断设置，也不覆盖用户已选的值。
     }
   }
 
@@ -1187,11 +1178,6 @@ class _SettingsPageState extends State<SettingsPage> {
   );
 
   Future<void> _chooseDmPolicy() async {
-    if (_privacyLoading || _privacySaving) return;
-    if (_privacyFailed) {
-      await _loadPrivacy();
-      return;
-    }
     final generation = _privacyGeneration, owner = _privacyOwner;
     final policy = await showDialog<DmPolicy>(
       context: context,
@@ -1220,17 +1206,17 @@ class _SettingsPageState extends State<SettingsPage> {
     if (!mounted ||
         generation != _privacyGeneration ||
         policy == null ||
-        policy == _dmPolicy)
+        policy == _dmPolicy) {
       return;
+    }
+    setState(() {
+      _dmPolicy = policy;
+      _privacyEdits++;
+    });
     await _savePrivacy(generation, owner, dmPolicy: policy);
   }
 
   Future<void> _chooseProfileVisibility() async {
-    if (_privacyLoading || _privacySaving) return;
-    if (_privacyFailed) {
-      await _loadPrivacy();
-      return;
-    }
     final generation = _privacyGeneration, owner = _privacyOwner;
     final selected = await showDialog<ProfileVisibility>(
       context: context,
@@ -1259,65 +1245,44 @@ class _SettingsPageState extends State<SettingsPage> {
     if (!mounted ||
         generation != _privacyGeneration ||
         selected == null ||
-        selected == _profileVisibility)
+        selected == _profileVisibility) {
       return;
+    }
+    setState(() {
+      _profileVisibility = selected;
+      _privacyEdits++;
+    });
     await _savePrivacy(generation, owner, profileVisibility: selected);
   }
 
-  // 两项隐私共用身份校验；仅云端确认后更新，部分提交不覆盖另一项。
+  // 选择立即反映在本页；后台依次保存，失败不提示或回滚后续选择。
   Future<void> _savePrivacy(
     int generation,
     ({String cid, String account, int revision})? owner, {
     DmPolicy? dmPolicy,
     ProfileVisibility? profileVisibility,
-  }) async {
-    setState(() => _privacySaving = true);
-    try {
+  }) {
+    final pending = _privacyWrites.then((_) async {
+      if (!mounted || generation != _privacyGeneration) return;
       final session = await _privacySession();
       if (!mounted || generation != _privacyGeneration) return;
-      if (owner !=
-          (
-            cid: session.cidNumber,
-            account: session.accountId,
-            revision: session.bindRev,
-          )) {
-        throw StateError('隐私身份已变化');
-      }
-      final saved = await _privacyApi.savePrivacy(
+      final currentOwner = (
+        cid: session.cidNumber,
+        account: session.accountId,
+        revision: session.bindRev,
+      );
+      if (owner != null && owner != currentOwner) return;
+      await _privacyApi.savePrivacy(
         session,
         dmPolicy: dmPolicy,
         profileVisibility: profileVisibility,
       );
-      if (!mounted || generation != _privacyGeneration) return;
-      final current = await _privacySession();
-      if (!mounted || generation != _privacyGeneration) return;
-      if (owner !=
-          (
-            cid: current.cidNumber,
-            account: current.accountId,
-            revision: current.bindRev,
-          )) {
-        await _loadPrivacy();
-        return;
-      }
-      setState(() {
-        _dmPolicy = saved.dmPolicy;
-        _profileVisibility = saved.profileVisibility;
-      });
-    } on Object {
-      if (mounted && generation == _privacyGeneration) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              profileVisibility == null ? '私信权限保存失败，请重试' : '主页可见保存失败，请重试',
-            ),
-          ),
-        );
-      }
-    } finally {
-      if (mounted && generation == _privacyGeneration)
-        setState(() => _privacySaving = false);
-    }
+      // 服务端回执不覆盖之后的选择；身份变更由代次隔离。
+    }).catchError((Object _) {
+      // 保留当前选择，不增加失败提示。
+    });
+    _privacyWrites = pending;
+    return pending;
   }
 
   Future<void> _openBlocks() async {
@@ -1397,15 +1362,13 @@ class _SettingsPageState extends State<SettingsPage> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      _privacySaving ? '保存中' : _dmPolicy.label,
+                      _dmPolicy.label,
                       style: _settingValueStyle,
                     ),
                     const Icon(Icons.chevron_right),
                   ],
                 ),
-                onTap: _privacyLoading || _privacySaving
-                    ? null
-                    : _chooseDmPolicy,
+                onTap: _chooseDmPolicy,
               ),
               const Divider(height: 1, indent: 56, endIndent: 16),
               ListTile(
@@ -1416,15 +1379,13 @@ class _SettingsPageState extends State<SettingsPage> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      _privacySaving ? '保存中' : _profileVisibility.label,
+                      _profileVisibility.label,
                       style: _settingValueStyle,
                     ),
                     const Icon(Icons.chevron_right),
                   ],
                 ),
-                onTap: _privacyLoading || _privacySaving
-                    ? null
-                    : _chooseProfileVisibility,
+                onTap: _chooseProfileVisibility,
               ),
             ],
           ),

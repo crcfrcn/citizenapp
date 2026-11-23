@@ -369,7 +369,6 @@ class MyIdService {
         return const MyIdState(
           tier: MyIdTier.visitor,
           status: MyIdStatus.unknown,
-          errorMessage: '正在同步公民号身份，核实后自动更新',
         );
       }
       return const MyIdState(
@@ -689,6 +688,7 @@ class MyIdService {
       throw const AccountSecurityException('链上已换绑，本机默认账户尚未同步，请勿重复换绑');
     }
     await _finishFinalizedBinding(target);
+    await _accountSecurity.synchronizeMlsBinding(target);
   }
 
   /// 注册身份前的自付能力测算:返回门槛与该账户当前余额(均为**分**)。
@@ -733,7 +733,7 @@ class MyIdService {
     );
   }
 
-  /// 同步已核实的当前默认账户公开身份；不发起注册或设备登记。
+  /// 同步已核实的默认账户身份，并补齐已换绑原设备的服务端绑定。
   /// 公民服务门禁复用注册收尾的同一实现，避免缓存缺失被误判为未注册。
   Future<void> _applyVerifiedIdentity(FinalizedIdentity resolved) async {
     await _identityResolver.assertCurrent(resolved);
@@ -774,6 +774,11 @@ class MyIdService {
       existingRuntimeOnly: true,
       requireCurrent: requireWallet,
     );
+    // 已换绑的历史漏同步及失败请求沿用同一收尾；完成记录防止重复签署。
+    if (binding.bindRev > 1) {
+      await requireWallet();
+      await _accountSecurity.synchronizeMlsBinding(binding);
+    }
   }
 
   /// finalized只推进公开身份和失效代次；不派生材料，不登记设备或请求钱包授权。

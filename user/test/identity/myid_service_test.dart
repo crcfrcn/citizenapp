@@ -984,7 +984,7 @@ void main() {
     expect(fakeRpc.reboundNew, newAccount.accountId);
     // runtime 调用参数仍包含当前绑定账户，证明自主换绑授权没有被接管阶段替代。
     expect(fakeRpc.reboundOld, _validAccountId);
-    // finalized 只激活公开绑定，不生成数据钥，也不登记 MLS设备。
+    // finalized 激活新绑定后同步原设备，不重新占号或创建设备。
     expect(fakeWallet.bindings.single.accountId, newAccount.accountId);
     expect(fakeWallet.bindings.single.bindingRevision, 2);
     expect(fakeWallet.mlsDeviceRegistrationCalls, 0);
@@ -1025,6 +1025,7 @@ void main() {
       throwsA(isA<AccountSecurityException>()),
     );
     expect(wallet.bindings, isEmpty);
+    expect(wallet.bindingSyncs, isEmpty);
     expect(wallet.identityNotifications, 0);
     expect(wallet.signCalls, 1);
     expect(
@@ -1033,7 +1034,7 @@ void main() {
     );
   });
 
-  test('换绑 finalized 不登记 MLS设备，后续仅由 Worker 未登记响应触发', () async {
+  test('换绑 finalized 后立即同步原设备绑定，不等待会话失败', () async {
     final newAccount = _testAccount(
       accountIndex: 5,
       accountId: '0x${'11' * 32}',
@@ -1059,6 +1060,14 @@ void main() {
     );
     expect(fakeWallet.bindings.single.accountId, newAccount.accountId);
     expect(fakeWallet.mlsDeviceRegistrationCalls, 0);
+    expect(fakeWallet.bindingSyncs.single.accountId, newAccount.accountId);
+    expect(fakeWallet.bindingSyncs.single.bindRev, 2);
+    fakeWallet.bindingSyncSucceeds = false;
+    await service.refreshState();
+    fakeWallet.bindingSyncSucceeds = true;
+    await service.refreshState();
+    expect(fakeWallet.bindingSyncs, hasLength(3));
+    expect(fakeWallet.signCalls, 1, reason: '同步重试不得重新提交链上换绑');
   });
 
   test('换绑 extrinsic finalized 但目标状态未确认时绝不迁移本地数据', () async {
@@ -1090,6 +1099,7 @@ void main() {
     );
 
     expect(fakeWallet.mlsDeviceRegistrationCalls, 0);
+    expect(fakeWallet.bindingSyncs, isEmpty);
     expect(fakeWallet.bindings, isEmpty);
   });
 
@@ -1292,6 +1302,8 @@ class _FakeWalletManager extends TestWalletReads
   BigInt catalogRevision = BigInt.one;
 
   int mlsDeviceRegistrationCalls = 0;
+  final bindingSyncs = <IdentityBinding>[];
+  bool bindingSyncSucceeds = true;
 
   /// finalized公开绑定激活记录。
   final List<({String cidNumber, int bindingRevision, String accountId})>
@@ -1367,6 +1379,14 @@ class _FakeWalletManager extends TestWalletReads
   Future<IdentityBinding?> readIdentityBindingForAccountId(
     String accountId,
   ) async => activeBinding?.accountId == accountId ? activeBinding : null;
+
+  @override
+  Future<bool> synchronizeMlsBinding(IdentityBinding binding) async {
+    expect(activeBinding?.accountId, binding.accountId);
+    expect(_wallet?.accountId, binding.accountId);
+    bindingSyncs.add(binding);
+    return bindingSyncSucceeds;
+  }
 
   @override
   Future<void> registerMlsDeviceForBinding(IdentityBinding binding) async {
@@ -1471,6 +1491,14 @@ class _MutableResolver implements FinalizedIdentityResolver {
   @override
   Future<FinalizedIdentity?> resolve() async =>
       _registeredIdentity(_accountId, bindRev: _bindingRevision);
+
+  @override
+  Future<void> assertCurrent(FinalizedIdentity identity) async {
+    if (identity.accountId != _accountId ||
+        identity.snapshot?.bindRev != _bindingRevision) {
+      throw const AccountSecurityException('合成账户已变化', code: 'identityChanged');
+    }
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

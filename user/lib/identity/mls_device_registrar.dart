@@ -1,4 +1,4 @@
-// 仅在明确未登记时取得并持久保存钱包证明，完成MLS设备登记。
+// 复用持久钱包证明，同步已确认换绑或明确未登记的MLS设备绑定。
 
 import 'package:citizen_user/identity/public_identity_store.dart';
 
@@ -19,7 +19,7 @@ typedef DeviceBindingSigner =
       required int issuedAtMillis,
     });
 
-/// 只在明确的设备未登记响应后编排登记，钱包证明先持久保存。
+/// 已确认换绑或明确未登记时更新同一设备绑定，钱包证明先持久保存。
 class MlsDeviceRegistrar {
   MlsDeviceRegistrar({
     required MlsAuthenticationSource authentication,

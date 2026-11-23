@@ -70,6 +70,7 @@ class _Api extends SquareApiClient {
   final profileWrites = <ProfileVisibility>[];
   bool fail = false;
   bool failRead = false;
+  Completer<PrivacySettings>? readPending;
   final writes = <DmPolicy>[];
   final blocked = <String>{};
   final blockWrites = <(String, bool)>[];
@@ -99,6 +100,7 @@ class _Api extends SquareApiClient {
   @override
   Future<PrivacySettings> fetchPrivacy(SquareSession session) async {
     if (failRead) throw StateError('测试读取失败');
+    if (readPending != null) return readPending!.future;
     return PrivacySettings(dmPolicy: value, profileVisibility: visibility);
   }
 
@@ -111,7 +113,7 @@ class _Api extends SquareApiClient {
     if (dmPolicy != null) writes.add(dmPolicy);
     if (profileVisibility != null) profileWrites.add(profileVisibility);
     if (fail) throw StateError('测试保存失败');
-    if (pending != null) dmPolicy = await pending!.future;
+    if (pending != null) await pending!.future;
     value = dmPolicy ?? value;
     visibility = profileVisibility ?? visibility;
     return PrivacySettings(dmPolicy: value, profileVisibility: visibility);
@@ -209,22 +211,22 @@ void main() {
     await open(tester, api, user);
     expect(find.text('仅自己可见'), findsOneWidget);
   });
-  testWidgets('权限读取失败不冒充默认成功，原行可重试', (tester) async {
+  testWidgets('读取失败无提示，两项权限仍可直接选择', (tester) async {
     final api = _Api()..failRead = true;
     await open(tester, api, _Identity());
     expect(find.text('暂不可用'), findsNothing);
     expect(find.text('允许私信'), findsOneWidget);
-    expect(find.text('隐私设置读取失败，点击选项可重试'), findsOneWidget);
-    api.failRead = false;
-    await Scrollable.ensureVisible(tester.element(tile('dm-policy-setting')));
-    await tester.pumpAndSettle();
-    await tester.tap(tile('dm-policy-setting'));
-    await tester.pumpAndSettle();
-    expect(find.text('允许私信'), findsOneWidget);
-    expect(api.writes, isEmpty);
+    expect(find.byType(SnackBar), findsNothing);
+    await choose(tester, 'dm-policy-setting', '禁止私信');
+    await choose(tester, 'profile-visibility-setting', '仅自己可见');
+    expect(find.text('禁止私信'), findsOneWidget);
+    expect(find.text('仅自己可见'), findsOneWidget);
+    expect(api.writes, [DmPolicy.none]);
+    expect(api.profileWrites, [ProfileVisibility.private]);
+    expect(find.byType(SnackBar), findsNothing);
   });
 
-  testWidgets('私信四档保存成功才更新，失败保留旧值', (tester) async {
+  testWidgets('私信四档始终可选，保存失败无提示且保留选择', (tester) async {
     final api = _Api();
     await open(tester, api, _Identity());
     await choose(tester, 'dm-policy-setting', '我关注的');
@@ -235,10 +237,10 @@ void main() {
     await choose(tester, 'dm-policy-setting', '我关注的');
     api.fail = true;
     await choose(tester, 'dm-policy-setting', '相互关注的');
-    expect(find.text('我关注的'), findsOneWidget);
-    expect(find.text('私信权限保存失败，请重试'), findsOneWidget);
+    expect(find.text('相互关注的'), findsOneWidget);
+    expect(find.byType(SnackBar), findsNothing);
   });
-  testWidgets('主页保存失败保留旧值，四项均可选', (tester) async {
+  testWidgets('主页四项始终可选，保存失败无提示且保留选择', (tester) async {
     final api = _Api();
     await open(tester, api, _Identity());
     for (final policy in [
@@ -253,8 +255,41 @@ void main() {
     api.fail = true;
     await choose(tester, 'profile-visibility-setting', '仅自己可见');
     expect(api.visibility, ProfileVisibility.public);
-    expect(find.text('主页可见保存失败，请重试'), findsOneWidget);
+    expect(find.text('仅自己可见'), findsOneWidget);
+    expect(find.byType(SnackBar), findsNothing);
   });
+  testWidgets('读取未完成也能选择，迟到读取不覆盖选择', (tester) async {
+    final api = _Api()..readPending = Completer<PrivacySettings>();
+    await open(tester, api, _Identity());
+    await choose(tester, 'dm-policy-setting', '禁止私信');
+    await choose(tester, 'profile-visibility-setting', '仅自己可见');
+    api.readPending!.complete(const PrivacySettings(
+      dmPolicy: DmPolicy.all, profileVisibility: ProfileVisibility.public,
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('禁止私信'), findsOneWidget);
+    expect(find.text('仅自己可见'), findsOneWidget);
+    expect(find.byType(SnackBar), findsNothing);
+  });
+
+  testWidgets('保存未完成仍可连续选择，两项写入依次完成', (tester) async {
+    final api = _Api()..pending = Completer<DmPolicy>();
+    await open(tester, api, _Identity());
+    await choose(tester, 'dm-policy-setting', '我关注的');
+    await choose(tester, 'profile-visibility-setting', '仅自己可见');
+    await choose(tester, 'dm-policy-setting', '禁止私信');
+    expect(find.text('禁止私信'), findsOneWidget);
+    expect(find.text('仅自己可见'), findsOneWidget);
+    expect(api.writes, [DmPolicy.following]);
+    api.pending!.complete(DmPolicy.following);
+    await tester.pumpAndSettle();
+    expect(api.writes, [DmPolicy.following, DmPolicy.none]);
+    expect(api.profileWrites, [ProfileVisibility.private]);
+    expect(api.value, DmPolicy.none);
+    expect(api.visibility, ProfileVisibility.private);
+    expect(find.byType(SnackBar), findsNothing);
+  });
+
   testWidgets('旧身份保存迟到不覆盖新身份', (tester) async {
     final api = _Api()..pending = Completer<DmPolicy>();
     final user = _Identity(), revision = ValueNotifier(0);

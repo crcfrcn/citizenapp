@@ -1,4 +1,4 @@
-// 协调公开身份恢复、首次MLS设备授权及所属记录清理。
+// 协调公开身份、换绑后的服务端同步、MLS设备授权及所属记录清理。
 
 import 'package:citizen_scanner/qr_sign_session_page.dart' show PayloadSigner;
 import 'package:citizen_system/security/account_security_exception.dart';
@@ -37,7 +37,7 @@ typedef ColdMlsDeviceBindingSigner =
       required int issuedAtMillis,
     });
 
-/// 只协调公开身份、首次MLS登记授权与所属记录清理。钱包能力仍归CitizenSDK。
+/// 协调公开身份、MLS设备绑定同步与所属记录清理；钱包能力仍归CitizenSDK。
 interface class AccountSecurityService {
   AccountSecurityService({
     CitizenSdk? wallet,
@@ -128,7 +128,29 @@ interface class AccountSecurityService {
     }
   }
 
-  /// 仅明确未登记的设备使用此入口；并发调用共用同一登记，不派生其他材料。
+  /// 换绑后的同一设备复用既有接口；服务端确认后保存本机完成记录。
+  Future<bool> synchronizeMlsBinding(IdentityBinding binding) async {
+    try {
+      binding.validate();
+      final generation = revision.value;
+      await _requireCurrent(binding, generation);
+      final key = 'mls.binding.sync:${Uri.encodeComponent(binding.cidNumber)}';
+      final owner = _owner(binding);
+      final previous = await _records.read(key);
+      if (previous == owner) return true;
+      await registerMlsDeviceForBinding(binding);
+      await _requireCurrent(binding, generation);
+      if (!await _records.compareAndSet(key, expected: previous, next: owner)) {
+        return await _records.read(key) == owner;
+      }
+      return await _records.read(key) == owner;
+    } on Object {
+      // 未确认不标记成功；后续完整身份同步复用已保存证明，不增加提示。
+      return false;
+    }
+  }
+
+  /// 明确未登记或已确认换绑时复用；并发请求合并，不派生其他材料。
   Future<void> registerMlsDeviceForBinding(IdentityBinding binding) {
     binding.validate();
     final key = _owner(binding);
@@ -361,6 +383,9 @@ interface class AccountSecurityService {
       ),
     );
     await _records.delete('mls.registration.attempt:${_owner(binding)}');
+    await _records.delete(
+      'mls.binding.sync:${Uri.encodeComponent(binding.cidNumber)}',
+    );
     await _bindings.clearForCid(binding.cidNumber);
   }
 

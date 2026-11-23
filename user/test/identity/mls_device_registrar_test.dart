@@ -1,4 +1,4 @@
-// 验证明确未登记时的一次钱包授权、持久尝试及取消和设备恢复。
+// 验证换绑同步与未登记设备的一次钱包授权、持久证明和失败恢复。
 
 import 'package:flutter/widgets.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
@@ -251,6 +251,69 @@ class _AttemptWallet extends TestWalletReads {
 }
 
 void main() {
+  test('换绑同步失败后跨实例复用证明，确认后不重复请求', () async {
+    final binding = IdentityBinding(
+      genesisHash: _binding.genesisHash,
+      cidNumber: testMlsCidNumber,
+      bindRev: 2,
+      accountId: _accountId,
+    );
+    final records = _ProofStore(), wallet = _AttemptWallet();
+    final source = FakeMlsAuthentication(bindRev: 2);
+    records.entries[deviceRegistrationProofKey(testMlsCidNumber, 2, _accountId)] =
+        jsonEncode({
+          'cid_number': testMlsCidNumber,
+          'bind_rev': 2,
+          'account_id': _accountId,
+          'public_key': source.identity.publicKey,
+          'issued_at': 1700000000000,
+          'signature': '0x${'bb' * 64}',
+        });
+    var fail = true;
+    final bodies = <Map<String, dynamic>>[];
+    final api = SquareApiClient(
+      baseUrl: 'https://square.test/api',
+      httpClient: MockClient((request) async {
+        expect(request.url.path, '/api/user/devices');
+        bodies.add(jsonDecode(request.body) as Map<String, dynamic>);
+        if (fail) return http.Response('{"error_code":"temporary"}', 503);
+        return http.Response(jsonEncode({..._receipt(), 'bind_rev': 2}), 200);
+      }),
+    );
+    addTearDown(api.close);
+    Future<AccountSecurityService> factory() async {
+      final registrar = MlsDeviceRegistrar(
+        authentication: source, apiClient: api, proofStore: records,
+      );
+      final security = AccountSecurityService(
+        getWalletState: wallet.getWalletState,
+        payloadSigner: wallet.sign,
+        blobStore: records,
+        mlsDeviceRegistrar: registrar.register,
+        coldMlsDeviceBindingSigner: ({required binding, required payload,
+          required signingMessage, required publicKey, required issuedAtMillis})
+          async => throw StateError('不应要求冷签'),
+      );
+      addTearDown(security.dispose);
+      await security.activateIdentityBinding(
+        genesisHash: binding.genesisHash, cidNumber: binding.cidNumber,
+        bindRev: binding.bindRev, accountId: binding.accountId,
+      );
+      return security;
+    }
+    expect(await (await factory()).synchronizeMlsBinding(binding), false);
+    fail = false;
+    final recovered = await factory();
+    expect(await recovered.synchronizeMlsBinding(binding), true);
+    expect(await (await factory()).synchronizeMlsBinding(binding), true);
+    expect(bodies, hasLength(2));
+    expect(bodies.first, bodies.last);
+    expect(wallet.signs, 0);
+    expect(source.identity.deviceId, testMlsDeviceId);
+    expect(await recovered.synchronizeMlsBinding(_binding), false);
+    expect(bodies, hasLength(2), reason: '旧代次不得同步或请求签署');
+  });
+
   test('已提交MLS身份缺失拒绝换钥，不登记或请求钱包授权', () async {
     final security = _SessionWalletManager();
     final provider = SquareSessionProvider(

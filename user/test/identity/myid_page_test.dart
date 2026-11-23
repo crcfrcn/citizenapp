@@ -49,6 +49,35 @@ const MyIdState _candidateState = MyIdState(
 );
 
 void main() {
+  testWidgets('身份核实加载和未知失败状态均无横幅弹窗提示', (tester) async {
+    for (final status in [MyIdStatus.unknown, MyIdStatus.queryFailed]) {
+      final state = MyIdState(
+        tier: MyIdTier.visitor,
+        status: status,
+        errorMessage: 'fixture-internal-identity-error',
+      );
+      final service = _FakeMyIdService(state);
+      final pending = Completer<MyIdState>();
+      service.pending = pending.future;
+      await tester.pumpWidget(
+        MaterialApp(home: MyIdPage(myIdService: service)),
+      );
+      await tester.pump();
+      expect(find.textContaining('正在同步'), findsNothing);
+      expect(find.textContaining('核实后自动更新'), findsNothing);
+      expect(find.text('fixture-internal-identity-error'), findsNothing);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(SnackBar), findsNothing);
+      pending.complete(state);
+      await tester.pumpAndSettle();
+      expect(find.text('fixture-internal-identity-error'), findsNothing);
+      expect(find.text('身份验证失败，请重试'), findsNothing);
+      expect(find.text('重试'), findsNothing);
+      expect(find.byType(RefreshIndicator), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    }
+  });
+
   Finder card(MyIdTier tier) =>
       find.byKey(ValueKey<String>('passport-card-${tier.name}'));
 
@@ -141,7 +170,10 @@ void main() {
     service.state = initial;
     service.finished.complete();
     await tester.pumpAndSettle();
-    expect(find.text(formatIdentityCidText(initial.cidNumber!)), findsOneWidget);
+    expect(
+      find.text(formatIdentityCidText(initial.cidNumber!)),
+      findsOneWidget,
+    );
     expect(find.widgetWithText(TextButton, '更换'), findsOneWidget);
     expect(find.widgetWithText(TextButton, '注册'), findsNothing);
     expect(find.text(identityCidUiText('身份 CID 已换绑到所选账户')), findsOneWidget);
@@ -149,10 +181,17 @@ void main() {
     await tester.pump();
     await tester.pumpWidget(MaterialApp(home: MyIdPage(myIdService: service)));
     await tester.pumpAndSettle();
-    expect(find.text(formatIdentityCidText(initial.cidNumber!)), findsOneWidget);
+    expect(
+      find.text(formatIdentityCidText(initial.cidNumber!)),
+      findsOneWidget,
+    );
     expect(find.widgetWithText(TextButton, '更换'), findsOneWidget);
     expect(service.calls, 1);
-    expect(service.state.cidNumber, initial.cidNumber, reason: '显示格式不改变完整业务CID');
+    expect(
+      service.state.cidNumber,
+      initial.cidNumber,
+      reason: '显示格式不改变完整业务CID',
+    );
   });
 
   testWidgets('三张身份卡始终存在且旧访客文案彻底删除', (tester) async {
@@ -277,8 +316,8 @@ void main() {
       ),
     );
 
-    expect(find.text('身份验证失败，请重试'), findsOneWidget);
-    expect(find.text('重试'), findsOneWidget);
+    expect(find.text('身份验证失败，请重试'), findsNothing);
+    expect(find.text('重试'), findsNothing);
     expect(find.text('当前身份'), findsNothing);
     expect(find.text('身份·访客'), findsOneWidget);
     expect(find.text('注册身份·访客'), findsNothing);
@@ -287,13 +326,13 @@ void main() {
     expect(find.text('—'), findsNothing);
   });
 
-  testWidgets('没有默认热钱包的纯访客不挂徽章但显示引导', (tester) async {
+  testWidgets('没有默认热钱包的纯访客不挂徽章且无提示横幅', (tester) async {
     await pumpPage(
       tester,
       const MyIdState(tier: MyIdTier.visitor, errorMessage: '请先创建钱包'),
     );
 
-    expect(find.text('请先创建钱包'), findsOneWidget);
+    expect(find.text('请先创建钱包'), findsNothing);
     // 纯访客(无 CID)不挂「当前身份」徽章。
     expect(
       find.byKey(const ValueKey<String>('current-identity-visitor')),
@@ -455,7 +494,10 @@ void main() {
     expect(find.widgetWithText(TextButton, '更换'), findsNothing);
     // 访客卡内不含 CID 行(其余卡的字段名不算)。
     expect(
-      find.descendant(of: card(MyIdTier.visitor), matching: find.text('身份CID号')),
+      find.descendant(
+        of: card(MyIdTier.visitor),
+        matching: find.text('身份CID号'),
+      ),
       findsNothing,
     );
   });
@@ -518,7 +560,10 @@ void main() {
   testWidgets('身份卡CID字段使用统一标签且值保持单行', (tester) async {
     await pumpPage(tester, _votingState);
     final votingCard = card(MyIdTier.voting);
-    final label = find.descendant(of: votingCard, matching: find.text('身份CID号'));
+    final label = find.descendant(
+      of: votingCard,
+      matching: find.text('身份CID号'),
+    );
     final value = find.descendant(
       of: votingCard,
       matching: find.text('CID-2026-0715'),
@@ -600,17 +645,17 @@ void main() {
     await tester.pumpAndSettle();
     expect(service.refreshes, 3);
     expect(find.text('CID-2026-0715'), findsOneWidget);
-    expect(find.text('身份验证失败，请重试'), findsOneWidget);
+    expect(find.text('身份验证失败，请重试'), findsNothing);
   });
 
-  testWidgets('失败后旧缓存广播不消错，后台完整同步成功自动消错', (tester) async {
+  testWidgets('失败与缓存广播均不显示提示，后台完整同步仍交付身份', (tester) async {
     final service = _FakeMyIdService(_votingState)..refreshFails = true;
     await tester.pumpWidget(MaterialApp(home: MyIdPage(myIdService: service)));
     await tester.pumpAndSettle();
-    expect(find.text('身份验证失败，请重试'), findsOneWidget);
+    expect(find.text('身份验证失败，请重试'), findsNothing);
     IdentityBadgeSnapshotStore.revision.value++;
     await tester.pumpAndSettle();
-    expect(find.text('身份验证失败，请重试'), findsOneWidget);
+    expect(find.text('身份验证失败，请重试'), findsNothing);
     service.publish(_votingState);
     await tester.pumpAndSettle();
     expect(find.text('身份验证失败，请重试'), findsNothing);
@@ -638,10 +683,10 @@ void main() {
     service.syncCurrent = false;
     service.publish(_votingState);
     await tester.pumpAndSettle();
-    expect(find.text('身份验证失败，请重试'), findsOneWidget);
+    expect(find.text('身份验证失败，请重试'), findsNothing);
   });
 
-  testWidgets('空闲时切账户不带入旧账户错误，仍不触发额外链查询', (tester) async {
+  testWidgets('空闲时切账户保持静默且不触发额外链查询', (tester) async {
     final service = _FakeMyIdService(_votingState)..refreshFails = true;
     final current = _PageCurrentUser();
     await tester.pumpWidget(
@@ -651,7 +696,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('身份验证失败，请重试'), findsOneWidget);
+    expect(find.text('身份验证失败，请重试'), findsNothing);
     current.selectedAccountId = '0x${'22' * 32}';
     service.state = const MyIdState(
       tier: MyIdTier.visitor,
@@ -776,7 +821,6 @@ class _RegisterFlowService extends _FakeMyIdService {
       blockHash: '0x${'aa' * 32}',
     );
   }
-
 
   @override
   Future<bool> canRetryRegistration(Map<String, dynamic>? checkpoint) async =>

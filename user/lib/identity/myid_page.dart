@@ -54,8 +54,6 @@ class _MyIdPageState extends State<MyIdPage> {
   bool _loading = true;
   bool _submitting = false;
   int _loadGeneration = 0;
-  String? _refreshError;
-  String? _errorAccount;
 
   bool get _isQueryFailed => _state.status == MyIdStatus.queryFailed;
 
@@ -123,7 +121,7 @@ class _MyIdPageState extends State<MyIdPage> {
 
   void _onSnapshotChanged() {
     if (_myIdService != null && !_refreshing && !_submitting) {
-      _loadState(preserveError: true);
+      _loadState();
     }
   }
 
@@ -151,8 +149,6 @@ class _MyIdPageState extends State<MyIdPage> {
       setState(() {
         ++_loadGeneration;
         _state = result.state;
-        _refreshError = null;
-        _errorAccount = null;
         _loading = false;
       });
     } on Object {
@@ -173,7 +169,7 @@ class _MyIdPageState extends State<MyIdPage> {
     if (_refreshing) {
       _identityChanged = true;
     } else {
-      _loadState(preserveError: true);
+      _loadState();
     }
   }
 
@@ -185,8 +181,6 @@ class _MyIdPageState extends State<MyIdPage> {
     String? account;
     setState(() {
       _loading = true;
-      _refreshError = null;
-      _errorAccount = null;
     });
     try {
       account = (await currentUser?.resolve())?.accountId;
@@ -199,20 +193,10 @@ class _MyIdPageState extends State<MyIdPage> {
         return;
       }
       setState(() {
-        if (result.status == MyIdStatus.queryFailed) {
-          _refreshError = '身份验证失败，请重试';
-          _errorAccount = account;
-        } else {
-          _state = result;
-        }
+        if (result.status != MyIdStatus.queryFailed) _state = result;
       });
     } catch (_) {
-      if (mounted && generation == _loadGeneration) {
-        setState(() {
-          _refreshError = '身份验证失败，请重试';
-          _errorAccount = account;
-        });
-      }
+      // 核实失败保留当前身份展示，不新增提示。
     } finally {
       _refreshing = false;
       if (mounted && generation == _loadGeneration) {
@@ -220,7 +204,7 @@ class _MyIdPageState extends State<MyIdPage> {
       }
       if (_identityChanged && mounted) {
         _identityChanged = false;
-        await _loadState(preserveError: true);
+        await _loadState();
       }
       final pending = _pendingSync;
       _pendingSync = null;
@@ -228,18 +212,12 @@ class _MyIdPageState extends State<MyIdPage> {
     }
   }
 
-  Future<void> _loadState({bool preserveError = false}) async {
+  Future<void> _loadState() async {
     final generation = ++_loadGeneration;
     if (mounted) setState(() => _loading = true);
     MyIdState nextState;
-    String? account;
-    var currentKnown = false;
     try {
-      final currentUser = context.read<CurrentUserContext?>();
-      if (currentUser != null) {
-        account = (await currentUser.resolve())?.accountId;
-        currentKnown = true;
-      }
+      await context.read<CurrentUserContext?>()?.resolve();
       nextState = await _myIdService!.getState();
     } on Object {
       // 本地展示读取失败时保留错误状态，不能把未知误认成访客。
@@ -251,12 +229,6 @@ class _MyIdPageState extends State<MyIdPage> {
     }
     if (!mounted || generation != _loadGeneration) return;
     setState(() {
-      // 同账户旧缓存不能消错；切账户则不能带入上个账户的失败。
-      if (!preserveError ||
-          (currentKnown && _errorAccount != null && account != _errorAccount)) {
-        _refreshError = null;
-        _errorAccount = null;
-      }
       _state = nextState;
       _loading = false;
     });
@@ -415,20 +387,6 @@ class _MyIdPageState extends State<MyIdPage> {
               LinearProgressIndicator(minHeight: AppLayout.scaled(context, 2))
             else
               SizedBox(height: AppLayout.scaled(context, 2)),
-            if (_isQueryFailed || _refreshError != null) ...[
-              SizedBox(height: AppLayout.scaled(context, 12)),
-              _PassportMessageBanner(
-                message: _refreshError ?? _state.errorMessage ?? '身份读取失败',
-                isError: true,
-                onRetry: _loading ? null : _refreshState,
-              ),
-            ] else if (_loading && _state.status == MyIdStatus.unknown) ...[
-              SizedBox(height: AppLayout.scaled(context, 12)),
-              const _PassportMessageBanner(message: '正在同步身份信息，核实后自动更新'),
-            ] else if ((_state.errorMessage ?? '').trim().isNotEmpty) ...[
-              SizedBox(height: AppLayout.scaled(context, 12)),
-              _PassportMessageBanner(message: _state.errorMessage!),
-            ],
             SizedBox(height: AppLayout.scaled(context, 14)),
             Center(
               child: ConstrainedBox(
@@ -476,7 +434,9 @@ class _MyIdPageState extends State<MyIdPage> {
       ),
       _PassportField(
         label: '身份CID号',
-        value: showValues ? formatIdentityCidText(_displayValue(_state.cidNumber)) : null,
+        value: showValues
+            ? formatIdentityCidText(_displayValue(_state.cidNumber))
+            : null,
         mono: true,
         singleLine: true,
       ),
@@ -874,56 +834,6 @@ class _PassportFieldValue extends StatelessWidget {
       fit: BoxFit.scaleDown,
       alignment: Alignment.centerLeft,
       child: value,
-    );
-  }
-}
-
-class _PassportMessageBanner extends StatelessWidget {
-  const _PassportMessageBanner({
-    required this.message,
-    this.isError = false,
-    this.onRetry,
-  });
-
-  final String message;
-  final bool isError;
-  final VoidCallback? onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = isError ? AppTheme.danger : AppTheme.warning;
-    return Center(
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: AppLayout.scaled(context, 560)),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
-          decoration: AppTheme.bannerDecoration(color),
-          child: Row(
-            children: [
-              Icon(
-                isError ? Icons.error_outline : Icons.info_outline,
-                size: AppLayout.scaled(context, 18),
-                color: color,
-              ),
-              SizedBox(width: AppLayout.scaled(context, 8)),
-              Expanded(
-                child: Text(
-                  identityCidUiText(message),
-                  style: TextStyle(
-                    fontSize: AppLayout.scaled(context, 12),
-                    height: 1.4,
-                    color: AppTheme.textSecondary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              if (onRetry != null)
-                TextButton(onPressed: onRetry, child: const Text('重试')),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }
