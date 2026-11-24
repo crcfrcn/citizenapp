@@ -10,23 +10,19 @@ import 'package:citizen_citizen/administrators/admin_account_storage_codec.dart'
 @immutable
 class ScannedAdminAccount {
   const ScannedAdminAccount({
-    this.cidNumber,
-    this.accountId,
+    required this.cidNumber,
     required this.orgCode,
     required this.kind,
     required this.admins,
-  }) : assert((cidNumber == null) != (accountId == null));
+  });
 
   /// 机构管理员表的唯一主键。
-  final String? cidNumber;
+  final String cidNumber;
 
-  /// 个人多签管理员表的唯一主键。
-  final String? accountId;
-
-  /// 4 字节机构码字符串（"NRC"/"PRC"/"PRB"/"PMUL"/"CGOV" 等）。
+  /// 4 字节机构码字符串（"NRC"/"PRC"/"PRB"/"CGOV" 等）。
   final String orgCode;
 
-  /// 管理员账户类型(0=Public,1=Private,2=Personal)。
+  /// 机构管理员账户类型（0=Public，1=Private）。
   final int kind;
 
   /// 完整管理员人员集合；账户使用规范 AccountId，姓、名只用于展示。
@@ -62,7 +58,7 @@ class AdminAccountsScanResult {
 class AdminAccountsScanService {
   AdminAccountsScanService({
     CitizenSdk? chain,
-    this.palletNames = const ['PersonalAdmins'],
+    this.palletNames = const ['PublicAdmins', 'PrivateAdmins'],
     Future<CitizenBlockRef> Function()? getFinalizedHead,
     Future<CitizenRuntimeContext> Function(CitizenBlockRef)? getRuntimeContext,
     Future<List<Uint8List>> Function(
@@ -81,7 +77,9 @@ class AdminAccountsScanService {
            getFinalizedHead ??
            chain?.getFinalizedHead ??
            (() => throw StateError('未配置getFinalizedHead')),
-       _getRuntimeContext = getRuntimeContext ?? chain?.getRuntimeContext ??
+       _getRuntimeContext =
+           getRuntimeContext ??
+           chain?.getRuntimeContext ??
            ((block) => throw StateError('未配置getRuntimeContext')),
        _getStorageKeysPaged =
            getStorageKeysPaged ??
@@ -102,7 +100,8 @@ class AdminAccountsScanService {
     }
   }
   final Future<CitizenBlockRef> Function() _getFinalizedHead;
-  final Future<CitizenRuntimeContext> Function(CitizenBlockRef) _getRuntimeContext;
+  final Future<CitizenRuntimeContext> Function(CitizenBlockRef)
+  _getRuntimeContext;
   final Future<List<Uint8List>> Function(
     CitizenBlockRef block,
     Uint8List prefix, {
@@ -122,7 +121,6 @@ class AdminAccountsScanService {
   static const Set<String> _allowedPalletNames = {
     'PublicAdmins',
     'PrivateAdmins',
-    'PersonalAdmins',
   };
 
   /// 翻页大小。
@@ -189,33 +187,19 @@ class AdminAccountsScanService {
         final kind = kinds[start + index];
         final decoded = AdminAccountStorageCodec.tryDecode(value, kind: kind);
         if (decoded == null) continue;
-        if (kind == AdminAccountStorageCodec.kindPersonal) {
-          final accountIdBytes =
-              AdminAccountStorageCodec.extractPersonalAccountFromKey(keyBytes);
-          if (accountIdBytes == null) continue;
-          final accountId = citizenAccountIdFromBytes(accountIdBytes);
-          accounts.add(
-            ScannedAdminAccount(
-              accountId: accountId,
-              orgCode: decoded.orgCode,
-              kind: decoded.kind,
-              admins: decoded.admins,
-            ),
-          );
-        } else {
-          final cidNumber = AdminAccountStorageCodec.extractCidNumberFromKey(
-            keyBytes,
-          );
-          if (cidNumber == null) continue;
-          accounts.add(
-            ScannedAdminAccount(
-              cidNumber: cidNumber,
-              orgCode: decoded.orgCode,
-              kind: decoded.kind,
-              admins: decoded.admins,
-            ),
-          );
-        }
+
+        final cidNumber = AdminAccountStorageCodec.extractCidNumberFromKey(
+          keyBytes,
+        );
+        if (cidNumber == null) continue;
+        accounts.add(
+          ScannedAdminAccount(
+            cidNumber: cidNumber,
+            orgCode: decoded.orgCode,
+            kind: decoded.kind,
+            admins: decoded.admins,
+          ),
+        );
       }
       onProgress?.call(allKeys.length, allKeys.length, accounts.length);
     }
@@ -228,7 +212,7 @@ class AdminAccountsScanService {
   }
 
   /// 纯函数:从扫描结果里筛出"我的"账户(指定 kind,可选机构码白名单,
-  /// 且管理员集合含本地任一钱包账户 ID)。供个人多签发现复用,便于单测。
+  /// 且管理员集合含本地任一钱包账户 ID)。
   static List<ScannedAdminAccount> filterMine(
     AdminAccountsScanResult scan, {
     required Set<String> myAccountIds,
@@ -248,7 +232,9 @@ class AdminAccountsScanService {
   }
 
   /// 每个短 prefix 同时携带 pallet 决定的主体类型，禁止再从 value 猜 kind。
-  List<({Uint8List prefix, int kind})> _adminAccountsPrefixes(CitizenRuntimeContext runtime) {
+  List<({Uint8List prefix, int kind})> _adminAccountsPrefixes(
+    CitizenRuntimeContext runtime,
+  ) {
     final invalid = palletNames.where(
       (name) => !_allowedPalletNames.contains(name),
     );
@@ -268,7 +254,6 @@ class AdminAccountsScanService {
               'PublicAdmins' => AdminAccountStorageCodec.kindPublicInstitution,
               'PrivateAdmins' =>
                 AdminAccountStorageCodec.kindPrivateInstitution,
-              'PersonalAdmins' => AdminAccountStorageCodec.kindPersonal,
               _ => throw StateError('未知管理员 pallet'),
             },
           ),

@@ -16,7 +16,7 @@ class TransferProposalInfo {
   const TransferProposalInfo({
     required this.proposalId,
     required this.actorCidNumber,
-    required this.institutionAccountId,
+    required this.fundingAccountId,
     required this.beneficiary,
     required this.amountFen,
     required this.remark,
@@ -26,7 +26,7 @@ class TransferProposalInfo {
 
   final BigInt proposalId;
   final String? actorCidNumber;
-  final Uint8List institutionAccountId;
+  final Uint8List fundingAccountId;
   final String beneficiary; // SS58
   final BigInt amountFen;
   final String remark;
@@ -35,12 +35,11 @@ class TransferProposalInfo {
   /// 0=voting, 1=passed, 2=rejected, null=unknown
   final int? status;
 
-
   TransferProposalInfo copyWithStatus(int? newStatus) {
     return TransferProposalInfo(
       proposalId: proposalId,
       actorCidNumber: actorCidNumber,
-      institutionAccountId: institutionAccountId,
+      fundingAccountId: fundingAccountId,
       beneficiary: beneficiary,
       amountFen: amountFen,
       remark: remark,
@@ -71,7 +70,6 @@ class SafetyFundProposalInfo {
   final String remark;
   final String proposer; // SS58
   final int? status;
-
 }
 
 /// 手续费划转提案详情（从 SweepProposalActions 存储解码）。
@@ -91,5 +89,4 @@ class SweepProposalInfo {
   final BigInt amountFen;
   final String proposer; // SS58
   final int? status;
-
 }

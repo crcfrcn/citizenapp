@@ -464,8 +464,8 @@ class _MultisigTransferDetailPageState
       return {
         'kind': 'transfer',
         'actor_cid_number': detail.actorCidNumber,
-        'institution_account_id': citizenAccountIdFromBytes(
-          detail.institutionAccountId,
+        'funding_account_id': citizenAccountIdFromBytes(
+          detail.fundingAccountId,
         ),
         'beneficiary': detail.beneficiary,
         'amount_fen': detail.amountFen.toString(),
@@ -509,12 +509,12 @@ class _MultisigTransferDetailPageState
     if (kind == 'transfer') {
       final amountFen = BigInt.tryParse(detail['amount_fen']?.toString() ?? '');
       final actorCidNumber = detail['actor_cid_number']?.toString();
-      final institutionAccountId = detail['institution_account_id']?.toString();
-      if (amountFen == null || institutionAccountId == null) return null;
+      final fundingAccountId = detail['funding_account_id']?.toString();
+      if (amountFen == null || fundingAccountId == null) return null;
       return TransferProposalInfo(
         proposalId: snapshot.proposalId,
         actorCidNumber: actorCidNumber,
-        institutionAccountId: citizenAccountIdBytes(institutionAccountId),
+        fundingAccountId: citizenAccountIdBytes(fundingAccountId),
         beneficiary: detail['beneficiary']?.toString() ?? '',
         amountFen: amountFen,
         remark: detail['remark']?.toString() ?? '',

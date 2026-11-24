@@ -57,13 +57,6 @@
       "cid_number": "LN001-NRC0G-944805165-2026",
       "kind": "InstitutionNamed",
       "source": "self-authored: NRC cid + 自定义命名账户(address 由 Rust 回填, op_tag 0x07)"
-    },
-    {
-      "account_id": "0x3bf667dd1e30b82ebf7e4f13ea914648f3dd13520f2627b1571988b3125e9ed3",
-      "account_name": "我的多签",
-      "creator_account_id": "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
-      "kind": "Personal",
-      "source": "self-authored: 个人多签 creator_account_id+name(address 由 Rust 回填)"
     }
   ]
 }

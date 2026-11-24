@@ -125,9 +125,7 @@ class _FeedDeletionQuery extends ProposalQueryService {
   final processed = <BigInt>[];
 
   @override
-  Future<List<CitizenSystemEvent>> proposalEvents(
-    CitizenBlockRef block,
-  ) async {
+  Future<List<CitizenSystemEvent>> proposalEvents(CitizenBlockRef block) async {
     processed.add(block.number);
     return [];
   }
@@ -184,12 +182,15 @@ class _FeedVoteQuery extends ProposalQueryService {
       (tally: (yes: voteOnly ? 4 : 3, no: 1), referendum: (yes: 0, no: 0));
 
   @override
-  Future<({
-    List<String> accounts,
-    Map<String, bool?> votes,
-    bool? result,
-    ({int yes, int no}) tally,
-  })> jointInstitutionAt(
+  Future<
+    ({
+      List<String> accounts,
+      Map<String, bool?> votes,
+      bool? result,
+      ({int yes, int no}) tally,
+    })
+  >
+  jointInstitutionAt(
     CitizenBlockRef block,
     ProposalMeta meta,
     InstitutionInfo institution,
@@ -267,7 +268,8 @@ class _PageFeed extends MultisigTransferProposalFeed {
 
   @override
   Future<List<ProposalWithDetail>> proposalsAt(
-    CitizenBlockRef block, List<BigInt> ids, {
+    CitizenBlockRef block,
+    List<BigInt> ids, {
     void Function(BigInt)? onDetailFailure,
   }) async {
     retries.add(ids);
@@ -276,6 +278,7 @@ class _PageFeed extends MultisigTransferProposalFeed {
     }
     return fetchProposalsByIds(ids);
   }
+
   @override
   Future<List<BigInt>> fetchCitizenProposalFeedIds({
     required Set<String> defaultCodes,
@@ -469,10 +472,12 @@ Future<void> _flush(WidgetTester tester) async {
 Future<T> _drainRead<T>(WidgetTester tester, Future<T> future) async {
   late T value;
   var complete = false;
-  unawaited(future.then((result) {
-    value = result;
-    complete = true;
-  }));
+  unawaited(
+    future.then((result) {
+      value = result;
+      complete = true;
+    }),
+  );
   for (var i = 0; i < 8 && !complete; i++) {
     await _flush(tester);
   }
@@ -518,11 +523,13 @@ Future<_PageReads> _openProposal(
             query: query,
             genesisReader: () async => "test-chain",
             finalizedBlockReader: blockReader,
-            finalizedHeadReader: headReader ?? () async => CitizenBlockRef(
-              hash: '0x${'11' * 32}',
-              number: BigInt.from(height),
-              finality: CitizenBlockFinality.finalized,
-            ),
+            finalizedHeadReader:
+                headReader ??
+                () async => CitizenBlockRef(
+                  hash: '0x${'11' * 32}',
+                  number: BigInt.from(height),
+                  finality: CitizenBlockFinality.finalized,
+                ),
             capabilitiesReader: transport.read,
             walletStateReader: () =>
                 testCitizenOperation(testCitizenWalletState),
@@ -789,7 +796,10 @@ void main() {
     final reads = _DetailReads(wallet.accountId);
     final id = BigInt.from(60002);
     final detail = ProposalDetailSnapshot(
-      proposalId: id, proposalKind: 'transfer', status: 0, updatedAt: 1,
+      proposalId: id,
+      proposalKind: 'transfer',
+      status: 0,
+      updatedAt: 1,
     );
     await tester.runAsync(() => ProposalDetailLocalStore.instance.put(detail));
     var roleChecks = 0;
@@ -797,20 +807,28 @@ void main() {
     await tester.pumpWidget(
       Provider<CitizenSdk>.value(
         value: opened.sdk,
-        child: MaterialApp(home: MultisigTransferDetailPage(
-          institution: institution, proposalId: id,
-          proposalContext: ProposalContext(institution: institution),
-          resolveVoteContext: () async {
-            roleChecks++;
-            await gate.future;
-            return ProposalContext(institution: institution, adminWallets: [wallet], role: ProposalRole.admin);
-          },
-          readBlock: (_) async => CitizenBlockRef(
-            hash: '0x${'11' * 32}', number: BigInt.one,
-            finality: CitizenBlockFinality.finalized,
+        child: MaterialApp(
+          home: MultisigTransferDetailPage(
+            institution: institution,
+            proposalId: id,
+            proposalContext: ProposalContext(institution: institution),
+            resolveVoteContext: () async {
+              roleChecks++;
+              await gate.future;
+              return ProposalContext(
+                institution: institution,
+                adminWallets: [wallet],
+                role: ProposalRole.admin,
+              );
+            },
+            readBlock: (_) async => CitizenBlockRef(
+              hash: '0x${'11' * 32}',
+              number: BigInt.one,
+              finality: CitizenBlockFinality.finalized,
+            ),
+            readService: (_) => reads,
           ),
-          readService: (_) => reads,
-        )),
+        ),
       ),
     );
     await _flush(tester);
@@ -943,65 +961,8 @@ void main() {
   _proposalReadinessTests();
   _proposalReadResultTests();
   _proposalDiagnosticsTests();
-  for (final names in <(String, String)>[
-    ('家庭基金', '家庭基金'),
-    ('家庭基金账户甲乙', '家庭基金账户'),
-    ('👨‍👩‍👧‍👦家庭基金账户甲', '👨‍👩‍👧‍👦家庭基金账'),
-    ('e\u0301家庭基金账户甲', 'e\u0301家庭基金账'),
-  ]) {
-    testWidgets('个人多签统一首行保留前6个可见字符：${names.$1}', (tester) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: SizedBox(
-              width: 260,
-              child: Row(
-                children: [
-                  Expanded(
-                    child: ProposalCardHeader(
-                      subjectName: names.$1,
-                      proposalNumber: '#123',
-                      personal: true,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  const Text('投票中'),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-      expect(find.text(names.$2), findsOneWidget);
-      final nameElement = tester.element(find.text(names.$2));
-      final nameText = tester.widget<Text>(find.text(names.$2));
-      final painter = TextPainter(
-        text: TextSpan(
-          text: names.$2,
-          style: DefaultTextStyle.of(nameElement).style.merge(nameText.style),
-        ),
-        textDirection: TextDirection.ltr,
-        textScaler: MediaQuery.textScalerOf(nameElement),
-      )..layout();
-      // 按真实字号测量，避免布局缩放导致固定像素断言误判；展示的六字不得被裁短。
-      expect(
-        tester.getSize(find.text(names.$2)).width + 0.1,
-        greaterThanOrEqualTo(painter.width),
-      );
-      painter.dispose();
-      expect(find.textContaining('...'), findsNothing);
-      expect(
-        tester.getRect(find.text(names.$2)).right,
-        lessThan(tester.getRect(find.text('#123')).left),
-      );
-      expect(
-        tester.getRect(find.text('#123')).right,
-        lessThan(tester.getRect(find.text('投票中')).left),
-      );
-      expect(tester.takeException(), isNull);
-    });
-  }
-  test('个人多签上下文按规范执行账户去重批量取真实名称，机构CID仍优先', () async {
+
+  test('机构上下文保留actor CID优先，不从执行钱包反推机构', () async {
     final reads = TestChainReads();
     final admins = InstitutionAdminService(
       getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
@@ -1009,44 +970,17 @@ void main() {
       getStorageKeysPaged: reads.getStorageKeysPaged,
       getStorageBatch: reads.getStorageBatch,
     );
-    final requested = <List<String>>[];
-    final id = '0x${'12' * 32}';
-    var failNames = false;
     final resolver = ProposalContextResolver(
       adminService: admins,
       activationService: ActivationService(adminService: admins),
       getWalletState: () => testCitizenOperation(testCitizenWalletState),
-      readNames: (ids) async {
-        requested.add(ids.toList());
-        if (failNames) throw StateError('synthetic name read failure');
-        return {id: '家庭基金账户甲乙'};
-      },
     );
-    final bytes = List.filled(32, 0x12);
-    final contexts = await resolver.resolveBatch(
-      [null, null, kNrc.first.cidNumber],
-      executionAccountIds: [bytes, bytes, bytes],
-      internalCodeList: ['PMUL', 'pmul', 'PMUL'],
-    );
-    expect(requested, [
-      [id],
-    ]);
-    expect(contexts[0].institution!.shortName, '家庭基金账户甲乙');
-    expect(contexts[1].institution!.accountId, id);
-    expect(contexts[2].institution!.cidNumber, kNrc.first.cidNumber);
-    await resolver.resolveBatch(
+    final values = await resolver.resolveBatch(
       [kNrc.first.cidNumber],
-      internalCodeList: ['NRC'],
-    );
-    expect(requested, hasLength(1));
-    failNames = true;
-    final unnamed = await resolver.resolveBatch(
-      [null],
-      executionAccountIds: [bytes],
+      executionAccountIds: [List.filled(32, 0x12)],
       internalCodeList: ['PMUL'],
     );
-    expect(unnamed.single.institution!.shortName, isEmpty);
-    expect(unnamed.single.institution!.accountId, id);
+    expect(values.single.institution!.cidNumber, kNrc.first.cidNumber);
   });
   for (final shortName in ['国储委', '合成机构的特别长简称用于验证卡片宽度约束', '']) {
     testWidgets('提案卡片简称在编号左侧且窄屏大字号不遮挡状态：$shortName', (tester) async {
@@ -1182,7 +1116,13 @@ void main() {
       ];
     final query = _FeedVoteQuery();
     final resolver = _PageContext()..failure = StateError('票据链查询失败');
-    final transport = await _openProposal(tester, feed, <int>[], query: query, resolver: resolver);
+    final transport = await _openProposal(
+      tester,
+      feed,
+      <int>[],
+      query: query,
+      resolver: resolver,
+    );
     final local = await tester.runAsync(
       () => ProposalLocalStore.instance.readFeed(
         ProposalLocalStore.feedKey('test-chain', null),
@@ -1225,24 +1165,40 @@ void main() {
     final query = _FeedVoteQuery()
       ..eventOverride = const [
         CitizenSystemEvent(
-          eventIndex: 0, extrinsicIndex: 0,
-          pallet: 'LegislationVote', name: 'LegislationAdvancedToSign',
+          eventIndex: 0,
+          extrinsicIndex: 0,
+          pallet: 'LegislationVote',
+          name: 'LegislationAdvancedToSign',
           fields: {'proposal_id': '1'},
         ),
       ]
       ..metaOverride = ProposalMeta(
-        proposalId: BigInt.one, kind: 2, stage: 12, status: 0, internalCode: 'NLG',
+        proposalId: BigInt.one,
+        kind: 2,
+        stage: 12,
+        status: 0,
+        internalCode: 'NLG',
       );
-    final feed = _PageFeed()..details = (_) async => [
-      ProposalWithDetail(meta: ProposalMeta(
-        proposalId: BigInt.one, kind: 2, stage: 10, status: 0, internalCode: 'NRC',
-      )),
-    ];
+    final feed = _PageFeed()
+      ..details = (_) async => [
+        ProposalWithDetail(
+          meta: ProposalMeta(
+            proposalId: BigInt.one,
+            kind: 2,
+            stage: 10,
+            status: 0,
+            internalCode: 'NRC',
+          ),
+        ),
+      ];
     final transport = await _openProposal(tester, feed, <int>[], query: query);
     transport.finalized(2);
     List<LocalProposalSummary> rows = [];
     for (var i = 0; i < 8; i++) {
-      rows = await _drainRead(tester, ProposalLocalStore.instance.readSummariesForIds([BigInt.one]));
+      rows = await _drainRead(
+        tester,
+        ProposalLocalStore.instance.readSummariesForIds([BigInt.one]),
+      );
       if (rows.single.stage == 12) break;
       await _flush(tester);
     }
@@ -1303,9 +1259,12 @@ void main() {
     for (var i = 0; i < 8 && !query.processed.contains(BigInt.from(241)); i++) {
       await _flush(tester);
     }
-    final advanced = await _drainRead(tester, ProposalLocalStore.instance.readFeed(
-      ProposalLocalStore.feedKey('test-chain', null),
-    ));
+    final advanced = await _drainRead(
+      tester,
+      ProposalLocalStore.instance.readFeed(
+        ProposalLocalStore.feedKey('test-chain', null),
+      ),
+    );
     expect(advanced?.finalizedHeight, BigInt.from(241));
     expect(find.text('2026000001'), findsOneWidget);
     query.fail = false;
@@ -1326,13 +1285,17 @@ void main() {
     var height = 1;
     var fail = true;
     CitizenBlockRef at(BigInt number) => CitizenBlockRef(
-      hash: '0x${'11' * 32}', number: number,
+      hash: '0x${'11' * 32}',
+      number: number,
       finality: CitizenBlockFinality.finalized,
     );
     final query = _FeedVoteQuery();
     final calls = <BigInt>[];
     final transport = await _openProposal(
-      tester, _PageFeed(), <int>[], query: query,
+      tester,
+      _PageFeed(),
+      <int>[],
+      query: query,
       headReader: () async => at(BigInt.from(height)),
       blockReader: (number) async {
         calls.add(number);
@@ -1343,7 +1306,10 @@ void main() {
         return at(number);
       },
     );
-    transport.capability(isReady: false, why: CitizenCapabilityReason.chainUnsynced);
+    transport.capability(
+      isReady: false,
+      why: CitizenCapabilityReason.chainUnsynced,
+    );
     await tester.pump();
     height = 3;
     transport.capability(isReady: true);
@@ -1368,20 +1334,32 @@ void main() {
     feed.failedBodies.add(BigInt.one);
     await _openProposal(tester, feed, <int>[]);
     final store = ProposalLocalStore.instance;
-    final pending = await _drainRead(tester, store.readSummariesForIds([BigInt.one, BigInt.from(2)]));
+    final pending = await _drainRead(
+      tester,
+      store.readSummariesForIds([BigInt.one, BigInt.from(2)]),
+    );
     expect(pending.map((item) => item.detailPending), [true, false]);
     await tester.pumpWidget(const SizedBox.shrink());
     feed.failedBodies.clear();
     await _openProposal(tester, feed, <int>[]);
     for (var i = 0; i < 8; i++) {
-      final saved = await _drainRead(tester, store.readSummariesForIds([BigInt.one]));
+      final saved = await _drainRead(
+        tester,
+        store.readSummariesForIds([BigInt.one]),
+      );
       if (saved.single.detailPending == false) break;
       await _flush(tester);
     }
-    final saved = await _drainRead(tester, store.readSummariesForIds([BigInt.one]));
+    final saved = await _drainRead(
+      tester,
+      store.readSummariesForIds([BigInt.one]),
+    );
     expect(saved.single.detailPending, false);
     expect(feed.retries, isNotEmpty);
-    expect(feed.retries.every((ids) => ids.length == 1 && ids.single == BigInt.one), true);
+    expect(
+      feed.retries.every((ids) => ids.length == 1 && ids.single == BigInt.one),
+      true,
+    );
     expect(feed.forced, [false]);
   });
 
@@ -1510,7 +1488,7 @@ void main() {
 
     expect(decoded, isNotNull, reason: '短备注机构提案必须进入提案列表和详情页');
     expect(decoded!.actorCidNumber, 'LN001-CGOVC-000000001-2026');
-    expect(decoded.institutionAccountId, institutionAccountId);
+    expect(decoded.fundingAccountId, institutionAccountId);
     expect(decoded.amountFen, BigInt.from(10000000)); // 100,000.00 元
     expect(decoded.remark, '转账测试');
     expect(decoded.beneficiary, citizenSs58FromAccountIdBytes(beneficiary));
@@ -1738,19 +1716,6 @@ void main() {
     expect(institutionKey.first, 0);
     expect(institutionKey[1], utf8.encode(peerCid).length << 2);
     expect(utf8.decode(institutionKey.sublist(2)), peerCid);
-
-    final personalAccount = '0x${'ab' * 32}';
-    final personal = InstitutionInfo(
-      fullName: '个人多签',
-      shortName: '个人多签',
-      cidFullNameEn: 'Personal Multisig',
-      cidShortNameEn: 'PMUL',
-      cidNumber: 'personal-account:$personalAccount',
-      orgType: OrgType.personalMultisig,
-      accountId: personalAccount,
-    );
-    final personalKey = ProposalQueryService.proposalSubjectKey(personal);
-    expect(personalKey, Uint8List.fromList([1, ...List.filled(32, 0xab)]));
   });
 
   test('投票引擎主体索引和管理员快照必须完整消费 SCALE 字节', () {
@@ -1813,16 +1778,6 @@ void main() {
         feeAccountId: '0x${'22' * 32}',
       ),
     );
-    final personalAccount = '0x${'ab' * 32}';
-    final personal = InstitutionInfo(
-      fullName: '个人多签',
-      shortName: '个人多签',
-      cidFullNameEn: 'Personal Multisig',
-      cidShortNameEn: 'PMUL',
-      cidNumber: 'personal-account:$personalAccount',
-      orgType: OrgType.personalMultisig,
-      accountId: personalAccount,
-    );
 
     expect(
       await query.fetchRoleVoterSnapshot(
@@ -1832,11 +1787,8 @@ void main() {
       ),
       ['0x${'33' * 32}'],
     );
-    expect(await query.fetchEligibleVoterSnapshot(BigInt.from(7), personal), [
-      '0x${'33' * 32}',
-    ]);
-    expect(rpc.storageKeys, hasLength(2));
-    expect(rpc.storageKeys[0], isNot(rpc.storageKeys[1]));
+
+    expect(rpc.storageKeys, hasLength(1));
   });
 
   test('公民提案流按默认机构码和订阅机构 CID 合并过滤', () {
@@ -2269,14 +2221,7 @@ void _proposalDiagnosticsTests() {
       if (stage == 'details') feed.details = (_) async => throw failure;
       final counts = <int>[];
       final lines = <String>[];
-      await _captureProposal(
-        lines,
-        () => _openProposal(
-          tester,
-          feed,
-          counts,
-        ),
-      );
+      await _captureProposal(lines, () => _openProposal(tester, feed, counts));
       expect(find.text('提案读取失败，请重试'), findsOneWidget);
       expect(find.text('重试'), findsOneWidget);
       expect(counts, isEmpty);

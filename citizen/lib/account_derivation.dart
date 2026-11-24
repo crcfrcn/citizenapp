@@ -29,9 +29,6 @@ const int kOpSafetyFund = 0x04;
 /// 两和基金(制度专属)· payload = cid_number。
 const int kOpHe = 0x05;
 
-/// 个人多签账户 · payload = creator(32B) || account_name。
-const int kOpPersonal = 0x06;
-
 /// 清算账户(私法人股份公司专属)· payload = cid_number。
 const int kOpClearing = 0x07;
 
@@ -115,15 +112,3 @@ Uint8List deriveInstitutionAccountIdByName(
 // ── 个人多签(payload = creator || account_name)──
 
 /// 派生个人多签账户，输出 32 字节 AccountId。
-Uint8List derivePersonalAccountId({
-  required Uint8List creatorAccount,
-  required String accountName,
-}) {
-  if (creatorAccount.length != 32) {
-    throw ArgumentError('creator account_id 必须为 32 字节');
-  }
-  return deriveAccountId(
-    opTag: kOpPersonal,
-    payload: <int>[...creatorAccount, ...utf8.encode(accountName)],
-  );
-}

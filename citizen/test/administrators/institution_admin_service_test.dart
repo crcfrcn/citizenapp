@@ -44,12 +44,6 @@ Uint8List _institutionAdminStorageKey(
   ]);
 }
 
-Uint8List _personalAdminStorageKey(Uint8List account) => Uint8List.fromList([
-  ...Hasher.twoxx128.hashString('PersonalAdmins'),
-  ...Hasher.twoxx128.hashString('AdminAccounts'),
-  ..._blake2128Concat(account),
-]);
-
 class FakeChain extends TestChainReads {
   final Map<String, Uint8List?> responses = {};
   final List<String> requestedKeys = [];
@@ -215,27 +209,6 @@ void main() {
     ]);
   }
 
-  Uint8List personalAdminBytes({required List<int> admin}) {
-    final familyBytes = utf8.encode('管理');
-    final givenBytes = utf8.encode('员');
-    return Uint8List.fromList([
-      0,
-      ...codeBytes('PMUL'),
-      2,
-      4,
-      ...admin,
-      0, // 空公民 CID（Compact(0)）
-      familyBytes.length << 2,
-      ...familyBytes,
-      givenBytes.length << 2,
-      ...givenBytes,
-      ...List<int>.filled(32, 0xcc),
-      ...u32Le(1),
-      ...u32Le(2),
-      1,
-    ]);
-  }
-
   String thresholdKey({
     required String palletName,
     required String storageName,
@@ -284,15 +257,11 @@ void main() {
       final prefix = Uint8List.fromList([
         ...Hasher.twoxx128.hashString(pallet),
         ...Hasher.twoxx128.hashString(storage),
-        ..._blake2128Concat(
-          _scaleBytes(utf8.encode(cid)),
-        ),
+        ..._blake2128Concat(_scaleBytes(utf8.encode(cid))),
       ]);
       final key = Uint8List.fromList([
         ...prefix,
-        ..._blake2128Concat(
-          _scaleBytes(utf8.encode(code)),
-        ),
+        ..._blake2128Concat(_scaleBytes(utf8.encode(code))),
       ]);
       rpc.scanKeys['0x${hexOf(prefix)}'] = [key];
       rpc.responses['0x${hexOf(key)}'] = storage == 'InstitutionRoles'
@@ -385,24 +354,7 @@ void main() {
     );
     expect(service.assignmentReads, 0);
   });
-  test('人员视图拒绝CID不一致及个人账户，不进入未知岗位分支', () async {
-    final service = _ViewService(people);
-    await expectLater(
-      service.fetchAdminViews(displayIdentity, 'OTHER'),
-      throwsArgumentError,
-    );
-    await expectLater(
-      service.fetchAdminViews(
-        AdminAccountIdentity.personalAccount(
-          accountId: '0x${'01' * 32}',
-          accountLabel: '合成个人',
-        ),
-        displayIdentity.cidNumber!,
-      ),
-      throwsArgumentError,
-    );
-    expect(service.assignmentReads, 0);
-  });
+
   for (final code in ['NRC', 'FRG', 'UNIN']) {
     test('真实人员读取按$code精确主体路由，岗位失败不丢人', () async {
       final rpc = FakeChain()..scanFailure = true;
@@ -451,9 +403,7 @@ void main() {
         orgCode: 'NRC',
         admin: List.filled(32, 0xaa),
       );
-      final cidBytes = _scaleBytes(
-        utf8.encode(identity.cidNumber!),
-      );
+      final cidBytes = _scaleBytes(utf8.encode(identity.cidNumber!));
       final prefix = Uint8List.fromList([
         ...Hasher.twoxx128.hashString('PublicManage'),
         ...Hasher.twoxx128.hashString('InstitutionRoles'),
@@ -523,18 +473,14 @@ void main() {
     final prefix = Uint8List.fromList([
       ...Hasher.twoxx128.hashString('PublicManage'),
       ...Hasher.twoxx128.hashString('InstitutionRoles'),
-      ..._blake2128Concat(
-        _scaleBytes(utf8.encode(identity.cidNumber!)),
-      ),
+      ..._blake2128Concat(_scaleBytes(utf8.encode(identity.cidNumber!))),
     ]);
     final page = rpc.scanKeys['0x${hexOf(prefix)}']!;
     for (var i = 1; i < 256; i++) {
       final code = 'EXTRA_$i';
       final roleKey = Uint8List.fromList([
         ...prefix,
-        ..._blake2128Concat(
-          _scaleBytes(utf8.encode(code)),
-        ),
+        ..._blake2128Concat(_scaleBytes(utf8.encode(code))),
       ]);
       page.add(roleKey);
       rpc.responses['0x${hexOf(roleKey)}'] = roleBytes(
@@ -576,11 +522,7 @@ void main() {
         final prefix = Uint8List.fromList([
           ...Hasher.twoxx128.hashString('PublicManage'),
           ...Hasher.twoxx128.hashString(storage),
-          ..._blake2128Concat(
-            _scaleBytes(
-              utf8.encode(identity.cidNumber!),
-            ),
-          ),
+          ..._blake2128Concat(_scaleBytes(utf8.encode(identity.cidNumber!))),
         ]);
         final badKey = rpc.scanKeys['0x${hexOf(prefix)}']!.single;
         rpc.responses['0x${hexOf(badKey)}'] = Uint8List.fromList([255]);
@@ -622,9 +564,7 @@ void main() {
     final threshold = thresholdKey(
       palletName: 'PublicManage',
       storageName: 'InstitutionGovernanceThresholds',
-      keyData: _scaleBytes(
-        utf8.encode(identity.cidNumber!),
-      ),
+      keyData: _scaleBytes(utf8.encode(identity.cidNumber!)),
     );
     rpc.responses[key] = institutionAdminBytes(
       orgCode: 'NRC',
@@ -731,9 +671,7 @@ void main() {
     final threshold = thresholdKey(
       palletName: 'PublicManage',
       storageName: 'InstitutionGovernanceThresholds',
-      keyData: _scaleBytes(
-        utf8.encode(identity.cidNumber!),
-      ),
+      keyData: _scaleBytes(utf8.encode(identity.cidNumber!)),
     );
     final delayed = Completer<Uint8List?>();
     rpc.queued[key] = [() => delayed.future];
@@ -827,41 +765,6 @@ void main() {
     expect(rpc.requestedKeys, [accountKey, thresholdStorageKey]);
   });
 
-  test('个人多签严格按 personal_account_id 路由', () async {
-    final rpc = FakeChain();
-    final service = InstitutionAdminService(
-      getFinalizedHead: rpc.getFinalizedHead,
-      getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
-      getStorageKeysPaged: rpc.getStorageKeysPaged,
-      getStorageBatch: rpc.getStorageBatch,
-      getStorage: rpc.getStorage,
-    );
-    final accountId = '0x${'22' * 32}';
-    final accountIdBytes = citizenAccountIdBytes(accountId);
-    final accountKey =
-        '0x${hexOf(_personalAdminStorageKey(accountIdBytes))}';
-    final thresholdStorageKey = thresholdKey(
-      palletName: 'InternalVote',
-      storageName: 'ActivePersonalThresholds',
-      keyData: accountIdBytes,
-    );
-    rpc.responses[accountKey] = personalAdminBytes(
-      admin: List<int>.filled(32, 0xbb),
-    );
-    rpc.responses[thresholdStorageKey] = Uint8List.fromList(u32Le(2));
-
-    final identity = AdminAccountIdentity.personalAccount(
-      accountId: accountId,
-      accountLabel: '个人多签',
-    );
-    expect(
-      (await service.fetchAdmins(identity)).map((admin) => admin.accountId),
-      ['0x${'bb' * 32}'],
-    );
-    expect(await service.fetchThreshold(identity), 2);
-    expect(rpc.requestedKeys, [accountKey, thresholdStorageKey]);
-  });
-
   test('公权机构从 PublicManage 读取机构阈值', () async {
     for (final entry in const {'FRG': 3, 'NJD': 8}.entries) {
       final cidNumber = 'ZS001-${entry.key}00-123456789-2026';
@@ -900,107 +803,6 @@ void main() {
       expect(state?.admins.single.familyName, isEmpty);
       expect(rpc.requestedKeys, [accountKey, thresholdStorageKey]);
     }
-  });
-
-  test('管理员缓存按明确 identity key 隔离并可清除', () async {
-    final rpc = FakeChain();
-    final service = AdminAccountService(
-      getFinalizedHead: rpc.getFinalizedHead,
-      getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
-      getStorage: rpc.getStorage,
-    );
-    final accountId = '0x${'33' * 32}';
-    final accountIdBytes = citizenAccountIdBytes(accountId);
-    final identity = AdminAccountIdentity.personalAccount(
-      accountId: accountId,
-      accountLabel: '个人多签',
-    );
-    final accountKey =
-        '0x${hexOf(_personalAdminStorageKey(accountIdBytes))}';
-    final thresholdStorageKey = thresholdKey(
-      palletName: 'InternalVote',
-      storageName: 'ActivePersonalThresholds',
-      keyData: accountIdBytes,
-    );
-    rpc.responses[accountKey] = personalAdminBytes(
-      admin: List<int>.filled(32, 0xdd),
-    );
-    rpc.responses[thresholdStorageKey] = Uint8List.fromList(u32Le(2));
-
-    await service.fetchByIdentity(identity);
-    await service.fetchByIdentity(identity);
-    expect(rpc.requestedKeys, [accountKey, thresholdStorageKey]);
-
-    service.clearCache(identity);
-    await service.fetchByIdentity(identity);
-    expect(rpc.requestedKeys, [
-      accountKey,
-      thresholdStorageKey,
-      accountKey,
-      thresholdStorageKey,
-    ]);
-  });
-
-  test('InstitutionInfo 解析为 CID 机构或个人多签明确身份', () {
-    final personalAccount = '0x${'44' * 32}';
-    final personal = AdminAccountIdentity.fromInstitution(
-      InstitutionInfo(
-        fullName: '个人账户',
-        shortName: '个人账户',
-        cidFullNameEn: 'Personal Account',
-        cidShortNameEn: 'Personal Account',
-        cidNumber: 'personal-account:$personalAccount',
-        orgType: OrgType.personalMultisig,
-        accountId: personalAccount,
-      ),
-    );
-    expect(personal.type, AdminAccountIdentityType.personalAccount);
-    expect(personal.accountId, personalAccount);
-
-    const institutionCid = 'GD001-CGOV0-123456789-2026';
-    final institution = AdminAccountIdentity.fromInstitution(
-      InstitutionInfo(
-        fullName: '机构账户',
-        shortName: '机构账户',
-        cidFullNameEn: 'Institution Account',
-        cidShortNameEn: 'Institution Account',
-        cidNumber: institutionCid,
-        orgType: OrgType.institution,
-        adminCode: 'CGOV',
-        accounts: InstitutionAccounts(
-          mainAccountId: '55' * 32,
-          feeAccountId: '56' * 32,
-        ),
-      ),
-    );
-    expect(institution.type, AdminAccountIdentityType.institution);
-    expect(institution.cidNumber, institutionCid);
-
-    final privateOwnedInstitution = AdminAccountIdentity.institution(
-      cidNumber: 'GD001-UNIN0-223456789-2026',
-      orgCode: 'UNIN',
-      accountLabel: '私权非法人机构',
-      kind: 1,
-    );
-    expect(privateOwnedInstitution.type, AdminAccountIdentityType.institution);
-    expect(privateOwnedInstitution.kind, 1);
-
-    final governance = AdminAccountIdentity.fromInstitution(
-      InstitutionInfo(
-        fullName: '中枢省公民储备银行',
-        shortName: '中枢省储行',
-        cidFullNameEn: 'Zhongshu Provincial Citizen Reserve Bank',
-        cidShortNameEn: 'Zhongshu Provincial Reserve Bank',
-        cidNumber: 'ZS001-PRB08-233384677-2026',
-        orgType: OrgType.prb,
-        accounts: InstitutionAccounts(
-          mainAccountId: '77' * 32,
-          feeAccountId: '78' * 32,
-        ),
-      ),
-    );
-    expect(governance.type, AdminAccountIdentityType.institution);
-    expect(governance.orgCode, 'PRB');
   });
 
   test('管理员激活记录只以机构 CID 归属和去重', () async {
@@ -1101,5 +903,60 @@ void main() {
     expect(views.first.assignments, [assignment]);
     expect(views.last.admin.accountId, second.accountId);
     expect(views.last.assignments, isEmpty);
+  });
+
+  test('人员视图拒绝CID不一致，不进入未知岗位分支', () async {
+    final service = _ViewService(people);
+    await expectLater(
+      service.fetchAdminViews(displayIdentity, 'OTHER'),
+      throwsArgumentError,
+    );
+    expect(service.assignmentReads, 0);
+  });
+  test('机构身份保留CID、归属类型及固定治理码解析', () {
+    const institutionCid = 'GD001-CGOV0-123456789-2026';
+    final institution = AdminAccountIdentity.fromInstitution(
+      InstitutionInfo(
+        fullName: '机构账户',
+        shortName: '机构账户',
+        cidFullNameEn: 'Institution Account',
+        cidShortNameEn: 'Institution Account',
+        cidNumber: institutionCid,
+        orgType: OrgType.institution,
+        adminCode: 'CGOV',
+        accounts: InstitutionAccounts(
+          mainAccountId: '55' * 32,
+          feeAccountId: '56' * 32,
+        ),
+      ),
+    );
+    expect(institution.type, AdminAccountIdentityType.institution);
+    expect(institution.cidNumber, institutionCid);
+
+    final privateOwnedInstitution = AdminAccountIdentity.institution(
+      cidNumber: 'GD001-UNIN0-223456789-2026',
+      orgCode: 'UNIN',
+      accountLabel: '私权非法人机构',
+      kind: 1,
+    );
+    expect(privateOwnedInstitution.type, AdminAccountIdentityType.institution);
+    expect(privateOwnedInstitution.kind, 1);
+
+    final governance = AdminAccountIdentity.fromInstitution(
+      InstitutionInfo(
+        fullName: '中枢省公民储备银行',
+        shortName: '中枢省储行',
+        cidFullNameEn: 'Zhongshu Provincial Citizen Reserve Bank',
+        cidShortNameEn: 'Zhongshu Provincial Reserve Bank',
+        cidNumber: 'ZS001-PRB08-233384677-2026',
+        orgType: OrgType.prb,
+        accounts: InstitutionAccounts(
+          mainAccountId: '77' * 32,
+          feeAccountId: '78' * 32,
+        ),
+      ),
+    );
+    expect(governance.type, AdminAccountIdentityType.institution);
+    expect(governance.orgCode, 'PRB');
   });
 }

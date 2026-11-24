@@ -294,6 +294,7 @@ class _CitizenAppState extends State<CitizenApp> with WidgetsBindingObserver {
       providers: [
         Provider<WalletNavigation>.value(value: walletNavigation),
         Provider<GovernanceNavigation>.value(value: governanceNavigation),
+        Provider.value(value: personalNavigation),
         Provider<TransactionNavigation>.value(value: transactionNavigation),
         Provider<UserNavigation>.value(
           value: UserNavigation(
@@ -871,8 +872,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   void _syncContacts() {
     final lifecycle = WidgetsBinding.instance.lifecycleState;
-    if (!mounted || lifecycle != null && lifecycle != AppLifecycleState.resumed)
+    if (!mounted ||
+        lifecycle != null && lifecycle != AppLifecycleState.resumed) {
       return;
+    }
     final contacts = context.read<UserContactService?>();
     if (contacts == null) return;
     unawaited(

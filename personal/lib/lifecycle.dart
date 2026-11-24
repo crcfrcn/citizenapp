@@ -1,27 +1,30 @@
-// 选择管理员及阈值，准备无需CID的个人多签创建提案。
+// 个人多签创建、注销及生命周期界面。
 
-import 'package:citizen_personal/personal_local_store.dart';
-import 'package:citizen_storage/user_isar.dart' as wallet_store show Account;
 import 'package:citizen_sdk/citizen_sdk.dart';
-
+import 'dart:async';
 import 'dart:convert';
-
-import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'package:flutter/services.dart';
-import 'package:flutter_svg/flutter_svg.dart';
-import 'package:citizen_storage/user_isar.dart' hide Group;
+import 'package:citizen_scanner/address_scan_button.dart';
 import 'package:citizen_scanner/qr_scan_page.dart' show QrScanMode, QrScanPage;
 import 'package:citizen_scanner/qr_sign_session_page.dart';
-import 'package:citizen_system/theme/app_theme.dart';
+import 'package:citizen_storage/user_isar.dart' as wallet_store;
+import 'package:citizen_storage/user_isar.dart' hide Group;
 import 'package:citizen_system/amount_format.dart';
-import 'package:citizen_citizen/account_derivation.dart';
-import 'package:citizen_citizen/administrators/admin_account.dart';
-
-import 'package:citizen_personal/personal_manage_service.dart';
-import 'package:citizen_personal/personal_proposal_history_service.dart';
-
 import 'package:citizen_system/theme/app_layout.dart';
+import 'package:citizen_system/theme/app_theme.dart';
+import 'package:citizen_widgets/chain_balance_scope.dart';
+import 'package:citizen_widgets/chain_progress_banner.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
+import 'package:provider/provider.dart';
+import 'accounts.dart';
+import 'members.dart';
+import 'proposals.dart';
+import 'chain.dart';
+import 'storage.dart';
+
+// 选择管理员及阈值，准备无需CID的个人多签创建提案。
 
 /// 个人多签账户创建页面（无需 CID）。
 class PersonalAccountCreatePage extends StatefulWidget {
@@ -42,7 +45,8 @@ class PersonalAccountCreatePage extends StatefulWidget {
     Future<CitizenFeeSnapshot> Function(BigInt) quote,
     Future<BigInt> Function(CitizenBlockRef) minimum,
     Future<CitizenAccountBalance> Function(String) balance,
-  })? amountReads;
+  })?
+  amountReads;
 
   @override
   State<PersonalAccountCreatePage> createState() =>
@@ -59,7 +63,8 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
   bool _dependenciesReady = false;
 
   bool _submitting = false;
-  final List<AdminPerson> _admins = [];
+  bool _thresholdEdited = false;
+  final List<PersonalMember> _admins = [];
   CitizenWalletStateAccount? _selectedWallet;
   List<CitizenWalletStateAccount> _wallets = [];
 
@@ -124,7 +129,7 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
     _admins.removeWhere((admin) => admin.accountId == accountId); // 防重复
     _admins.insert(
       0,
-      AdminPerson(accountId: accountId, familyName: '管理', givenName: '员'),
+      PersonalMember(accountId: accountId, familyName: '管理', givenName: '员'),
     );
   }
 
@@ -153,20 +158,17 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
     final result = await Navigator.push<CitizenQrScanResult>(
       context,
       MaterialPageRoute(
-        builder: (_) => const QrScanPage(
-          mode: QrScanMode.userContactValue,
-          customTitle: '扫码添加管理员',
-        ),
+        builder: (_) =>
+            const QrScanPage(mode: QrScanMode.wallet, customTitle: '扫码添加管理员'),
       ),
     );
     if (result == null || !mounted) return;
 
     final accountId = result.accountId;
-    if (result.document.kind != CitizenQrKind.userContact ||
-        accountId == null) {
+    if (result.document.kind != CitizenQrKind.accountId || accountId == null) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('请扫描用户主页中的用户码')));
+      ).showSnackBar(const SnackBar(content: Text('请扫描钱包码')));
       return;
     }
     await _promptAdminNamesAndAdd(accountId);
@@ -176,7 +178,7 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
     final names = await _editNamesDialog();
     if (names == null || !mounted) return;
     _addAdmin(
-      AdminPerson(
+      PersonalMember(
         accountId: accountId,
         familyName: names.$1,
         givenName: names.$2,
@@ -184,7 +186,7 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
     );
   }
 
-  void _addAdmin(AdminPerson admin) {
+  void _addAdmin(PersonalMember admin) {
     if (_admins.any((item) => item.accountId == admin.accountId)) {
       ScaffoldMessenger.of(
         context,
@@ -212,7 +214,7 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
     });
   }
 
-  Future<(String, String)?> _editNamesDialog({AdminPerson? admin}) async {
+  Future<(String, String)?> _editNamesDialog({PersonalMember? admin}) async {
     final familyController = TextEditingController(
       text: admin?.familyName ?? '管理',
     );
@@ -288,7 +290,7 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
   }
 
   /// 管理员数量变化时只把普通阈值拉回合法范围，
-  /// 不把阈值固定死；用户仍可在最低过半到全员之间自由输入。
+  /// 不把阈值固定死；用户仍可在1到全员之间自由输入。
   void _syncThresholdInput() {
     final min = _minimumRegularThreshold;
     if (min == null) {
@@ -297,8 +299,8 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
     }
     final max = _admins.length;
     final current = int.tryParse(_thresholdController.text.trim());
-    final next = current == null
-        ? min
+    final next = !_thresholdEdited || current == null
+        ? max
         : current < min
         ? min
         : current > max
@@ -322,7 +324,7 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
       return '请输入有效的普通阈值';
     }
     if (regularThreshold < minThreshold) {
-      return '普通阈值不能小于 $minThreshold（必须过半）';
+      return '普通阈值不能小于 $minThreshold';
     }
     if (regularThreshold > _admins.length) {
       return '普通阈值不能超过管理员数量';
@@ -358,38 +360,31 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
       final regularThreshold = _regularThreshold!;
       final createThreshold = _admins.length;
       final initialAmountFen = amountFen!;
-      final admins = List<AdminPerson>.of(_admins);
+      final admins = List<PersonalMember>.of(_admins);
       final reads = widget.amountReads;
-      final fees = await (
-        reads?.quote(initialAmountFen) ??
-        chain.getFeeSnapshot(amountFen: initialAmountFen)
-      );
+      final fees =
+          await (reads?.quote(initialAmountFen) ??
+              chain.getFeeSnapshot(amountFen: initialAmountFen));
       if (!mounted) return;
       // 最低入金是同一报价块的业务常量，ED 仍只参与钱包余额校验。
-      final minimumFen = await (
-        reads?.minimum(fees.bestBlock) ??
-        chain.getRuntimeContext(fees.bestBlock).then(
-          (runtime) => runtime.unsignedConstant(
-            'PersonalManage',
-            'MinCreateAmount',
-          ),
-        )
-      );
+      final minimumFen =
+          await (reads?.minimum(fees.bestBlock) ??
+              chain
+                  .getRuntimeContext(fees.bestBlock)
+                  .then(
+                    (runtime) =>
+                        runtime.unsignedConstant('Personal', 'MinCreateAmount'),
+                  ));
       if (!mounted) return;
       if (initialAmountFen < minimumFen) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              '初始资金不能低于 ${formatFen(minimumFen)} 元',
-            ),
-          ),
+          SnackBar(content: Text('初始资金不能低于 ${formatFen(minimumFen)} 元')),
         );
         return;
       }
-      final balance = await (
-        reads?.balance(wallet.accountId) ??
-        chain.getAccountBalance(wallet.accountId, forceRefresh: true)
-      );
+      final balance =
+          await (reads?.balance(wallet.accountId) ??
+              chain.getAccountBalance(wallet.accountId, forceRefresh: true));
       if (!mounted) return;
       final requiredFen =
           initialAmountFen + fees.feeFen + fees.minimumSelfPayFen;
@@ -803,7 +798,7 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
             enabled: count >= 2,
             keyboardType: TextInputType.number,
             inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            onChanged: (_) => setState(() {}),
+            onChanged: (_) => setState(() => _thresholdEdited = true),
             decoration: InputDecoration(
               labelText: '普通提案阈值',
               hintText: min == null ? '至少添加 2 名管理员' : '$min 到 $count',
@@ -851,4 +846,441 @@ class _PersonalAccountCreatePageState extends State<PersonalAccountCreatePage> {
   String _truncateAddress(String a) => a.length <= 14
       ? a
       : '${a.substring(0, 6)}...${a.substring(a.length - 6)}';
+}
+
+// 采集受益地址并准备个人多签关闭提案，复核资金余额。
+
+/// 关闭个人多签账户提案页面。
+///
+/// 指定受益人地址后发起个人多签账户关闭提案。
+class PersonalAccountClosePage extends StatefulWidget {
+  const PersonalAccountClosePage({
+    super.key,
+    required this.account,
+    required this.adminWallets,
+  });
+
+  final PersonalAccountInfo account;
+  final List<CitizenWalletStateAccount> adminWallets;
+
+  @override
+  State<PersonalAccountClosePage> createState() =>
+      _PersonalAccountClosePageState();
+}
+
+class _PersonalAccountClosePageState extends State<PersonalAccountClosePage> {
+  final _beneficiaryController = TextEditingController();
+  late final PersonalManageService _manageService;
+  bool _dependenciesReady = false;
+
+  bool _submitting = false;
+  String? _addressError;
+  CitizenChainSyncStatus? _chainProgress;
+  String? _chainProgressError;
+
+  late CitizenWalletStateAccount _selectedWallet;
+  late String _accountSs58;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedWallet = widget.adminWallets.first;
+    _accountSs58 = citizenSs58FromAccountId(widget.account.accountId);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_dependenciesReady) return;
+    final sdk = context.read<CitizenSdk>();
+    _manageService = PersonalManageService(chain: sdk, transactions: sdk);
+    _dependenciesReady = true;
+  }
+
+  @override
+  void dispose() {
+    _beneficiaryController.dispose();
+    super.dispose();
+  }
+
+  /// 页面进入读取 wallet 持久余额，交易前校验由既有余额守卫强制刷新。
+  CitizenBalanceState<CitizenAccountBalance> get _balance => context
+      .read<CitizenSdk>()
+      .balances
+      .accountState(widget.account.accountId);
+  BigInt? get _availableBalance => _balance.value?.freeFen;
+  bool get _loadingBalance => _balance.value == null && !_balance.hasError;
+
+  // ──── 校验 ────
+
+  bool _validateAddress(String address) {
+    if (address.isEmpty) {
+      setState(() => _addressError = '请输入受益人地址');
+      return false;
+    }
+    try {
+      citizenAccountIdBytesFromSs58(address);
+    } catch (_) {
+      setState(() => _addressError = '地址格式无效');
+      return false;
+    }
+
+    // 受益人不能是多签账户本身
+    if (address == _accountSs58) {
+      setState(() => _addressError = '受益人不能与个人多签账户相同');
+      return false;
+    }
+
+    setState(() => _addressError = null);
+    return true;
+  }
+
+  // ──── 提交 ────
+
+  Future<void> _submit() async {
+    final chain = context.read<CitizenSdk>();
+    final blockedReason = _submitBlockedReason;
+    if (blockedReason != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(blockedReason)));
+      return;
+    }
+
+    if (_submitting) return;
+    final beneficiary = _beneficiaryController.text.trim();
+    if (!_validateAddress(beneficiary)) return;
+    final wallet = _selectedWallet;
+    setState(() => _submitting = true);
+
+    try {
+      await context.read<CitizenSdk>().getAccountBalance(
+        widget.account.accountId,
+      );
+      if (!mounted) return;
+      final balanceFen = _availableBalance!;
+      final fees = await chain.getFeeSnapshot(amountFen: balanceFen);
+      if (!mounted ||
+          wallet != _selectedWallet ||
+          beneficiary != _beneficiaryController.text.trim()) {
+        return;
+      }
+      final requiredFen = fees.feeFen + fees.existentialDepositFen;
+      if (balanceFen < requiredFen) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('账户余额不足（执行费和 ED 至少需要 ${formatFen(requiredFen)} 元）'),
+          ),
+        );
+        return;
+      }
+      final publicKeyBytes = citizenAccountIdBytes(wallet.accountId);
+
+      final result = await _manageService.submitProposeClosePersonal(
+        accountId: widget.account.accountId,
+        beneficiaryAddress: beneficiary,
+        signerPublicKey: Uint8List.fromList(publicKeyBytes),
+        externalSigning: (pending) => showCitizenSdkQrResponse(
+          context,
+          request: pending.qrRequest,
+          expiresAt: BigInt.from(
+            pending.expiresAt.millisecondsSinceEpoch ~/ 1000,
+          ),
+        ),
+      );
+
+      // 写入 Isar `action`,详情页提案列表才能显示。
+      await PersonalProposalHistoryService(chain: chain).recordOrUpdate(
+        accountId: widget.account.accountId,
+        proposalId: result.proposalId,
+        actionKind: PersonalProposalAction.close,
+        status: PersonalProposalStatus.voting,
+        // 发起关闭提案签名成功后，投票引擎已自动记录发起人的赞成票。
+        yesCount: 1,
+        noCount: 0,
+        snapshot: {'beneficiary': beneficiary},
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('提案已提交：${_truncateAddress(result.txHash)}'),
+          backgroundColor: AppTheme.primaryDark,
+        ),
+      );
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('提交失败：$e'), backgroundColor: AppTheme.danger),
+      );
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  void _handleChainProgressChanged(CitizenChainSyncStatus? progress) {
+    if (!mounted) return;
+    setState(() {
+      _chainProgress = progress;
+    });
+  }
+
+  void _handleChainProgressErrorChanged(String? error) {
+    if (!mounted) return;
+    setState(() {
+      _chainProgressError = error;
+    });
+  }
+
+  bool get _canSubmit => !_submitting && _submitBlockedReason == null;
+
+  /// 关闭个人多签会直接动到账户资金，链不同步时不允许继续发起。
+  String? get _submitBlockedReason {
+    final progress = _chainProgress;
+    if (progress == null) {
+      return _chainProgressError ?? '正在读取区块链状态，请稍后再试';
+    }
+    if (progress.peerCount == BigInt.zero) {
+      return '轻节点尚未连接到区块链网络，暂不能发起关闭个人多签提案';
+    }
+    if (progress.isSyncing) {
+      return '轻节点仍在验证或同步链状态，完成后才能发起关闭个人多签提案';
+    }
+    if (!progress.isUsable) {
+      return _chainProgressError ?? '区块链状态尚未就绪，暂不能发起关闭个人多签提案';
+    }
+    return null;
+  }
+
+  // ──── UI ────
+
+  @override
+  Widget build(BuildContext context) => ChainBalanceScope(
+    accountIds: [widget.account.accountId],
+    builder: _buildBalanceView,
+  );
+  Widget _buildBalanceView(BuildContext context, CitizenBalances balances) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: Text(
+          '关闭个人多签',
+          style: TextStyle(
+            fontSize: AppLayout.scaled(context, 17),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        centerTitle: true,
+        backgroundColor: Colors.white,
+        foregroundColor: AppTheme.primaryDark,
+        elevation: 0,
+        scrolledUnderElevation: 0.5,
+      ),
+      body: Stack(
+        children: [
+          ListView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+            children: [
+              // 个人多签账户（只读）
+              _buildSectionTitle('个人多签账户'),
+              SizedBox(height: AppLayout.scaled(context, 8)),
+              Container(
+                padding: EdgeInsets.all(AppLayout.scaled(context, 12)),
+                decoration: BoxDecoration(
+                  color: AppTheme.surfaceMuted,
+                  borderRadius: BorderRadius.circular(
+                    AppLayout.scaledValue(10),
+                  ),
+                ),
+                child: Text(
+                  _accountSs58,
+                  style: TextStyle(
+                    fontSize: AppLayout.scaled(context, 13),
+                    fontFamily: 'monospace',
+                    color: AppTheme.textSecondary,
+                  ),
+                ),
+              ),
+              SizedBox(height: AppLayout.scaled(context, 16)),
+              // 当前余额
+              _buildSectionTitle('个人多签余额'),
+              SizedBox(height: AppLayout.scaled(context, 8)),
+              Container(
+                padding: EdgeInsets.all(AppLayout.scaled(context, 12)),
+                decoration: BoxDecoration(
+                  color: AppTheme.surfaceMuted,
+                  borderRadius: BorderRadius.circular(
+                    AppLayout.scaledValue(10),
+                  ),
+                ),
+                child: _loadingBalance
+                    ? SizedBox(
+                        height: AppLayout.scaled(context, 16),
+                        width: AppLayout.scaled(context, 16),
+                        child: const CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(
+                        _availableBalance != null
+                            ? '${formatFen(_availableBalance!)} 元'
+                            : '查询失败',
+                        style: TextStyle(
+                          fontSize: AppLayout.scaled(context, 15),
+                          fontWeight: FontWeight.w600,
+                          color: _availableBalance != null
+                              ? AppTheme.primaryDark
+                              : AppTheme.danger,
+                        ),
+                      ),
+              ),
+              SizedBox(height: AppLayout.scaled(context, 20)),
+              _buildSectionTitle('阈值规则', note: '注销须全员同意'),
+              SizedBox(height: AppLayout.scaled(context, 20)),
+              // 受益人地址
+              _buildSectionTitle('受益人地址'),
+              SizedBox(height: AppLayout.scaled(context, 8)),
+              TextField(
+                controller: _beneficiaryController,
+                decoration: InputDecoration(
+                  hintText: '输入或扫码',
+                  errorText: _addressError,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(
+                      AppLayout.scaledValue(10),
+                    ),
+                  ),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: AppLayout.scaled(context, 12),
+                    vertical: AppLayout.scaled(context, 10),
+                  ),
+                  suffixIcon: AddressScanButton(
+                    onAddressScanned: (accountAddress) => setState(
+                      () => _beneficiaryController.text = accountAddress,
+                    ),
+                  ),
+                ),
+              ),
+              if (widget.adminWallets.length > 1) ...[
+                SizedBox(height: AppLayout.scaled(context, 20)),
+                _buildSectionTitle('签名钱包'),
+                SizedBox(height: AppLayout.scaled(context, 8)),
+                DropdownButtonFormField<CitizenWalletStateAccount>(
+                  initialValue: _selectedWallet,
+                  items: widget.adminWallets.map((w) {
+                    return DropdownMenuItem(
+                      value: w,
+                      child: Text(
+                        '${w.name} (${_truncateAddress(w.ss58Address)})',
+                        style: TextStyle(
+                          fontSize: AppLayout.scaled(context, 13),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (w) {
+                    if (w != null) setState(() => _selectedWallet = w);
+                  },
+                  decoration: InputDecoration(
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(
+                        AppLayout.scaledValue(10),
+                      ),
+                    ),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: AppLayout.scaled(context, 12),
+                      vertical: AppLayout.scaled(context, 10),
+                    ),
+                  ),
+                ),
+              ],
+              SizedBox(height: AppLayout.scaled(context, 28)),
+              // 提交按钮
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _canSubmit ? _submit : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.danger,
+                    foregroundColor: Colors.white,
+                    padding: EdgeInsets.symmetric(
+                      vertical: AppLayout.scaled(context, 14),
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(
+                        AppLayout.scaledValue(12),
+                      ),
+                    ),
+                  ),
+                  child: _submitting
+                      ? SizedBox(
+                          width: AppLayout.scaled(context, 18),
+                          height: AppLayout.scaled(context, 18),
+                          child: const CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : Text(
+                          '发起关闭个人多签提案',
+                          style: TextStyle(
+                            fontSize: AppLayout.scaled(context, 16),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                ),
+              ),
+              if (_submitBlockedReason != null) ...[
+                SizedBox(height: AppLayout.scaled(context, 10)),
+                Text(
+                  _submitBlockedReason!,
+                  style: TextStyle(
+                    fontSize: AppLayout.scaled(context, 12),
+                    height: 1.4,
+                    color: AppTheme.textSecondary,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          ChainProgressBanner(
+            busy: _submitting || _loadingBalance,
+            onProgressChanged: _handleChainProgressChanged,
+            onErrorChanged: _handleChainProgressErrorChanged,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionTitle(String title, {String? note}) {
+    return Row(
+      children: [
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: AppLayout.scaledValue(14),
+            fontWeight: FontWeight.w600,
+            color: AppTheme.primaryDark,
+          ),
+        ),
+        if (note != null) ...[
+          SizedBox(width: AppLayout.scaledValue(8)),
+          Text(
+            note,
+            style: TextStyle(
+              fontSize: AppLayout.scaledValue(12),
+              color: AppTheme.textTertiary,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  // ──── 工具 ────
+
+  String _truncateAddress(String address) {
+    if (address.length <= 14) return address;
+    return '${address.substring(0, 6)}...${address.substring(address.length - 6)}';
+  }
 }

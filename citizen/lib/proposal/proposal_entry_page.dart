@@ -16,8 +16,6 @@ import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_widgets/chain_progress_banner.dart';
 
 import 'package:citizen_citizen/institution/institution_info.dart';
-import 'package:citizen_citizen/administrators/admin_account.dart';
-import 'package:citizen_citizen/administrators/admin_set_change_page.dart';
 import 'package:citizen_citizen/proposal/proposal_limit_service.dart';
 import 'package:citizen_citizen/runtime/runtime_upgrade_page.dart';
 import 'package:citizen_system/theme/app_layout.dart';
@@ -292,7 +290,8 @@ class _ProposalEntryPageState extends State<ProposalEntryPage> {
           enabled,
           () => _checkAndOpenProposal(
             context,
-            () => context.read<GovernanceNavigation>().payment(InstitutionPayment.transfer,
+            () => context.read<GovernanceNavigation>().payment(
+              InstitutionPayment.transfer,
               institution: widget.institution,
               icon: widget.icon,
               badgeColor: widget.badgeColor,
@@ -309,28 +308,11 @@ class _ProposalEntryPageState extends State<ProposalEntryPage> {
           enabled,
           () => _checkAndOpenProposal(
             context,
-            () => context.read<GovernanceNavigation>().payment(InstitutionPayment.sweep,
+            () => context.read<GovernanceNavigation>().payment(
+              InstitutionPayment.sweep,
               institution: widget.institution,
               icon: widget.icon,
               badgeColor: widget.badgeColor,
-              adminWallets: widget.adminWallets,
-            ),
-          ),
-        );
-      case ProposalKind.adminsChange:
-        return _typeCard(
-          Icons.swap_horiz,
-          '换管理员',
-          '提议更换本机构管理员',
-          AppTheme.accent,
-          enabled,
-          () => _checkAndOpenProposal(
-            context,
-            () => AdminsChangePage(
-              institution: widget.institution,
-              accountIdentity: AdminAccountIdentity.fromInstitution(
-                widget.institution,
-              ),
               adminWallets: widget.adminWallets,
             ),
           ),
@@ -344,7 +326,8 @@ class _ProposalEntryPageState extends State<ProposalEntryPage> {
           enabled,
           () => _checkAndOpenProposal(
             context,
-            () => context.read<GovernanceNavigation>().payment(InstitutionPayment.safety,
+            () => context.read<GovernanceNavigation>().payment(
+              InstitutionPayment.safety,
               institution: widget.institution,
               icon: widget.icon,
               badgeColor: widget.badgeColor,
@@ -422,6 +405,8 @@ class _ProposalEntryPageState extends State<ProposalEntryPage> {
             () => const ElectionProposalPage(),
           ),
         );
+      default:
+        throw StateError('当前机构没有此提案入口');
     }
   }
 
@@ -453,15 +438,14 @@ class _ProposalEntryPageState extends State<ProposalEntryPage> {
     final blockedReason = _proposalBlockedReason;
     if (blockedReason != null) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(blockedReason)));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(blockedReason)));
       }
       return;
     }
     try {
-      final service = ProposalLimitService(
-        chain: context.read<CitizenSdk>(),
-      );
+      final service = ProposalLimitService(chain: context.read<CitizenSdk>());
       final activeIds = await service.fetchActiveProposalIds(
         widget.institution,
       );
@@ -498,13 +482,15 @@ class _ProposalEntryPageState extends State<ProposalEntryPage> {
           Navigator.of(context).pop(true);
         }
       } else {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('${name ?? "该"}功能开发中')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('${name ?? "该"}功能开发中')));
       }
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('公民链状态暂时不可用')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('公民链状态暂时不可用')));
     }
   }
 

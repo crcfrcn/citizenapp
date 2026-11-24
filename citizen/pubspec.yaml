@@ -19,7 +19,6 @@ dependencies:
   citizen_storage: any
   citizen_system: any
   citizen_multisig: any
-  citizen_personal: any
   citizen_widgets: any
   flutter:
     sdk: flutter

@@ -9,8 +9,6 @@ environment:
 # 只声明本包源码的直接依赖；版本沿用拆分前产品约束。
 dependencies:
   citizen_citizen: any
-  citizen_onchain: any
-  citizen_personal: any
   citizen_scanner: any
   citizen_sdk:
     git:

@@ -197,8 +197,6 @@ class ProposalDetailSnapshot {
   static ProposalDetailSnapshot? fromProposal(ProposalWithDetail proposal) {
     final meta = proposal.meta;
     final upgrade = proposal.runtimeUpgradeDetail;
-    final create = proposal.createMultisigDetail;
-    final close = proposal.closeMultisigDetail;
     final business = proposal.businessDetails;
     final transfer = business[MultisigTransferProposalDetailKeys.transfer];
     final fund = business[MultisigTransferProposalDetailKeys.safetyFund];
@@ -220,32 +218,13 @@ class ProposalDetailSnapshot {
         'max_adjust_up_factor': upgrade.maxAdjustUpFactor,
         'max_adjust_down_divisor': upgrade.maxAdjustDownDivisor,
       };
-    } else if (create != null) {
-      kind = 'institution_multisig';
-      detail = {
-        'kind': 'create',
-        'account_id': create.accountId,
-        'proposer_ss58_address': create.proposerSs58Address,
-        'amount_fen': create.amountFen.toString(),
-        'fee_fen': create.feeAmount.toString(),
-        'status': create.status,
-      };
-    } else if (close != null) {
-      kind = 'institution_multisig';
-      detail = {
-        'kind': 'close',
-        'account_id': close.accountId,
-        'beneficiary_ss58_address': close.beneficiarySs58Address,
-        'proposer_ss58_address': close.proposerSs58Address,
-        'status': close.status,
-      };
     } else if (transfer is TransferProposalInfo) {
       kind = 'transfer';
       detail = {
         'kind': kind,
         'actor_cid_number': transfer.actorCidNumber,
-        'institution_account_id': citizenAccountIdFromBytes(
-          transfer.institutionAccountId,
+        'funding_account_id': citizenAccountIdFromBytes(
+          transfer.fundingAccountId,
         ),
         'beneficiary': transfer.beneficiary,
         'amount_fen': transfer.amountFen.toString(),

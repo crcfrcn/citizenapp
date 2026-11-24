@@ -1,4 +1,4 @@
-// 严格解码机构CID键和个人账户键对应的管理员存储布局。
+// 严格解码机构CID键对应的管理员存储布局。
 
 import 'dart:convert';
 import 'dart:typed_data';
@@ -26,7 +26,6 @@ class AdminAccountStorageCodec {
 
   static const int kindPublicInstitution = 0;
   static const int kindPrivateInstitution = 1;
-  static const int kindPersonal = 2;
 
   static Uint8List institutionAdminStorageKey(
     String cidNumber, {
@@ -46,56 +45,18 @@ class AdminAccountStorageCodec {
     ]);
   }
 
-  static Uint8List personalAdminStorageKey(
-    Uint8List accountId, {
-    required CitizenRuntimeContext runtime,
-  }) {
-    if (accountId.length != 32) {
-      throw ArgumentError('accountId 必须为 32 字节');
-    }
-    return runtime.storageKey('PersonalAdmins', 'AdminAccounts', [accountId]);
-  }
-
   /// [kind] 必须由扫描到的 pallet 名确定，不能再从机构 value 猜测。
   static AdminAccountStorageDecoded? tryDecode(
     Uint8List bytes, {
     required int kind,
   }) {
     try {
-      if (kind != kindPersonal) {
-        final decoded = InstitutionRoleStorageCodec.decodeAdmins(bytes);
-        if (decoded == null) return null;
-        return AdminAccountStorageDecoded(
-          orgCode: decoded.orgCode,
-          kind: kind,
-          admins: decoded.admins,
-        );
-      }
-
-      var offset = 0;
-      final (cidLen, cidLenBytes) = _decodeCompactU32(bytes, offset);
-      offset += cidLenBytes + cidLen;
-      if (offset + 5 > bytes.length) return null;
-      final orgCode = InstitutionCodeLabel.codeToString(
-        bytes.sublist(offset, offset + 4),
-      );
-      offset += 4;
-      final storedKind = bytes[offset++];
-      if (storedKind != kindPersonal) return null;
-
-      final decodedAdmins = InstitutionRoleStorageCodec.decodeAdminVector(
-        bytes,
-        offset,
-      );
-      if (decodedAdmins == null) return null;
-      final admins = decodedAdmins.$1;
-      offset = decodedAdmins.$2;
-      // 个人多签 value 后续仍有 creator/区块号/status；扫描只消费 admins。
-      if (offset + 32 + 4 + 4 + 1 != bytes.length) return null;
+      final decoded = InstitutionRoleStorageCodec.decodeAdmins(bytes);
+      if (decoded == null) return null;
       return AdminAccountStorageDecoded(
-        orgCode: orgCode,
-        kind: kindPersonal,
-        admins: admins,
+        orgCode: decoded.orgCode,
+        kind: kind,
+        admins: decoded.admins,
       );
     } catch (_) {
       return null;
@@ -115,13 +76,6 @@ class AdminAccountStorageCodec {
     } catch (_) {
       return null;
     }
-  }
-
-  /// PersonalAdmins 的 key 仍是 32B personal_account。
-  static Uint8List? extractPersonalAccountFromKey(Uint8List storageKey) {
-    const expectedLength = 32 + 16 + 32;
-    if (storageKey.length != expectedLength) return null;
-    return Uint8List.fromList(storageKey.sublist(storageKey.length - 32));
   }
 
   static (int, int) _decodeCompactU32(Uint8List data, int offset) {

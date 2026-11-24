@@ -17,7 +17,7 @@ import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_widgets/chain_progress_banner.dart';
 import 'package:citizen_system/amount_format.dart';
 import 'package:citizen_onchain/onchain_payment_models.dart';
-import 'package:citizen_personal/personal_account_entry.dart';
+import 'package:citizen_personal/accounts.dart';
 import 'package:citizen_onchain/onchain_payment_service.dart';
 import 'package:citizen_wallet/history/local_tx_store.dart';
 import 'package:citizen_wallet/history/wallet_transaction_history_service.dart';
@@ -996,7 +996,9 @@ class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
                 ),
               ),
             _buildFieldLabel(
-              _recipientCid == null ? '收款地址' : '收款身份CID号：${formatIdentityCidText(_recipientCid!)}',
+              _recipientCid == null
+                  ? '收款地址'
+                  : '收款身份CID号：${formatIdentityCidText(_recipientCid!)}',
             ),
             TextField(
               controller: _toController,

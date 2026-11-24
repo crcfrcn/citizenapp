@@ -8,8 +8,6 @@ import 'package:citizen_system/app_log.dart';
 import 'package:citizen_citizen/institution/institution_models.dart'
     as institution_models;
 import 'package:citizen_citizen/institution/institution_chain_service.dart';
-import 'package:citizen_personal/personal_manage_models.dart';
-import 'package:citizen_personal/personal_manage_service.dart';
 
 import 'package:citizen_citizen/institution/institution_code_label.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
@@ -38,8 +36,12 @@ String defaultInstitutionProposerRoleCode(InstitutionInfo institution) {
 ///
 /// 负责 extrinsic 编码/提交 和 storage 查询。
 class MultisigTransferService {
+  /// 业务所属包提供过滤，通用列表不解码另一业务的私有载荷。
+  final bool Function(BigInt proposalId, Uint8List raw)? skipBusinessData;
+
   MultisigTransferService({
     CitizenSdk? chain,
+    this.skipBusinessData,
     CitizenSdk? transactions,
     CitizenCallBuilder? buildCall,
     Future<CitizenBlockRef> Function()? getFinalizedHead,
@@ -74,11 +76,18 @@ class MultisigTransferService {
     Future<Uint8List?> Function(CitizenBlockRef block)? getSystemEvents,
     Future<CitizenRuntimeContext> Function(CitizenBlockRef block)?
     getRuntimeContext,
-    Future<CitizenRuntimeContext> Function(CitizenBlockRef)? getStorageRuntimeContext,
-  }) : _buildCall = buildCall ?? transactions?.buildCall ?? chain?.buildCall ??
+    Future<CitizenRuntimeContext> Function(CitizenBlockRef)?
+    getStorageRuntimeContext,
+  }) : _buildCall =
+           buildCall ??
+           transactions?.buildCall ??
+           chain?.buildCall ??
            ((pallet, method, fields) => throw StateError('未配置buildCall')),
-       _getStorageRuntimeContext = getStorageRuntimeContext ?? getRuntimeContext ??
-           chain?.getRuntimeContext ?? ((block) => throw StateError('未配置getRuntimeContext')),
+       _getStorageRuntimeContext =
+           getStorageRuntimeContext ??
+           getRuntimeContext ??
+           chain?.getRuntimeContext ??
+           ((block) => throw StateError('未配置getRuntimeContext')),
        _internalVoteQuery = InternalVoteQueryService(
          chain: chain,
          getRuntimeContext: getStorageRuntimeContext ?? getRuntimeContext,
@@ -104,20 +113,6 @@ class MultisigTransferService {
          getSystemEvents: getSystemEvents,
          getRuntimeContext: getRuntimeContext,
          getStorageRuntimeContext: getStorageRuntimeContext,
-         prepareTransaction: prepareTransaction,
-         executePreparedTransaction: executePreparedTransaction,
-         cancelPreparedTransactionExecution: cancelPreparedTransactionExecution,
-         consumePreparedTransactionQrResponse:
-             consumePreparedTransactionQrResponse,
-       ),
-       _personalService = PersonalManageService(
-         chain: chain,
-         getRuntimeContext: getStorageRuntimeContext ?? getRuntimeContext,
-         transactions: transactions,
-         getSystemEvents: getSystemEvents,
-         getFinalizedHead: getFinalizedHead,
-         getStorage: getStorage,
-         getStorageBatch: getStorageBatch,
          prepareTransaction: prepareTransaction,
          executePreparedTransaction: executePreparedTransaction,
          cancelPreparedTransactionExecution: cancelPreparedTransactionExecution,
@@ -168,7 +163,8 @@ class MultisigTransferService {
            ((String executionId, String response) =>
                throw StateError('未配置consumePreparedTransactionQrResponse'));
   final Future<CitizenBlockRef> Function() _getFinalizedHead;
-  final Future<CitizenRuntimeContext> Function(CitizenBlockRef) _getStorageRuntimeContext;
+  final Future<CitizenRuntimeContext> Function(CitizenBlockRef)
+  _getStorageRuntimeContext;
   final CitizenCallBuilder _buildCall;
   final Future<List<Uint8List>> Function(
     CitizenBlockRef block,
@@ -200,7 +196,6 @@ class MultisigTransferService {
   _consumePreparedTransactionQrResponse;
 
   final RuntimeUpgradeService _runtimeService;
-  final PersonalManageService _personalService;
 
   final InternalVoteQueryService _internalVoteQuery;
   final ProposalQueryService _proposalQuery;
@@ -230,10 +225,33 @@ class MultisigTransferService {
       CitizenTransactionExternalSigningPending pending,
     )
     externalSigning,
+  }) => submitAccountTransfer(
+    fundingAccountId: institution.mainAccountId,
+    actorCidNumber: institution.cidNumber,
+    orgCode: institution.adminCode ?? 'PMUL',
+    proposerRoleCode: proposerRoleCode,
+    beneficiaryAddress: beneficiaryAddress,
+    amountFen: amountFen,
+    remark: remark,
+    signerPublicKey: signerPublicKey,
+    externalSigning: externalSigning,
+  );
+
+  Future<({String txHash, int usedNonce, BigInt proposalId, String blockHash})>
+  submitAccountTransfer({
+    required String fundingAccountId,
+    required String? actorCidNumber,
+    required String orgCode,
+    required String? proposerRoleCode,
+    required String beneficiaryAddress,
+    required BigInt amountFen,
+    required String remark,
+    required Uint8List signerPublicKey,
+    required Future<String?> Function(
+      CitizenTransactionExternalSigningPending pending,
+    )
+    externalSigning,
   }) async {
-    final actorCidNumber = isPersonalAccountIdentity(institution.cidNumber)
-        ? null
-        : institution.cidNumber;
     final normalizedRoleCode = actorCidNumber == null
         ? null
         : _requireProposerRoleCode(proposerRoleCode);
@@ -243,11 +261,11 @@ class MultisigTransferService {
     );
     // InstitutionInfo.mainAccountId 是 App 内部 AccountId hex，
     // 不能按 SS58/Base58 解码，否则 hex 中的 0 会被当成非法 Base58 字符。
-    final fromPublicKey = _parseAccountId(institution.mainAccountId, '转出主账户');
+    final fromPublicKey = _parseAccountId(fundingAccountId, '转出主账户');
     final callData = await _buildProposeTransferCall(
       actorCidNumber: actorCidNumber,
       proposerRoleCode: normalizedRoleCode,
-      fundingAccountId: institution.mainAccountId,
+      fundingAccountId: fundingAccountId,
       beneficiaryAddress: beneficiaryAddress,
       amountFen: amountFen,
       remark: remark,
@@ -259,7 +277,7 @@ class MultisigTransferService {
     );
     final proposalId = await _confirmTransferProposedEvent(
       execution: submitResult.execution,
-      orgCode: institution.adminCode ?? 'PMUL',
+      orgCode: orgCode,
       actorCidNumber: actorCidNumber,
       proposerPublicKey: signerPublicKey,
       fromPublicKey: fromPublicKey,
@@ -296,7 +314,7 @@ class MultisigTransferService {
   }) async {
     final actorCidNumber = institution.cidNumber;
     final safetyFundAccountId =
-        institution.accounts?.safetyFundAccountId ??
+        institution.accounts.safetyFundAccountId ??
         (throw StateError('国家储委会缺少安全基金账户'));
     final safetyFundAccountIdBytes = Uint8List.fromList(
       citizenAccountIdBytes(safetyFundAccountId),
@@ -323,9 +341,18 @@ class MultisigTransferService {
       eventLabel: 'SafetyFundTransferProposed',
       matches: (event) =>
           utf8.decode(event.fieldBytes('actor_cid_number')) == actorCidNumber &&
-          listEquals(event.fieldBytes('institution_account_id'), safetyFundAccountIdBytes) &&
-          listEquals(event.fieldBytes('proposer_account_id'), signerPublicKey) &&
-          listEquals(event.fieldBytes('beneficiary_account_id'), beneficiaryPublicKey) &&
+          listEquals(
+            event.fieldBytes('institution_account_id'),
+            safetyFundAccountIdBytes,
+          ) &&
+          listEquals(
+            event.fieldBytes('proposer_account_id'),
+            signerPublicKey,
+          ) &&
+          listEquals(
+            event.fieldBytes('beneficiary_account_id'),
+            beneficiaryPublicKey,
+          ) &&
           event.fieldUnsigned('amount') == amountFen &&
           utf8.decode(event.fieldBytes('remark')) == remark,
     );
@@ -351,8 +378,7 @@ class MultisigTransferService {
     )
     externalSigning,
   }) async {
-    final feeAccountId =
-        institution.accounts?.feeAccountId ?? (throw StateError('机构缺少费用账户'));
+    final feeAccountId = institution.accounts.feeAccountId;
     final institutionAccountId = Uint8List.fromList(
       citizenAccountIdBytes(feeAccountId),
     );
@@ -372,9 +398,16 @@ class MultisigTransferService {
       execution: submitResult.execution,
       eventLabel: 'SweepToMainProposed',
       matches: (event) =>
-          utf8.decode(event.fieldBytes('actor_cid_number')) == institution.cidNumber &&
-          listEquals(event.fieldBytes('institution_account_id'), institutionAccountId) &&
-          listEquals(event.fieldBytes('proposer_account_id'), signerPublicKey) &&
+          utf8.decode(event.fieldBytes('actor_cid_number')) ==
+              institution.cidNumber &&
+          listEquals(
+            event.fieldBytes('institution_account_id'),
+            institutionAccountId,
+          ) &&
+          listEquals(
+            event.fieldBytes('proposer_account_id'),
+            signerPublicKey,
+          ) &&
           listEquals(event.fieldBytes('main_account'), toPublicKey) &&
           event.fieldUnsigned('amount') == amountFen,
     );
@@ -395,7 +428,9 @@ class MultisigTransferService {
   /// 返回 null 表示链上不存在该展示号(理论上不应该发生 — 创建提案时
   /// 同事务一定写入)。
   Future<ProposalDisplayMeta?> fetchProposalDisplayId(BigInt proposalId) async {
-    final data = await _fetchStorage('VotingEngine', 'ProposalDisplayId', [proposalId]);
+    final data = await _fetchStorage('VotingEngine', 'ProposalDisplayId', [
+      proposalId,
+    ]);
     if (data == null || data.length != 12) return null;
     // SCALE: u32 LE (year) + u64 LE (seq_in_year) = 12 bytes
     return ProposalDisplayMeta(
@@ -435,8 +470,13 @@ class MultisigTransferService {
   // `ProposalsByYear` 是全量短 key 入口,列表页只从已解码 CID 集合筛选。
 
   /// 按当前 metadata 生成按年索引前缀，并从完整键尾部读取提案编号。
-  Future<List<BigInt>> _fetchProposalIdsByYear(CitizenRuntimeContext runtime, int year) async {
-    final prefix = runtime.storageKey('VotingEngine', 'ProposalsByYear', [year]);
+  Future<List<BigInt>> _fetchProposalIdsByYear(
+    CitizenRuntimeContext runtime,
+    int year,
+  ) async {
+    final prefix = runtime.storageKey('VotingEngine', 'ProposalsByYear', [
+      year,
+    ]);
     final keys = await _getStorageKeysPaged(runtime.block, prefix);
     if (keys.isEmpty) return const [];
 
@@ -553,7 +593,12 @@ class MultisigTransferService {
   ) async {
     // 把范围转成显式 ids 列表,然后委派给 _fetchProposalsForIds。
     final ids = <BigInt>[
-      for (var id = startId; id > startId - BigInt.from(count) && !id.isNegative; id -= BigInt.one) id,
+      for (
+        var id = startId;
+        id > startId - BigInt.from(count) && !id.isNegative;
+        id -= BigInt.one
+      )
+        id,
     ];
     return _fetchProposalsForIds(ids);
   }
@@ -587,7 +632,10 @@ class MultisigTransferService {
 
     // 批量查询未命中的 meta
     if (uncachedMetaKeys.isNotEmpty) {
-      final batchResult = await _fetchStorageBatch(runtime!.block, uncachedMetaKeys);
+      final batchResult = await _fetchStorageBatch(
+        runtime!.block,
+        uncachedMetaKeys,
+      );
       for (var i = 0; i < uncachedMetaIds.length; i++) {
         final id = uncachedMetaIds[i];
         final data = batchResult[uncachedMetaKeys[i]];
@@ -600,7 +648,10 @@ class MultisigTransferService {
         }
       }
       // 双层 ID：为这一批 meta 同步批量读取 ProposalDisplayId 并回填。
-      final displayMap = await fetchProposalDisplayIdBatch(uncachedMetaIds, atRuntime: runtime);
+      final displayMap = await fetchProposalDisplayIdBatch(
+        uncachedMetaIds,
+        atRuntime: runtime,
+      );
       for (final id in uncachedMetaIds) {
         final meta = cachedMetas[id];
         final dm = displayMap[id];
@@ -629,10 +680,9 @@ class MultisigTransferService {
     final uncachedDetailIds = <BigInt>[];
     final cachedTransferDetails = <BigInt, TransferProposalInfo>{};
     final cachedRuntimeUpgradeDetails = <BigInt, RuntimeUpgradeProposalInfo>{};
-    final cachedCreateMultisigDetails = <BigInt, CreateProposalInfo>{};
-    final cachedCloseMultisigDetails = <BigInt, CloseProposalInfo>{};
     final institutionCloseIds = <BigInt>{};
     final rawDetails = <BigInt, Uint8List>{};
+    final businessSkipIds = <BigInt>{};
 
     for (final entry in cachedMetas.entries) {
       final meta = entry.value;
@@ -651,26 +701,17 @@ class MultisigTransferService {
           cachedTransferDetails[entry.key] = cachedTransfer;
           continue;
         }
-        final cachedCreate = ProposalCache.getCreateMultisigDetail(entry.key);
-        if (cachedCreate != null) {
-          cachedCreateMultisigDetails[entry.key] = cachedCreate;
-          continue;
-        }
-        final cachedClose = ProposalCache.getCloseMultisigDetail(entry.key);
-        if (cachedClose != null) {
-          cachedCloseMultisigDetails[entry.key] = cachedClose;
-          continue;
-        }
       }
       final context = runtime ??= await _finalizedRuntime();
-      final keyBytes = context.storageKey('VotingEngine', 'ProposalData', [entry.key]);
+      final keyBytes = context.storageKey('VotingEngine', 'ProposalData', [
+        entry.key,
+      ]);
       uncachedDetailKeys.add('0x${_hexEncode(keyBytes)}');
       uncachedDetailIds.add(entry.key);
     }
 
     if (uncachedDetailKeys.isNotEmpty) {
       final manageService = InstitutionChainService();
-      final personalManageService = _personalService;
       final block = runtime!.block;
       late final Map<String, Uint8List?> batchResult;
       try {
@@ -701,25 +742,15 @@ class MultisigTransferService {
               .decodeRuntimeUpgradeStorageValue(id, raw);
           if (runtimeDetail != null) {
             cachedRuntimeUpgradeDetails[id] = runtimeDetail;
-            if (useCache) ProposalCache.putRuntimeUpgradeDetail(id, runtimeDetail);
+            if (useCache) {
+              ProposalCache.putRuntimeUpgradeDetail(id, runtimeDetail);
+            }
           }
           continue;
         }
 
-        // 内部投票提案：先按 PersonalAdmins 解码，再按机构管理(公权/私权)解码，
-        // 失败后才尝试普通多签转账提案。
-        final personalDetail = personalManageService.decodePersonalProposalData(
-          id,
-          raw,
-        );
-        if (personalDetail is CreateProposalInfo) {
-          cachedCreateMultisigDetails[id] = personalDetail;
-          if (useCache) ProposalCache.putCreateMultisigDetail(id, personalDetail);
-          continue;
-        }
-        if (personalDetail is CloseProposalInfo) {
-          cachedCloseMultisigDetails[id] = personalDetail;
-          if (useCache) ProposalCache.putCloseMultisigDetail(id, personalDetail);
+        if (skipBusinessData?.call(id, raw) == true) {
+          businessSkipIds.add(id);
           continue;
         }
         final orgManageDetail = manageService.decodeManageProposalData(id, raw);
@@ -733,7 +764,9 @@ class MultisigTransferService {
         final transferDetail = _decodeProposalData(id, raw);
         if (transferDetail != null) {
           cachedTransferDetails[id] = transferDetail;
-          if (useCache) MultisigTransferCache.putTransferDetail(id, transferDetail);
+          if (useCache) {
+            MultisigTransferCache.putTransferDetail(id, transferDetail);
+          }
         }
       }
     }
@@ -743,25 +776,22 @@ class MultisigTransferService {
       final meta = cachedMetas[id];
       if (meta == null) continue;
       // 多签管理提案不在治理列表中显示
-      if (cachedCreateMultisigDetails.containsKey(id) ||
-          cachedCloseMultisigDetails.containsKey(id) ||
-          institutionCloseIds.contains(id)) {
+      if (businessSkipIds.contains(id) || institutionCloseIds.contains(id)) {
         continue;
       }
       final transferDetail = cachedTransferDetails[id];
       final runtimeUpgradeDetail = cachedRuntimeUpgradeDetails[id];
-      final createMultisigDetail = cachedCreateMultisigDetails[id];
-      final closeMultisigDetail = cachedCloseMultisigDetails[id];
       // 如果都没匹配到，尝试安全基金 / 手续费划转提案。
       SafetyFundProposalInfo? safetyFundDetail;
       SweepProposalInfo? sweepDetail;
       if (transferDetail == null &&
           runtimeUpgradeDetail == null &&
-          createMultisigDetail == null &&
-          closeMultisigDetail == null &&
           meta.kind == 0) {
         try {
-          safetyFundDetail = await fetchSafetyFundAction(id, atRuntime: runtime);
+          safetyFundDetail = await fetchSafetyFundAction(
+            id,
+            atRuntime: runtime,
+          );
         } catch (e) {
           // 查询失败必须留痕，否则与"确实不是安全基金提案"无法区分。
           onDetailFailure?.call(id);
@@ -781,9 +811,13 @@ class MultisigTransferService {
       String? resDestroySummary;
       if (meta.kind == 1 && runtimeUpgradeDetail == null) {
         try {
-          final raw = rawDetails[id] ?? (useCache
-              ? await _fetchStorage('VotingEngine', 'ProposalData', [id], atRuntime: runtime)
-              : null);
+          final raw =
+              rawDetails[id] ??
+              (useCache
+                  ? await _fetchStorage('VotingEngine', 'ProposalData', [
+                      id,
+                    ], atRuntime: runtime)
+                  : null);
           if (raw != null) {
             final tag = _detectJointProposalTag(raw);
             if (tag == 'res-iss') {
@@ -800,10 +834,6 @@ class MultisigTransferService {
         ProposalWithDetail(
           meta: meta,
           runtimeUpgradeDetail: runtimeUpgradeDetail,
-          createMultisigDetail: createMultisigDetail?.copyWithStatus(
-            meta.status,
-          ),
-          closeMultisigDetail: closeMultisigDetail?.copyWithStatus(meta.status),
           businessDetails: {
             if (transferDetail != null)
               MultisigTransferProposalDetailKeys.transfer: transferDetail
@@ -843,7 +873,10 @@ class MultisigTransferService {
       final ids = await _fetchProposalIdsByYear(runtime, currentYear);
       stage = 'proposal_details';
       return await _fetchProposalsForIds(
-        ids, runtime: runtime, useCache: at == null, onDetailFailure: onDetailFailure,
+        ids,
+        runtime: runtime,
+        useCache: at == null,
+        onDetailFailure: onDetailFailure,
       );
     } on Object catch (error) {
       AppLog.proposalFailure(stage: stage, error: error);
@@ -993,7 +1026,10 @@ class MultisigTransferService {
   /// 测试入口：暴露批量解码路径（_decodeProposalData），用链上真实
   /// payload 字节做布局回归，防止"守卫长度与链端布局漂移"导致提案静默消失。
   @visibleForTesting
-  TransferProposalInfo? debugDecodeProposalData(BigInt proposalId, Uint8List raw) {
+  TransferProposalInfo? debugDecodeProposalData(
+    BigInt proposalId,
+    Uint8List raw,
+  ) {
     return _decodeProposalData(proposalId, raw);
   }
 
@@ -1068,14 +1104,19 @@ class MultisigTransferService {
   ///   + beneficiary: AccountId32(32) + amount: u128(16)
   ///   + `remark: Vec<u8>`(Compact len + bytes) + proposer: AccountId32(32)
   Future<TransferProposalInfo?> fetchProposalAction(BigInt proposalId) async {
-    final raw = await _fetchStorage('VotingEngine', 'ProposalData', [proposalId]);
+    final raw = await _fetchStorage('VotingEngine', 'ProposalData', [
+      proposalId,
+    ]);
     if (raw == null || raw.isEmpty) return null;
     // 单笔与批量读取统一消费同一严格解码入口，禁止标签或布局双轨漂移。
     return _decodeProposalData(proposalId, raw);
   }
 
   /// 解码 TransferAction SCALE 数据。
-  TransferProposalInfo? _decodeTransferAction(BigInt proposalId, Uint8List data) {
+  TransferProposalInfo? _decodeTransferAction(
+    BigInt proposalId,
+    Uint8List data,
+  ) {
     try {
       var offset = 0;
       if (data.isEmpty) return null;
@@ -1093,7 +1134,7 @@ class MultisigTransferService {
 
       // funding_account_id: AccountId32
       if (offset + 32 > data.length) return null;
-      final institutionAccountId = data.sublist(offset, offset + 32);
+      final fundingAccountId = data.sublist(offset, offset + 32);
       offset += 32;
 
       // beneficiary: AccountId32 (32 bytes)
@@ -1124,7 +1165,7 @@ class MultisigTransferService {
       return TransferProposalInfo(
         proposalId: proposalId,
         actorCidNumber: actorCidNumber,
-        institutionAccountId: Uint8List.fromList(institutionAccountId),
+        fundingAccountId: Uint8List.fromList(fundingAccountId),
         beneficiary: beneficiarySs58,
         amountFen: amountBig,
         remark: remark,
@@ -1175,9 +1216,11 @@ class MultisigTransferService {
     if (actorCidNumber == null && proposerRoleCode != null) {
       throw StateError('个人多签不得携带机构岗位码');
     }
-    return _buildCall('MultisigTransfer', 'propose_transfer', [
+    return _buildCall('Multisig', 'propose_transfer', [
       _optionalBytes(actorCidNumber == null ? null : _cidBytes(actorCidNumber)),
-      _optionalBytes(actorCidNumber == null ? null : _roleBytes(proposerRoleCode)),
+      _optionalBytes(
+        actorCidNumber == null ? null : _roleBytes(proposerRoleCode),
+      ),
       citizenAccountIdBytes(fundingAccountId),
       _ss58AddressToAccountId(beneficiaryAddress, '收款地址'),
       _amount(amountFen),
@@ -1190,7 +1233,7 @@ class MultisigTransferService {
     required String proposerRoleCode,
     required String institutionAccountId,
     required BigInt amountFen,
-  }) => _buildCall('MultisigTransfer', 'propose_sweep_to_main', [
+  }) => _buildCall('Multisig', 'propose_sweep_to_main', [
     _cidBytes(actorCidNumber),
     _roleBytes(proposerRoleCode),
     citizenAccountIdBytes(institutionAccountId),
@@ -1204,7 +1247,7 @@ class MultisigTransferService {
     required String beneficiaryAddress,
     required BigInt amountFen,
     required String remark,
-  }) => _buildCall('MultisigTransfer', 'propose_safety_fund_transfer', [
+  }) => _buildCall('Multisig', 'propose_safety_fund_transfer', [
     _cidBytes(actorCidNumber),
     _roleBytes(proposerRoleCode),
     citizenAccountIdBytes(institutionAccountId),
@@ -1219,9 +1262,15 @@ class MultisigTransferService {
 
   /// 从链上 SafetyFundProposalActions 存储查询安全基金转账提案详情。
   Future<SafetyFundProposalInfo?> fetchSafetyFundAction(
-    BigInt proposalId, {CitizenRuntimeContext? atRuntime}
-  ) async {
-    final raw = await _fetchStorage('MultisigTransfer', 'SafetyFundProposalActions', [proposalId], atRuntime: atRuntime);
+    BigInt proposalId, {
+    CitizenRuntimeContext? atRuntime,
+  }) async {
+    final raw = await _fetchStorage(
+      'Multisig',
+      'SafetyFundProposalActions',
+      [proposalId],
+      atRuntime: atRuntime,
+    );
     // SafetyFundAction: actor CID + institution_account_id + beneficiary + amount + remark + proposer。
     if (raw == null || raw.length < 1 + 32 + 32 + 16 + 1 + 32) {
       return null;
@@ -1266,9 +1315,15 @@ class MultisigTransferService {
 
   /// 从链上 SweepProposalActions 存储查询手续费划转提案详情。
   Future<SweepProposalInfo?> fetchSweepAction(
-    BigInt proposalId, {CitizenRuntimeContext? atRuntime}
-  ) async {
-    final raw = await _fetchStorage('MultisigTransfer', 'SweepProposalActions', [proposalId], atRuntime: atRuntime);
+    BigInt proposalId, {
+    CitizenRuntimeContext? atRuntime,
+  }) async {
+    final raw = await _fetchStorage(
+      'Multisig',
+      'SweepProposalActions',
+      [proposalId],
+      atRuntime: atRuntime,
+    );
     // SweepAction: actor CID + institution_account_id + amount + proposer。
     if (raw == null || raw.length < 1 + 32 + 16 + 32) return null;
     try {
@@ -1279,7 +1334,11 @@ class MultisigTransferService {
       final institutionAccountId = Uint8List.fromList(
         raw.sublist(institutionOffset, institutionOffset + 32),
       );
-      final amountBig = CitizenScale.readUnsigned(raw, institutionOffset + 32, 16);
+      final amountBig = CitizenScale.readUnsigned(
+        raw,
+        institutionOffset + 32,
+        16,
+      );
       final proposerOffset = institutionOffset + 32 + 16;
       final proposerBytes = Uint8List.fromList(
         raw.sublist(proposerOffset, proposerOffset + 32),
@@ -1301,11 +1360,17 @@ class MultisigTransferService {
   Future<CitizenRuntimeContext> _finalizedRuntime() async =>
       _getStorageRuntimeContext(await _getFinalizedHead());
 
-  Future<Uint8List?> _fetchStorage(String pallet, String storage, List<Object> keys, {
+  Future<Uint8List?> _fetchStorage(
+    String pallet,
+    String storage,
+    List<Object> keys, {
     CitizenRuntimeContext? atRuntime,
   }) async {
     final runtime = atRuntime ?? await _finalizedRuntime();
-    return _getStorage(runtime.block, runtime.storageKey(pallet, storage, keys));
+    return _getStorage(
+      runtime.block,
+      runtime.storageKey(pallet, storage, keys),
+    );
   }
 
   Future<Map<String, Uint8List?>> _fetchStorageBatch(
@@ -1370,11 +1435,23 @@ class MultisigTransferService {
       eventLabel: 'TransferProposed',
       matches: (event) {
         final fields = event.fields as Map<String, Object?>;
-        return InstitutionCodeLabel.codeToString(event.fieldBytes('institution_code')) == orgCode &&
-            ProposalQueryService.eventOptionalText(fields['actor_cid_number'], actorCidNumber) &&
-            listEquals(event.fieldBytes('proposer_account_id'), proposerPublicKey) &&
+        return InstitutionCodeLabel.codeToString(
+                  event.fieldBytes('institution_code'),
+                ) ==
+                orgCode &&
+            ProposalQueryService.eventOptionalText(
+              fields['actor_cid_number'],
+              actorCidNumber,
+            ) &&
+            listEquals(
+              event.fieldBytes('proposer_account_id'),
+              proposerPublicKey,
+            ) &&
             listEquals(event.fieldBytes('funding_account_id'), fromPublicKey) &&
-            listEquals(event.fieldBytes('beneficiary_account_id'), beneficiaryPublicKey) &&
+            listEquals(
+              event.fieldBytes('beneficiary_account_id'),
+              beneficiaryPublicKey,
+            ) &&
             event.fieldUnsigned('amount') == amountFen &&
             utf8.decode(event.fieldBytes('remark')) == remark;
       },
@@ -1391,15 +1468,16 @@ class MultisigTransferService {
     final found = events
         .where(
           (event) =>
-              event.pallet == 'MultisigTransfer' &&
-              event.name == eventLabel,
+              event.pallet == 'Multisig' && event.name == eventLabel,
         )
         .toList();
     if (found.length != 1 || !matches(found.single)) {
       throw StateError('执行块缺少唯一且业务字段匹配的MultisigTransfer.$eventLabel事件');
     }
     final id = found.single.fieldUnsigned('proposal_id');
-    if (id.isNegative || id.bitLength > 128) throw const FormatException('提案事件ID无效');
+    if (id.isNegative || id.bitLength > 128) {
+      throw const FormatException('提案事件ID无效');
+    }
     return id;
   }
 
@@ -1429,7 +1507,6 @@ class MultisigTransferService {
     }
     return value;
   }
-
 
   static String _hexEncode(Uint8List bytes) {
     return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();

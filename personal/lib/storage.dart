@@ -1,12 +1,15 @@
-// 按账户持久化个人多签状态、详情及已有名称。
+// 个人状态快照、名称、提案持久化及缓存。
 
 import 'package:citizen_sdk/citizen_sdk.dart';
-
+import 'dart:async';
 import 'dart:convert';
-
+import 'members.dart';
+import 'package:citizen_storage/user_isar.dart' as wallet_store;
+import 'package:citizen_storage/user_isar.dart' hide Group;
 import 'package:isar_community/isar.dart';
-import 'package:citizen_storage/user_isar.dart';
-import 'package:citizen_citizen/administrators/admin_account.dart';
+import 'proposals.dart';
+
+// 按账户持久化个人多签状态、详情及已有名称。
 
 /// 按规范账户ID批量读已有名称；空集合不访问数据库，不查链或生成占位名称。
 Future<Map<String, String>> readMultisigNames(
@@ -27,7 +30,7 @@ Future<Map<String, String>> readMultisigNames(
   });
 }
 
-// 个人多签业务快照由交易包拥有，存储包只提供原实体和事务。
+// 个人多签业务快照归本包，存储包提供原实体和事务。
 /// 多签账户本地状态快照。
 ///
 /// groupState负责UI展示，syncedAt负责判断是否需要再次查链。
@@ -54,7 +57,7 @@ class MultisigLocalDetailSnapshot {
   });
 
   final String groupState;
-  final List<AdminPerson> admins;
+  final List<PersonalMember> admins;
   final int? threshold;
   final int? syncedAt;
 
@@ -64,7 +67,6 @@ class MultisigLocalDetailSnapshot {
         .map(
           (admin) => {
             'account_id': admin.accountId,
-            'cid_number': admin.cidNumber,
             'family_name': admin.familyName,
             'given_name': admin.givenName,
           },
@@ -81,16 +83,24 @@ class MultisigLocalDetailSnapshot {
       if (decoded is! Map<String, dynamic>) return null;
       final adminRaw = decoded['admins'];
       if (adminRaw is! List) return null;
-      final admins = <AdminPerson>[];
+      final admins = <PersonalMember>[];
       final accountIds = <String>{};
       for (final item in adminRaw) {
-        if (item is! Map) return null;
+        if (item is! Map ||
+            item.length != 3 ||
+            item.keys.any(
+              (key) => !const {
+                'account_id',
+                'family_name',
+                'given_name',
+              }.contains(key),
+            )) {
+          return null;
+        }
         final accountId = item['account_id'];
-        final cidNumber = item['cid_number'];
         final familyName = item['family_name'];
         final givenName = item['given_name'];
         if (accountId is! String ||
-            cidNumber is! String ||
             familyName is! String ||
             givenName is! String ||
             accountId.isEmpty ||
@@ -101,9 +111,8 @@ class MultisigLocalDetailSnapshot {
           return null;
         }
         admins.add(
-          AdminPerson(
+          PersonalMember(
             accountId: accountId,
-            cidNumber: cidNumber,
             familyName: familyName,
             givenName: givenName,
           ),
@@ -184,7 +193,7 @@ class PersonalMultisigLocalState {
     _requireAccountId(accountId);
     final entity =
         await isar.groups.getByAccountId(accountId) ??
-        (Group()..accountId = accountId);
+        (wallet_store.Group()..accountId = accountId);
     entity.detailData = jsonEncode(snapshot.toJson());
     await isar.groups.putByAccountId(entity);
   }
@@ -198,7 +207,7 @@ class PersonalMultisigLocalState {
     _requireAccountId(accountId);
     final entity =
         await isar.groups.getByAccountId(accountId) ??
-        (Group()..accountId = accountId);
+        (wallet_store.Group()..accountId = accountId);
     entity
       ..groupState = groupState
       ..syncedAt = DateTime.now().millisecondsSinceEpoch;
@@ -238,5 +247,39 @@ class PersonalMultisigLocalState {
       throw const FormatException('account_id 必须为小写 0x + 64 位十六进制');
     }
     return accountId;
+  }
+}
+
+// 从本地已同步提案反查指定账户的待激活创建提案。
+
+// 个人多签待激活创建提案反查(req 2 依赖)。
+//
+// 数据源选择:Isar 而非链上 state_getKeys。
+//
+// 详情页 mount 时已经通过 `PersonalProposalHistoryService.fetchAll` 把链上活跃提案
+// 同步到 Isar。因此从详情页跳转进入管理员子页时,Isar 必然已包含该多签
+// 当前活跃创建提案的 entity(若存在),无需再次调链上 prefix iteration。
+//
+// 这避免了无边界整表扫描，并且查询成本是
+// O(1) 级 Isar 索引读取。
+
+class PersonalPendingCreateLookup {
+  /// 查找该地址当前在投票中的创建提案 ID。
+  ///
+  /// 返回 null 表示无活跃创建提案 — 可能因为:
+  /// 1. 多签已激活(创建提案已 EXECUTED,Account 已转 Active);
+  /// 2. 创建提案被否决(Account 已删除);
+  /// 3. 详情页未触发过历史服务同步,Isar 尚未填充(异常态,管理员子页应回退提示)。
+  Future<BigInt?> findActiveCreate(String accountId) async {
+    final entity = await UserIsar.instance.read((isar) {
+      return isar
+          .collection<wallet_store.Action>()
+          .filter()
+          .accountIdEqualTo(accountId)
+          .actionKindEqualTo(PersonalProposalAction.create)
+          .proposalStateEqualTo(PersonalProposalStatus.voting)
+          .findFirst();
+    });
+    return entity?.proposalId;
   }
 }

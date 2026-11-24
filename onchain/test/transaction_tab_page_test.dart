@@ -17,7 +17,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_onchain/onchain_payment_page.dart';
-import 'package:citizen_personal/personal_account_entry.dart';
+import 'package:citizen_personal/accounts.dart';
 import 'package:citizen_wallet/history/local_tx_store.dart';
 import 'package:citizen_widgets/chain_progress_banner.dart';
 import 'package:citizen_scanner/address_scan_button.dart';
@@ -147,11 +147,12 @@ class _FeedbackService extends _RecipientService {
     OnchainPaymentDraft draft,
   ) async {
     preparations++;
-    if (failPreparation)
+    if (failPreparation) {
       throw const CitizenSdkException(
         code: CitizenSdkErrorCode.unavailable,
         message: 'preparation unavailable',
       );
+    }
     // 不注册原生准备，SDK会拒绝执行；此夹具不会签名或广播真实交易。
     return _feedbackPrepared();
   }

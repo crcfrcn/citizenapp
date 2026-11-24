@@ -12,7 +12,6 @@ import 'package:citizen_citizen/proposal/internal_vote_query_service.dart';
 import 'package:citizen_citizen/proposal/proposal_models.dart';
 import 'package:citizen_citizen/proposal/proposal_query_service.dart';
 import 'package:citizen_citizen/runtime/runtime_upgrade_service.dart';
-import 'package:citizen_personal/personal_local_store.dart';
 
 /// 用户与某个提案的关系上下文。
 ///
@@ -72,27 +71,13 @@ class ProposalContextResolver {
     required InstitutionAdminService adminService,
     required ActivationService activationService,
     CitizenSdkOperation<CitizenWalletState> Function()? getWalletState,
-    Future<Map<String, String>> Function(Iterable<String>)? readNames,
   }) : _adminService = adminService,
        _activationService = activationService,
-       _readNames = readNames ?? readMultisigNames,
        _getWalletState =
            getWalletState ??
            wallet?.getWalletState ??
            (() => throw StateError('未配置getWalletState'));
   final CitizenSdkOperation<CitizenWalletState> Function() _getWalletState;
-  final Future<Map<String, String>> Function(Iterable<String>) _readNames;
-
-  Future<Map<String, String>> _personalNames(Iterable<String> ids) async {
-    if (ids.isEmpty) return const {};
-    try {
-      return await _readNames(ids);
-    } catch (_) {
-      // 名称只是展示资料；读取失败不改变提案权限与状态，也不暴露账户或异常正文。
-      AppLog.d('proposal_personal_names_read_failed');
-      return const {};
-    }
-  }
 
   final InstitutionAdminService _adminService;
 
@@ -139,7 +124,6 @@ class ProposalContextResolver {
   }) async {
     final wallets = await _getWallets();
     final actorCid = actorCidNumber?.trim();
-    final code = internalCode?.toUpperCase();
     InstitutionInfo? institution;
 
     // 机构提案只认 actor CID。调用方传入的已知机构也必须 CID 完全一致，
@@ -148,23 +132,6 @@ class ProposalContextResolver {
       institution = knownInstitution?.cidNumber == actorCid
           ? knownInstitution
           : findInstitutionByCidNumber(actorCid);
-    } else if (code == 'PMUL' && executionAccountId != null) {
-      // 个人多签没有 CID，且只有 PMUL 才允许 execution account 成为主体。
-      final executionAccountIdText = citizenAccountIdFromBytes(
-        executionAccountId,
-      );
-      final knownPersonalAccount = knownInstitution == null
-          ? null
-          : personalAccountIdFromIdentity(knownInstitution.cidNumber);
-      if (knownPersonalAccount == executionAccountIdText) {
-        institution = knownInstitution;
-      } else {
-        final names = await _personalNames([executionAccountIdText]);
-        institution = personalMultisigFromAccountId(
-          executionAccountId,
-          accountName: names[executionAccountIdText],
-        );
-      }
     }
 
     // 匹配管理员钱包（通过激活状态判断）。
@@ -235,46 +202,14 @@ class ProposalContextResolver {
       for (final entry in knownInstitutionsByCidNumber.entries)
         entry.key.trim(): entry.value,
     };
-    final personalIds = <String>{};
-    for (var i = 0; i < actorCidNumbers.length; i++) {
-      if ((actorCidNumbers[i]?.trim().isEmpty ?? true) &&
-          internalCodeList != null &&
-          i < internalCodeList.length &&
-          internalCodeList[i]?.toUpperCase() == 'PMUL' &&
-          executionAccountIds != null &&
-          i < executionAccountIds.length) {
-        final bytes = executionAccountIds[i];
-        if (bytes != null && bytes.length == 32) {
-          personalIds.add(citizenAccountIdFromBytes(bytes));
-        }
-      }
-    }
-    final personalNames = await _personalNames(personalIds);
-
     for (var i = 0; i < actorCidNumbers.length; i++) {
       final actorCidNumber = actorCidNumbers[i];
-      final executionAccountId =
-          executionAccountIds != null && i < executionAccountIds.length
-          ? executionAccountIds[i]
-          : null;
-      final internalCode =
-          internalCodeList != null && i < internalCodeList.length
-          ? internalCodeList[i]
-          : null;
       InstitutionInfo? institution;
       final actorCid = actorCidNumber?.trim();
-      final code = internalCode?.toUpperCase();
 
       if (actorCid != null && actorCid.isNotEmpty) {
         institution =
             knownInstitutions[actorCid] ?? findInstitutionByCidNumber(actorCid);
-      } else if (code == 'PMUL' && executionAccountId != null) {
-        institution = personalMultisigFromAccountId(
-          executionAccountId,
-          accountName: executionAccountId.length == 32
-              ? personalNames[citizenAccountIdFromBytes(executionAccountId)]
-              : null,
-        );
       }
 
       if (institution == null) {
@@ -373,7 +308,9 @@ class VoteChecker {
   /// (ADR-018 R2):列表页原来按提案逐个查投票(P 个提案 = P 次往返);
   /// 这里把同类提案(内部/联合)的投票 key 各自一次性拼齐批量读取,P 次往返
   /// 降为最多 2 次。只统计 status==0(投票中)且本机有管理员钱包的提案。
-  Future<Set<BigInt>> proposalsNeedingVote(List<VoteCheckTarget> targets) async {
+  Future<Set<BigInt>> proposalsNeedingVote(
+    List<VoteCheckTarget> targets,
+  ) async {
     final active = targets.where(
       (t) => t.status == 0 && t.adminWallets.isNotEmpty,
     );

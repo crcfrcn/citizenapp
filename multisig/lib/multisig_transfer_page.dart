@@ -2,20 +2,15 @@
 
 import 'package:citizen_widgets/chain_balance_scope.dart';
 import 'package:citizen_system/security/account_security_exception.dart';
-import 'package:citizen_storage/user_isar.dart' as wallet_store show Account;
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:citizen_system/app_log.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_widgets/chain_progress_banner.dart';
 
-import 'package:isar_community/isar.dart';
-import 'package:citizen_storage/user_isar.dart' hide Group;
-import 'package:citizen_personal/personal_proposal_history_service.dart';
 import 'package:citizen_system/amount_format.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_multisig/multisig_transfer_balance_guard.dart';
@@ -28,13 +23,35 @@ import 'package:citizen_system/theme/app_layout.dart';
 class MultisigTransferPage extends StatefulWidget {
   const MultisigTransferPage({
     super.key,
-    required this.institution,
+    required InstitutionInfo this.institution,
     required this.icon,
     required this.badgeColor,
     required this.adminWallets,
-  });
+  }) : accountId = null,
+       accountName = null,
+       accountCode = null,
+       onProposed = null;
 
-  final InstitutionInfo institution;
+  const MultisigTransferPage.account({
+    super.key,
+    required this.accountId,
+    required this.accountName,
+    required this.accountCode,
+    required this.icon,
+    required this.badgeColor,
+    required this.adminWallets,
+    this.onProposed,
+  }) : institution = null;
+
+  final InstitutionInfo? institution;
+  final String? accountId;
+  final String? accountName;
+  final String? accountCode;
+  final Future<void> Function(BigInt id, String beneficiary, BigInt amount)?
+  onProposed;
+  String get fundingAccountId => institution?.mainAccountId ?? accountId!;
+  String get label => institution?.shortName ?? accountName!;
+  String get orgCode => institution?.adminCode ?? accountCode ?? 'PMUL';
   final IconData icon;
   final Color badgeColor;
 
@@ -68,9 +85,11 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
     super.initState();
     _selectedWallet = widget.adminWallets.first;
     _proposerRoleCodeController = TextEditingController(
-      text: defaultInstitutionProposerRoleCode(widget.institution),
+      text: widget.institution == null
+          ? ''
+          : defaultInstitutionProposerRoleCode(widget.institution!),
     );
-    _fromSs58 = citizenSs58FromAccountId(widget.institution.mainAccountId);
+    _fromSs58 = citizenSs58FromAccountId(widget.fundingAccountId);
     _amountController.addListener(_onAmountChanged);
   }
 
@@ -84,10 +103,8 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
   }
 
   /// 页面进入读取 wallet 持久余额，交易前校验由既有余额守卫强制刷新。
-  CitizenBalanceState<CitizenAccountBalance> get _balance => context
-      .read<CitizenSdk>()
-      .balances
-      .accountState(widget.institution.mainAccountId);
+  CitizenBalanceState<CitizenAccountBalance> get _balance =>
+      context.read<CitizenSdk>().balances.accountState(widget.fundingAccountId);
   BigInt? get _availableBalance => _balance.value?.freeFen;
   bool get _loadingBalance => _balance.value == null && !_balance.hasError;
 
@@ -164,9 +181,9 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
       return;
     }
     if (!_validateAddress() || !_validateRemark()) return;
-    final isPersonal = isPersonalAccountIdentity(widget.institution.cidNumber);
+    final isAccountOnly = (widget.institution == null);
     final proposerRoleCode = _proposerRoleCodeController.text.trim();
-    if (!isPersonal && proposerRoleCode.isEmpty) {
+    if (!isAccountOnly && proposerRoleCode.isEmpty) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('请输入当前任职且拥有转账提案权限的岗位码')));
@@ -181,7 +198,7 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
     setState(() => _submitting = true);
     try {
       await context.read<CitizenSdk>().getAccountBalance(
-        widget.institution.mainAccountId,
+        widget.fundingAccountId,
       );
       if (!mounted) return;
       final fees = await sdk.getFeeSnapshot(amountFen: amountFen);
@@ -191,8 +208,9 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
         return;
       }
       setState(() => _fees = fees);
-      final feeFen = fees.feeFen + (remark.isNotEmpty ? fees.FLAT_FEE : BigInt.zero);
-      final accounts = widget.institution.accounts;
+      final feeFen =
+          fees.feeFen + (remark.isNotEmpty ? fees.FLAT_FEE : BigInt.zero);
+      final accounts = widget.institution?.accounts;
       final ed = fees.existentialDepositFen;
       final requiredFen =
           amountFen + ed + (accounts == null ? feeFen : BigInt.zero);
@@ -236,9 +254,11 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
       final signerPublicKey = citizenAccountIdBytes(wallet.accountId);
 
       final service = MultisigTransferService(chain: sdk, transactions: sdk);
-      final submitResult = await service.submitProposeTransfer(
-        institution: widget.institution,
-        proposerRoleCode: isPersonal ? null : proposerRoleCode,
+      final submitResult = await service.submitAccountTransfer(
+        fundingAccountId: widget.fundingAccountId,
+        actorCidNumber: widget.institution?.cidNumber,
+        orgCode: widget.orgCode,
+        proposerRoleCode: isAccountOnly ? null : proposerRoleCode,
         beneficiaryAddress: beneficiary,
         amountFen: amountFen,
         remark: remark,
@@ -252,11 +272,10 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
         ),
       );
 
-      // 仅个人多签写入本地个人提案历史；机构按 CID 路由。
-      await _maybeRecordPersonalProposal(
-        proposalId: submitResult.proposalId,
-        beneficiary: beneficiary,
-        amountFen: amountFen,
+      await widget.onProposed?.call(
+        submitResult.proposalId,
+        beneficiary,
+        amountFen,
       );
 
       if (!mounted) return;
@@ -289,44 +308,6 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
   /// 仅当 [widget.institution] 是个人多签时,把转账提案写入 Isar 历史
   /// (`action`),让详情页"提案列表"区域立即看到。
   /// 机构多签的提案历史由其他模块负责,这里 silent skip。
-  Future<void> _maybeRecordPersonalProposal({
-    required BigInt proposalId,
-    required String beneficiary,
-    required BigInt amountFen,
-  }) async {
-    try {
-      final chain = context.read<CitizenSdk>();
-      if (!isPersonalAccountIdentity(widget.institution.cidNumber)) {
-        return;
-      }
-      final accountId = widget.institution.accountId;
-      final personal = await UserIsar.instance.read((isar) {
-        return isar
-            .collection<wallet_store.Account>()
-            .filter()
-            .accountIdEqualTo(accountId)
-            .findFirst();
-      });
-      if (personal == null) return;
-
-      await PersonalProposalHistoryService(chain: chain).recordOrUpdate(
-        accountId: accountId,
-        proposalId: proposalId,
-        actionKind: PersonalProposalAction.transfer,
-        status: PersonalProposalStatus.voting,
-        yesCount: 0,
-        noCount: 0,
-        snapshot: {
-          'beneficiary': beneficiary,
-          'amount_fen': amountFen.toString(),
-        },
-      );
-    } catch (e) {
-      // 写入失败不阻断主流程(链端已成功)，但本地提案历史会缺该记录，
-      // 必须留痕，否则用户会误以为提案没创建而重复提交。
-      AppLog.d('[MultisigTransfer] 本地提案历史写入失败: $e');
-    }
-  }
 
   void _handleChainProgressChanged(CitizenChainSyncStatus? progress) {
     if (!mounted) return;
@@ -364,7 +345,7 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
 
   @override
   Widget build(BuildContext context) => ChainBalanceScope(
-    accountIds: [widget.institution.mainAccountId],
+    accountIds: [widget.fundingAccountId],
     builder: _buildBalanceView,
   );
   Widget _buildBalanceView(BuildContext context, CitizenBalances balances) {
@@ -404,7 +385,7 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
               _buildAdminSelector(),
               SizedBox(height: AppLayout.scaled(context, 16)),
 
-              if (!isPersonalAccountIdentity(widget.institution.cidNumber)) ...[
+              if (widget.institution != null) ...[
                 _buildLabel('提案发起岗位码'),
                 SizedBox(height: AppLayout.scaled(context, 6)),
                 TextField(
@@ -527,7 +508,9 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
               // ──── 预估手续费 ────
               _buildInfoRow(
                 '预估手续费',
-                _fees != null ? '${formatFen(_fees!.feeFen + (_remarkController.text.isNotEmpty ? _fees!.FLAT_FEE : BigInt.zero))} 元' : '--',
+                _fees != null
+                    ? '${formatFen(_fees!.feeFen + (_remarkController.text.isNotEmpty ? _fees!.FLAT_FEE : BigInt.zero))} 元'
+                    : '--',
               ),
               SizedBox(height: AppLayout.scaled(context, 8)),
 
@@ -547,7 +530,9 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
               SizedBox(height: AppLayout.scaled(context, 6)),
               TextField(
                 controller: _remarkController,
-                onChanged: (_) => setState(() { _amountError = null; }),
+                onChanged: (_) => setState(() {
+                  _amountError = null;
+                }),
                 maxLines: 3,
                 decoration: InputDecoration(
                   hintText: '输入备注收1.00元备注手续费。',
@@ -740,7 +725,7 @@ class _MultisigTransferPageState extends State<MultisigTransferPage> {
         SizedBox(width: AppLayout.scaledValue(10)),
         Expanded(
           child: Text(
-            widget.institution.shortName,
+            widget.label,
             style: TextStyle(
               fontSize: AppLayout.scaledValue(15),
               fontWeight: FontWeight.w600,

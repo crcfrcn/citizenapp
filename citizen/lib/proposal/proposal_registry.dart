@@ -1,4 +1,4 @@
-// 按个人或机构主体及制度身份计算允许发起的提案能力。
+// 按机构主体及制度身份计算允许发起的提案能力。
 
 import 'package:citizen_citizen/institution/institution_code_label.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
@@ -8,7 +8,7 @@ enum ProposalKind {
   transfer, // 转账(资金,proposal/transaction → MultisigTransferPage)
   feeTransfer, // 手续费划转/归集到主账户(资金,proposal/transaction → SweepToMainPage)
   safetyFundTransfer, // 安全基金转账(资金,仅国家储委会)
-  adminsChange, // 换管理员(proposal/admins-change)
+  adminsChange, // 跨业务动作标识，实际实现由所属业务包提供。
   resolutionIssuance, // 决议发行(占位)
   resolutionDestroy, // 决议销毁(占位)
   runtimeUpgrade, // 协议升级(类B,proposal/runtime-upgrade)
@@ -23,7 +23,6 @@ enum ProposalSubjectType {
   publicInstitution,
   privateInstitution,
   unincorporatedInstitution,
-  personalMultisig,
 }
 
 /// 发起提案主体。
@@ -33,7 +32,6 @@ class ProposalSubject {
     required this.orgCode,
     required this.adminModule,
     this.cidNumber,
-    this.accountId,
   });
 
   factory ProposalSubject.fromInstitution({
@@ -41,15 +39,7 @@ class ProposalSubject {
     required String orgCode,
   }) {
     final code = orgCode.toUpperCase();
-    if (isPersonalAccountIdentity(institution.cidNumber) ||
-        InstitutionCodeLabel.isPersonal(code)) {
-      return ProposalSubject(
-        subjectType: ProposalSubjectType.personalMultisig,
-        orgCode: 'PMUL',
-        adminModule: 'PersonalAdmins',
-        accountId: institution.accountId,
-      );
-    }
+
     if (InstitutionCodeLabel.isFixedGovernance(code)) {
       return ProposalSubject(
         subjectType: ProposalSubjectType.fixedGovernanceInstitution,
@@ -95,15 +85,11 @@ class ProposalSubject {
   final String orgCode;
   final String adminModule;
 
-  /// 机构主体唯一主键；个人多签严格为空。
+  /// 机构主体唯一主键。
   final String? cidNumber;
-
-  /// 个人多签账户；机构主体严格不使用该字段。
-  final String? accountId;
 
   bool get isFixedGovernance =>
       subjectType == ProposalSubjectType.fixedGovernanceInstitution;
-  bool get isPersonal => subjectType == ProposalSubjectType.personalMultisig;
   bool get isUnincorporated =>
       subjectType == ProposalSubjectType.unincorporatedInstitution;
   bool get hasResolvedAdminModule => adminModule != 'Unresolved';
@@ -159,14 +145,7 @@ class ProposalCapabilityRegistry {
       voteEngine: 'InternalVote',
       allows: (subject) => _sweepCodes.contains(subject.orgCode),
     ),
-    ProposalCapability(
-      kind: ProposalKind.adminsChange,
-      enabled: true,
-      pallet: 'PersonalAdmins',
-      call: 'propose_admin_set_change',
-      voteEngine: 'InternalVote',
-      allows: (subject) => subject.orgCode == 'PMUL',
-    ),
+
     ProposalCapability(
       kind: ProposalKind.safetyFundTransfer,
       enabled: true,
@@ -203,7 +182,8 @@ class ProposalCapabilityRegistry {
       kind: ProposalKind.grandpaKey,
       enabled: true,
       pallet: 'GrandpaKeyChange',
-      call: 'schedule_grandpa_key_rotation/propose_emergency_grandpa_key_recovery',
+      call:
+          'schedule_grandpa_key_rotation/propose_emergency_grandpa_key_recovery',
       voteEngine: 'Normal=None;Emergency=InternalVote',
       allows: (subject) => _jointGovernanceCodes.contains(subject.orgCode),
     ),

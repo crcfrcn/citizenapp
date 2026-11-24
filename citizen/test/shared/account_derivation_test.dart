@@ -150,27 +150,4 @@ void main() {
       );
     });
   });
-
-  group('个人多签派生', () {
-    test('派生字节遵循个人多签账户合同', () {
-      final creator = Uint8List.fromList(List<int>.generate(32, (i) => i));
-      expect(
-        derivePersonalAccountId(creatorAccount: creator, accountName: '个人钱包'),
-        deriveAccountId(
-          opTag: kOpPersonal,
-          payload: <int>[...creator, ...utf8.encode('个人钱包')],
-        ),
-      );
-    });
-
-    test('creator 非 32 字节抛错', () {
-      expect(
-        () => derivePersonalAccountId(
-          creatorAccount: Uint8List(31),
-          accountName: 'x',
-        ),
-        throwsArgumentError,
-      );
-    });
-  });
 }

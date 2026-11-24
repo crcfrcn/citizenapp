@@ -65,7 +65,9 @@ class ProposalLocalStore {
       final kept = nextIds.where((id) => !deleted.contains(id)).toSet();
       await _writeSummaries(
         isar,
-        summaries.where((summary) => kept.contains(summary.proposalId)).toList(),
+        summaries
+            .where((summary) => kept.contains(summary.proposalId))
+            .toList(),
       );
       for (final snapshot in details) {
         if (kept.contains(snapshot.proposalId)) {
@@ -98,29 +100,29 @@ class ProposalLocalStore {
 
   Future<void> _deleteProposals(Isar isar, Set<BigInt> deleted) async {
     final indexes = isar.collection<wallet_store.ProposalList>();
-      for (final id in deleted) {
-        final text = id.toString();
-        final indexesContaining = await indexes
-            .filter()
-            .proposalIdTextsElementEqualTo(text)
-            .findAll();
-        for (final index in indexesContaining) {
-          index.proposalIds = index.proposalIds
-              .where((value) => value != id)
-              .toList();
-          await indexes.putByCidNumber(index);
-        }
-        await isar
-            .collection<wallet_store.Summary>()
-            .filter()
-            .proposalIdTextEqualTo(text)
-            .deleteAll();
-        await isar
-            .collection<wallet_store.Proposal>()
-            .filter()
-            .proposalIdTextEqualTo(text)
-            .deleteAll();
+    for (final id in deleted) {
+      final text = id.toString();
+      final indexesContaining = await indexes
+          .filter()
+          .proposalIdTextsElementEqualTo(text)
+          .findAll();
+      for (final index in indexesContaining) {
+        index.proposalIds = index.proposalIds
+            .where((value) => value != id)
+            .toList();
+        await indexes.putByCidNumber(index);
       }
+      await isar
+          .collection<wallet_store.Summary>()
+          .filter()
+          .proposalIdTextEqualTo(text)
+          .deleteAll();
+      await isar
+          .collection<wallet_store.Proposal>()
+          .filter()
+          .proposalIdTextEqualTo(text)
+          .deleteAll();
+    }
   }
 
   /// 仅对仍在当前索引中的待补项写入正文，防止迟到结果覆盖较新的状态。
@@ -131,18 +133,31 @@ class ProposalLocalStore {
     required ProposalDetailSnapshot? detail,
   }) async {
     final committed = await UserIsar.instance.writeTxn((isar) async {
-      final row = await isar.collection<wallet_store.ProposalList>()
+      final row = await isar
+          .collection<wallet_store.ProposalList>()
           .getByCidNumber(key);
       if (row == null ||
           row.finalizedHash != block.hash ||
           row.finalizedHeight != block.number.toString() ||
-          !row.proposalIds.contains(summary.proposalId)) return false;
-      final record = await isar.collection<wallet_store.Summary>()
-          .filter().proposalIdTextEqualTo(summary.proposalId.toString()).findFirst();
-      if (LocalProposalSummary.fromJsonString(record?.bodyData,
-              proposalId: summary.proposalId)?.detailPending != true) return false;
+          !row.proposalIds.contains(summary.proposalId)) {
+        return false;
+      }
+      final record = await isar
+          .collection<wallet_store.Summary>()
+          .filter()
+          .proposalIdTextEqualTo(summary.proposalId.toString())
+          .findFirst();
+      if (LocalProposalSummary.fromJsonString(
+            record?.bodyData,
+            proposalId: summary.proposalId,
+          )?.detailPending !=
+          true) {
+        return false;
+      }
       await _writeSummaries(isar, [summary]);
-      if (detail != null) await ProposalDetailLocalStore.instance.putIn(isar, detail);
+      if (detail != null) {
+        await ProposalDetailLocalStore.instance.putIn(isar, detail);
+      }
       return true;
     });
     if (committed) {
@@ -210,10 +225,13 @@ class ProposalLocalStore {
   }) async {
     for (final summary in summaries) {
       if (preserveFeed &&
-          await isar.collection<wallet_store.ProposalList>().filter()
-              .cidNumberStartsWith('feed:')
-              .proposalIdTextsElementEqualTo(summary.proposalId.toString())
-              .findFirst() != null) {
+          await isar
+                  .collection<wallet_store.ProposalList>()
+                  .filter()
+                  .cidNumberStartsWith('feed:')
+                  .proposalIdTextsElementEqualTo(summary.proposalId.toString())
+                  .findFirst() !=
+              null) {
         continue;
       }
       final entity =
@@ -421,16 +439,6 @@ class LocalProposalSummary {
       listSubtitle = '手续费划转 ${formatFen(sweep.amountFen)} 元';
       subtitle = '$listSubtitle · $status';
       iconKind = 'sweep';
-    } else if (proposal.createMultisigDetail != null) {
-      title = '创建多签 $displayId';
-      listSubtitle = '创建个人多签';
-      subtitle = '创建个人多签账户 · $status';
-      iconKind = 'create_multisig';
-    } else if (proposal.closeMultisigDetail != null) {
-      title = '关闭多签 $displayId';
-      listSubtitle = '关闭多签';
-      subtitle = '关闭多签账户 · $status';
-      iconKind = 'close_multisig';
     } else if (proposal.runtimeUpgradeDetail != null) {
       title = '协议升级 $displayId';
       listSubtitle = '协议升级';
@@ -552,8 +560,11 @@ class LocalProposalSummary {
         iconKind: iconKind,
         updatedAt: updatedAt,
         detailPending: decoded['detail_pending'] == true,
-        trackTallies: (decoded['track_tallies'] as Map<String, dynamic>?)
-            ?.map((name, value) => MapEntry(name, value as int)) ?? const {},
+        trackTallies:
+            (decoded['track_tallies'] as Map<String, dynamic>?)?.map(
+              (name, value) => MapEntry(name, value as int),
+            ) ??
+            const {},
         cleanupHeight: BigInt.tryParse(
           decoded['cleanup_height']?.toString() ?? '',
         ),

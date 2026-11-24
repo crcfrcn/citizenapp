@@ -1,3 +1,4 @@
+import 'package:citizen_citizen/navigation.dart';
 // 合并默认及关注机构的本地提案列表，按真实范围和编号展示。
 
 import 'dart:async';
@@ -168,6 +169,7 @@ class _ProposalViewState extends State<ProposalTab> {
     _wallet = sdk;
     _institutionRepo = widget.repository ?? InstitutionRepository();
     final multisigService = MultisigTransferService(
+      skipBusinessData: context.read<GovernanceNavigation?>()?.skipBusinessData,
       chain: sdk,
       transactions: sdk,
     );
@@ -202,7 +204,11 @@ class _ProposalViewState extends State<ProposalTab> {
       }
       if (event is CitizenSdkCapabilitiesChanged) {
         final status = event.snapshot[CitizenCapabilityName.chainRead];
-        final ready = status.supported && status.available && status.enabled && status.ready;
+        final ready =
+            status.supported &&
+            status.available &&
+            status.enabled &&
+            status.ready;
         if (ready && !_chainReady && _feedKey != null && !_refreshing) {
           _checkCleanup = true;
           _retry?.cancel();
@@ -299,7 +305,9 @@ class _ProposalViewState extends State<ProposalTab> {
     if (_pendingHead == null || _pendingHead!.number <= head.number) {
       _pendingHead = head;
     }
-    if (_feedSync != null || _feedKey == null || _refreshing || _syncBlocked) return;
+    if (_feedSync != null || _feedKey == null || _refreshing || _syncBlocked) {
+      return;
+    }
     _feedSync = _syncPendingBlocks().whenComplete(() {
       _feedSync = null;
       final pending = _pendingHead;
@@ -325,18 +333,24 @@ class _ProposalViewState extends State<ProposalTab> {
           ) {
             final block = height == head.number
                 ? head
-                : await (widget.finalizedBlockReader ?? _sdk.getFinalizedBlockAt)(height);
+                : await (widget.finalizedBlockReader ??
+                      _sdk.getFinalizedBlockAt)(height);
             changed = await _applyBlock(key, block) || changed;
-            if (height % BigInt.from(_blocksPerDay) == BigInt.zero) _checkCleanup = true;
+            if (height % BigInt.from(_blocksPerDay) == BigInt.zero) {
+              _checkCleanup = true;
+            }
           }
-          if (mounted && head.number >= local.finalizedHeight!) _queueMaintenance(head);
+          if (mounted && head.number >= local.finalizedHeight!) {
+            _queueMaintenance(head);
+          }
         } finally {
           if (changed && mounted) await _renderLocal(key);
         }
         target = null;
       }
     } on Object catch (error) {
-      if (target != null && (_pendingHead == null || _pendingHead!.number < target.number)) {
+      if (target != null &&
+          (_pendingHead == null || _pendingHead!.number < target.number)) {
         _pendingHead = target;
       }
       AppLog.proposalFailure(stage: 'proposal_feed', error: error);
@@ -354,11 +368,13 @@ class _ProposalViewState extends State<ProposalTab> {
     _maintenanceHead = block;
     if (_maintenanceRunning) return;
     _maintenanceRunning = true;
-    unawaited(_maintainFeed().whenComplete(() {
-      _maintenanceRunning = false;
-      final next = _maintenanceHead;
-      if (mounted && next != null && _retry == null) _queueMaintenance(next);
-    }));
+    unawaited(
+      _maintainFeed().whenComplete(() {
+        _maintenanceRunning = false;
+        final next = _maintenanceHead;
+        if (mounted && next != null && _retry == null) _queueMaintenance(next);
+      }),
+    );
   }
 
   Future<void> _maintainFeed() async {
@@ -372,17 +388,29 @@ class _ProposalViewState extends State<ProposalTab> {
         // 候选必须已在被核验的区块出现。游标已经领先时交给新任务，
         // 避免把较晚入库的提案在旧块中的空值误认为已删除。
         if (index?.finalizedHeight != block.number ||
-            index?.finalizedHash != block.hash) return;
+            index?.finalizedHash != block.hash) {
+          return;
+        }
         _checkCleanup = false;
         _cleanupFailed = false;
         final candidates = (await _store.readSummariesForIds(index!.ids))
-            .where((item) => item.status >= 2 &&
-                (item.cleanupHeight == null || item.cleanupHeight! <= block.number))
-            .map((item) => item.proposalId).toList();
-        for (var offset = 0; mounted && offset < candidates.length; offset += 128) {
+            .where(
+              (item) =>
+                  item.status >= 2 &&
+                  (item.cleanupHeight == null ||
+                      item.cleanupHeight! <= block.number),
+            )
+            .map((item) => item.proposalId)
+            .toList();
+        for (
+          var offset = 0;
+          mounted && offset < candidates.length;
+          offset += 128
+        ) {
           try {
             final confirmed = await _proposalQuery.deletedProposalIds(
-              block, candidates.skip(offset).take(128),
+              block,
+              candidates.skip(offset).take(128),
             );
             if (!mounted) return;
             await _store.removeConfirmed(confirmed);
@@ -396,24 +424,35 @@ class _ProposalViewState extends State<ProposalTab> {
       }
       final requested = _pendingDetails.toList();
       final missing = await _store.readSummariesForIds(requested);
-      final stillPending = missing.where((summary) => summary.detailPending)
-          .map((summary) => summary.proposalId).toSet();
-      _pendingDetails.removeAll(requested.where((id) => !stillPending.contains(id)));
+      final stillPending = missing
+          .where((summary) => summary.detailPending)
+          .map((summary) => summary.proposalId)
+          .toSet();
+      _pendingDetails.removeAll(
+        requested.where((id) => !stillPending.contains(id)),
+      );
       for (final summary in missing.where((item) => item.detailPending)) {
         if (!mounted) return;
         final id = summary.proposalId;
         try {
           final failed = <BigInt>{};
-          final result = await _multisigTransferFeed.proposalsAt(
-            block, [id], onDetailFailure: failed.add,
-          );
+          final result = await _multisigTransferFeed.proposalsAt(block, [
+            id,
+          ], onDetailFailure: failed.add);
           if (failed.contains(id) || !mounted) continue;
           final proposal = result.firstOrNull;
-          var detail = proposal == null ? null : ProposalDetailSnapshot.fromProposal(proposal);
-          if (detail != null) detail = await _snapshotAt(block, proposal!.meta, detail);
+          var detail = proposal == null
+              ? null
+              : ProposalDetailSnapshot.fromProposal(proposal);
+          if (detail != null) {
+            detail = await _snapshotAt(block, proposal!.meta, detail);
+          }
           if (!mounted) return;
           if (await _store.saveRepairedDetail(
-            key: key, block: block, summary: summary.withRepairedDetail(proposal), detail: detail,
+            key: key,
+            block: block,
+            summary: summary.withRepairedDetail(proposal),
+            detail: detail,
           )) {
             _pendingDetails.remove(id);
             changed = true;
@@ -451,7 +490,8 @@ class _ProposalViewState extends State<ProposalTab> {
       (changedEvents[id] ??= []).add(event);
       if (known.contains(id)) {
         if (event.pallet == 'VotingEngine' ||
-            ((event.pallet == 'LegislationVote' || event.pallet == 'ElectionVote') &&
+            ((event.pallet == 'LegislationVote' ||
+                    event.pallet == 'ElectionVote') &&
                 !event.name.endsWith('VoteCast'))) {
           stateChanges.add(id);
         }
@@ -464,17 +504,25 @@ class _ProposalViewState extends State<ProposalTab> {
     final proposals = newIds.isEmpty
         ? const <ProposalWithDetail>[]
         : await _multisigTransferFeed.proposalsAt(
-            block, newIds.toList(), onDetailFailure: detailFailures.add,
+            block,
+            newIds.toList(),
+            onDetailFailure: detailFailures.add,
           );
     final details = await _detailsAt(block, proposals);
     detailFailures.removeAll(details.map((detail) => detail.proposalId));
     final summaries = [
       for (final proposal in proposals)
-        LocalProposalSummary.fromProposal(proposal,
-            detailPending: detailFailures.contains(proposal.meta.proposalId))
-            .withChainState(proposal.meta, trackTallies: await _proposalQuery.trackTalliesAt(
-              block, proposal.meta.proposalId, changedEvents[proposal.meta.proposalId] ?? const [],
-            )),
+        LocalProposalSummary.fromProposal(
+          proposal,
+          detailPending: detailFailures.contains(proposal.meta.proposalId),
+        ).withChainState(
+          proposal.meta,
+          trackTallies: await _proposalQuery.trackTalliesAt(
+            block,
+            proposal.meta.proposalId,
+            changedEvents[proposal.meta.proposalId] ?? const [],
+          ),
+        ),
     ];
     final deleted = <BigInt>{};
     for (final summary in await _store.readSummariesForIds(
@@ -490,7 +538,9 @@ class _ProposalViewState extends State<ProposalTab> {
           summary.withChainState(
             meta,
             trackTallies: await _proposalQuery.trackTalliesAt(
-              block, summary.proposalId, changedEvents[summary.proposalId]!,
+              block,
+              summary.proposalId,
+              changedEvents[summary.proposalId]!,
             ),
             cleanupHeight: summary.status < 2 && meta.status >= 2
                 ? block.number + BigInt.from(_retentionBlocks)
@@ -514,7 +564,11 @@ class _ProposalViewState extends State<ProposalTab> {
       added: proposals.map((proposal) => proposal.meta.proposalId).toList(),
       deleted: deleted,
     );
-    _pendingDetails.addAll(summaries.where((item) => item.detailPending).map((item) => item.proposalId));
+    _pendingDetails.addAll(
+      summaries
+          .where((item) => item.detailPending)
+          .map((item) => item.proposalId),
+    );
     _pendingDetails.removeAll(deleted);
     return summaries.isNotEmpty || deleted.isNotEmpty;
   }
@@ -736,7 +790,8 @@ class _ProposalViewState extends State<ProposalTab> {
         );
         if (detail != null &&
             (summary.kind != 1 ||
-                (summary.stage == 1 && detail.extra['institution_vote'] == null)) &&
+                (summary.stage == 1 &&
+                    detail.extra['institution_vote'] == null)) &&
             detail.adminVotes.entries.any(
               (vote) =>
                   vote.value == null &&
@@ -786,7 +841,8 @@ class _ProposalViewState extends State<ProposalTab> {
         AppLog.proposalRead(state: 'started');
         final detailFailures = <BigInt>{};
         final proposals = await _multisigTransferFeed.bootstrapAt(
-          head, onDetailFailure: detailFailures.add,
+          head,
+          onDetailFailure: detailFailures.add,
         );
         final details = await _detailsAt(head, proposals);
         detailFailures.removeAll(details.map((detail) => detail.proposalId));
@@ -796,15 +852,23 @@ class _ProposalViewState extends State<ProposalTab> {
           block: head,
           summaries: [
             for (final proposal in proposals)
-              LocalProposalSummary.fromProposal(proposal,
-                  detailPending: detailFailures.contains(proposal.meta.proposalId)),
+              LocalProposalSummary.fromProposal(
+                proposal,
+                detailPending: detailFailures.contains(
+                  proposal.meta.proposalId,
+                ),
+              ),
           ]..sort((a, b) => b.proposalId.compareTo(a.proposalId)),
           details: details,
         );
       }
       final index = await _store.readFeed(key);
       final cached = await _store.readSummariesForIds(index?.ids ?? const []);
-      _pendingDetails.addAll(cached.where((item) => item.detailPending).map((item) => item.proposalId));
+      _pendingDetails.addAll(
+        cached
+            .where((item) => item.detailPending)
+            .map((item) => item.proposalId),
+      );
       _checkCleanup = saved != null;
       await _renderLocal(key);
       if (_isCurrent(generation) && saved == null) {
@@ -835,7 +899,8 @@ class _ProposalViewState extends State<ProposalTab> {
   Future<void> _readFinalizedHead(int generation) async {
     try {
       if (!await _waitForChainRead(generation)) return;
-      final head = await (widget.finalizedHeadReader ?? _sdk.getFinalizedHead)();
+      final head =
+          await (widget.finalizedHeadReader ?? _sdk.getFinalizedHead)();
       if (_isCurrent(generation)) _queueFinalized(head);
     } on Object catch (error) {
       AppLog.proposalFailure(stage: 'proposal_feed', error: error);
@@ -1017,9 +1082,6 @@ class _ProposalViewState extends State<ProposalTab> {
                       ProposalCardHeader(
                         subjectName: shortName,
                         proposalNumber: item.displayId,
-                        personal:
-                            item.institution?.orgType ==
-                            OrgType.personalMultisig,
                       ),
                       SizedBox(height: AppLayout.scaledValue(2)),
                       Text(
@@ -1137,6 +1199,7 @@ class _ProposalViewState extends State<ProposalTab> {
         knownInstitution: institution,
       );
     }
+
     if (snapshot.proposalKind == 'runtime_upgrade') {
       await Navigator.of(context).push(
         MaterialPageRoute(

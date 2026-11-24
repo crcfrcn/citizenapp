@@ -23,7 +23,6 @@ import 'package:citizen_citizen/administrators/admin_account.dart';
 import 'package:citizen_citizen/administrators/admin_activation_service.dart';
 import 'package:citizen_citizen/administrators/institution_admin_service.dart';
 import 'package:citizen_citizen/proposal/proposal_entry_page.dart';
-import 'package:citizen_citizen/proposal/institution_manage_detail_page.dart';
 import 'package:citizen_citizen/institution/institution_admin_list_page.dart';
 import 'package:citizen_citizen/runtime/runtime_upgrade_detail_page.dart';
 import 'package:citizen_citizen/institution/institution_role_models.dart';
@@ -901,17 +900,6 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
         proposal: proposal,
         institution: govInfo,
         proposalContext: ctx,
-      );
-    } else if (proposal.createMultisigDetail != null ||
-        proposal.closeMultisigDetail != null) {
-      await Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => MultisigProposalDetailPage(
-            institution: govInfo,
-            proposalId: proposalId,
-            proposalContext: ctx,
-          ),
-        ),
       );
     } else {
       ScaffoldMessenger.of(

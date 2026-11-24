@@ -95,7 +95,7 @@ void main() {
 
   test('相同提案号按种类隔离，覆盖本种类不影响另一种类', () async {
     final store = ProposalDetailLocalStore.instance;
-    for (final kind in ['transfer', 'institution_multisig']) {
+    for (final kind in ['transfer', 'institution_multisig', 'personal']) {
       await store.put(
         ProposalDetailSnapshot(
           proposalId: BigInt.from(77),
@@ -126,6 +126,9 @@ void main() {
     expect(institution.updatedAt, 1);
     expect(institution.isFinal, false);
     expect(institution.detail['kind'], 'institution_multisig');
+    final personal = (await store.read('personal', BigInt.from(77)))!;
+    expect(personal.detail['kind'], 'personal');
+    expect(personal.updatedAt, 1);
     expect(await store.read('transfer', BigInt.from(78)), isNull);
   });
 }

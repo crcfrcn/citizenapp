@@ -1,3 +1,9 @@
+import 'package:citizen_personal/chain.dart';
+import 'package:flutter/widgets.dart';
+import 'package:provider/provider.dart';
+import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_personal/accounts.dart';
+import 'package:citizen_personal/proposals.dart';
 // 提供跨业务页面工厂，保持导航装配集中于根应用。
 
 import 'package:citizen_wallet/core/navigation.dart';
@@ -28,6 +34,8 @@ final walletNavigation = WalletNavigation(
   recordDetail: ({required record}) => LocalTxRecordDetailPage(record: record),
 );
 final governanceNavigation = GovernanceNavigation(
+  skipBusinessData: (id, raw) =>
+      PersonalManageService().decodePersonalProposalData(id, raw) != null,
   payment:
       (
         kind, {
@@ -66,4 +74,35 @@ final governanceNavigation = GovernanceNavigation(
 final transactionNavigation = TransactionNavigation(
   walletPicker: () => const WalletTab(selectForTrade: true),
   contactPicker: (mode) => ContactBookPage(mode: mode),
+);
+
+final personalNavigation = PersonalNavigation(
+  transfer:
+      ({
+        required account,
+        required icon,
+        required badgeColor,
+        required adminWallets,
+        required onCreated,
+      }) => Builder(
+        builder: (context) => MultisigTransferPage.account(
+          accountId: account.accountId,
+          accountName: account.shortName,
+          accountCode: 'PMUL',
+          icon: icon,
+          badgeColor: badgeColor,
+          adminWallets: adminWallets,
+          onProposed: (id, beneficiary, amount) async {
+            await PersonalProposalHistoryService(
+              chain: context.read<CitizenSdk>(),
+            ).recordTransferIfKnown(
+              accountId: account.accountId,
+              proposalId: id,
+              beneficiary: beneficiary,
+              amountFen: amount,
+            );
+            await onCreated(id);
+          },
+        ),
+      ),
 );

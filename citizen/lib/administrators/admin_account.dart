@@ -1,10 +1,9 @@
-// 定义管理员人员、机构或个人多签身份及其状态模型。
+// 定义共用人员展示记录与机构管理员身份及状态模型。
 
-import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_citizen/institution/institution_code_label.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 
-enum AdminAccountIdentityType { institution, personalAccount }
+enum AdminAccountIdentityType { institution }
 
 /// 全仓统一的管理员人员记录。
 ///
@@ -39,7 +38,7 @@ class AdminPerson {
   );
 }
 
-/// 管理员查询主体。机构只以 CID 为主键；个人多签只以 personal_account 为主键。
+/// 机构管理员查询主体，只以 CID 为主键。
 class AdminAccountIdentity {
   const AdminAccountIdentity._({
     required this.type,
@@ -48,17 +47,9 @@ class AdminAccountIdentity {
     required this.orgCode,
     required this.kind,
     this.cidNumber,
-    this.accountId,
   });
 
   factory AdminAccountIdentity.fromInstitution(InstitutionInfo institution) {
-    final personal = personalAccountIdFromIdentity(institution.cidNumber);
-    if (personal != null) {
-      return AdminAccountIdentity.personalAccount(
-        accountId: personal,
-        accountLabel: institution.shortName,
-      );
-    }
     final code =
         institution.adminCode?.toUpperCase() ??
         switch (institution.orgType) {
@@ -98,23 +89,6 @@ class AdminAccountIdentity {
     );
   }
 
-  factory AdminAccountIdentity.personalAccount({
-    required String accountId,
-    required String accountLabel,
-  }) {
-    if (!isCitizenAccountId(accountId)) {
-      throw const FormatException('个人多签账户标识无效');
-    }
-    return AdminAccountIdentity._(
-      type: AdminAccountIdentityType.personalAccount,
-      identityKey: 'personal-account:$accountId',
-      accountLabel: accountLabel,
-      orgCode: 'PMUL',
-      kind: 2,
-      accountId: accountId,
-    );
-  }
-
   static int _deriveInstitutionKind(String orgCode) {
     if (InstitutionCodeLabel.isUnincorporatedAdminCode(orgCode)) {
       throw ArgumentError('非法人机构码必须显式传入所属法人 kind');
@@ -128,11 +102,9 @@ class AdminAccountIdentity {
   final String orgCode;
   final int kind;
   final String? cidNumber;
-  final String? accountId;
 
   String get typeLabel => switch (type) {
     AdminAccountIdentityType.institution => '机构',
-    AdminAccountIdentityType.personalAccount => '个人多签',
   };
 
   String get orgLabel => InstitutionCodeLabel.codeLabel(orgCode);
@@ -141,61 +113,35 @@ class AdminAccountIdentity {
 class AdminAccountState {
   const AdminAccountState({
     this.cidNumber,
-    this.accountId,
     required this.orgCode,
     required this.kind,
     required this.admins,
     required this.threshold,
-    this.personalCreatorAccountId,
-    this.personalCreatedAt,
-    this.personalUpdatedAt,
-    this.personalStatus,
-  }) : assert((cidNumber == null) != (accountId == null));
+  }) : assert(cidNumber != null);
 
   final String? cidNumber;
-  final String? accountId;
   final String orgCode;
   final int kind;
   final List<AdminPerson> admins;
   final int threshold;
 
-  /// 以下字段只属于 PersonalAdmins 的个人多签生命周期。
-  final String? personalCreatorAccountId;
-  final int? personalCreatedAt;
-  final int? personalUpdatedAt;
-  final int? personalStatus;
-
-  bool get isActive => cidNumber != null || personalStatus == 1;
+  bool get isActive => cidNumber != null;
 
   AdminAccountState copyWith({int? threshold}) => AdminAccountState(
     cidNumber: cidNumber,
-    accountId: accountId,
     orgCode: orgCode,
     kind: kind,
     admins: admins,
     threshold: threshold ?? this.threshold,
-    personalCreatorAccountId: personalCreatorAccountId,
-    personalCreatedAt: personalCreatedAt,
-    personalUpdatedAt: personalUpdatedAt,
-    personalStatus: personalStatus,
   );
 
   String get kindLabel => switch (kind) {
     0 => '公权机构',
     1 => '私权机构',
-    2 => '个人多签',
     _ => '未知账户',
   };
 
   String get orgLabel => InstitutionCodeLabel.codeLabel(orgCode);
 
-  String get statusLabel {
-    if (cidNumber != null) return '机构管理员';
-    return switch (personalStatus) {
-      0 => '待激活',
-      1 => '已激活',
-      2 => '已关闭',
-      _ => '未知状态',
-    };
-  }
+  String get statusLabel => '机构管理员';
 }

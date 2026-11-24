@@ -2,8 +2,6 @@
 
 import 'dart:typed_data';
 
-import 'package:citizen_personal/personal_manage_models.dart';
-
 /// 提案展示号（双层 ID 设计）。
 ///
 /// 链上 `ProposalDisplayId[u128] = ProposalDisplayMeta { year: u32, seq_in_year: u64 }`
@@ -112,8 +110,6 @@ class ProposalWithDetail {
   const ProposalWithDetail({
     required this.meta,
     this.runtimeUpgradeDetail,
-    this.createMultisigDetail,
-    this.closeMultisigDetail,
     this.businessDetails = const {},
     this.resolutionIssuanceSummary,
     this.resolutionDestroySummary,
@@ -123,12 +119,6 @@ class ProposalWithDetail {
 
   /// 协议升级提案详情（非升级提案为 null）。
   final RuntimeUpgradeProposalInfo? runtimeUpgradeDetail;
-
-  /// 创建多签账户提案详情。
-  final CreateProposalInfo? createMultisigDetail;
-
-  /// 关闭多签账户提案详情。
-  final CloseProposalInfo? closeMultisigDetail;
 
   /// 业务模块详情集合。proposal/shared 只按字符串键保存不透明对象，
   /// 具体键名、模型和页面跳转由所属业务模块自己定义。

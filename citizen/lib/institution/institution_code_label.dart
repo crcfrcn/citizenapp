@@ -106,17 +106,14 @@ class InstitutionCodeLabel {
   /// 固定治理档制度阈值，逐字镜像 runtime
   /// `fixed_governance_pass_threshold`；其它机构返回 null 并读取链上动态阈值。
   static int? fixedGovernanceThreshold(String code) => switch (code) {
-        'NRC' => 13,
-        'PRC' || 'PRB' => 6,
-        'FRG' => 3,
-        'NJD' => 8,
-        _ => null,
-      };
+    'NRC' => 13,
+    'PRC' || 'PRB' => 6,
+    'FRG' => 3,
+    'NJD' => 8,
+    _ => null,
+  };
 
   /// 是否为个人多签账户机构码(PMUL)。
-  static bool isPersonal(String code) {
-    return code == 'PMUL';
-  }
 
   /// 是否为公权法人机构码。
   static bool isPublicLegal(String code) => _publicLegalCodes.contains(code);
@@ -142,7 +139,7 @@ class InstitutionCodeLabel {
   /// 是否为注册多签动态阈值账户机构码(个人多签 或 机构账户)。
   /// 固定治理档不在内。镜像链端 `is_registered_multisig_code`。
   static bool isRegisteredMultisig(String code) {
-    return isPersonal(code) || isInstitution(code);
+    return isInstitution(code);
   }
 
   /// 是否归 PublicAdmins 管理。
@@ -177,7 +174,6 @@ class InstitutionCodeLabel {
   static int adminAccountKind(String code) {
     if (isPublicAdminCode(code)) return 0;
     if (isPrivateAdminCode(code)) return 1;
-    if (isPersonal(code)) return 2;
     throw ArgumentError('无法按机构码选择管理员类型: $code');
   }
 
@@ -185,7 +181,6 @@ class InstitutionCodeLabel {
   static String adminAccountsPalletName(String code) {
     if (isPublicAdminCode(code)) return 'PublicAdmins';
     if (isPrivateAdminCode(code)) return 'PrivateAdmins';
-    if (isPersonal(code)) return 'PersonalAdmins';
     throw ArgumentError('无法按机构码选择管理员模块: $code');
   }
 
@@ -197,7 +192,6 @@ class InstitutionCodeLabel {
     return switch (kind) {
       0 => 'PublicAdmins',
       1 => 'PrivateAdmins',
-      2 => 'PersonalAdmins',
       _ => throw ArgumentError('无法按管理员类型选择管理员模块: $kind'),
     };
   }
@@ -215,8 +209,6 @@ class InstitutionCodeLabel {
         return '联邦注册局';
       case 'NJD':
         return '国家司法院';
-      case 'PMUL':
-        return '个人多签';
       default:
         return code;
     }

@@ -2,21 +2,17 @@
 
 /// CitizenApp 链上 pallet / call 索引唯一真源。
 ///
-/// 索引由 citizenchain 的 `construct_runtime!`(runtime/src/lib.rs)声明顺序决定。
+/// 索引由 citizenchain 的 runtime/src/lib.rs 中显式 pallet_index 声明确定。
 /// 链升级调整 pallet 顺序后，**只改本文件**，全端各 service 引用这里、不再各自写死字面量。
 /// 冷钱包 `citizenwallet/lib/signing/pallet_registry.dart` 是同一契约的另一份镜像，
 /// 两者必须逐项一致；本文件仅收录 CitizenApp 实际构造 extrinsic 用到的 pallet/call。
 ///
 /// 约定：pallet 常量以 `Pallet` 结尾；call 常量以 `Call` 结尾。
-
 class PalletRegistry {
   const PalletRegistry._();
 
   // ---- Balances (2) · 只读余额账本(外部转账入口在 OnchainTransaction) ----
   static const int balancesPallet = 2;
-
-  // ---- PersonalManage (7) · 个人多签生命周期 ----
-  static const int personalManagePallet = 7;
 
   // ---- CitizenIdentity (10) · 公民链上身份(匿名自助占号 / 换绑) ----
   static const int citizenIdentityPallet = 10;
@@ -59,10 +55,6 @@ class PalletRegistry {
   static const int executiveSignCall = 3;
   static const int overrideSignCall = 4;
   static const int guardVoteCall = 5;
-
-  // ---- PersonalAdmins (29) · 个人多签管理员集合变更 ----
-  static const int personalAdminsPallet = 29;
-  static const int proposePersonalAdminSetChangeCall = 0;
 
   // ---- SquarePost (34) · 广场发帖 + 会员订阅价格治理 ----
   static const int squarePostPallet = 34;

@@ -33,6 +33,9 @@ enum QrScanMode {
   /// 冷导入专用，返回 SDK 限定的账户码结果。
   coldAccountImport,
 
+  /// 添加钱包成员，只接收钱包页生成的地址二维码。
+  wallet,
+
   /// 扫码支付：按当前入口只识别 QR_V1 收款码、用户码与账户码。
   transfer,
 
@@ -181,7 +184,9 @@ class _QrScanPageState extends State<QrScanPage> {
       // SDK 已识别码型。这里只决定当前页面的交互和返回值。
       switch ((widget.mode, result?.document.kind)) {
         case (
-          QrScanMode.coldAccountImport || QrScanMode.accountTarget,
+          QrScanMode.coldAccountImport ||
+              QrScanMode.wallet ||
+              QrScanMode.accountTarget,
           CitizenQrKind.accountId,
         ):
         case (
@@ -195,6 +200,8 @@ class _QrScanPageState extends State<QrScanPage> {
           _popPage(result);
         case (QrScanMode.coldAccountImport, _):
           await _showExpectedCode('请扫描账户码');
+        case (QrScanMode.wallet, _):
+          await _showExpectedCode('请扫描钱包码');
         case (
           QrScanMode.transfer || QrScanMode.dispatch,
           CitizenQrKind.accountId || CitizenQrKind.userContact,
@@ -310,7 +317,9 @@ class _QrScanPageState extends State<QrScanPage> {
         SnackBar(
           content: Text(
             // 扫码只识别 CID，通讯录展示本机已有资料。
-            created ? '已加入通讯录：${formatIdentityCidText(body.cidNumber!)}' : '已在通讯录：${formatIdentityCidText(body.cidNumber!)}',
+            created
+                ? '已加入通讯录：${formatIdentityCidText(body.cidNumber!)}'
+                : '已在通讯录：${formatIdentityCidText(body.cidNumber!)}',
           ),
         ),
       );
@@ -342,6 +351,7 @@ class _QrScanPageState extends State<QrScanPage> {
       widget.customTitle ??
       switch (widget.mode) {
         QrScanMode.coldAccountImport => '扫描账户码',
+        QrScanMode.wallet => '扫描钱包码',
         QrScanMode.transfer => '扫描收款码',
         QrScanMode.contact => '扫描对方用户码',
         QrScanMode.accountTarget => '扫描用户码或账户码',
@@ -354,6 +364,7 @@ class _QrScanPageState extends State<QrScanPage> {
       widget.customTitle ??
       switch (widget.mode) {
         QrScanMode.coldAccountImport => '导入冷钱包',
+        QrScanMode.wallet => '扫描钱包码',
         QrScanMode.transfer => '扫码支付',
         QrScanMode.contact => '扫码添加好友',
         QrScanMode.accountTarget => '扫描账户',

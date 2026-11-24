@@ -28,7 +28,9 @@ class InternalVoteQueryService {
            getFinalizedHead ??
            chain?.getFinalizedHead ??
            (() => throw StateError('未配置getFinalizedHead')),
-       _getRuntimeContext = getRuntimeContext ?? chain?.getRuntimeContext ??
+       _getRuntimeContext =
+           getRuntimeContext ??
+           chain?.getRuntimeContext ??
            ((block) => throw StateError('未配置getRuntimeContext')),
        _getStorage =
            getStorage ??
@@ -41,7 +43,8 @@ class InternalVoteQueryService {
            ((CitizenBlockRef block, List<Uint8List> keys) =>
                throw StateError('未配置getStorageBatch'));
   final Future<CitizenBlockRef> Function() _getFinalizedHead;
-  final Future<CitizenRuntimeContext> Function(CitizenBlockRef) _getRuntimeContext;
+  final Future<CitizenRuntimeContext> Function(CitizenBlockRef)
+  _getRuntimeContext;
   final Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)
   _getStorage;
   final Future<List<Uint8List?>> Function(
@@ -54,8 +57,8 @@ class InternalVoteQueryService {
 
   /// 查询某管理员对某提案的投票记录。null=未投票，true=赞成，false=反对。
   Future<bool?> fetchAdminVote(BigInt proposalId, String accountId) async {
-    final data = await _readOne(_ticketVoteFields(proposalId, accountId));
-    return _decodeVote(data);
+    final data = await readVoteFields(_ticketVoteFields(proposalId, accountId));
+    return decodeVote(data);
   }
 
   /// 查询一张机构岗位票据；CID、岗位码、钱包三者共同确定唯一票。
@@ -65,7 +68,7 @@ class InternalVoteQueryService {
     String voterRoleCode,
     String accountId,
   ) async {
-    final data = await _readOne(
+    final data = await readVoteFields(
       _ticketVoteFields(
         proposalId,
         accountId,
@@ -73,7 +76,7 @@ class InternalVoteQueryService {
         voterRoleCode: voterRoleCode,
       ),
     );
-    return _decodeVote(data);
+    return decodeVote(data);
   }
 
   /// 批量查询管理员投票记录。
@@ -94,10 +97,10 @@ class InternalVoteQueryService {
     }
     if (keyByAccountId.isEmpty) return const {};
 
-    final values = await _readBatch(keyByAccountId.values.toList());
+    final values = await readVoteFieldsBatch(keyByAccountId.values.toList());
     return {
       for (var index = 0; index < keyByAccountId.length; index++)
-        keyByAccountId.keys.elementAt(index): _decodeVote(values[index]),
+        keyByAccountId.keys.elementAt(index): decodeVote(values[index]),
     };
   }
 
@@ -115,10 +118,10 @@ class InternalVoteQueryService {
         voterRoleCode: ticket.voterRoleCode,
       );
     }
-    final values = await _readBatch(storageByTicket.values.toList());
+    final values = await readVoteFieldsBatch(storageByTicket.values.toList());
     return {
       for (var index = 0; index < storageByTicket.length; index++)
-        storageByTicket.keys.elementAt(index): _decodeVote(values[index]),
+        storageByTicket.keys.elementAt(index): decodeVote(values[index]),
     };
   }
 
@@ -141,11 +144,11 @@ class InternalVoteQueryService {
       }
     }
     if (keys.isEmpty) return const {};
-    final values = await _readBatch(keys);
+    final values = await readVoteFieldsBatch(keys);
     final result = <BigInt, Map<String, bool?>>{};
     for (var index = 0; index < coordinates.length; index++) {
       final coord = coordinates[index];
-      (result[coord.pid] ??= <String, bool?>{})[coord.accountId] = _decodeVote(
+      (result[coord.pid] ??= <String, bool?>{})[coord.accountId] = decodeVote(
         values[index],
       );
     }
@@ -171,11 +174,11 @@ class InternalVoteQueryService {
       }
     }
     if (keys.isEmpty) return const {};
-    final values = await _readBatch(keys);
+    final values = await readVoteFieldsBatch(keys);
     final result = <BigInt, Map<String, bool?>>{};
     for (var index = 0; index < coordinates.length; index++) {
       final coord = coordinates[index];
-      (result[coord.pid] ??= <String, bool?>{})[coord.ticketKey] = _decodeVote(
+      (result[coord.pid] ??= <String, bool?>{})[coord.ticketKey] = decodeVote(
         values[index],
       );
     }
@@ -194,15 +197,18 @@ class InternalVoteQueryService {
     if (cidNumber == null && voterRoleCode == null) {
       ticket = (variant: 'Personal', fields: [account]);
     } else if (cidNumber != null && voterRoleCode != null) {
-      ticket = (variant: 'Institution', fields: [
-        [
+      ticket = (
+        variant: 'Institution',
+        fields: [
           [
-            _boundedText(cidNumber, 32, 'cid_number'),
-            _boundedText(voterRoleCode, 64, 'voter_role_code'),
+            [
+              _boundedText(cidNumber, 32, 'cid_number'),
+              _boundedText(voterRoleCode, 64, 'voter_role_code'),
+            ],
+            account,
           ],
-          account,
         ],
-      ]);
+      );
     } else {
       throw ArgumentError('机构票据查询必须同时提供 cid_number 和 voter_role_code');
     }
@@ -217,7 +223,7 @@ class InternalVoteQueryService {
     return _getRuntimeContext(finalized);
   }
 
-  Future<Uint8List?> _readOne(List<Object> fields) async {
+  Future<Uint8List?> readVoteFields(List<Object> fields) async {
     final runtime = await _finalizedRuntime();
     return _getStorage(
       runtime.block,
@@ -225,7 +231,9 @@ class InternalVoteQueryService {
     );
   }
 
-  Future<List<Uint8List?>> _readBatch(List<List<Object>> fields) async {
+  Future<List<Uint8List?>> readVoteFieldsBatch(
+    List<List<Object>> fields,
+  ) async {
     if (fields.isEmpty) return const <Uint8List?>[];
     final runtime = await _finalizedRuntime();
     final keys = [
@@ -247,7 +255,7 @@ class InternalVoteQueryService {
     return result;
   }
 
-  bool? _decodeVote(Uint8List? data) {
+  bool? decodeVote(Uint8List? data) {
     if (data == null) return null;
     if (data.length != 1 || (data[0] != 0 && data[0] != 1)) {
       throw const FormatException('InternalVotesByTicket 必须是严格的 SCALE bool');

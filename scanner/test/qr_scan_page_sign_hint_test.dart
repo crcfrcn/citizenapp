@@ -102,6 +102,50 @@ void main() {
     expect(find.textContaining('只有「用户主页」出示的用户码'), findsOneWidget);
   });
 
+  testWidgets('钱包用途只返回SDK钱包地址，内容不需要CID', (tester) async {
+    final nav = await pumpScannerHost(tester);
+    final route = unawaitedPushMode(nav, accountCode, QrScanMode.wallet);
+    await tester.pumpAndSettle();
+    final result = await route as CitizenQrScanResult;
+    expect(result.document.kind, CitizenQrKind.accountId);
+    expect(result.accountId, testCitizenAccountId);
+    expect(result.document.cidNumber, isNull);
+  });
+
+  for (final kind in ['用户码', '收款码']) {
+    testWidgets('钱包用途拒绝$kind，保持扫码页面', (tester) async {
+      final content = kind == '用户码'
+          ? CitizenQrContent.userContact(
+              cidNumber: 'TEST-CID',
+              accountId: testCitizenAccountId,
+            )
+          : CitizenQrContent.userTransfer(
+              requestId: 'wallet-scan-reject',
+              expiresAt: BigInt.from(
+                DateTime.now().millisecondsSinceEpoch ~/ 1000 + 120,
+              ),
+              accountId: testCitizenAccountId,
+              amount: '1.00',
+              symbol: 'GMB',
+              bankCidNumber: 'TEST-BANK',
+            );
+      final code = (await _core.sdk.encodeDocument(content)).canonicalText;
+      final nav = await pumpScannerHost(tester);
+      Object? result;
+      unawaited(
+        unawaitedPushMode(
+          nav,
+          code,
+          QrScanMode.wallet,
+        ).then((value) => result = value),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('请扫描钱包码'), findsWidgets);
+      expect(find.byType(QrScanPage), findsOneWidget);
+      expect(result, isNull);
+    });
+  }
+
   testWidgets('扫一扫把签名请求作为 SDK 文档交给调用方', (tester) async {
     final navigatorKey = await pumpScannerHost(tester);
     final route = unawaitedPushMode(

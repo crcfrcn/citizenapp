@@ -1,38 +1,10 @@
 // 验证机构CID和个人多签身份、真实名称及提案能力。
 
-import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_citizen/proposal/proposal_registry.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
-import 'package:citizen_citizen/institution/governance_registry.dart';
 
 void main() {
-  test('个人多签真实名称完整进入上下文，未取得名称不伪造简称', () {
-    final bytes = List.filled(32, 0x12);
-    final named = personalMultisigFromAccountId(
-      bytes,
-      accountName: '家庭基金账户甲乙',
-    )!;
-    expect(named.shortName, '家庭基金账户甲乙');
-    expect(named.fullName, '家庭基金账户甲乙');
-    final unnamed = personalMultisigFromAccountId(bytes)!;
-    expect(unnamed.shortName, isEmpty);
-    expect(unnamed.accountId, named.accountId);
-  });
-  test('个人多签身份只接受规范账户标识', () {
-    final accountId = '0x${'aa' * 32}';
-    expect(
-      personalAccountIdFromIdentity('personal-account:$accountId'),
-      accountId,
-    );
-    expect(
-      personalAccountIdFromIdentity(
-        'personal-account:${accountId.toUpperCase()}',
-      ),
-      isNull,
-    );
-  });
-
   test('注册机构以 CID 为身份，主/费账户只作为其账户集合', () {
     final address = '0x${'11' * 32}';
     const cidNumber = 'GD001-CGOV0-123456789-2026';
@@ -52,15 +24,6 @@ void main() {
     expect(institution.cidNumber, cidNumber);
     expect(institution.mainAccountId, address);
     expect(institution.isRegisteredInstitution, isTrue);
-  });
-
-  test('个人多签身份编码为个人多签 AccountId', () {
-    final address = '0x${'22' * 32}';
-    final id = citizenAccountIdBytes(address);
-    expect(
-      personalMultisigFromAccountId(id)?.cidNumber,
-      'personal-account:$address',
-    );
   });
 
   test('FRG/NJD 是固定治理机构且使用制度阈值，不误判为注册机构', () {
@@ -93,7 +56,6 @@ void main() {
       int orgType = OrgType.institution,
       String? cidNumber,
     }) {
-      final personal = code == 'PMUL';
       return InstitutionInfo(
         fullName: code,
         shortName: code,
@@ -102,20 +64,17 @@ void main() {
         cidNumber: cidNumber ?? 'GD001-${code}0-123456789-2026',
         orgType: orgType,
         adminCode: code,
-        accounts: personal
-            ? null
-            : InstitutionAccounts(
-                mainAccountId: accountId,
-                feeAccountId: '0x${'fe' * 32}',
-              ),
-        accountId: personal ? accountId : null,
+        accounts: InstitutionAccounts(
+          mainAccountId: accountId,
+          feeAccountId: '0x${'fe' * 32}',
+        ),
       );
     }
 
     Set<ProposalKind> kinds(ProposalSubject subject) {
-      return ProposalCapabilityRegistry.capabilitiesForSubject(subject)
-          .map((capability) => capability.kind)
-          .toSet();
+      return ProposalCapabilityRegistry.capabilitiesForSubject(
+        subject,
+      ).map((capability) => capability.kind).toSet();
     }
 
     test('NRC exposes governance-only proposal capabilities', () {
@@ -130,7 +89,6 @@ void main() {
       );
       final result = kinds(subject);
       expect(subject.cidNumber, 'LN001-NRC0G-944805165-2026');
-      expect(subject.accountId, isNull);
       expect(result, contains(ProposalKind.transfer));
       expect(result, contains(ProposalKind.feeTransfer));
       expect(result, contains(ProposalKind.safetyFundTransfer));
@@ -146,7 +104,6 @@ void main() {
       );
       final result = kinds(subject);
       expect(subject.cidNumber, 'GD001-CREG0-123456789-2026');
-      expect(subject.accountId, isNull);
       expect(result, contains(ProposalKind.transfer));
       expect(result, isNot(contains(ProposalKind.adminsChange)));
       expect(result, isNot(contains(ProposalKind.feeTransfer)));
@@ -162,29 +119,11 @@ void main() {
         );
         final result = kinds(subject);
         expect(subject.cidNumber, 'GD001-SFGQ0-123456789-2026');
-        expect(subject.accountId, isNull);
         expect(result, contains(ProposalKind.transfer));
         expect(result, isNot(contains(ProposalKind.adminsChange)));
         expect(result, isNot(contains(ProposalKind.resolutionIssuance)));
       },
     );
-
-    test('personal multisig exposes admins change capability', () {
-      final accountId = '77' * 32;
-      final subject = ProposalSubject.fromInstitution(
-        institution: info(
-          code: 'PMUL',
-          accountId: accountId,
-          cidNumber: 'personal-account:$accountId',
-        ),
-        orgCode: 'PMUL',
-      );
-      final result = kinds(subject);
-      expect(subject.cidNumber, isNull);
-      expect(subject.accountId, accountId);
-      expect(result, contains(ProposalKind.transfer));
-      expect(result, contains(ProposalKind.adminsChange));
-    });
 
     test('unincorporated code does not auto-enable admins change', () {
       final subject = ProposalSubject.fromInstitution(

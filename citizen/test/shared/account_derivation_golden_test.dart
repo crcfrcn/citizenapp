@@ -70,22 +70,7 @@ Uint8List _deriveForVector(Map<String, dynamic> v) {
         v['cid_number'] as String,
         v['account_name'] as String,
       );
-    case 'Personal':
-      final creator = _hexToBytes(v['creator_account_id'] as String);
-      return deriveAccountId(
-        opTag: kOpPersonal,
-        payload: <int>[...creator, ...utf8.encode(v['account_name'] as String)],
-      );
     default:
       fail('未知金标向量 kind: $kind');
   }
-}
-
-Uint8List _hexToBytes(String hex) {
-  final clean = hex.startsWith('0x') ? hex.substring(2) : hex;
-  final out = Uint8List(clean.length ~/ 2);
-  for (var i = 0; i < out.length; i++) {
-    out[i] = int.parse(clean.substring(i * 2, i * 2 + 2), radix: 16);
-  }
-  return out;
 }

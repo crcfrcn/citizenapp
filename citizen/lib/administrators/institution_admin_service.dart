@@ -1,4 +1,4 @@
-// 按明确机构或个人多签身份组合人员、岗位及阈值查询。
+// 按明确机构身份组合人员、岗位及阈值查询。
 
 import 'dart:convert';
 import 'dart:typed_data';
@@ -57,7 +57,9 @@ class InstitutionAdminService {
            getFinalizedHead ??
            chain?.getFinalizedHead ??
            (() => throw StateError('未配置getFinalizedHead')),
-       _getRuntimeContext = getRuntimeContext ?? chain?.getRuntimeContext ??
+       _getRuntimeContext =
+           getRuntimeContext ??
+           chain?.getRuntimeContext ??
            ((block) => throw StateError('未配置getRuntimeContext')),
        _getStorageKeysPaged =
            getStorageKeysPaged ??
@@ -74,7 +76,8 @@ class InstitutionAdminService {
            ((CitizenBlockRef block, List<Uint8List> keys) =>
                throw StateError('未配置getStorageBatch'));
   final Future<CitizenBlockRef> Function() _getFinalizedHead;
-  final Future<CitizenRuntimeContext> Function(CitizenBlockRef) _getRuntimeContext;
+  final Future<CitizenRuntimeContext> Function(CitizenBlockRef)
+  _getRuntimeContext;
   final Future<List<Uint8List>> Function(
     CitizenBlockRef block,
     Uint8List prefix, {
@@ -136,9 +139,6 @@ class InstitutionAdminService {
     AdminAccountIdentity identity,
     String cidNumber,
   ) async {
-    if (identity.type == AdminAccountIdentityType.personalAccount) {
-      throw ArgumentError('个人多签不属于机构岗位模型');
-    }
     if (identity.cidNumber != cidNumber) {
       throw ArgumentError('机构CID与管理员主体不一致');
     }

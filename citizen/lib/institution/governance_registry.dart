@@ -2,7 +2,6 @@
 
 library;
 
-import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 
 part 'governance_registry.generated.dart';
@@ -30,22 +29,3 @@ InstitutionInfo? findInstitutionByCidNumber(String cidNumber) {
 ///
 /// 机构提案禁止调用本函数；机构只能按 `actor_cid_number` 查找，不能从
 /// execution account、主账户或管理员钱包回落反推身份。
-InstitutionInfo? personalMultisigFromAccountId(
-  List<int> accountIdBytes, {
-  String? accountName,
-}) {
-  if (accountIdBytes.length != 32) return null;
-  final accountId = citizenAccountIdFromBytes(accountIdBytes);
-  final name = accountName?.trim() ?? '';
-  final fullName = name.isEmpty ? '个人多签 ${accountId.substring(2, 10)}' : name;
-  final cidFullNameEn = 'Personal Multisig ${accountId.substring(2, 10)}';
-  return InstitutionInfo(
-    fullName: fullName,
-    shortName: name,
-    cidFullNameEn: cidFullNameEn,
-    cidShortNameEn: cidFullNameEn,
-    cidNumber: 'personal-account:$accountId',
-    orgType: OrgType.personalMultisig,
-    accountId: accountId,
-  );
-}

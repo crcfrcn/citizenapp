@@ -2,7 +2,6 @@
 
 library;
 
-import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_citizen/proposal/proposal_models.dart';
 import 'package:citizen_citizen/institution/institution_code_label.dart';
 
@@ -35,9 +34,6 @@ class OrgType {
   /// 其它机构（包括注册机构与非储备类固定治理机构）。
   static const int institution = 3;
 
-  /// 个人多签账户；它不是机构，不得复用机构 CID 语义。
-  static const int personalMultisig = 4;
-
   static String label(int orgType) {
     switch (orgType) {
       case nrc:
@@ -48,8 +44,6 @@ class OrgType {
         return '省储行';
       case institution:
         return '机构';
-      case personalMultisig:
-        return '个人多签';
       default:
         return '未知';
     }
@@ -95,12 +89,10 @@ class InstitutionInfo {
     required this.cidShortNameEn,
     required this.cidNumber,
     required this.orgType,
-    this.accounts,
-    String? accountId,
+    required this.accounts,
     this.adminCode,
     this.internalThresholdOverride,
-  }) : assert((accounts == null) != (accountId == null)),
-       _personalAccountId = accountId;
+  });
 
   /// 机构全称,与后端/链端 `cid_full_name` 对齐。
   final String fullName;
@@ -127,22 +119,11 @@ class InstitutionInfo {
   /// 制度账户集合。
   ///
   /// 所有机构使用完整账户集合；个人多签不使用本字段。
-  final InstitutionAccounts? accounts;
+  final InstitutionAccounts accounts;
 
-  final String? _personalAccountId;
-
-  /// 资金操作的默认账户：机构为主账户，个人多签为其 AccountId。
+  /// 机构资金操作的默认主账户。
   /// 本字段只是账户参数，不得替代机构 `cid_number`。
-  String get mainAccountId => accounts?.mainAccountId ?? accountId;
-
-  /// 个人多签 AccountId hex；机构调用本 getter 直接失败。
-  String get accountId {
-    final value = _personalAccountId;
-    if (!isPersonalAccountIdentity(cidNumber) || value == null) {
-      throw StateError('机构没有 personalAccountId，必须使用 CID + 具体机构账户');
-    }
-    return value;
-  }
+  String get mainAccountId => accounts.mainAccountId;
 
   /// 机构账户的动态阈值覆盖。
   final int? internalThresholdOverride;
@@ -150,7 +131,6 @@ class InstitutionInfo {
   /// 是否为链上注册机构。个人多签不属于机构。
   bool get isRegisteredInstitution =>
       orgType == OrgType.institution &&
-      !isPersonalAccountIdentity(cidNumber) &&
       !InstitutionCodeLabel.isFixedGovernance(adminCode ?? '');
 
   /// 内部投票通过阈值。
@@ -168,7 +148,6 @@ class InstitutionInfo {
       case OrgType.prb:
         return 6;
       case OrgType.institution:
-      case OrgType.personalMultisig:
         return 0;
       default:
         return 0;
@@ -196,7 +175,6 @@ class InstitutionInfo {
     String? cidNumber,
     int? orgType,
     InstitutionAccounts? accounts,
-    String? accountId,
     String? adminCode,
     int? internalThresholdOverride,
   }) {
@@ -208,25 +186,9 @@ class InstitutionInfo {
       cidNumber: cidNumber ?? this.cidNumber,
       orgType: orgType ?? this.orgType,
       accounts: accounts ?? this.accounts,
-      accountId: accountId ?? _personalAccountId,
       adminCode: adminCode ?? this.adminCode,
       internalThresholdOverride:
           internalThresholdOverride ?? this.internalThresholdOverride,
     );
   }
-}
-
-const String _personalAccountIdentityPrefix = 'personal-account:';
-
-bool isPersonalAccountIdentity(String institutionIdentity) {
-  return institutionIdentity.startsWith(_personalAccountIdentityPrefix);
-}
-
-String? personalAccountIdFromIdentity(String institutionIdentity) {
-  if (!isPersonalAccountIdentity(institutionIdentity)) return null;
-  final accountId = institutionIdentity.substring(
-    _personalAccountIdentityPrefix.length,
-  );
-  if (!isCitizenAccountId(accountId)) return null;
-  return accountId;
 }

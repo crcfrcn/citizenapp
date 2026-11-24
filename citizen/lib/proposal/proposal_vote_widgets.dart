@@ -15,17 +15,15 @@ class ProposalCardHeader extends StatelessWidget {
     super.key,
     required this.subjectName,
     required this.proposalNumber,
-    this.personal = false,
   });
 
   final String? subjectName;
   final String proposalNumber;
-  final bool personal;
 
   @override
   Widget build(BuildContext context) {
     final original = subjectName?.trim() ?? '';
-    final name = personal ? original.characters.take(6).toString() : original;
+    final name = original;
     return LayoutBuilder(
       builder: (context, constraints) => Row(
         children: [

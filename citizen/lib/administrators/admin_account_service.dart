@@ -9,11 +9,10 @@ import 'package:citizen_citizen/administrators/admin_account_storage_codec.dart'
 import 'package:citizen_citizen/administrators/admin_account_codec.dart';
 import 'package:citizen_citizen/administrators/admin_account.dart';
 
-/// 分类管理员链读门面。
+/// 机构管理员链读门面。
 ///
 /// 机构严格读取 `AdminAccounts[cid_number]` 与对应 entity 的
-/// `InstitutionGovernanceThresholds[cid_number]`；个人多签严格读取
-/// `AdminAccounts[personal_account]` 与 `ActivePersonalThresholds[personal_account]`。
+/// `InstitutionGovernanceThresholds[cid_number]`。
 class AdminAccountService {
   AdminAccountService({
     CitizenSdk? chain,
@@ -25,7 +24,9 @@ class AdminAccountService {
            getFinalizedHead ??
            chain?.getFinalizedHead ??
            (() => throw StateError('未配置getFinalizedHead')),
-       _getRuntimeContext = getRuntimeContext ?? chain?.getRuntimeContext ??
+       _getRuntimeContext =
+           getRuntimeContext ??
+           chain?.getRuntimeContext ??
            ((block) => throw StateError('未配置getRuntimeContext')),
        _getStorage =
            getStorage ??
@@ -33,7 +34,8 @@ class AdminAccountService {
            ((CitizenBlockRef block, Uint8List key) =>
                throw StateError('未配置getStorage'));
   final Future<CitizenBlockRef> Function() _getFinalizedHead;
-  final Future<CitizenRuntimeContext> Function(CitizenBlockRef) _getRuntimeContext;
+  final Future<CitizenRuntimeContext> Function(CitizenBlockRef)
+  _getRuntimeContext;
   final Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)
   _getStorage;
 
@@ -96,13 +98,13 @@ class AdminAccountService {
     return pending;
   }
 
-  /// 人员和完整状态共用唯一整键读取与公开解码；不复制机构/个人布局。
+  /// 人员和完整状态共用唯一整键读取与公开解码。
   Future<_AdminAccountCacheEntry?> _readAccount(
     AdminAccountIdentity identity,
   ) async {
     final finalized = await _getFinalizedHead();
     final runtime = await _getRuntimeContext(finalized);
-    final Uint8List key;
+    late final Uint8List key;
     if (identity.type == AdminAccountIdentityType.institution) {
       key = AdminAccountStorageCodec.institutionAdminStorageKey(
         identity.cidNumber!,
@@ -110,24 +112,14 @@ class AdminAccountService {
         orgCode: identity.orgCode,
         adminKind: identity.kind,
       );
-    } else {
-      key = AdminAccountStorageCodec.personalAdminStorageKey(
-        citizenAccountIdBytes(identity.accountId!),
-        runtime: runtime,
-      );
     }
     final data = await _getStorage(finalized, key);
     if (data == null) return null;
-    final decoded = identity.type == AdminAccountIdentityType.institution
-        ? AdminAccountCodec.decodeInstitution(
-            cidNumber: identity.cidNumber!,
-            data: data,
-            institutionKind: identity.kind,
-          )
-        : AdminAccountCodec.decodePersonal(
-            citizenAccountIdBytes(identity.accountId!),
-            data,
-          );
+    final decoded = AdminAccountCodec.decodeInstitution(
+      cidNumber: identity.cidNumber!,
+      data: data,
+      institutionKind: identity.kind,
+    );
     if (decoded == null) throw const FormatException('管理员人员记录无效');
     return _AdminAccountCacheEntry(decoded, runtime);
   }
@@ -160,16 +152,6 @@ class AdminAccountService {
     _accountReads.remove(identity.identityKey);
   }
 
-  void clearPersonalAccountCache(String accountId) {
-    if (!isCitizenAccountId(accountId)) {
-      throw const FormatException('管理员账户标识无效');
-    }
-    final key = 'personal-account:$accountId';
-    _cache.remove(key);
-    _inFlight.remove(key);
-    _accountReads.remove(key);
-  }
-
   Future<int?> _resolveThreshold(
     AdminAccountIdentity identity,
     CitizenRuntimeContext runtime,
@@ -182,12 +164,7 @@ class AdminAccountService {
         keyData: Uint8List.fromList(utf8.encode(identity.cidNumber!)),
       );
     }
-    return _fetchThresholdStorage(
-      palletName: 'InternalVote',
-      storageName: 'ActivePersonalThresholds',
-      runtime: runtime,
-      keyData: citizenAccountIdBytes(identity.accountId!),
-    );
+    throw ArgumentError('机构管理员查询必须使用机构CID');
   }
 
   Future<int?> _fetchThresholdStorage({

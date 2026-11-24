@@ -38,8 +38,9 @@ Future<bool> waitForProposalRead({
     (event) {
       if (event is CitizenSdkCapabilitiesChanged ||
           event is CitizenSdkLifecycleChanged ||
-          event is CitizenSdkFinalizedBlockChanged)
+          event is CitizenSdkFinalizedBlockChanged) {
         wake();
+      }
     },
     onError: (Object error) {
       streamError = error;
@@ -75,8 +76,9 @@ Future<bool> waitForProposalRead({
       if (status.supported &&
           status.available &&
           status.enabled &&
-          status.ready)
+          status.ready) {
         return true;
+      }
       if (!status.supported ||
           !status.available ||
           !status.enabled ||
@@ -222,7 +224,11 @@ class ProposalQueryService {
   Future<List<CitizenSystemEvent>> proposalEvents(CitizenBlockRef block) async {
     final events = await _getFinalizedEvents(block);
     const pallets = {
-      'VotingEngine', 'InternalVote', 'JointVote', 'LegislationVote', 'ElectionVote',
+      'VotingEngine',
+      'InternalVote',
+      'JointVote',
+      'LegislationVote',
+      'ElectionVote',
     };
     return [
       for (final event in events)
@@ -294,11 +300,15 @@ class ProposalQueryService {
             event.name == 'ReferendumVoteCast') {
           referendum = true;
         }
-      } else if (event.pallet == 'ElectionVote' && event.name == 'ElectionVoteCast') {
+      } else if (event.pallet == 'ElectionVote' &&
+          event.name == 'ElectionVoteCast') {
         final subject = (event.fields as Map)['candidate_subject'];
         final bytes = CitizenSystemEvent(
-          eventIndex: event.eventIndex, extrinsicIndex: event.extrinsicIndex,
-          pallet: event.pallet, name: event.name, fields: subject,
+          eventIndex: event.eventIndex,
+          extrinsicIndex: event.extrinsicIndex,
+          pallet: event.pallet,
+          name: event.name,
+          fields: subject,
         ).fieldBytes('cid_number');
         candidates.add(utf8.decode(bytes));
       }
@@ -322,15 +332,21 @@ class ProposalQueryService {
     if (candidates.isNotEmpty) {
       final runtime = await _getStorageRuntimeContext(block);
       Future<int> read(String entry, List<Object> args) async {
-        final raw = await _getStorage(block, runtime.storageKey('ElectionVote', entry, args));
+        final raw = await _getStorage(
+          block,
+          runtime.storageKey('ElectionVote', entry, args),
+        );
         if (raw == null) return 0;
         if (raw.length != 4) throw FormatException('$entry 长度无效');
         return CitizenScale.readUnsigned(raw, 0, 4).toInt();
       }
+
       counts['election_casted'] = await read('ElectionTallyStore', [id]);
       for (final candidate in candidates) {
-        counts['candidate_$candidate'] =
-            await read('ElectionCandidateTallies', [id, utf8.encode(candidate)]);
+        counts['candidate_$candidate'] = await read(
+          'ElectionCandidateTallies',
+          [id, utf8.encode(candidate)],
+        );
       }
     }
     return counts;
@@ -368,12 +384,15 @@ class ProposalQueryService {
     return deleted;
   }
 
-  Future<({
-    List<String> accounts,
-    Map<String, bool?> votes,
-    bool? result,
-    ({int yes, int no}) tally,
-  })> jointInstitutionAt(
+  Future<
+    ({
+      List<String> accounts,
+      Map<String, bool?> votes,
+      bool? result,
+      ({int yes, int no}) tally,
+    })
+  >
+  jointInstitutionAt(
     CitizenBlockRef block,
     ProposalMeta meta,
     InstitutionInfo institution,
@@ -393,8 +412,13 @@ class ProposalQueryService {
       if (plan?.voterSubjects.any((subject) {
             final voter = subject.roleSubject;
             return voter?.cidNumber == cid && voter?.roleCode == role;
-          }) == true) {
-        accounts = await query.fetchRoleVoterSnapshot(meta.proposalId, cid, role);
+          }) ==
+          true) {
+        accounts = await query.fetchRoleVoterSnapshot(
+          meta.proposalId,
+          cid,
+          role,
+        );
       }
     }
     final runtime = RuntimeUpgradeService(
@@ -418,8 +442,9 @@ class ProposalQueryService {
         value.single is List<Object?>) {
       value = value.single;
     }
-    if (value is! List<Object?> || value.length != expected.length)
+    if (value is! List<Object?> || value.length != expected.length) {
       return false;
+    }
     for (var i = 0; i < expected.length; i++) {
       if (value[i] != expected[i].toString()) return false;
     }
@@ -437,7 +462,7 @@ class ProposalQueryService {
 
   /// 查询 NextProposalId（投票引擎全局递增 ID）。
   Future<BigInt> fetchNextProposalId() async {
-    final data = await _readStorage('VotingEngine', 'NextProposalId');
+    final data = await readProposalStorage('VotingEngine', 'NextProposalId');
     if (data == null) return BigInt.zero;
     if (data.length != 16) throw const FormatException('NextProposalId长度无效');
     return _decodeU128(data);
@@ -445,7 +470,9 @@ class ProposalQueryService {
 
   /// 查询提案状态。返回 status（0投票中、1通过、2否决、3已执行、4执行失败），null 表示不存在。
   Future<int?> fetchProposalStatus(BigInt proposalId) async {
-    final data = await _readStorage('VotingEngine', 'Proposals', [proposalId]);
+    final data = await readProposalStorage('VotingEngine', 'Proposals', [
+      proposalId,
+    ]);
     if (data == null) return null;
     final meta = decodeProposalMeta(proposalId, data);
     if (meta == null) throw const FormatException('Proposals编码无效');
@@ -454,7 +481,9 @@ class ProposalQueryService {
 
   /// 查询并严格解码投票引擎提案元数据。
   Future<ProposalMeta?> fetchProposalMeta(BigInt proposalId) async {
-    final data = await _readStorage('VotingEngine', 'Proposals', [proposalId]);
+    final data = await readProposalStorage('VotingEngine', 'Proposals', [
+      proposalId,
+    ]);
     if (data == null) return null;
     final meta = decodeProposalMeta(proposalId, data);
     if (meta == null) throw const FormatException('Proposals编码无效');
@@ -463,17 +492,19 @@ class ProposalQueryService {
 
   /// 读取 `VotingEngine::ProposalData` 的 opaque 业务字节。
   ///
-  /// 具体 PersonalManage／机构治理语义仍由各 App 业务解码器负责；本服务仅统一
+  /// 具体业务治理语义仍由各 App 业务解码器负责；本服务仅统一
   /// App 侧 storage key，底层 finalized 读取继续由 CitizenSDK 执行。
   Future<Uint8List?> fetchProposalData(BigInt proposalId) {
-    return _readStorage('VotingEngine', 'ProposalData', [proposalId]);
+    return readProposalStorage('VotingEngine', 'ProposalData', [proposalId]);
   }
 
   /// 查询并严格解码提案绑定的 VotePlan。
   Future<VotePlan?> fetchVotePlan(BigInt proposalId) async {
-    final data = await _readStorage('VotingEngine', 'ProposalVotePlans', [
-      proposalId,
-    ]);
+    final data = await readProposalStorage(
+      'VotingEngine',
+      'ProposalVotePlans',
+      [proposalId],
+    );
     return data == null
         ? null
         : InstitutionRoleStorageCodec.decodeVotePlan(data);
@@ -557,7 +588,7 @@ class ProposalQueryService {
 
   /// 查询投票计数。
   Future<({int yes, int no})> fetchVoteTally(BigInt proposalId) async {
-    final data = await _readStorage('InternalVote', 'InternalTallies', [
+    final data = await readProposalStorage('InternalVote', 'InternalTallies', [
       proposalId,
     ]);
     if (data == null) return (yes: 0, no: 0);
@@ -567,7 +598,7 @@ class ProposalQueryService {
 
   /// 查询内部投票阈值快照。
   Future<int?> fetchInternalThresholdSnapshot(BigInt proposalId) async {
-    final data = await _readStorage(
+    final data = await readProposalStorage(
       'InternalVote',
       'InternalThresholdSnapshot',
       [proposalId],
@@ -580,37 +611,6 @@ class ProposalQueryService {
   }
 
   /// 查询提案创建时锁定的管理员快照。
-  Future<List<String>> fetchAdminSnapshot(
-    BigInt proposalId,
-    InstitutionInfo institution,
-  ) async {
-    final data = await _readStorage('VotingEngine', 'AdminSnapshot', [
-      proposalId,
-      (scale: proposalSubjectKey(institution)),
-    ]);
-    if (data == null) {
-      throw StateError('提案 $proposalId 缺少 VotingEngine::AdminSnapshot');
-    }
-    final decoded = decodeAdminSnapshot(data);
-    if (decoded == null || decoded.isEmpty) {
-      throw const FormatException('VotingEngine::AdminSnapshot SCALE 数据无效');
-    }
-    return decoded;
-  }
-
-  /// 查询提案创建时锁定的实际投票账户快照。
-  ///
-  /// 个人多签读取 `AdminSnapshot`；机构提案必须按完整岗位主体读取
-  /// `VoterSnapshot`。禁止把多个岗位按钱包合并，也禁止回落当前 admins。
-  Future<List<String>> fetchEligibleVoterSnapshot(
-    BigInt proposalId,
-    InstitutionInfo institution,
-  ) async {
-    if (isPersonalAccountIdentity(institution.cidNumber)) {
-      return fetchAdminSnapshot(proposalId, institution);
-    }
-    throw StateError('机构提案必须按明确岗位调用 fetchRoleVoterSnapshot');
-  }
 
   /// 查询一个完整机构岗位主体在提案创建时冻结的任职钱包。
   Future<List<String>> fetchRoleVoterSnapshot(
@@ -622,7 +622,7 @@ class ProposalQueryService {
       ..addByte(0) // AuthorizationSubject::Institution
       ..add(_encodeBoundedText(cidNumber, 32, 'cid_number'))
       ..add(_encodeBoundedText(voterRoleCode, 64, 'voter_role_code'));
-    final data = await _readStorage('VotingEngine', 'VoterSnapshot', [
+    final data = await readProposalStorage('VotingEngine', 'VoterSnapshot', [
       proposalId,
       (scale: subject.toBytes()),
     ]);
@@ -642,12 +642,6 @@ class ProposalQueryService {
     InstitutionInfo institution, {
     bool includeRoleNames = false,
   }) async {
-    if (isPersonalAccountIdentity(institution.cidNumber)) {
-      final accountIds = await fetchAdminSnapshot(proposalId, institution);
-      return accountIds
-          .map((accountId) => EligibleVoterTicket(voterAccountId: accountId))
-          .toList(growable: false);
-    }
     final plan = await fetchVotePlan(proposalId);
     if (plan == null) {
       throw StateError('提案 $proposalId 缺少有效 VotePlan');
@@ -712,20 +706,13 @@ class ProposalQueryService {
   Future<List<BigInt>> fetchActiveProposalIds(
     InstitutionInfo institution,
   ) async {
-    return _fetchActiveProposalIdsBySubjectKey(proposalSubjectKey(institution));
+    return fetchActiveProposalIdsBySubjectKey(proposalSubjectKey(institution));
   }
 
-  /// 个人多签历史同步入口；个人多签没有 CID，只能以 AccountId 为主体。
-  Future<List<BigInt>> fetchActivePersonalProposalIds(String accountId) {
-    return _fetchActiveProposalIdsBySubjectKey(
-      personalAccountSubjectKey(accountId),
-    );
-  }
-
-  Future<List<BigInt>> _fetchActiveProposalIdsBySubjectKey(
+  Future<List<BigInt>> fetchActiveProposalIdsBySubjectKey(
     Uint8List subjectKey,
   ) async {
-    final data = await _readStorage(
+    final data = await readProposalStorage(
       'VotingEngine',
       'ActiveProposalsBySubject',
       [(scale: subjectKey)],
@@ -763,7 +750,7 @@ class ProposalQueryService {
     return _internalVoteQuery.fetchTicketVotesBatch(proposalId, tickets);
   }
 
-  Future<Uint8List?> _readStorage(
+  Future<Uint8List?> readProposalStorage(
     String pallet,
     String storage, [
     List<Object> keys = const [],
@@ -780,31 +767,19 @@ class ProposalQueryService {
   ///
   /// 机构主体固定为 `InstitutionCid(cid_number)`；只有个人多签使用
   /// `PersonalAccount(account_id)`，机构账户绝不能替代机构 CID。
-  static Uint8List proposalSubjectKey(InstitutionInfo institution) {
-    if (isPersonalAccountIdentity(institution.cidNumber)) {
-      return personalAccountSubjectKey(institution.accountId);
-    }
-
-    return institutionCidSubjectKey(institution.cidNumber);
-  }
+  static Uint8List proposalSubjectKey(InstitutionInfo institution) =>
+      institutionCidSubjectKey(institution.cidNumber);
 
   /// `ProposalSubject::InstitutionCid` 编码；只接受机构 CID。
   static Uint8List institutionCidSubjectKey(String cidNumber) {
     final normalized = cidNumber.trim();
-    if (isPersonalAccountIdentity(normalized)) {
-      throw ArgumentError('个人多签身份不得编码为 InstitutionCid');
-    }
+
     final cidBytes = Uint8List.fromList(utf8.encode(normalized));
     if (cidBytes.isEmpty || cidBytes.length > 32) {
       throw ArgumentError('机构 CID 的 UTF-8 长度必须为 1..32 字节');
     }
     final length = CitizenScale.compact(cidBytes.length);
     return Uint8List.fromList([0, ...length, ...cidBytes]);
-  }
-
-  /// `ProposalSubject::PersonalAccount` 编码；AccountId 必须恰好 32 字节。
-  static Uint8List personalAccountSubjectKey(String accountId) {
-    return Uint8List.fromList([1, ...citizenAccountIdBytes(accountId)]);
   }
 
   /// 严格解码 `BoundedVec<AccountId32>` 管理员快照。
