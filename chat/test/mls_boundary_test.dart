@@ -224,7 +224,7 @@ void main() {
 
       expect(chatUserErrorMessage(unsynchronized), '公民身份同步失败，请重试');
       expect(chatUserErrorMessage(unsynchronized), isNot(contains('注册')));
-      expect(chatUserErrorMessage(unregistered), '当前默认账户尚未注册公民号，无法使用聊天');
+      expect(chatUserErrorMessage(unregistered), '当前默认账户尚未注册身份CID号，无法使用聊天');
       expect(chatUserErrorMessage(deviceMissing), contains('聊天设备身份'));
     });
 

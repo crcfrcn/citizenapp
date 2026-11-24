@@ -2,12 +2,12 @@
 
 import 'dart:convert';
 
-
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/foundation.dart';
 
 import 'package:citizen_citizen/proposal/proposal_models.dart';
 import 'package:citizen_citizen/proposal/proposal_query_service.dart';
+import 'package:citizen_citizen/institution/institution_role_storage_codec.dart';
 
 /// 协议升级提案链上交互服务。
 ///
@@ -42,8 +42,12 @@ class RuntimeUpgradeService {
     Future<Uint8List?> Function(CitizenBlockRef block)? getSystemEvents,
     Future<CitizenRuntimeContext> Function(CitizenBlockRef block)?
     getRuntimeContext,
-    Future<CitizenRuntimeContext> Function(CitizenBlockRef)? getStorageRuntimeContext,
-  }) : _buildCall = buildCall ?? transactions?.buildCall ?? chain?.buildCall ??
+    Future<CitizenRuntimeContext> Function(CitizenBlockRef)?
+    getStorageRuntimeContext,
+  }) : _buildCall =
+           buildCall ??
+           transactions?.buildCall ??
+           chain?.buildCall ??
            ((pallet, method, fields) => throw StateError('未配置buildCall')),
        _proposalQuery = ProposalQueryService(
          chain: chain,
@@ -54,8 +58,11 @@ class RuntimeUpgradeService {
          getStorage: getStorage,
          getStorageBatch: getStorageBatch,
        ),
-       _getStorageRuntimeContext = getStorageRuntimeContext ?? getRuntimeContext ??
-           chain?.getRuntimeContext ?? ((block) => throw StateError('未配置getRuntimeContext')),
+       _getStorageRuntimeContext =
+           getStorageRuntimeContext ??
+           getRuntimeContext ??
+           chain?.getRuntimeContext ??
+           ((block) => throw StateError('未配置getRuntimeContext')),
        _getFinalizedHead =
            getFinalizedHead ??
            chain?.getFinalizedHead ??
@@ -92,7 +99,8 @@ class RuntimeUpgradeService {
                throw StateError('未配置consumePreparedTransactionQrResponse'));
   final CitizenCallBuilder _buildCall;
   final Future<CitizenBlockRef> Function() _getFinalizedHead;
-  final Future<CitizenRuntimeContext> Function(CitizenBlockRef) _getStorageRuntimeContext;
+  final Future<CitizenRuntimeContext> Function(CitizenBlockRef)
+  _getStorageRuntimeContext;
   final Future<Uint8List?> Function(CitizenBlockRef block, Uint8List key)
   _getStorage;
   final Future<List<Uint8List?>> Function(
@@ -179,7 +187,9 @@ class RuntimeUpgradeService {
   Future<RuntimeUpgradeProposalInfo?> fetchRuntimeUpgradeProposal(
     BigInt proposalId,
   ) async {
-    final raw = await _readStorage('VotingEngine', 'ProposalData', [proposalId]);
+    final raw = await _readStorage('VotingEngine', 'ProposalData', [
+      proposalId,
+    ]);
     if (raw == null || raw.isEmpty) return null;
     return decodeRuntimeUpgradeStorageValue(proposalId, raw);
   }
@@ -224,7 +234,10 @@ class RuntimeUpgradeService {
     BigInt proposalId,
     String actorCidNumber,
   ) async {
-    final data = await _readStorage('JointVote', 'JointVotesByInstitution', [proposalId, _cidBytes(actorCidNumber)]);
+    final data = await _readStorage('JointVote', 'JointVotesByInstitution', [
+      proposalId,
+      _cidBytes(actorCidNumber),
+    ]);
     return _decodeBoolVote(data);
   }
 
@@ -233,7 +246,10 @@ class RuntimeUpgradeService {
     BigInt proposalId,
     String actorCidNumber,
   ) async {
-    final data = await _readStorage('JointVote', 'JointInstitutionTallies', [proposalId, _cidBytes(actorCidNumber)]);
+    final data = await _readStorage('JointVote', 'JointInstitutionTallies', [
+      proposalId,
+      _cidBytes(actorCidNumber),
+    ]);
     if (data == null || data.length != 8) return (yes: 0, no: 0);
     return (yes: _decodeU32(data, 0), no: _decodeU32(data, 4));
   }
@@ -243,7 +259,7 @@ class RuntimeUpgradeService {
     BigInt proposalId,
     String actorCidNumber,
     String voterRoleCode,
-    String publicKey, {
+    String personCid, {
     CitizenBlockRef? block,
   }) async {
     final runtime = await _finalizedRuntime(block);
@@ -252,7 +268,7 @@ class RuntimeUpgradeService {
       proposalId,
       actorCidNumber,
       voterRoleCode,
-      publicKey,
+      personCid,
     );
     if (key == null) return null;
     final data = await _getStorage(runtime.block, key);
@@ -267,27 +283,30 @@ class RuntimeUpgradeService {
     BigInt proposalId,
     String actorCidNumber,
     String voterRoleCode,
-    Iterable<String> accountIds,
+    Iterable<String> personCids,
   ) async {
-    if (accountIds.isEmpty) return const {};
+    if (personCids.isEmpty) return const {};
     final runtime = await _finalizedRuntime();
-    final keyByAccountId = <String, String>{};
-    for (final accountId in accountIds) {
-      final normalizedAccountId = _requireAccountId(accountId);
+    final keyByPersonCid = <String, String>{};
+    for (final personCid in personCids) {
+      final normalizedPersonCid = _requirePersonCid(personCid);
       final key = _jointTicketVoteKey(
         runtime,
         proposalId,
         actorCidNumber,
         voterRoleCode,
-        normalizedAccountId,
+        normalizedPersonCid,
       );
       if (key == null) continue;
-      keyByAccountId[normalizedAccountId] = _hexEncode(key);
+      keyByPersonCid[normalizedPersonCid] = _hexEncode(key);
     }
-    if (keyByAccountId.isEmpty) return const {};
-    final values = await _fetchStorageBatchChunked(runtime.block, keyByAccountId.values);
+    if (keyByPersonCid.isEmpty) return const {};
+    final values = await _fetchStorageBatchChunked(
+      runtime.block,
+      keyByPersonCid.values,
+    );
     return {
-      for (final entry in keyByAccountId.entries)
+      for (final entry in keyByPersonCid.entries)
         entry.key: _decodeBoolVote(values[entry.value]),
     };
   }
@@ -300,32 +319,40 @@ class RuntimeUpgradeService {
   Future<Map<BigInt, Map<String, bool?>>> fetchJointTicketVotesForProposals(
     Map<
       BigInt,
-      ({String actorCidNumber, String voterRoleCode, List<String> accountIds})
+      ({String actorCidNumber, String voterRoleCode, List<String> personCids})
     >
     byProposal,
   ) async {
-    if (byProposal.values.every((item) => item.accountIds.isEmpty)) return const {};
+    if (byProposal.values.every((item) => item.personCids.isEmpty)) {
+      return const {};
+    }
     final runtime = await _finalizedRuntime();
-    final keyToCoord = <String, ({BigInt pid, String accountId})>{};
+    final keyToCoord = <String, ({BigInt pid, String personCid})>{};
     for (final entry in byProposal.entries) {
-      for (final accountId in entry.value.accountIds) {
-        final normalizedAccountId = _requireAccountId(accountId);
+      for (final personCid in entry.value.personCids) {
+        final normalizedPersonCid = _requirePersonCid(personCid);
         final key = _jointTicketVoteKey(
           runtime,
           entry.key,
           entry.value.actorCidNumber,
           entry.value.voterRoleCode,
-          normalizedAccountId,
+          normalizedPersonCid,
         );
         if (key == null) continue;
-        keyToCoord[_hexEncode(key)] = (pid: entry.key, accountId: normalizedAccountId);
+        keyToCoord[_hexEncode(key)] = (
+          pid: entry.key,
+          personCid: normalizedPersonCid,
+        );
       }
     }
     if (keyToCoord.isEmpty) return const {};
-    final values = await _fetchStorageBatchChunked(runtime.block, keyToCoord.keys);
+    final values = await _fetchStorageBatchChunked(
+      runtime.block,
+      keyToCoord.keys,
+    );
     final result = <BigInt, Map<String, bool?>>{};
     keyToCoord.forEach((key, coord) {
-      (result[coord.pid] ??= <String, bool?>{})[coord.accountId] =
+      (result[coord.pid] ??= <String, bool?>{})[coord.personCid] =
           _decodeBoolVote(values[key]);
     });
     return result;
@@ -336,17 +363,23 @@ class RuntimeUpgradeService {
     BigInt proposalId,
     String actorCidNumber,
     String voterRoleCode,
-    String accountId,
+    String personCid,
   ) {
-    final account = citizenAccountIdBytes(accountId);
-    if (account.length != 32) return null;
+    _requirePersonCid(personCid);
     return runtime.storageKey('JointVote', 'JointVotesByTicket', [
       proposalId,
       [
         [_cidBytes(actorCidNumber), _roleBytes(voterRoleCode)],
-        account,
+        _cidBytes(personCid),
       ],
     ]);
+  }
+
+  static String _requirePersonCid(String cid) {
+    if (!InstitutionRoleStorageCodec.isPersonCid(cid)) {
+      throw const FormatException('联合投票票据必须使用人员CID');
+    }
+    return cid;
   }
 
   bool? _decodeBoolVote(Uint8List? data) {
@@ -361,7 +394,9 @@ class RuntimeUpgradeService {
   ///
   /// Value: VoteCountU64 { yes: u64, no: u64 } = 16 bytes。
   Future<({int yes, int no})> fetchReferendumTally(BigInt proposalId) async {
-    final data = await _readStorage('JointVote', 'ReferendumTallies', [proposalId]);
+    final data = await _readStorage('JointVote', 'ReferendumTallies', [
+      proposalId,
+    ]);
     if (data == null || data.length != 16) return (yes: 0, no: 0);
     // VoteCountU64: { yes: u64, no: u64 } — 8+8 bytes little-endian
     final yes = _decodeU64(data.sublist(0, 8));
@@ -473,7 +508,7 @@ class RuntimeUpgradeService {
     required bool approve,
   }) {
     if (proposalId.isNegative) throw ArgumentError('proposal_id不得为负');
-    return _buildCall('JointVote', 'cast_admin', [
+    return _buildCall('JointVote', 'cast_role_vote', [
       proposalId,
       _cidBytes(actorCidNumber),
       _roleBytes(voterRoleCode),
@@ -544,7 +579,9 @@ class RuntimeUpgradeService {
     }
   }
 
-  Future<CitizenRuntimeContext> _finalizedRuntime([CitizenBlockRef? block]) async {
+  Future<CitizenRuntimeContext> _finalizedRuntime([
+    CitizenBlockRef? block,
+  ]) async {
     final finalized = block ?? await _getFinalizedHead();
     if (finalized.finality != CitizenBlockFinality.finalized) {
       throw StateError('联合投票查询需要finalized块');
@@ -552,9 +589,16 @@ class RuntimeUpgradeService {
     return _getStorageRuntimeContext(finalized);
   }
 
-  Future<Uint8List?> _readStorage(String pallet, String storage, List<Object> keys) async {
+  Future<Uint8List?> _readStorage(
+    String pallet,
+    String storage,
+    List<Object> keys,
+  ) async {
     final runtime = await _finalizedRuntime();
-    return _getStorage(runtime.block, runtime.storageKey(pallet, storage, keys));
+    return _getStorage(
+      runtime.block,
+      runtime.storageKey(pallet, storage, keys),
+    );
   }
 
   Future<Map<String, Uint8List?>> _fetchStorageBatchChunked(
@@ -581,7 +625,8 @@ class RuntimeUpgradeService {
     return result;
   }
 
-  int _decodeU64(Uint8List data) => CitizenScale.readUnsigned(data, 0, 8).toInt();
+  int _decodeU64(Uint8List data) =>
+      CitizenScale.readUnsigned(data, 0, 8).toInt();
 
   int _decodeU32(Uint8List data, int offset) =>
       CitizenScale.readUnsigned(data, offset, 4).toInt();
@@ -631,12 +676,5 @@ class RuntimeUpgradeService {
   static String _normalizeHex(String hex) {
     final clean = hex.startsWith('0x') ? hex.substring(2) : hex;
     return clean.toLowerCase();
-  }
-
-  static String _requireAccountId(String accountId) {
-    if (!isCitizenAccountId(accountId)) {
-      throw const FormatException('account_id 必须为小写 0x + 64 位十六进制');
-    }
-    return accountId;
   }
 }

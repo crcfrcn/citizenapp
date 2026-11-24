@@ -32,6 +32,8 @@ import 'package:chat/transport/attachment_transfer.dart';
 
 const _device =
     'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+// 合成同步夹具也交付现行私聊信封要求的同一16字节MLS组绑定。
+const _directGroup = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
 const _account = ChatRuntimeAccount(
   hostIndex: 0,
   bindingScope:
@@ -124,6 +126,12 @@ final class _Crypto implements MlsGroupCrypto {
   int processed = 0;
   Object? processFailure;
   @override
+  Future<GroupState> groupState(String groupId) async => GroupState(
+    groupId: groupId,
+    epoch: 0,
+    memberIdentities: ['user-a:$_device', 'user-b:device-b'],
+  );
+  @override
   Future<MlsKeyPackage> createKeyPackage(
     ChatDevice identity, {
     bool lastResort = true,
@@ -167,6 +175,7 @@ final class _Message implements ChatMailboxMessage {
         senderUserId: 'user-b',
         senderDeviceId: 'device-b',
         conversationId: ChatRuntime.directConversationId('user-a', 'user-b'),
+        groupId: _directGroup,
         deliveries: [
           EncryptedDelivery(
             recipient: Recipient(userId: 'user-a', deviceId: _device),
@@ -197,7 +206,8 @@ final class _Message implements ChatMailboxMessage {
 }
 
 final class _Transport implements ChatServiceTransport {
-  _Transport(this.provider, this.store);
+  _Transport(this.provider, this.store, {this.directGroup = const []});
+  final List<int> directGroup;
   final ChatAccessProvider provider;
   final ChatStore store;
   final messages = <ChatMailboxMessage>[];
@@ -208,7 +218,7 @@ final class _Transport implements ChatServiceTransport {
   bool loseCommitReply = false;
   @override
   Future<List<int>> resolveGroup(String conversationId) async =>
-      _commits[conversationId]?.groupId ?? const [];
+      _commits[conversationId]?.groupId ?? directGroup;
   @override
   Future<void> submitCommit(SubmitCommit commit) async {
     final previous = _commits[commit.conversationId];
@@ -410,7 +420,7 @@ final class _Fixture {
     cryptoFactory: (_, _) => crypto,
     transportFactory: ({required identity, required accessProvider}) {
       transportCreates++;
-      return transport = _Transport(accessProvider, store);
+      return transport = _Transport(accessProvider, store, directGroup: _directGroup);
     },
   );
   static Future<_Fixture> create() async {

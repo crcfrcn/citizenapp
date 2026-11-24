@@ -1,6 +1,7 @@
 // 定义以MLS名册为真源的群、成员及角色镜像。
 
 /// 群成员角色。
+library;
 
 enum GroupMemberRole {
   admin('admin'),

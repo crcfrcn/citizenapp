@@ -427,7 +427,7 @@ Uint8List _activeCidRecord() => Uint8List.fromList([
 
 String _identityKey(String storageName, Uint8List data) {
   final key = [
-    ...CitizenScale.storagePrefix('CitizenIdentity', storageName),
+    ...CitizenScale.storagePrefix('Identity', storageName),
     ...CitizenScale.blake2b128(data),
     ...data,
   ];

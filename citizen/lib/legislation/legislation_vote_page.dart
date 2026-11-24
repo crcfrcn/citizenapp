@@ -54,6 +54,7 @@ class _LegislationVotePageState extends State<LegislationVotePage> {
   ({int yes, int no}) _referendumTally = (yes: 0, no: 0);
 
   List<CitizenWalletStateAccount> _votableWallets = const [];
+  Map<String, String> _personCids = const {};
   CitizenWalletStateAccount? _selectedWallet;
   bool _loading = true;
   bool _submitting = false;
@@ -105,16 +106,20 @@ class _LegislationVotePageState extends State<LegislationVotePage> {
 
       // 代表机构阶段按 body_index 检查席位票据，其余阶段交由链端校验身份。
       final votable = <CitizenWalletStateAccount>[];
+      final personCids = <String, String>{};
       if (state?.stage == LegStage.representative &&
           representativeMeta != null) {
         final body = representativeMeta.bodies[representativeMeta.currentBody];
         for (final w in widget.adminWallets) {
+          final personCid = await _query.fetchPersonCid(_requireAccountId(w.accountId));
+          if (personCid == null) continue;
+          personCids[w.accountId] = personCid;
           final voted = await _query.fetchRepresentativeVote(
             widget.proposalId,
             representativeMeta.currentBody,
             body.cidNumber,
             body.roleCode,
-            _requireAccountId(w.accountId),
+            personCid,
           );
           if (voted == null) votable.add(w);
         }
@@ -125,6 +130,7 @@ class _LegislationVotePageState extends State<LegislationVotePage> {
       if (!mounted) return;
       setState(() {
         _state = state;
+        _personCids = Map.unmodifiable(personCids);
         _representativeMeta = representativeMeta;
         _legislationMeta = legislationMeta;
         _representativeTally = representativeTally;
@@ -207,12 +213,14 @@ class _LegislationVotePageState extends State<LegislationVotePage> {
     switch (stage) {
       case LegStage.representative:
         final meta = _representativeMeta;
-        if (meta == null) {
+        final personCid = _personCids[citizenAccountIdFromBytes(publicKeyBytes)];
+        if (meta == null || personCid == null) {
           return Future<void>.error(StateError('代表机构表决元数据不存在'));
         }
         return _vote.castRepresentativeVote(
           proposalId: common.proposalId,
           voterRoleCode: meta.bodies[meta.currentBody].roleCode,
+          personCid: personCid,
           approve: common.approve,
           signerPublicKey: common.signerPublicKey,
           externalSigning: externalSigning,

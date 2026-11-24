@@ -958,21 +958,51 @@ void main() {
     final gates = [Completer<http.Response>(), Completer<http.Response>()];
     final entered = Completer<void>();
     var calls = 0;
-    final client = _client(MockClient((_) {
-      final gate = gates[calls++];
-      if (calls == 2) entered.complete();
-      return gate.future;
-    }));
+    final client = _client(
+      MockClient((_) {
+        final gate = gates[calls++];
+        if (calls == 2) entered.complete();
+        return gate.future;
+      }),
+    );
     addTearDown(client.close);
     final api = CitizenProfileApi(client: client);
     final old = api.loadProfile(_profileCid, session: _session(), cache: cache);
-    final current = api.loadProfile(_profileCid, session: _session(), cache: cache);
+    final current = api.loadProfile(
+      _profileCid,
+      session: _session(),
+      cache: cache,
+    );
     await entered.future;
-    gates[1].complete(_ok({'profile': _profileJson(following: 9, followers: 90, mutualFollowing: 9, posts: 90, campaigns: 9, videos: 9, articles: 9, isFollowing: true)}));
+    gates[1].complete(
+      _ok({
+        'profile': _profileJson(
+          following: 9,
+          followers: 90,
+          mutualFollowing: 9,
+          posts: 90,
+          campaigns: 9,
+          videos: 9,
+          articles: 9,
+          isFollowing: true,
+        ),
+      }),
+    );
     await current;
     gates[0].complete(_ok({'profile': _profileJson(following: 1)}));
     final result = await old;
-    expect([result.profile.following,result.profile.followers,result.profile.mutualFollowing,result.profile.posts,result.profile.campaigns,result.profile.videos,result.profile.articles],[9,90,9,90,9,9,9]);
+    expect(
+      [
+        result.profile.following,
+        result.profile.followers,
+        result.profile.mutualFollowing,
+        result.profile.posts,
+        result.profile.campaigns,
+        result.profile.videos,
+        result.profile.articles,
+      ],
+      [9, 90, 9, 90, 9, 9, 9],
+    );
     expect(result.profile.isFollowing, isTrue);
     expect((await cache.read(_profileCid))!.following, 9);
   });
@@ -982,28 +1012,61 @@ void main() {
     final session = _session(), cid = _session().cidNumber;
     await cache.write(CitizenProfile.fromJson(_profileJson(cidNumber: cid)));
     final firstEntered = Completer<void>(), secondEntered = Completer<void>();
-    final oldGate = Completer<http.Response>(), newGate = Completer<http.Response>();
+    final oldGate = Completer<http.Response>(),
+        newGate = Completer<http.Response>();
     var reads = 0;
-    final changed = _profileJson(cidNumber: cid, displayName: '新资料', following: 9)..['avatar_key'] = null;
-    final client = _client(MockClient((request) async {
-      if (request.method == 'PUT') return _ok({'is_ok': true, 'profile': changed});
-      if (++reads == 1) {firstEntered.complete();return oldGate.future;}
-      secondEntered.complete();return newGate.future;
-    }));
+    final changed = _profileJson(
+      cidNumber: cid,
+      displayName: '新资料',
+      following: 9,
+    )..['avatar_key'] = null;
+    final client = _client(
+      MockClient((request) async {
+        if (request.method == 'PUT') {
+          return _ok({'is_ok': true, 'profile': changed});
+        }
+        if (++reads == 1) {
+          firstEntered.complete();
+          return oldGate.future;
+        }
+        secondEntered.complete();
+        return newGate.future;
+      }),
+    );
     addTearDown(client.close);
     final api = CitizenProfileApi(client: client);
-    final old = api.refreshProfile(cid, session: session, userInitiated: true, cache: cache);
+    final old = api.refreshProfile(
+      cid,
+      session: session,
+      userInitiated: true,
+      cache: cache,
+    );
     await firstEntered.future;
-    final updated = await client.updateProfile(session: session, displayName: '新资料');
+    final updated = await client.updateProfile(
+      session: session,
+      displayName: '新资料',
+    );
     await cache.write(updated);
-    final current = api.refreshProfile(cid, session: session, userInitiated: true, cache: cache);
+    final current = api.refreshProfile(
+      cid,
+      session: session,
+      userInitiated: true,
+      cache: cache,
+    );
     expect(identical(old, current), isFalse);
     await secondEntered.future;
-    newGate.complete(_ok({'profile': changed}));await current;
-    oldGate.complete(_ok({'profile': _profileJson(cidNumber: cid, following: 1)..['avatar_key'] = null}));
+    newGate.complete(_ok({'profile': changed}));
+    await current;
+    oldGate.complete(
+      _ok({
+        'profile': _profileJson(cidNumber: cid, following: 1)
+          ..['avatar_key'] = null,
+      }),
+    );
     final result = await old;
     expect(reads, 2);
-    expect(result.profile.displayName, '新资料');expect(result.profile.following, 9);
+    expect(result.profile.displayName, '新资料');
+    expect(result.profile.following, 9);
     expect((await cache.read(cid))!.following, 9);
   });
 
@@ -1011,12 +1074,21 @@ void main() {
     const cache = CitizenProfileCache();
     await cache.write(CitizenProfile.fromJson(_profileJson()));
     final entered = Completer<void>(), gate = Completer<http.Response>();
-    final client = _client(MockClient((_) {entered.complete();return gate.future;}));
+    final client = _client(
+      MockClient((_) {
+        entered.complete();
+        return gate.future;
+      }),
+    );
     addTearDown(client.close);
-    final pending = CitizenProfileApi(client: client).loadProfile(_profileCid, session: _session(), cache: cache);
-    await entered.future;await cache.clear(_profileCid);
+    final pending = CitizenProfileApi(
+      client: client,
+    ).loadProfile(_profileCid, session: _session(), cache: cache);
+    await entered.future;
+    await cache.clear(_profileCid);
     final checked = expectLater(pending, throwsStateError);
-    gate.complete(_ok({'profile': _profileJson()}));await checked;
+    gate.complete(_ok({'profile': _profileJson()}));
+    await checked;
     expect(await cache.read(_profileCid), isNull);
   });
 
@@ -1798,8 +1870,9 @@ void main() {
       test('资料更新200但$mode不能作为R2保存成功', () async {
         final profile = _profileJson(cidNumber: _session().cidNumber);
         if (mode == 'zero') profile['profile_at'] = 0;
-        if (mode == 'wrong-cid')
+        if (mode == 'wrong-cid') {
           profile['cid_number'] = 'CN220-CTZN2-100000001-2026';
+        }
         final client = _client(
           MockClient(
             (_) async => _ok({'is_ok': mode != 'not-ok', 'profile': profile}),

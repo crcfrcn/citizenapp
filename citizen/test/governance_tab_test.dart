@@ -144,8 +144,15 @@ Future<void> _pumpPage(
 }) async {
   final repo = await _buildRepo(councils: councils, banks: banks);
   await tester.pumpWidget(
-    Provider<CitizenSdk?>.value(
-      value: sdk,
+    MultiProvider(
+      providers: [
+        Provider<CitizenSdk?>.value(value: sdk),
+        if (sdk != null)
+          // 本例只验导航；链读取明确失败，不留下未启动链服务的在途余额请求。
+          Provider<CitizenBalances>.value(value: CitizenBalances(
+            getAccountBalances: (_) async => throw StateError('导航夹具链读不可用'),
+          )),
+      ],
       child: Provider<CurrentUserContext>.value(
         value: _GuestUserContext(),
         child: MaterialApp(
@@ -350,13 +357,13 @@ void main() {
     );
   });
 
+  group('机构详情真实SDK导航', () {
+  final core = TestCitizenSdkHarness(
+    modules: CitizenSdkModules.wallet | CitizenSdkModules.qr,
+    initialize: (sdk) async { await sdk.getWalletState().result; },
+  );
   testWidgets('iOS机构详情目录不可用时侧滑取消保留详情、完成返回治理列表', (tester) async {
-    final core = await openTestSdk();
     final sdk = core.sdk;
-    addTearDown(() async {
-      await tester.pumpWidget(const SizedBox.shrink());
-      await sdk.close();
-    });
     await _pumpPage(
       tester,
       councils: councils,
@@ -379,6 +386,19 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(InstitutionDetailPage), findsNothing);
     expect(find.text('甲省储委会'), findsOneWidget);
+    var readDone = false;
+    Object? readError;
+    final reading = sdk.getWalletState().result.then<void>((_) { readDone = true; }, onError: (Object error) { readError = error; readDone = true; });
+    for (var i = 0; i < 150 && !readDone; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 2)));
+      await tester.pump(const Duration(milliseconds: 10));
+    }
+    expect(readDone, isTrue, reason: '导航触发的真实目录读取必须在测试结束前完成');
+    expect(readError, isNull);
+    await reading;
+    // 页面在Widget测试绑定内释放；Core由既有夹具在测试结束后关闭并核验资源。
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
   });
 
   testWidgets('点击白皮书卡在 App 内进入阅读页', (tester) async {

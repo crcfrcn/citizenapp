@@ -1,44 +1,23 @@
-// 验证机构详情、管理员钱包关联及激活和权限状态呈现。
-
-import 'package:citizen_storage/user_isar.dart' as app_store show Entity;
-// 统一机构详情页(ADR-028)widget 测试 —— 公权路径(信息卡/账户/提案占位/管理员/
-// 提案列表/订阅)+ 统一账户行派生。替代旧 public_institution_detail_test。
-
+// 验证机构详情、人员任职及当前钱包展示，保留账户、余额和关注回归。
 import 'dart:async';
-
-import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:provider/provider.dart';
 import 'package:flutter/material.dart';
-import 'package:citizen_citizen/administrators/institution_admin_service.dart';
-import 'package:citizen_citizen/administrators/admin_activation_service.dart';
-import 'package:citizen_citizen/proposal/proposal_context.dart';
-import 'package:citizen_citizen/proposal/proposal_vote_widgets.dart';
-import 'package:citizen_citizen/proposal/proposal_models.dart';
-import 'package:citizen_citizen/proposal/proposal_entry_page.dart';
-import 'package:citizen_citizen/institution/institution_info.dart';
-import 'package:citizen_citizen/institution/institution_assignment_card.dart';
-import 'package:citizen_citizen/institution/institution_admin_list_page.dart';
-import 'package:citizen_citizen/public/public_institution_admin_list_page.dart';
-
-import 'package:citizen_testing/fake_citizen_sdk.dart';
-
 import 'package:flutter_test/flutter_test.dart';
-
+import 'package:provider/provider.dart';
+import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_storage/user_isar.dart' as app_store show Entity;
 import 'package:citizen_citizen/institution/institution.dart';
-import 'package:citizen_citizen/institution/institution_accounts.dart';
 import 'package:citizen_citizen/institution/institution_accounts_page.dart';
 import 'package:citizen_citizen/institution/institution_chain_state.dart';
 import 'package:citizen_citizen/institution/institution_detail_page.dart';
 import 'package:citizen_citizen/institution/institution_repository.dart';
-import 'package:citizen_citizen/public/public_institution_dto.dart';
+import 'package:citizen_citizen/institution/institution_assignment_card.dart';
+import 'package:citizen_citizen/institution/institution_assignments_page.dart';
 import 'package:citizen_citizen/institution/institution_role_models.dart';
-import 'package:citizen_citizen/administrators/admin_account.dart';
-import 'package:citizen_citizen/account_derivation.dart';
+import 'package:citizen_citizen/public/public_institution_dto.dart';
+import 'package:citizen_citizen/public/public_institution_assignments_page.dart';
+import 'package:citizen_citizen/proposal/proposal_vote_widgets.dart';
 import 'package:citizen_citizen/reserved_account_names.dart';
-
 import 'package:citizen_testing/institution/public_nav_harness.dart';
-
-late TestCitizenSdkHarness _core;
 
 const _cid = 'LN001-CREG0-944805165-2026';
 const _adminAccountId =
@@ -47,89 +26,66 @@ const _fscCid = 'ZS001-FSC0W-434172688-2026';
 const _fcsfAccountId =
     '0xc0e4ce3c11401ad661ae139081bbc797db51d0efe71df3ffb107f3dcb0064802';
 
+InstitutionPersonView _person(
+  String? wallet, {
+  List<String> roles = const ['MEMBER'],
+}) => InstitutionPersonView(
+  personCid: 'CN220-CTZN2-198805200-2026',
+  accountId: wallet,
+  assignments: [
+    for (final role in roles)
+      InstitutionAssignment(
+        cidNumber: _cid,
+        personCid: 'CN220-CTZN2-198805200-2026',
+        roleCode: role,
+        roleName: role == 'MEMBER' ? '委员' : '主任',
+        termStart: 0,
+        termEnd: 0,
+        source: InstitutionAssignmentSource.genesis,
+        sourceRef: '',
+        active: true,
+      ),
+  ],
+);
+
 class _FakeChainState implements InstitutionChainState {
   _FakeChainState({
-    this.adminList = const [],
+    this.wallets = const [],
     this.proposalList = const [],
     this.balanceByAccountId = const {},
   });
-  List<String> adminList;
-  Future<List<InstitutionAdminView>> Function(Institution)? reader;
-  Future<Map<String, BigInt>>? balanceFuture;
-  bool proposalsFail = false;
-  int adminReads = 0;
+  List<String> wallets;
+  Future<List<InstitutionPersonView>> Function(Institution)? reader;
   final List<InstitutionProposalSummary> proposalList;
   final Map<String, BigInt> balanceByAccountId;
-
   CitizenBalances? _balances;
   CitizenBalances get balances => _balances ??= CitizenBalances(
-    getAccountBalances: (ids) async {
-      final amounts = await (balanceFuture ?? Future.value(balanceByAccountId));
-      return [
-        for (final id in ids)
-          CitizenAccountBalance(
-            accountId: id,
-            block: CitizenBlockRef(
-              hash: '0x${List.filled(32, '11').join()}',
-              number: BigInt.one,
-              finality: CitizenBlockFinality.finalized,
-            ),
-            freeFen: amounts[id] ?? BigInt.from(1250),
-            reservedFen: BigInt.zero,
-            totalFen: amounts[id] ?? BigInt.from(1250),
+    getAccountBalances: (ids) async => [
+      for (final id in ids)
+        CitizenAccountBalance(
+          accountId: id,
+          block: CitizenBlockRef(
+            hash: '0x${'11' * 32}',
+            number: BigInt.one,
+            finality: CitizenBlockFinality.finalized,
           ),
-      ];
-    },
+          freeFen: balanceByAccountId[id] ?? BigInt.from(1250),
+          reservedFen: BigInt.zero,
+          totalFen: balanceByAccountId[id] ?? BigInt.from(1250),
+        ),
+    ],
   );
-
   @override
-  Future<List<InstitutionAdminView>> adminViews(Institution institution) async {
-    adminReads++;
-    if (reader != null) return reader!(institution);
-    return adminList
-        .map(
-          (account) => InstitutionAdminView(
-            admin: AdminPerson(
-              accountId: account,
-              familyName: '管理',
-              givenName: '员',
-            ),
-            assignments: [
-              InstitutionAdminAssignment(
-                cidNumber: institution.cidNumber,
-                accountId: account,
-                roleCode: 'MEMBER',
-                roleName: '委员',
-                termStart: 0,
-                termEnd: 0,
-                source: InstitutionAssignmentSource.genesis,
-                sourceRef: '',
-                active: true,
-              ),
-            ],
-          ),
-        )
-        .toList();
-  }
-
+  Future<List<InstitutionPersonView>> personViews(
+    Institution institution,
+  ) async => reader == null
+      ? wallets.map((wallet) => _person(wallet)).toList()
+      : reader!(institution);
   @override
   Future<List<InstitutionProposalSummary>> proposals(
     Institution institution,
-  ) async {
-    if (proposalsFail) throw StateError('合成提案读取失败');
-    return proposalList;
-  }
+  ) async => proposalList;
 }
-
-app_store.Entity _entity() => PublicInstitutionDto.fromJson(<String, dynamic>{
-  'cid_number': _cid,
-  'cid_full_name': '辽宁省身份注册局',
-  'province_code': 'LN',
-  'city_code': '001',
-  'institution_code': 'CREG',
-  'account_count': 4,
-  'custom_account_names': ['业务专户'],
-}).toEntity();
 
 app_store.Entity _fscEntity() =>
     PublicInstitutionDto.fromJson(<String, dynamic>{
@@ -143,757 +99,116 @@ app_store.Entity _fscEntity() =>
       'custom_account_names': [kReservedNameFcsf],
     }).toEntity();
 
-Widget _wrap(Widget child) => Provider<CitizenBalances>.value(
-  value: _FakeChainState(
-    balanceByAccountId: {_fcsfAccountId: BigInt.from(1000000000000)},
-  ).balances,
+Widget _wrap(Widget child) => MultiProvider(
+  providers: [
+    Provider<CitizenBalances>.value(
+      value: _FakeChainState(
+        balanceByAccountId: {_fcsfAccountId: BigInt.from(1000000000000)},
+      ).balances,
+    ),
+  ],
   child: MaterialApp(home: child),
 );
 
-/// 合成名册和权限时序，测试不打开设备钱包、激活存储或实际链会话。
-List<InstitutionAdminView> _rows(int count, {bool loaded = true}) => [
-  for (var i = 0; i < count; i++)
-    InstitutionAdminView(
-      admin: AdminPerson(
-        accountId: i == 0 ? _adminAccountId : '0x${'bb' * 32}',
-        familyName: '合成',
-        givenName: '管理员$i',
-      ),
-      assignmentsLoaded: loaded,
-    ),
-];
-
-class _RoleReader extends ProposalContextResolver {
-  _RoleReader()
-    : super(
-        adminService: (() {
-          final reads0 = TestChainReads();
-          return InstitutionAdminService(
-            getFinalizedHead: reads0.getFinalizedHead,
-            getStorageKeysPaged: reads0.getStorageKeysPaged,
-            getStorageBatch: reads0.getStorageBatch,
-          );
-        })(),
-        activationService: ActivationService(
-          adminService: (() {
-            final reads0 = TestChainReads();
-            return InstitutionAdminService(
-              getFinalizedHead: reads0.getFinalizedHead,
-              getStorageKeysPaged: reads0.getStorageKeysPaged,
-              getStorageBatch: reads0.getStorageBatch,
-            );
-          })(),
-        ),
-      );
-  Future<ProposalContext> Function() read = () async => ProposalContext();
-  final cids = <String?>[];
-  @override
-  Future<ProposalContext> resolve({
-    String? actorCidNumber,
-    List<int>? executionAccountId,
-    String? internalCode,
-    InstitutionInfo? knownInstitution,
-  }) async {
-    cids.add(actorCidNumber);
-    expectSync(actorCidNumber, knownInstitution?.cidNumber);
-    return read();
-  }
-}
-
-class _ActivationReader extends ActivationService {
-  _ActivationReader()
-    : super(
-        adminService: (() {
-          final reads0 = TestChainReads();
-          return InstitutionAdminService(
-            getFinalizedHead: reads0.getFinalizedHead,
-            getStorageKeysPaged: reads0.getStorageKeysPaged,
-            getStorageBatch: reads0.getStorageBatch,
-            getStorage: reads0.getStorage,
-          );
-        })(),
-      );
-  bool failed = false;
-  @override
-  Future<List<ActivatedAdmin>> getActivatedAdmins(
-    AdminAccountIdentity identity,
-  ) async {
-    if (failed) throw StateError('合成激活读取失败');
-    return [];
-  }
-}
-
-Future<void> _openDetails(
-  WidgetTester tester,
-  _FakeChainState chain, {
-  _RoleReader? roles,
-  _ActivationReader? activation,
-  bool governance = false,
-}) async {
-  tester.view.physicalSize = const Size(1200, 3200);
-  tester.view.devicePixelRatio = 1;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
-  final cid = governance ? 'LN001-NRC0G-944805165-2026' : _cid;
+Future<void> _openDetails(WidgetTester tester, _FakeChainState chain) async {
   final directory = await buildSeededRepo(
     provinceOrder: const ['LN'],
     institutions: [
       PublicInstitutionDto.fromJson({
-        'cid_number': cid,
+        'cid_number': _cid,
         'cid_full_name': '合成机构',
         'province_code': 'LN',
         'city_code': '001',
-        'institution_code': governance ? 'NRC' : 'CREG',
+        'institution_code': 'CREG',
         'account_count': 2,
       }),
     ],
   );
-  Widget app = MaterialApp(
-    home: InstitutionDetailPage(
-      cidNumber: cid,
-      repository: InstitutionRepository(directory: directory),
-      chainState: chain,
-      contextResolver: roles,
-      activationService: activation,
-      subscriberCidNumberProvider: () async => null,
+  await tester.pumpWidget(
+    MultiProvider(
+      providers: [
+        Provider<CitizenBalances>.value(value: chain.balances),
+      ],
+      child: MaterialApp(
+        home: InstitutionDetailPage(
+          cidNumber: _cid,
+          repository: InstitutionRepository(directory: directory),
+          chainState: chain,
+          subscriberCidNumberProvider: () async => null,
+        ),
+      ),
     ),
   );
-  if (roles != null || activation != null) {
-    // 同一用例重新进入时继续使用该用例的真实Core会话。
-    final sdk = _core.sdk;
-    addTearDown(() async {
-      await tester.pumpWidget(const SizedBox.shrink());
-    });
-    app = Provider<CitizenSdk>.value(value: sdk, child: app);
-  }
-  await tester.pumpWidget(
-    Provider<CitizenBalances>.value(value: chain.balances, child: app),
-  );
-  for (var i = 0; i < 5; i++) {
+  for (var i = 0; i < 8; i++) {
     await tester.pump();
   }
-}
-
-Future<void> _reopenDetails(
-  WidgetTester tester,
-  _FakeChainState chain, {
-  _RoleReader? roles,
-  _ActivationReader? activation,
-}) async {
-  await tester.pumpWidget(const SizedBox.shrink());
-  await _openDetails(tester, chain, roles: roles, activation: activation);
-}
-
-void _expectOriginalAdminCard() {
-  expect(find.byTooltip('刷新管理员'), findsNothing);
-  expect(find.byKey(const ValueKey('admins-retry')), findsNothing);
-  expect(find.byKey(const ValueKey('admin-role-retry')), findsNothing);
-  expect(find.text('岗位信息暂不可用'), findsNothing);
 }
 
 void main() {
-  _core = TestCitizenSdkHarness();
-  CitizenWalletState walletState({bool cold = false}) {
-    final base = testCitizenWalletState();
-    return CitizenWalletState(
-      revision: BigInt.one,
-      activeWalletIndex: 0,
-      hotProfile: base.hotProfile,
-      accounts: [
-        ...base.accounts,
-        if (cold)
-          CitizenWalletStateAccount(
-            signMode: CitizenWalletSignMode.cold,
-            walletIndex: 1,
-            accountIndex: 0,
-            accountId: _adminAccountId,
-            ss58Address: citizenSs58FromAccountId(_adminAccountId),
-            name: '合成冷账户',
-            createdAtMillis: BigInt.one,
-            isDefault: true,
-          ),
-      ],
-      initializationState: CitizenWalletInitializationState.ready,
-      cleanupPending: false,
-    );
-  }
-
-  test('管理员钱包目录读合并变更事件，旧结果不启用按钮；失败保留公共资料', () async {
-    final events = StreamController<CitizenSdkEvent>.broadcast();
-    final old = Completer<CitizenWalletState>();
-    var calls = 0;
-    final state = AdminListState(
-      admins: _rows(1, loaded: false),
-      identity: null,
-      events: events.stream,
-      walletReader: () =>
-          ++calls == 1 ? old.future : Future.value(walletState(cold: true)),
-      adminReader: () async => _rows(1),
-      activationReader: () async => {},
-    );
-    final load = state.load();
-    events.add(const CitizenSdkWalletChanged(sequence: 1));
-    events.add(const CitizenSdkWalletChanged(sequence: 2));
-    await Future<void>.delayed(Duration.zero);
-    expect(calls, 1);
-    expect(state.walletsReady, isFalse);
-    old.complete(walletState());
-    await load;
-    expect(calls, 2);
-    expect(state.walletsReady, isTrue);
-    expect(state.coldAccountIds, {_adminAccountId});
-    expect(state.admins.single.assignmentsLoaded, isTrue);
-    state.dispose();
-    await events.close();
-
-    final failed = AdminListState(
-      admins: _rows(1),
-      identity: null,
-      walletReader: () async => throw StateError('synthetic directory failure'),
-    );
-    await failed.load();
-    expect(failed.walletsReady, isFalse);
-    expect(failed.coldAccountIds, isEmpty);
-    expect(failed.admins, hasLength(1));
-    failed.dispose();
+  testWidgets('同一人员多个岗位在卡片独立显示，不以钱包冒充人员CID', (tester) async {
+    final person = _person(_adminAccountId, roles: ['MEMBER', 'DIRECTOR']);
+    await tester.pumpWidget(_wrap(InstitutionAssignmentCard(person: person)));
+    expect(find.text(person.personCid), findsOneWidget);
+    expect(find.text('委员 · 无固定任期'), findsOneWidget);
+    expect(find.text('主任 · 无固定任期'), findsOneWidget);
+    expect(find.textContaining('来源：创世'), findsNWidgets(2));
   });
-
-  test('管理员列表退出后目录迟到不通知、不回填；仅热钱包不算可激活冷钱包', () async {
-    final late = Completer<CitizenWalletState>();
-    final state = AdminListState(
-      admins: _rows(1),
-      identity: null,
-      walletReader: () => late.future,
-    );
-    var notifications = 0;
-    state.addListener(() => notifications++);
-    final load = state.load();
-    final before = notifications;
-    state.dispose();
-    late.complete(walletState(cold: true));
-    await load;
-    expect(notifications, before);
-    expect(state.walletsReady, isFalse);
-    final hot = AdminListState(
-      admins: _rows(1),
-      identity: null,
-      walletReader: () async => walletState(),
-    );
-    await hot.load();
-    expect(hot.walletsReady, isTrue);
-    expect(hot.coldAccountIds, isEmpty);
-    hot.dispose();
-  });
-
-  for (final type in [OrgType.nrc, OrgType.prc, OrgType.prb]) {
-    testWidgets('管理员标题仅显示一次机构简称，类型=$type保留人员与激活入口', (tester) async {
-      final label = OrgType.label(type);
-      final institution = InstitutionInfo(
-        fullName: label,
-        shortName: label,
-        cidFullNameEn: 'Test institution',
-        cidShortNameEn: 'Test',
-        cidNumber: _cid,
-        orgType: type,
-        accounts: const InstitutionAccounts(
-          mainAccountId: _adminAccountId,
-          feeAccountId: _adminAccountId,
-        ),
-      );
-      await tester.pumpWidget(
-        _wrap(
-          AdminListPage(
-            institution: institution,
-            accountIdentity: AdminAccountIdentity.fromInstitution(institution),
-            admins: _rows(1),
-            activatedAccountIds: const {},
-            badgeColor: Colors.purple,
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text(label), findsOneWidget);
-      expect(find.byIcon(Icons.people_outline), findsOneWidget);
-      expect(find.text('管理员账户'), findsOneWidget);
-      expect(find.text('激活'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox.shrink());
-    });
-  }
-
-  for (final imported in [false, true]) {
-    testWidgets('管理员激活始终显示，匹配钱包=$imported时语义和触摸启用状态正确', (tester) async {
-      final identity = AdminAccountIdentity.institution(
-        cidNumber: _cid,
-        orgCode: 'CREG',
-        accountLabel: '合成机构',
-      );
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: InstitutionAdminTile(
-              index: 1,
-              adminView: _rows(1).single,
-              isImported: imported,
-              isActivated: false,
-              accountIdentity: identity,
-              onActivated: () {},
-              balanceFen: null,
-            ),
-          ),
-        ),
-      );
-      expect(find.text('激活'), findsOneWidget);
-      final gesture = tester.widget<GestureDetector>(
-        find
-            .ancestor(
-              of: find.text('激活'),
-              matching: find.byType(GestureDetector),
-            )
-            .first,
-      );
-      expect(gesture.onTap, imported ? isNotNull : isNull);
-      if (!imported) {
-        await tester.tap(find.text('激活'));
-        await tester.pump();
-        expect(find.text('未找到对应钱包'), findsNothing);
-      }
-      expect(find.text('管理员账户'), findsOneWidget);
-    });
-  }
-
-  testWidgets('已激活仍显示禁用控件，空姓名和空任职明确显示没有任职', (tester) async {
-    final empty = InstitutionAdminView(
-      admin: const AdminPerson(
-        accountId: _adminAccountId,
-        familyName: '',
-        givenName: '',
-      ),
-      assignments: const [],
-    );
+  testWidgets('人员缺当前绑定仍显示任职，但不能发起节点访问授权', (tester) async {
+    final person = _person(null);
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: InstitutionAdminTile(
-            index: 1,
-            adminView: empty,
-            isImported: true,
-            isActivated: true,
-            accountIdentity: null,
-            onActivated: () {},
-            balanceFen: null,
+      _wrap(
+        InstitutionAssignmentsPage(
+          persons: [person],
+          identity: const InstitutionIdentity(
+            cidNumber: _cid,
+            orgCode: 'CREG',
+            kind: 0,
           ),
         ),
       ),
-    );
-    expect(find.text('已激活'), findsOneWidget);
-    expect(find.text('没有任职'), findsNWidgets(4));
-    final gesture = tester.widget<GestureDetector>(
-      find
-          .ancestor(
-            of: find.text('已激活'),
-            matching: find.byType(GestureDetector),
-          )
-          .first,
-    );
-    expect(gesture.onTap, isNull);
-  });
-
-  testWidgets('公开机构列表同样始终提供灰色禁用激活入口', (tester) async {
-    await tester.pumpWidget(
-      _wrap(PublicInstitutionAdminListPage(admins: _rows(1))),
     );
     await tester.pumpAndSettle();
-    expect(find.text('激活'), findsOneWidget);
-    final gesture = tester.widget<GestureDetector>(
-      find
-          .ancestor(of: find.text('激活'), matching: find.byType(GestureDetector))
-          .first,
-    );
-    expect(gesture.onTap, isNull);
-    expect(find.text('管理员账户'), findsOneWidget);
+    expect(find.text(person.personCid), findsOneWidget);
+    expect(find.text('共 1 位人员'), findsOneWidget);
+    expect(find.text('节点访问授权'), findsNothing);
+    expect(find.text('激活'), findsNothing);
   });
-  testWidgets('名册加载中不显示0人，余额未完成也不阻塞人员', (tester) async {
-    final people = Completer<List<InstitutionAdminView>>();
-    final balance = Completer<Map<String, BigInt>>();
-    final chain = _FakeChainState()
-      ..reader = ((_) => people.future)
-      ..balanceFuture = balance.future;
+  testWidgets('公开机构列表复用同一人员任职卡', (tester) async {
+    await tester.pumpWidget(
+      _wrap(PublicInstitutionAssignmentsPage(persons: [_person(null)])),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(InstitutionAssignmentCard), findsOneWidget);
+    expect(find.text('共 1 位人员'), findsOneWidget);
+  });
+  testWidgets('任职未完成时不伪造0人，完成后才显示真实空集', (tester) async {
+    final result = Completer<List<InstitutionPersonView>>();
+    final chain = _FakeChainState()..reader = (_) => result.future;
     await _openDetails(tester, chain);
-    expect(find.text('正在读取管理员'), findsOneWidget);
-    expect(find.text('共 0 位管理员'), findsNothing);
-    _expectOriginalAdminCard();
-    await tester.tap(find.text('管理员'));
-    await tester.pump();
-    expect(find.text('管理员列表'), findsNothing);
-    people.complete(_rows(2));
+    expect(find.text('正在读取任职'), findsOneWidget);
+    expect(find.text('共 0 位人员'), findsNothing);
+    result.complete([]);
     await tester.pumpAndSettle();
-    expect(find.text('共 2 位管理员'), findsOneWidget);
-    expect(chain.adminReads, 1);
-    balance.complete({});
-    await tester.pumpAndSettle();
+    expect(find.text('共 0 位人员'), findsOneWidget);
   });
-  testWidgets('人员未知保留卡片但不伪造0人，不增加重试控件；重新进入成功空集才显示0', (tester) async {
+  testWidgets('任职读失败保留机构资料，不以失败冒充0人', (tester) async {
     final chain = _FakeChainState()
-      ..reader = (_) async => throw StateError('合成人员失败');
+      ..reader = (_) async => throw StateError('人员链读失败');
     await _openDetails(tester, chain);
-    expect(find.text('管理员信息暂不可用'), findsOneWidget);
-    expect(find.text('共 0 位管理员'), findsNothing);
-    _expectOriginalAdminCard();
-    chain.reader = (_) async => [];
-    await _reopenDetails(tester, chain);
     await tester.pumpAndSettle();
-    expect(find.text('共 0 位管理员'), findsOneWidget);
-    expect(chain.adminReads, 2);
+    expect(find.text('人员任职暂不可用'), findsOneWidget);
+    expect(find.text('共 0 位人员'), findsNothing);
+    expect(find.text('合成机构'), findsWidgets);
   });
-  testWidgets('岗位未知保留真实人数，管理员区域不显示岗位警告或新增按钮', (tester) async {
-    final chain = _FakeChainState()
-      ..reader = (_) async => _rows(2, loaded: false);
+  testWidgets('退出详情后迟到任职不回填已销毁页面', (tester) async {
+    final result = Completer<List<InstitutionPersonView>>();
+    final chain = _FakeChainState()..reader = (_) => result.future;
     await _openDetails(tester, chain);
-    expect(find.text('共 2 位管理员'), findsOneWidget);
-    _expectOriginalAdminCard();
-  });
-  for (final fail in [false, true]) {
-    testWidgets('退出页的迟到名册${fail ? '失败' : '成功'}不污染重新打开的机构', (tester) async {
-      final delayed = Completer<List<InstitutionAdminView>>();
-      final chain = _FakeChainState()..reader = (_) => delayed.future;
-      await _openDetails(tester, chain);
-      chain.reader = (_) async => _rows(2);
-      await _reopenDetails(tester, chain);
-      if (fail) {
-        delayed.completeError(StateError('合成旧结果失败'));
-      } else {
-        delayed.complete([]);
-      }
-      await tester.pumpAndSettle();
-      expect(find.text('共 2 位管理员'), findsOneWidget);
-      expect(find.text('共 0 位管理员'), findsNothing);
-      _expectOriginalAdminCard();
-    });
-  }
-  for (final roleFailure in [true, false]) {
-    testWidgets('${roleFailure ? '角色' : '激活'}失败不丢名册，删除警告条仍不开放提案权限', (
-      tester,
-    ) async {
-      final roles = _RoleReader();
-      final activation = _ActivationReader()..failed = !roleFailure;
-      if (roleFailure) roles.read = () async => throw StateError('合成角色失败');
-      final chain = _FakeChainState()
-        ..reader = ((_) async => _rows(1))
-        ..proposalsFail = true;
-      await _openDetails(tester, chain, roles: roles, activation: activation);
-      await tester.pumpAndSettle();
-      expect(find.text('共 1 位管理员'), findsOneWidget);
-      _expectOriginalAdminCard();
-      expect(roles.cids, [_cid]);
-      expect(chain.adminReads, 1);
-      await tester.tap(find.text('发起提案'));
-      await tester.pumpAndSettle();
-      expect(
-        tester
-            .widget<ProposalEntryPage>(find.byType(ProposalEntryPage))
-            .isActivated,
-        isFalse,
-      );
-    });
-  }
-  testWidgets('重新进入可核实角色，但不存在单独角色重试按钮', (tester) async {
-    final roles = _RoleReader()..read = () async => throw StateError('合成角色失败');
-    final chain = _FakeChainState()..reader = (_) async => _rows(1);
-    final activation = _ActivationReader();
-    await _openDetails(tester, chain, roles: roles, activation: activation);
-    _expectOriginalAdminCard();
-    roles.read = () async => ProposalContext();
-    await _reopenDetails(tester, chain, roles: roles, activation: activation);
+    await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+    result.complete([_person(null)]);
     await tester.pumpAndSettle();
-    expect(find.text('共 1 位管理员'), findsOneWidget);
-    expect(chain.adminReads, 2);
-    expect(roles.cids, [_cid, _cid]);
+    expect(tester.takeException(), isNull);
   });
-  for (final fail in [false, true]) {
-    testWidgets('旧页面角色${fail ? '失败' : '成功'}不能恢复新页面已撤销权限', (tester) async {
-      final delayed = Completer<ProposalContext>();
-      final roles = _RoleReader()..read = () => delayed.future;
-      final chain = _FakeChainState()..reader = (_) async => _rows(1);
-      final activation = _ActivationReader();
-      await _openDetails(tester, chain, roles: roles, activation: activation);
-      roles.read = () async => ProposalContext();
-      await _reopenDetails(tester, chain, roles: roles, activation: activation);
-      if (fail) {
-        delayed.completeError(StateError('合成旧角色失败'));
-      } else {
-        delayed.complete(ProposalContext(role: ProposalRole.admin));
-      }
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('发起提案'));
-      await tester.pumpAndSettle();
-      expect(
-        tester
-            .widget<ProposalEntryPage>(find.byType(ProposalEntryPage))
-            .isActivated,
-        isFalse,
-      );
-    });
-  }
-  testWidgets('固定治理机构也走唯一名册路径，角色失败不影响人数', (tester) async {
-    final roles = _RoleReader()
-      ..read = () async => throw StateError('合成治理角色失败');
-    final chain = _FakeChainState()..reader = (_) async => _rows(2);
-    await _openDetails(
-      tester,
-      chain,
-      roles: roles,
-      activation: _ActivationReader(),
-      governance: true,
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('共 2 位管理员'), findsOneWidget);
-    _expectOriginalAdminCard();
-    expect(roles.cids, ['LN001-NRC0G-944805165-2026']);
-    expect(chain.adminReads, 1);
-  });
-  for (final loaded in [false, true]) {
-    testWidgets('共用人员卡区分${loaded ? '已核实无岗位' : '岗位未读到'}并保留姓名账户', (tester) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: InstitutionAssignmentCard(
-              adminView: _rows(1, loaded: loaded).single,
-            ),
-          ),
-        ),
-      );
-      expect(find.text('合成管理员0'), findsOneWidget);
-      expect(find.text('没有任职'), loaded ? findsNWidgets(3) : findsNothing);
-      expect(find.text('—'), loaded ? findsNothing : findsNWidgets(3));
-      expect(find.textContaining('未读取'), findsNothing);
-      _expectOriginalAdminCard();
-      expect(find.text('管理员账户'), findsOneWidget);
-      expect(
-        find.text(citizenSs58FromAccountId(_adminAccountId)),
-        findsOneWidget,
-      );
-    });
-  }
-
-  testWidgets('未核实的旧岗位不展示，人员账户保留且不新增提示或操作', (tester) async {
-    final admin = _rows(1).single.admin;
-    const stale = InstitutionAdminAssignment(
-      cidNumber: _cid,
-      accountId: _adminAccountId,
-      roleCode: 'STALE',
-      roleName: '旧岗位',
-      termStart: 0,
-      termEnd: 0,
-      source: InstitutionAssignmentSource.genesis,
-      sourceRef: '旧引用',
-      active: true,
-    );
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: InstitutionAssignmentCard(
-            adminView: InstitutionAdminView(
-              admin: admin,
-              assignmentsLoaded: false,
-              assignments: const [stale],
-            ),
-          ),
-        ),
-      ),
-    );
-    expect(find.text('合成管理员0'), findsOneWidget);
-    expect(find.text('管理员账户'), findsOneWidget);
-    expect(find.text('没有任职'), findsNothing);
-    expect(find.textContaining('旧岗位'), findsNothing);
-    expect(find.textContaining('旧引用'), findsNothing);
-    _expectOriginalAdminCard();
-    expect(find.byType(TextButton), findsNothing);
-    expect(find.byType(IconButton), findsNothing);
-  });
-
-  testWidgets('已核实人员卡展示多个真实岗位及任期来源，不增加刷新重试', (tester) async {
-    final admin = _rows(1).single.admin;
-    final assignments = [
-      for (final code in ['A', 'B'])
-        InstitutionAdminAssignment(
-          cidNumber: _cid,
-          accountId: _adminAccountId,
-          roleCode: code,
-          roleName: '合成岗位$code',
-          termStart: 10,
-          termEnd: 20,
-          termRequired: true,
-          source: InstitutionAssignmentSource.registry,
-          sourceRef: '合成引用',
-          active: true,
-        ),
-    ];
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: InstitutionAssignmentCard(
-            adminView: InstitutionAdminView(
-              admin: admin,
-              assignments: assignments,
-            ),
-          ),
-        ),
-      ),
-    );
-    expect(find.text('合成岗位A、合成岗位B'), findsOneWidget);
-    expect(find.text('1970/01/11-1970/01/21'), findsOneWidget);
-    expect(find.text('注册局（依据：合成引用）'), findsOneWidget);
-    expect(find.text('没有任职'), findsNothing);
-    expect(
-      tester.getRect(find.text('来源')).top,
-      tester.getRect(find.text('任期')).top,
-    );
-    expect(
-      tester.getRect(find.text('来源')).left,
-      lessThan(tester.getRect(find.text('任期')).left),
-    );
-    expect(
-      tester.getRect(find.text('账户余额')).top,
-      greaterThan(tester.getRect(find.text('任期')).bottom),
-    );
-    expect(
-      tester.getRect(find.text('管理员账户')).top,
-      greaterThan(tester.getRect(find.text('账户余额')).bottom),
-    );
-    _expectOriginalAdminCard();
-  });
-
-  for (final scale in [1.0, 1.6]) {
-    testWidgets('管理员圆圈序号与原票据一致，320窄屏字号$scale不溢出', (tester) async {
-      tester.view.physicalSize = const Size(320, 1000);
-      tester.view.devicePixelRatio = 1;
-      tester.platformDispatcher.textScaleFactorTestValue = scale;
-      addTearDown(() {
-        tester.view.resetPhysicalSize();
-        tester.view.resetDevicePixelRatio();
-        tester.platformDispatcher.clearTextScaleFactorTestValue();
-      });
-      final person = _rows(1).single.admin;
-      final ticket = EligibleVoterTicket(
-        voterAccountId: person.accountId,
-        cidNumber: _cid,
-        voterRoleCode: 'SYNTHETIC_ROLE',
-        voterRoleName: '委员',
-      );
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: SingleChildScrollView(
-              child: Column(
-                children: [
-                  InstitutionAssignmentCard(
-                    index: 1,
-                    balanceFen: BigInt.from(128050),
-                    trailing: const Text('已激活'),
-                    adminView: InstitutionAdminView(
-                      admin: person,
-                      assignments: [
-                        InstitutionAdminAssignment(
-                          cidNumber: _cid,
-                          accountId: person.accountId,
-                          roleCode: 'ROLE',
-                          roleName: '测试岗位',
-                          termStart: 10,
-                          termEnd: 20,
-                          termRequired: true,
-                          source: InstitutionAssignmentSource.registry,
-                          sourceRef: '0x8000000000000000',
-                          active: true,
-                        ),
-                      ],
-                    ),
-                  ),
-                  ProposalAdminVoteList(
-                    admins: [person.accountId],
-                    voterTickets: [ticket],
-                    adminVotes: {ticket.ticketKey: true},
-                    pendingPublicKeys: const {},
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-      final circles = tester
-          .widgetList<CircleAvatar>(find.byType(CircleAvatar))
-          .toList();
-      expect(circles, hasLength(2));
-      expect(circles[0].radius, circles[1].radius);
-      expect(circles[0].backgroundColor, circles[1].backgroundColor);
-      expect((circles[0].child! as Text).data, '1');
-      expect(
-        (circles[0].child! as Text).style,
-        (circles[1].child! as Text).style,
-      );
-      expect(
-        tester.getRect(find.byType(CircleAvatar).first).right,
-        lessThan(tester.getRect(find.text('测试岗位')).left),
-      );
-      expect(
-        tester.getRect(find.text('测试岗位')).right,
-        lessThan(tester.getRect(find.text('合成管理员0')).left),
-      );
-      expect(
-        tester.getRect(find.text('测试岗位')).center.dy,
-        tester.getRect(find.text('合成管理员0')).center.dy,
-      );
-      expect(find.text('1,280.50 元'), findsOneWidget);
-      expect(find.text('SYNTHETIC_ROLE'), findsNothing);
-      expect(find.text('委员'), findsOneWidget);
-      expect(find.text('赞成 ✓'), findsOneWidget);
-      expect(
-        find.text(citizenSs58FromAccountId(person.accountId)),
-        findsOneWidget,
-      );
-      expect(tester.takeException(), isNull);
-    });
-  }
-
-  group('institutionAccountIdRows(公权派生)', () {
-    test('主/费/自定义三行,地址与卡0 派生吻合', () {
-      final rows = institutionAccountIdRows(
-        Institution.fromPublicEntity(_entity()),
-      );
-      expect(rows.map((r) => r.label), ['主账户', '费用账户', '业务专户']);
-      expect(
-        rows.first.accountId,
-        citizenAccountIdFromBytes(deriveInstitutionMainAccountId(_cid)),
-      );
-      expect(
-        rows.last.accountId,
-        citizenAccountIdFromBytes(
-          deriveInstitutionCustomAccountId(_cid, '业务专户'),
-        ),
-      );
-    });
-
-    test('联邦安全局第三行走 OP_FCSF，不回落普通 OP_NAME', () {
-      final rows = institutionAccountIdRows(
-        Institution.fromPublicEntity(_fscEntity()),
-      );
-      expect(rows.map((r) => r.label), [
-        kReservedNameMain,
-        kReservedNameFee,
-        kReservedNameFcsf,
-      ]);
-      expect(rows, hasLength(3));
-      expect(rows.last.accountId, _fcsfAccountId);
-      expect(
-        rows.last.accountId,
-        isNot(
-          '0x1f5f77852f56e6d97b7f300d0ee883909e7ebbcd5b68d2a59c38a5520fcd1204',
-        ),
-      );
-    });
-  });
-
   testWidgets('联邦安全局全部账户页显示 FCSF 正确余额', (tester) async {
     final institution = Institution.fromPublicEntity(_fscEntity());
     await tester.pumpWidget(
@@ -906,7 +221,7 @@ void main() {
     expect(find.text('10,000,000,000.00 元'), findsOneWidget);
   });
 
-  testWidgets('详情页:全称/ID/主账户/余额/法代/所属地 + 账户/提案占位/管理员/提案列表', (tester) async {
+  testWidgets('详情页展示机构资料、账户、人员任职与提案列表', (tester) async {
     tester.view.physicalSize = const Size(1200, 3200);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
@@ -934,9 +249,13 @@ void main() {
       cityNames: const {'GD|001': '中央'},
     );
     final chain = _FakeChainState(
-      adminList: const [_adminAccountId],
+      wallets: const [_adminAccountId],
       proposalList: [
-        InstitutionProposalSummary(proposalId: BigInt.from(7), idLabel: '提案 #7', status: 1),
+        InstitutionProposalSummary(
+          proposalId: BigInt.from(7),
+          idLabel: '提案 #7',
+          status: 1,
+        ),
       ],
     );
     await tester.pumpWidget(
@@ -952,7 +271,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('辽宁省身份注册局'), findsWidgets); // AppBar 简称回退全称 + 全称行
-    expect(find.text(_cid), findsOneWidget);
+    expect(find.text('LN001-CREG0-944805165'), findsOneWidget);
+    expect(find.text(_cid), findsNothing);
     expect(find.text('全称'), findsOneWidget);
     expect(find.text('身份CID号'), findsOneWidget);
     expect(find.text('身份ID'), findsNothing);
@@ -968,9 +288,9 @@ void main() {
     expect(find.text('共 3 个账户'), findsOneWidget);
     // 提案入口(公权占位)。
     expect(find.text('发起提案'), findsOneWidget);
-    // 管理员入口。
-    expect(find.text('管理员'), findsOneWidget);
-    expect(find.text('共 1 位管理员'), findsOneWidget);
+    // 人员任职入口。
+    expect(find.text('人员任职'), findsOneWidget);
+    expect(find.text('共 1 位人员'), findsOneWidget);
     // 提案列表。
     expect(find.text('提案列表'), findsOneWidget);
     expect(find.text('提案 #7'), findsOneWidget);
@@ -984,7 +304,7 @@ void main() {
     );
   });
 
-  testWidgets('管理员入口点击进入可激活管理员列表页', (tester) async {
+  testWidgets('人员任职入口进入统一人员列表页', (tester) async {
     final repo = await buildSeededRepo(
       provinceOrder: const ['LN'],
       institutions: [
@@ -1004,19 +324,19 @@ void main() {
         InstitutionDetailPage(
           cidNumber: _cid,
           repository: InstitutionRepository(directory: repo),
-          chainState: _FakeChainState(adminList: const [_adminAccountId]),
+          chainState: _FakeChainState(wallets: const [_adminAccountId]),
           subscriberCidNumberProvider: () async => 'CID-USER',
         ),
       ),
     );
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.text('管理员'));
+    await tester.ensureVisible(find.text('人员任职'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('管理员'));
+    await tester.tap(find.text('人员任职'));
     await tester.pumpAndSettle();
-    expect(find.text('管理员列表'), findsOneWidget);
-    expect(find.textContaining('共 1 位管理员'), findsOneWidget);
+    expect(find.text('人员任职'), findsOneWidget);
+    expect(find.textContaining('共 1 位人员'), findsOneWidget);
   });
 
   testWidgets('订阅按钮切换写入 store', (tester) async {

@@ -127,7 +127,9 @@ class _MembershipPageState extends State<MembershipPage>
   }
 
   void _onIdentityChanged() {
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     // 先撤下旧身份，不等待旧链读或云端请求完成。
     _priceTimer?.cancel();
     setState(() {
@@ -162,8 +164,9 @@ class _MembershipPageState extends State<MembershipPage>
 
   void _onChainData() {
     if (!mounted || _binding == null) return;
-    if (_matches(_chainData?.snapshot) && _chainData?.isStale == false)
+    if (_matches(_chainData?.snapshot) && _chainData?.isStale == false) {
       _chainFailure = null;
+    }
     _applyLightData(_chainData?.snapshot);
     if (!_chainLoading &&
         _chainFailure == null &&
@@ -175,7 +178,9 @@ class _MembershipPageState extends State<MembershipPage>
   }
 
   void _applyLightData(ChainDataSnapshot? data) {
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     final binding = _binding;
     final matches = _matches(data);
     final state = matches ? data!.own?.platform : null;
@@ -221,8 +226,9 @@ class _MembershipPageState extends State<MembershipPage>
     if (!_current(generation) ||
         binding == null ||
         source == null ||
-        _chainLoading)
+        _chainLoading) {
       return;
+    }
     setState(() => _chainLoading = true);
     try {
       await source.ensureMembership(
@@ -298,9 +304,13 @@ class _MembershipPageState extends State<MembershipPage>
       _chainFailure = null;
     });
     try {
-      if (_currentUser == null || _chainData == null)
+      if (_currentUser == null || _chainData == null) {
         throw StateError('会员依赖尚未就绪');
+      }
       var current = await _currentUser!.resolve();
+      if (!mounted) {
+        return;
+      }
       if (!_current(generation)) return;
       if (current != null &&
           current.binding == null &&
@@ -325,8 +335,9 @@ class _MembershipPageState extends State<MembershipPage>
       if (old?.genesisHash != binding.genesisHash ||
           old?.accountId != binding.accountId ||
           old?.cidNumber != binding.cidNumber ||
-          old?.bindRev != binding.bindRev)
+          old?.bindRev != binding.bindRev) {
         _resources = null;
+      }
       _binding = binding;
       _resources =
           SubscriptionService.cachedResourcesFor(
@@ -393,6 +404,9 @@ class _MembershipPageState extends State<MembershipPage>
           price != displayedPrice) {
         throw const SubscriptionException('会员价格已更新，请确认后重试');
       }
+      if (!mounted) {
+        return;
+      }
       if (action == _SubscribeAction.cancel) {
         await _subscriptionService.cancel(
           context: context,
@@ -425,11 +439,13 @@ class _MembershipPageState extends State<MembershipPage>
       _applyLightData(source.snapshot);
       await _loadResources(generation, forceRefresh: true);
     } on Object catch (error) {
-      if (_current(generation)) {
+      if (mounted && _current(generation)) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              identityCidUiText(error is SubscriptionException ? error.message : '会员操作失败，请重试'),
+              identityCidUiText(
+                error is SubscriptionException ? error.message : '会员操作失败，请重试',
+              ),
             ),
           ),
         );

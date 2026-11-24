@@ -1,6 +1,7 @@
 // 定义设备及商店版本模型，解析并按数值比较版本。
 
 /// 当前设备安装包的原生版本，独立于远端商店状态。
+library;
 
 class AppVersionInfo {
   const AppVersionInfo({

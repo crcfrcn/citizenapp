@@ -6,6 +6,8 @@ import 'dart:typed_data';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'package:citizen_citizen/proposal/proposal_query_service.dart';
+import 'package:citizen_citizen/institution/institution_chain_service.dart';
+import 'package:citizen_citizen/institution/institution_role_storage_codec.dart';
 
 /// 立法投票阶段(链端 votingengine STAGE_LEG_*,Proposal.stage 字节)。
 class LegStage {
@@ -103,6 +105,7 @@ class LegislationVoteQueryService {
     )?
     getStorageBatch,
   }) : _block = block,
+       _people = InstitutionChainService(chain: chain, getFinalizedHead: getFinalizedHead, getRuntimeContext: getRuntimeContext, getStorage: getStorage, getStorageBatch: getStorageBatch),
        _proposalQuery = ProposalQueryService(
          chain: chain,
          block: block,
@@ -129,9 +132,17 @@ class LegislationVoteQueryService {
   _getStorage;
 
   final CitizenBlockRef? _block;
+  final InstitutionChainService _people;
   final ProposalQueryService _proposalQuery;
 
   static const String _votePallet = 'LegislationVote';
+
+  /// 钱包只通过同块有效双向绑定解析为人员CID，不从本地资格或历史账户反推。
+  Future<String?> fetchPersonCid(String accountId) async {
+    final block = _block ?? await _getFinalizedHead();
+    if (block.finality != CitizenBlockFinality.finalized) throw StateError('人员绑定需要finalized块');
+    return _people.personCid(accountId, await _getRuntimeContext(block));
+  }
 
   /// 核心提案阶段/状态(不存在返回 null)。
   Future<LegProposalState?> fetchProposalState(BigInt proposalId) async {
@@ -249,13 +260,14 @@ class LegislationVoteQueryService {
     int bodyIndex,
     String cidNumber,
     String voterRoleCode,
-    String publicKey,
+    String personCid,
   ) async {
+    if (!InstitutionRoleStorageCodec.isPersonCid(personCid)) throw const FormatException('机构票据必须使用人员CID');
     final tupleKey = Uint8List.fromList([
       ...CitizenScale.unsigned(BigInt.from(bodyIndex), 4),
       ..._encodeBoundedText(cidNumber, 32, 'cid_number'),
       ..._encodeBoundedText(voterRoleCode, 64, 'voter_role_code'),
-      ...citizenAccountIdBytes(publicKey),
+      ..._encodeBoundedText(personCid, 32, 'person_cid'),
     ]);
     final data = await _readStorage('RepresentativeVotesByTicket', [proposalId, (scale: tupleKey)]);
     if (data == null) return null;

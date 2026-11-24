@@ -71,7 +71,7 @@ class _SafetyFundTransferPageState extends State<SafetyFundTransferPage> {
     _proposerRoleCodeController = TextEditingController(
       text: defaultInstitutionProposerRoleCode(widget.institution),
     );
-    final hex = widget.institution.accounts?.safetyFundAccountId;
+    final hex = widget.institution.accounts.safetyFundAccountId;
     if (hex == null) {
       throw StateError(
         '国家储委会 InstitutionAccounts.safetyFundAccountId 为空,无法发起安全基金转账',
@@ -194,7 +194,8 @@ class _SafetyFundTransferPageState extends State<SafetyFundTransferPage> {
         return;
       }
       setState(() => _fees = fees);
-      final feeFen = fees.feeFen + (remark.isNotEmpty ? fees.FLAT_FEE : BigInt.zero);
+      final feeFen =
+          fees.feeFen + (remark.isNotEmpty ? fees.FLAT_FEE : BigInt.zero);
       if (_availableBalance! < amountFen + fees.existentialDepositFen) {
         setState(
           () => _amountError =
@@ -204,7 +205,7 @@ class _SafetyFundTransferPageState extends State<SafetyFundTransferPage> {
       }
       final balanceBlockedReason =
           await MultisigTransferBalanceGuard.checkInstitutionFeeAccountBalance(
-            feeAccountId: widget.institution.accounts!.feeAccountId,
+            feeAccountId: widget.institution.accounts.feeAccountId,
             actionLabel: '发起安全基金转账提案',
             additionalDebitFen: feeFen,
             fees: fees,
@@ -451,7 +452,9 @@ class _SafetyFundTransferPageState extends State<SafetyFundTransferPage> {
               SizedBox(height: AppLayout.scaled(context, 12)),
               _buildInfoRow(
                 '预估手续费',
-                _fees != null ? '${formatFen(_fees!.feeFen + (_remarkController.text.isNotEmpty ? _fees!.FLAT_FEE : BigInt.zero))} 元' : '--',
+                _fees != null
+                    ? '${formatFen(_fees!.feeFen + (_remarkController.text.isNotEmpty ? _fees!.FLAT_FEE : BigInt.zero))} 元'
+                    : '--',
               ),
               SizedBox(height: AppLayout.scaled(context, 8)),
               _buildInfoRow(
@@ -467,7 +470,9 @@ class _SafetyFundTransferPageState extends State<SafetyFundTransferPage> {
               SizedBox(height: AppLayout.scaled(context, 6)),
               TextField(
                 controller: _remarkController,
-                onChanged: (_) => setState(() { _amountError = null; }),
+                onChanged: (_) => setState(() {
+                  _amountError = null;
+                }),
                 maxLines: 3,
                 decoration: InputDecoration(
                   hintText: '输入备注收1.00元备注手续费。',

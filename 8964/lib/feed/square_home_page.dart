@@ -359,8 +359,9 @@ class _SquareHomePageState extends State<SquareHomePage> {
       final identity = await _identityService.loadCurrent();
       if (!mounted ||
           generation != _identityLoadGeneration ||
-          accountRevision != _accountSecurity?.revision.value)
+          accountRevision != _accountSecurity?.revision.value) {
         return identity;
+      }
       setState(() {
         _identityAddress = identity.accountId;
         _identityCidNumber = identity.cidNumber;
@@ -394,8 +395,9 @@ class _SquareHomePageState extends State<SquareHomePage> {
       final identity = await context.read<CurrentUserContext>().resolve();
       final accountId = identity?.accountId ?? '';
       final cidNumber = identity?.cidNumber ?? '';
-      if (!mounted || accountRevision != _accountSecurity?.revision.value)
+      if (!mounted || accountRevision != _accountSecurity?.revision.value) {
         return;
+      }
       if (accountId == (_identityAddress ?? '') &&
           cidNumber == (_identityCidNumber ?? '')) {
         setState(() {
@@ -710,8 +712,9 @@ class _SquareHomePageState extends State<SquareHomePage> {
       );
     }
     if (!mounted || generation != _feedLoadGeneration) return const [];
-    if (cursor != null && page.nextCursor == cursor)
+    if (cursor != null && page.nextCursor == cursor) {
       throw const SquareApiException('信息流游标未推进');
+    }
     final posts = <String, SquarePost>{
       if (cursor != null)
         for (final post in _remotePosts) post.postId: post,
@@ -748,11 +751,13 @@ class _SquareHomePageState extends State<SquareHomePage> {
       if (!mounted || generation != _feedLoadGeneration) return;
       setState(() => _feedFuture = Future.value(posts));
     } on Object {
-      if (mounted && generation == _feedLoadGeneration)
+      if (mounted && generation == _feedLoadGeneration) {
         setState(() => _paginationError = '加载失败，请重试');
+      }
     } finally {
-      if (mounted && generation == _feedLoadGeneration)
+      if (mounted && generation == _feedLoadGeneration) {
         setState(() => _loadingMore = false);
+      }
     }
   }
 
@@ -984,6 +989,7 @@ class _FeedBody extends StatelessWidget {
 /// 不触发任何网络或链读取。
 class SquarePublishMenu extends StatefulWidget {
   const SquarePublishMenu({
+    super.key,
     required this.enabled,
     required this.expanded,
     this.onToggle,

@@ -398,7 +398,7 @@ void main() {
     expect(api.localPostCalls, 0);
     expect(api.authorPostCalls, 0);
     expect(find.text('本机保留的正文'), findsNothing);
-    expect(find.text('主页访问检查失败，请重试'), findsOneWidget);
+    expect(find.text('内容加载失败，请下拉刷新'), findsOneWidget);
     expect(find.text('请先添加钱包账户'), findsNothing);
     expect(find.text('需要钱包账户才能浏览主页'), findsNothing);
   });
@@ -416,7 +416,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('主页访问检查失败，请重试'), findsOneWidget);
+    expect(find.text('内容加载失败，请下拉刷新'), findsOneWidget);
     expect(find.text('请先添加钱包账户'), findsNothing);
     expect(find.text('需要钱包账户才能浏览主页'), findsNothing);
   });

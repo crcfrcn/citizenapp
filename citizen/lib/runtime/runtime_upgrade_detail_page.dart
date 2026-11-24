@@ -10,8 +10,6 @@ import 'package:provider/provider.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:flutter/services.dart';
 
-import 'package:citizen_citizen/administrators/admin_account.dart';
-import 'package:citizen_citizen/administrators/institution_admin_service.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_citizen/institution/governance_registry.dart';
 import 'package:citizen_citizen/proposal/proposal_context.dart';
@@ -54,7 +52,6 @@ class RuntimeUpgradeDetailPage extends StatefulWidget {
 class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
   late final RuntimeUpgradeService _service;
   late final ProposalQueryService _proposalQueryService;
-  late final InstitutionAdminService _adminService;
   bool _dependenciesReady = false;
   ProposalContext? _verifiedVoteContext;
   ProposalContext get _proposalContext =>
@@ -78,6 +75,7 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
 
   bool _loading = true;
   bool _submitting = false;
+  bool _ticketsReady = false;
   String? _error;
 
   RuntimeUpgradeProposalInfo? _proposalInfo;
@@ -87,9 +85,9 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
   bool _reasonExpanded = false;
 
   bool? _institutionVote;
-  List<String> _admins = const [];
+  List<EligibleVoterTicket> _voterTickets = const [];
   ({int yes, int no}) _institutionAdminTally = (yes: 0, no: 0);
-  Map<String, bool?> _adminVotes = const {};
+  Map<String, bool?> _ticketVotes = const {};
   List<CitizenWalletStateAccount> _votableWallets = const [];
   CitizenWalletStateAccount? _selectedVoteWallet;
 
@@ -105,7 +103,6 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
     final sdk = context.read<CitizenSdk>();
     _service = RuntimeUpgradeService(chain: sdk, transactions: sdk);
     _proposalQueryService = ProposalQueryService(chain: sdk);
-    _adminService = InstitutionAdminService(chain: sdk);
     _dependenciesReady = true;
     if (widget.resolveVoteContext == null) {
       _load();
@@ -141,34 +138,46 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
       (_meta?.status == 0) && (_meta?.stage == 1) && _resolvedStatusCode() == 0;
 
   bool get _canSubmitVote =>
+      _ticketsReady &&
       _isAdmin &&
       _jointVoteOpen &&
       _institutionVote == null &&
       _selectedVoteWallet != null &&
       !_submitting;
 
-  bool get _allImportedAdminsVoted {
+  bool get _allImportedVotersVoted {
     if (!_isAdmin) return false;
-    final eligible = _admins.toSet();
-    final importedEligibleWallets = _voteWallets
+    final imported = _voterTickets
         .where(
-          (wallet) => eligible.contains(_requireAccountId(wallet.accountId)),
+          (ticket) => _voteWallets.any(
+            (wallet) => ticket.voterAccountId == wallet.accountId,
+          ),
         )
-        .toList(growable: false);
-    if (importedEligibleWallets.isEmpty) return false;
-    for (final wallet in importedEligibleWallets) {
-      final accountId = _requireAccountId(wallet.accountId);
-      final vote = _adminVotes[accountId];
-      if (vote == null) return false;
-    }
-    return true;
+        .toList();
+    return imported.isNotEmpty &&
+        imported.every((ticket) => _ticketVotes[ticket.ticketKey] != null);
   }
+
+  List<CitizenWalletStateAccount> _matchingWallets(
+    List<EligibleVoterTicket> tickets,
+    Map<String, bool?> votes,
+  ) =>
+      _voteWallets
+          .where(
+            (wallet) => tickets.any(
+              (ticket) =>
+                  ticket.voterAccountId == wallet.accountId &&
+                  votes[ticket.ticketKey] == null,
+            ),
+          )
+          .toList()
+        ..sort((a, b) => a.walletIndex.compareTo(b.walletIndex));
 
   String? get _voteDisabledReason {
     if (!_isAdmin) return null;
     if (!_jointVoteOpen) return '当前提案不在联合投票阶段';
     if (_institutionVote != null) return '本机构已形成最终投票结果';
-    if (_votableWallets.isEmpty && _allImportedAdminsVoted) {
+    if (_votableWallets.isEmpty && _allImportedVotersVoted) {
       return '已导入的岗位选民钱包都已完成投票';
     }
     if (_votableWallets.isEmpty) return '当前没有可用的岗位选民钱包';
@@ -177,6 +186,7 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
   }
 
   Future<void> _load({bool showSpinner = true}) async {
+    _ticketsReady = false;
     ProposalDetailSnapshot? localSnapshot;
     if (showSpinner) {
       localSnapshot = await _applyLocalSnapshot();
@@ -195,13 +205,26 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
       setState(() => _error = null);
     }
 
+    if (!mounted) {
+      return;
+    }
     try {
       final sdk = context.read<CitizenSdk>();
-      final block = widget.resolveVoteContext == null ? null : await sdk.getFinalizedHead();
-      if (!mounted) return;
-      final reads = block == null ? _service :
-          RuntimeUpgradeService(chain: sdk, getFinalizedHead: () async => block);
-      final query = block == null ? _proposalQueryService : ProposalQueryService(chain: sdk, block: block);
+      final block = widget.resolveVoteContext == null
+          ? null
+          : await sdk.getFinalizedHead();
+      if (!mounted) {
+        return;
+      }
+      final reads = block == null
+          ? _service
+          : RuntimeUpgradeService(
+              chain: sdk,
+              getFinalizedHead: () async => block,
+            );
+      final query = block == null
+          ? _proposalQueryService
+          : ProposalQueryService(chain: sdk, block: block);
       final futures = <Future<dynamic>>[
         reads.fetchProposalMeta(widget.proposalId),
         widget.resolveVoteContext == null
@@ -214,11 +237,7 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
       final institution = widget.institution;
       if (institution != null) {
         futures.add(
-          query.fetchRoleVoterSnapshot(
-            widget.proposalId,
-            institution.cidNumber,
-            _voterRoleCode,
-          ),
+          query.fetchEligibleVoterTickets(widget.proposalId, institution),
         );
         futures.add(
           reads.fetchJointVoteByInstitution(
@@ -240,41 +259,29 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
       final jointTally = results[2] as ({int yes, int no});
       final referendumTally = results[3] as ({int yes, int no});
 
-      List<String> admins = const [];
+      List<EligibleVoterTicket> tickets = const [];
       bool? institutionVote;
       ({int yes, int no}) institutionAdminTally = (yes: 0, no: 0);
       Map<String, bool?> adminVotes = const {};
       List<CitizenWalletStateAccount> votableWallets = const [];
       CitizenWalletStateAccount? selectedVoteWallet = _selectedVoteWallet;
       if (institution != null) {
-        admins = results[4] as List<String>;
+        tickets = (results[4] as List<EligibleVoterTicket>)
+            .where((ticket) => ticket.voterRoleCode == _voterRoleCode)
+            .toList();
         institutionVote = results[5] as bool?;
         institutionAdminTally = results[6] as ({int yes, int no});
-        final adminSet = admins.toSet();
-        final matchedAdminWallets =
-            _voteWallets
-                .where((wallet) {
-                  return adminSet.contains(_requireAccountId(wallet.accountId));
-                })
-                .toList(growable: false)
-              ..sort((a, b) => a.walletIndex.compareTo(b.walletIndex));
-
-        final voteResults = await reads.fetchJointTicketVotesBatch(
+        final votes = await reads.fetchJointTicketVotesBatch(
           widget.proposalId,
           institution.cidNumber,
           _voterRoleCode,
-          admins,
+          tickets.map((ticket) => ticket.personCid!),
         );
-        adminVotes = voteResults;
-
-        votableWallets =
-            matchedAdminWallets
-                .where((wallet) {
-                  final accountId = _requireAccountId(wallet.accountId);
-                  return adminVotes[accountId] == null;
-                })
-                .toList(growable: false)
-              ..sort((a, b) => a.walletIndex.compareTo(b.walletIndex));
+        adminVotes = {
+          for (final ticket in tickets)
+            ticket.ticketKey: votes[ticket.personCid],
+        };
+        votableWallets = _matchingWallets(tickets, adminVotes);
 
         if (selectedVoteWallet == null ||
             !votableWallets.any(
@@ -286,7 +293,9 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
         }
       }
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       if (widget.resolveVoteContext == null) {
         try {
           await _detailStore.put(
@@ -295,7 +304,7 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
               proposalInfo: proposalInfo,
               jointTally: jointTally,
               referendumTally: referendumTally,
-              admins: admins,
+              tickets: tickets,
               adminVotes: adminVotes,
               institutionVote: institutionVote,
               institutionAdminTally: institutionAdminTally,
@@ -305,22 +314,28 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
           // 详情快照写入失败不能影响链上最新结果展示。
         }
       }
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _meta = meta;
         _proposalInfo = proposalInfo;
         _jointTally = jointTally;
         _referendumTally = referendumTally;
-        _admins = admins;
+        _voterTickets = tickets;
         _institutionVote = institutionVote;
         _institutionAdminTally = institutionAdminTally;
-        _adminVotes = adminVotes;
+        _ticketVotes = adminVotes;
         _votableWallets = votableWallets;
         _selectedVoteWallet = selectedVoteWallet;
         _loading = false;
+        _ticketsReady = true;
       });
     } catch (e) {
-      if (!mounted) return;
+      _ticketsReady = false;
+      if (!mounted) {
+        return;
+      }
       if (widget.resolveVoteContext != null) rethrow;
       if (localSnapshot != null) {
         setState(() => _loading = false);
@@ -340,24 +355,21 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
         widget.proposalId,
       );
       if (snapshot == null || !mounted) return snapshot;
-      final admins = snapshot.admins;
-      final adminSet = admins.toSet();
-      final matchedAdminWallets =
-          _voteWallets
-              .where((wallet) {
-                return adminSet.contains(_requireAccountId(wallet.accountId));
-              })
-              .toList(growable: false)
-            ..sort((a, b) => a.walletIndex.compareTo(b.walletIndex));
-      final votableWallets =
-          matchedAdminWallets
-              .where((wallet) {
-                final accountId = _requireAccountId(wallet.accountId);
-                return snapshot.adminVotes[accountId] == null;
-              })
-              .toList(growable: false)
-            ..sort((a, b) => a.walletIndex.compareTo(b.walletIndex));
+      final tickets = snapshot.voterTickets;
+      if (widget.institution != null &&
+          (tickets.isEmpty ||
+              tickets.any(
+                (ticket) =>
+                    ticket.cidNumber != widget.institution!.cidNumber ||
+                    ticket.voterRoleCode != _voterRoleCode ||
+                    ticket.personCid == null,
+              ))) {
+        return null;
+      }
+      final votableWallets = _matchingWallets(tickets, snapshot.adminVotes);
+
       setState(() {
+        _ticketsReady = false;
         _meta = _metaFromSnapshot(snapshot);
         _proposalInfo = _proposalInfoFromSnapshot(snapshot);
         _jointTally = (
@@ -368,13 +380,13 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
           yes: _toInt(snapshot.extra['referendum_yes']) ?? 0,
           no: _toInt(snapshot.extra['referendum_no']) ?? 0,
         );
-        _admins = admins;
+        _voterTickets = tickets;
         _institutionVote = _toBool(snapshot.extra['institution_vote']);
         _institutionAdminTally = (
           yes: _toInt(snapshot.extra['institution_yes']) ?? 0,
           no: _toInt(snapshot.extra['institution_no']) ?? 0,
         );
-        _adminVotes = snapshot.adminVotes;
+        _ticketVotes = snapshot.adminVotes;
         _votableWallets = votableWallets;
         _selectedVoteWallet = votableWallets.isNotEmpty
             ? votableWallets.first
@@ -393,7 +405,7 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
     required RuntimeUpgradeProposalInfo? proposalInfo,
     required ({int yes, int no}) jointTally,
     required ({int yes, int no}) referendumTally,
-    required List<String> admins,
+    required List<EligibleVoterTicket> tickets,
     required Map<String, bool?> adminVotes,
     required bool? institutionVote,
     required ({int yes, int no}) institutionAdminTally,
@@ -406,13 +418,16 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
       yesCount: jointTally.yes,
       noCount: jointTally.no,
       threshold: _requiredAdminThreshold,
-      admins: admins.map(_requireAccountId).toList(growable: false),
-      adminVotes: adminVotes.map(
-        (key, value) => MapEntry(_requireAccountId(key), value),
-      ),
+      admins: tickets
+          .map((ticket) => ticket.voterAccountId)
+          .whereType<String>()
+          .toSet()
+          .toList(),
+      adminVotes: Map.of(adminVotes),
       pendingPublicKeys: const [],
       detail: _proposalInfoToJson(proposalInfo),
       extra: {
+        'voter_tickets': ProposalDetailSnapshot.encodeTickets(tickets),
         'meta_kind': meta?.kind,
         'meta_stage': meta?.stage,
         'meta_status': meta?.status,
@@ -578,9 +593,14 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
       );
 
       final accountId = _requireAccountId(voteWallet.accountId);
-      if (!mounted) return;
+      final ticket = _voterTickets.singleWhere(
+        (ticket) => ticket.voterAccountId == accountId,
+      );
+      if (!mounted) {
+        return;
+      }
       setState(() {
-        _adminVotes = {..._adminVotes, accountId: approve};
+        _ticketVotes = {..._ticketVotes, ticket.ticketKey: approve};
         _institutionAdminTally = (
           yes: _institutionAdminTally.yes + (approve ? 1 : 0),
           no: _institutionAdminTally.no + (approve ? 0 : 1),
@@ -598,20 +618,20 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
           backgroundColor: AppTheme.primaryDark,
         ),
       );
-
-      _adminService.clearCache(
-        AdminAccountIdentity.fromInstitution(institution),
-      );
       if (widget.resolveVoteContext == null) {
         unawaited(_load(showSpinner: false));
       }
     } on AccountSecurityException catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.message), backgroundColor: AppTheme.danger),
       );
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('投票失败：$e'), backgroundColor: AppTheme.danger),
       );
@@ -629,14 +649,17 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
     try {
       if (resolve != null) {
         final verified = await resolve();
-        if (!mounted) return;
+        if (!mounted) {
+          return;
+        }
         if (!verified.isAdmin) throw StateError('当前钱包没有投票资格');
         _verifiedVoteContext = verified;
-        await _load(showSpinner: false);
-        if (!mounted) return;
-        if (_error != null || !(_canSubmitVote)) {
-          throw StateError(_error ?? '提案已停止投票或当前钱包没有未使用的投票票据');
-        }
+      }
+      // 缓存和入口上下文只用于展示；每次确认前重新核对冻结人员与当前绑定。
+      await _load(showSpinner: false);
+      if (!mounted) return;
+      if (_error != null || !_canSubmitVote) {
+        throw StateError(_error ?? '提案已停止投票或当前钱包没有未使用的投票票据');
       }
       if (resolve != null && ModalRoute.of(context)?.isCurrent != true) return;
       final label = approve ? '赞成' : '反对';
@@ -646,43 +669,50 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
       var selected = _selectedVoteWallet;
       final confirmed = await showDialog<bool>(
         context: context,
-        builder: (ctx) => StatefulBuilder(builder: (ctx, updateDialog) {
-          return AlertDialog(
-            title: Text('确认提交$label票'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('将使用所选岗位选民钱包直接提交$label票。投票后不可修改。'),
-                if (choices.isNotEmpty)
-                  DropdownButton<int>(
-                    isExpanded: true,
-                    value: selected?.walletIndex,
-                    items: [
-                      for (final wallet in choices)
-                        DropdownMenuItem(
-                          value: wallet.walletIndex,
-                          child: Text(wallet.ss58Address, overflow: TextOverflow.ellipsis),
-                        ),
-                    ],
-                    onChanged: (index) => updateDialog(() {
-                      selected = choices.firstWhere((wallet) => wallet.walletIndex == index);
-                    }),
-                  ),
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, updateDialog) {
+            return AlertDialog(
+              title: Text('确认提交$label票'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('将使用所选岗位选民钱包直接提交$label票。投票后不可修改。'),
+                  if (choices.isNotEmpty)
+                    DropdownButton<int>(
+                      isExpanded: true,
+                      value: selected?.walletIndex,
+                      items: [
+                        for (final wallet in choices)
+                          DropdownMenuItem(
+                            value: wallet.walletIndex,
+                            child: Text(
+                              wallet.ss58Address,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: (index) => updateDialog(() {
+                        selected = choices.firstWhere(
+                          (wallet) => wallet.walletIndex == index,
+                        );
+                      }),
+                    ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('取消'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: Text(label),
+                ),
               ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('取消'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: Text(label),
-              ),
-            ],
-          );
-        }),
+            );
+          },
+        ),
       );
       if (!mounted || confirmed != true) return;
       if (resolve != null && ModalRoute.of(context)?.isCurrent != true) return;
@@ -690,9 +720,9 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
       await _submitJointVote(approve);
     } on Object catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('投票校验未通过：$error')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('投票校验未通过：$error')));
       }
     } finally {
       if (resolve != null && mounted) {
@@ -702,6 +732,7 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
       }
     }
   }
+
   int? _resolvedStatusCode() {
     // 协议升级真实状态只以投票引擎元数据为准。
     return _meta?.status;
@@ -772,7 +803,9 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
             ),
             SizedBox(height: AppLayout.scaledValue(16)),
             OutlinedButton(
-              onPressed: widget.resolveVoteContext == null ? _load : _readLocalDetail,
+              onPressed: widget.resolveVoteContext == null
+                  ? _load
+                  : _readLocalDetail,
               child: const Text('重试'),
             ),
           ],
@@ -784,12 +817,6 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
   Widget _buildContent() {
     return RefreshIndicator(
       onRefresh: () async {
-        final institution = widget.institution;
-        if (institution != null) {
-          _adminService.clearCache(
-            AdminAccountIdentity.fromInstitution(institution),
-          );
-        }
         if (widget.resolveVoteContext == null) {
           await _load();
         } else {
@@ -1102,7 +1129,7 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
                   ),
                 ),
                 Text(
-                  '提案岗位快照 ${_admins.length} 人',
+                  '提案岗位快照 ${_voterTickets.length} 人',
                   style: TextStyle(
                     fontSize: AppLayout.scaledValue(12),
                     color: AppTheme.textTertiary,
@@ -1112,7 +1139,7 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
             ),
             Divider(height: AppLayout.scaledValue(20)),
             _buildVoteWalletSelector(),
-            if (_admins.isNotEmpty) ...[
+            if (_voterTickets.isNotEmpty) ...[
               SizedBox(height: AppLayout.scaledValue(8)),
               Text(
                 '本机构仅提案创建时冻结的岗位有效选民可直接上链投票；赞成达到机构阈值会形成机构赞成结果，剩余选民已不足以达到阈值时会形成机构反对结果。',
@@ -1156,7 +1183,7 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
           borderRadius: BorderRadius.circular(AppLayout.scaledValue(8)),
         ),
         child: Text(
-          _allImportedAdminsVoted ? '已导入岗位选民钱包均已完成投票' : '当前没有可用的岗位选民钱包',
+          _allImportedVotersVoted ? '已导入岗位选民钱包均已完成投票' : '当前没有可用的岗位选民钱包',
           style: TextStyle(
             fontSize: AppLayout.scaledValue(13),
             color: AppTheme.textSecondary,
@@ -1291,7 +1318,9 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
   Widget? _buildBottomBar() {
     if (_loading || _error != null) return null;
     if (_jointVoteOpen &&
-        (_isAdmin || (widget.resolveVoteContext != null && widget.institution != null))) {
+        (_isAdmin ||
+            (widget.resolveVoteContext != null &&
+                widget.institution != null))) {
       return _buildVoteButtons();
     }
     // 联合公投阶段：所有用户显示投票按钮（链上公民身份校验后续完善）
@@ -1437,7 +1466,9 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
 
   Future<void> _submitJointReferendumVote(bool approve) async {
     // 联合公投提交依赖链上 cast_referendum extrinsic，入口未开放前只提示状态。
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('联合公投功能开发中'),
@@ -1447,9 +1478,13 @@ class _RuntimeUpgradeDetailPageState extends State<RuntimeUpgradeDetailPage> {
   }
 
   Widget _buildVoteButtons() {
-    final canVote = !_preparingVote && !_submitting &&
+    final canVote =
+        !_preparingVote &&
+        !_submitting &&
         (widget.resolveVoteContext != null ? _jointVoteOpen : _canSubmitVote);
-    final disabledReason = widget.resolveVoteContext == null ? _voteDisabledReason : null;
+    final disabledReason = widget.resolveVoteContext == null
+        ? _voteDisabledReason
+        : null;
     return Container(
       padding: EdgeInsets.fromLTRB(
         16,

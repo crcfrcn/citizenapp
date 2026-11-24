@@ -158,8 +158,9 @@ class _CreatorPageState extends State<CreatorPage> {
           refreshGeneration != _refreshGeneration ||
           binding != _binding ||
           cid != _cidNumber ||
-          overview == null)
+          overview == null) {
         return;
+      }
       setState(
         () => _data = CreatorPageData(
           membershipStatus: _data.membershipStatus,
@@ -252,15 +253,17 @@ class _CreatorPageState extends State<CreatorPage> {
       if (!mounted ||
           generation != _loadGeneration ||
           owner != _refreshGeneration ||
-          _data.membershipStatus != CreatorMembershipStatus.active)
+          _data.membershipStatus != CreatorMembershipStatus.active) {
         return;
+      }
       final result = await _service.load(expectedCidNumber: cid);
       if (!mounted ||
           owner != _refreshGeneration ||
           generation != _loadGeneration ||
           binding != _binding ||
-          !_matches(_chainData?.snapshot))
+          !_matches(_chainData?.snapshot)) {
         return;
+      }
       _onChainData();
       setState(() {
         _data = CreatorPageData(
@@ -278,8 +281,9 @@ class _CreatorPageState extends State<CreatorPage> {
         setState(() => _error = '统计暂不可用，请重试');
       }
     } finally {
-      if (mounted && owner == _refreshGeneration)
+      if (mounted && owner == _refreshGeneration) {
         setState(() => _refreshing = false);
+      }
     }
   }
 
@@ -627,8 +631,9 @@ class _CreatorPageState extends State<CreatorPage> {
     if (plan == null ||
         !mounted ||
         generation != _loadGeneration ||
-        binding != _binding)
+        binding != _binding) {
       return;
+    }
     // 保存结果不另造会员或档位真源；由共享最终块缓存推进页面。
     await _prepareChain(generation);
   }
@@ -636,8 +641,9 @@ class _CreatorPageState extends State<CreatorPage> {
   Future<void> _openMembership() async {
     _onChainData();
     if (!_businessReady ||
-        _data.membershipStatus != CreatorMembershipStatus.inactive)
+        _data.membershipStatus != CreatorMembershipStatus.inactive) {
       return;
+    }
     await Navigator.of(
       context,
     ).push<void>(MaterialPageRoute(builder: (_) => const MembershipPage()));

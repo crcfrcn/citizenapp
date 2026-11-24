@@ -1,6 +1,7 @@
 // 定义共享消息种类、投递状态及媒体超限错误。
 
 /// Message kinds shared by every 公民聊天 host.
+library;
 
 enum ChatMessageKind {
   /// Plain text or an inline emoji.

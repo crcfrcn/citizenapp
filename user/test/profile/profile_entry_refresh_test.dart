@@ -75,8 +75,9 @@ class _Api extends CitizenProfileApi {
     SquareSession? session,
   }) async {
     gets++;
-    if (fail)
+    if (fail) {
       throw const SquareApiException('network failure', statusCode: 503);
+    }
     return pending == null ? result : await pending!.future;
   }
 

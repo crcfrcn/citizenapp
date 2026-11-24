@@ -71,8 +71,9 @@ class _TopupSheetState extends State<TopupSheet> {
   final _amount = TextEditingController();
   final _amountFocus = FocusNode();
   void _normalizeAmount() {
-    if (!_amountFocus.hasFocus && _quote != null)
+    if (!_amountFocus.hasFocus && _quote != null) {
       _amount.text = _quote!.coinDisplay;
+    }
   }
 
   TopupPackage? get _quote {

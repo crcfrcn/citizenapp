@@ -205,7 +205,7 @@ class ClearingBankDirectory {
     CitizenRuntimeContext runtime,
     String cidNumber,
   ) async {
-    final key = runtime.storageKey('OffchainTransaction', 'ClearingBankNodes', [
+    final key = runtime.storageKey('Offchain', 'ClearingBankNodes', [
       Uint8List.fromList(utf8.encode(cidNumber)),
     ]);
     final raw = await _getStorage(finalized, key);
@@ -243,7 +243,7 @@ class ClearingBankDirectory {
     CitizenRuntimeContext runtime,
     Uint8List account,
   ) async {
-    final key = runtime.storageKey('OffchainTransaction', 'UserBank', [account]);
+    final key = runtime.storageKey('Offchain', 'UserBank', [account]);
     final raw = await _getStorage(finalized, key);
     if (raw == null) return null;
     final (cid, next) = _readUtf8Vec(raw, 0, maxLength: 32);
@@ -256,7 +256,7 @@ class ClearingBankDirectory {
   Future<List<ClearingBankNodeEndpoint>> _fetchAllEndpoints() async {
     final finalized = await _getFinalizedHead();
     final runtime = await _getRuntimeContext(finalized);
-    final prefix = runtime.storageKey('OffchainTransaction', 'ClearingBankNodes');
+    final prefix = runtime.storageKey('Offchain', 'ClearingBankNodes');
     final keys = <Uint8List>[];
     Uint8List? startKey;
     while (true) {

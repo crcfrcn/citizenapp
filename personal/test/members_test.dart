@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 
 import 'dart:convert';
 import 'dart:typed_data';
-import 'package:citizen_citizen/administrators/admin_account.dart';
+import 'package:citizen_citizen/institution/institution_role_models.dart';
 import 'package:citizen_personal/accounts.dart';
 import 'package:citizen_personal/chain.dart';
 import 'package:citizen_personal/members.dart';
@@ -559,7 +559,7 @@ void _registerPersonalMemberReads() {
       accountId: '0x${'01' * 32}',
       accountLabel: '合成个人',
     );
-    expect(personal, isNot(isA<AdminAccountIdentity>()));
+    expect(personal, isNot(isA<InstitutionIdentity>()));
   });
 
   test('个人多签严格按 personal_account_id 路由', () async {

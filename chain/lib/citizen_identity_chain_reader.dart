@@ -106,9 +106,9 @@ class CitizenIdentityChainReader {
     final context = await _getRuntimeContext(block);
     final key = (scale: encodeBoundedBytes(utf8.encode(cid)));
     final rows = await _getStorageBatch(block, [
-      context.storageKey('CitizenIdentity', 'AccountIdByCid', [key]),
-      context.storageKey('CitizenIdentity', 'CidRegistry', [key]),
-      context.storageKey('CitizenIdentity', 'BindingRevisionByCid', [key]),
+      context.storageKey('Identity', 'AccountIdByCid', [key]),
+      context.storageKey('Identity', 'CidRegistry', [key]),
+      context.storageKey('Identity', 'BindingRevisionByCid', [key]),
     ]);
     final account = rows[0], revision = _decodeU64(rows[2]);
     if (account == null ||
@@ -119,7 +119,7 @@ class CitizenIdentityChainReader {
     }
     final reverse = await _getStorage(
       block,
-      context.storageKey('CitizenIdentity', 'CidByAccountId', [account]),
+      context.storageKey('Identity', 'CidByAccountId', [account]),
     );
     if (decodeCidNumber(reverse) != cid) return null;
     return CitizenBindingChainSnapshot(
@@ -151,7 +151,7 @@ class CitizenIdentityChainReader {
     final context = await _getRuntimeContext(finalized);
 
     final cidByAccountIdKey = context.storageKey(
-      'CitizenIdentity',
+      'Identity',
       'CidByAccountId',
       [accountId],
     );
@@ -161,27 +161,27 @@ class CitizenIdentityChainReader {
 
     final cidScale = (scale: encodeBoundedBytes(utf8.encode(cidNumber)));
     final accountIdByCidKey = context.storageKey(
-      'CitizenIdentity',
+      'Identity',
       'AccountIdByCid',
       [cidScale],
     );
     final cidRegistryKey = context.storageKey(
-      'CitizenIdentity',
+      'Identity',
       'CidRegistry',
       [cidScale],
     );
     final votingKey = context.storageKey(
-      'CitizenIdentity',
+      'Identity',
       'VotingIdentityByCid',
       [cidScale],
     );
     final candidateKey = context.storageKey(
-      'CitizenIdentity',
+      'Identity',
       'CandidateIdentityByCid',
       [cidScale],
     );
     final bindingRevisionKey = context.storageKey(
-      'CitizenIdentity',
+      'Identity',
       'BindingRevisionByCid',
       [cidScale],
     );

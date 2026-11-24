@@ -62,8 +62,8 @@ class _SweepToMainPageState extends State<SweepToMainPage> {
     _proposerRoleCodeController = TextEditingController(
       text: defaultInstitutionProposerRoleCode(widget.institution),
     );
-    final feeHex = widget.institution.accounts?.feeAccountId;
-    if (feeHex == null) {
+    final feeHex = widget.institution.accounts.feeAccountId;
+    if (feeHex.isEmpty) {
       throw StateError('治理机构 InstitutionAccounts.feeAccountId 为空,无法发起手续费划转');
     }
     _feeAccountId = feeHex;

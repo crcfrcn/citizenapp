@@ -305,8 +305,9 @@ class SubscriptionService {
         entry.session.bindRev != bindRev ||
         !_currentEntry(entry) ||
         now < entry.checkedAt ||
-        now >= entry.deadline)
+        now >= entry.deadline) {
       return null;
+    }
     return entry.resolved;
   }
 

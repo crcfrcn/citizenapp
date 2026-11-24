@@ -69,8 +69,9 @@ class ChainDataService extends ChangeNotifier {
         !_verifiedPrices.contains(prices.genesisHash) ||
         prices.genesisHash != data.genesisHash ||
         prices.runtimeSpecVersion != data.runtimeSpecVersion ||
-        prices.runtimeTransactionVersion != data.runtimeTransactionVersion)
+        prices.runtimeTransactionVersion != data.runtimeTransactionVersion) {
       return false;
+    }
     final age = _now().millisecondsSinceEpoch - prices.checkedAtMillis;
     return age >= 0 && age < priceCacheDuration.inMilliseconds;
   }
@@ -220,8 +221,9 @@ class ChainDataService extends ChangeNotifier {
         data?.accountId == accountId &&
         data?.ownCid == cidNumber &&
         data?.own?.identity?.bindRev == bindRev;
-    if (!forceRefresh && matches(_snapshot) && !isStale && pricesReady)
+    if (!forceRefresh && matches(_snapshot) && !isStale && pricesReady) {
       return _snapshot!;
+    }
     final owner = _generation;
     if (await _account() != accountId || owner != _generation || _closed) {
       throw StateError('会员身份已变化');
@@ -255,8 +257,9 @@ class ChainDataService extends ChangeNotifier {
     try {
       return await work;
     } finally {
-      if (identical(_membershipFlights[key], work))
+      if (identical(_membershipFlights[key], work)) {
         _membershipFlights.remove(key);
+      }
     }
   }
 

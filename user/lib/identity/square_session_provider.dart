@@ -428,11 +428,12 @@ class SquareSessionProvider {
             code: 'identityChanged',
           );
         }
-        if (!allowWalletAuthorization)
+        if (!allowWalletAuthorization) {
           throw const AccountSecurityException(
             '钱包授权尚未完成',
             code: 'authenticationRequired',
           );
+        }
         final owner = (binding.cidNumber, binding.accountId, binding.bindRev);
         if (userInitiated) _blockedAuthorization.remove(owner);
         if (_blockedAuthorization.contains(owner)) {

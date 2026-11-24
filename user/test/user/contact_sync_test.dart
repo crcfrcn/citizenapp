@@ -128,8 +128,9 @@ class Api extends SquareApiClient {
     };
     await listGate?.future;
     if (listFailure != null &&
-        (listFailureAt == null || listFailureAt == reads))
+        (listFailureAt == null || listFailureAt == reads)) {
       throw listFailure!;
+    }
     return result;
   }
 
@@ -147,13 +148,14 @@ class Api extends SquareApiClient {
     if (number <= putGates.length) await putGates[number - 1].future;
     if (putFailure != null) throw putFailure!;
     final old = records[cidNumber];
-    if (old != null && old['change_version'] != changeVersion)
+    if (old != null && old['change_version'] != changeVersion) {
       return {
         'is_ok': true,
         'contact': Map<String, dynamic>.of(old),
         'conflict':
             old['deleted'] == true || old['contact_remark'] != contactRemark,
       };
+    }
     final contact = {
       'cid_number': cidNumber,
       'contact_remark': contactRemark,
@@ -177,12 +179,13 @@ class Api extends SquareApiClient {
     deleteSelections.add(
       remainingCids ?? all.map((r) => r['cid_number'] as String).toList(),
     );
-    if ((signed['intent'] as Map)['bind_rev'] != session.bindRev)
+    if ((signed['intent'] as Map)['bind_rev'] != session.bindRev) {
       throw const SquareApiException(
         'synthetic',
         statusCode: 403,
         errorCode: 'contact_delete_signature_invalid',
       );
+    }
     if (deleteFailure != null) throw deleteFailure!;
     final results = <Map<String, dynamic>>[];
     for (final target in ((signed['intent'] as Map)['contacts'] as List).where(

@@ -3,7 +3,6 @@ library;
 
 import 'package:citizen_system/identity_cid_display.dart';
 import 'package:citizen_user/navigation.dart';
-import 'package:citizen_system/security/account_security_exception.dart';
 import 'package:provider/provider.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
@@ -23,7 +22,6 @@ import 'package:citizen_user/profile/user_profile_page.dart';
 import 'package:citizen_user/profile/profile_avatar.dart';
 import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_user/membership/membership_revision.dart';
-import 'package:citizen_user/membership/subscription_service.dart';
 import 'package:citizen_user/identity/current_user_context.dart';
 import 'package:citizen_user/contacts/contact_book_page.dart';
 import 'package:citizen_user/contacts/contact_service.dart';
@@ -31,7 +29,6 @@ import 'package:citizen_scanner/scan_dispatch.dart';
 import 'package:citizen_onchain/onchain_payment_page.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 import 'package:citizen_system/theme/app_theme.dart';
-import 'package:citizen_user/identity/identity_register_guide.dart';
 import 'package:citizen_user/identity/account_security_service.dart';
 import 'package:citizen_wallet/account/wallet_qr_dialog.dart';
 

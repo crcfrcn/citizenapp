@@ -1098,7 +1098,7 @@ class _PersonalProposalDetailPageState
 
       final voterTickets = results[0] as List<EligibleVoterTicket>;
       final admins = voterTickets
-          .map((ticket) => ticket.voterAccountId)
+          .map((ticket) => _requireAccountId(ticket.voterAccountId))
           .toSet()
           .toList();
       final status = results[1] as int?;
@@ -1499,8 +1499,8 @@ class _PersonalProposalDetailPageState
     }
   }
 
-  String _requireAccountId(String accountId) {
-    if (!isCitizenAccountId(accountId)) {
+  String _requireAccountId(String? accountId) {
+    if (accountId == null || !isCitizenAccountId(accountId)) {
       throw const FormatException('account_id 必须为小写 0x + 64 位十六进制');
     }
     return accountId;
@@ -2104,7 +2104,7 @@ class _PersonalTransferDetailPageState
 
       final voterTickets = results[0] as List<EligibleVoterTicket>;
       final admins = voterTickets
-          .map((ticket) => ticket.voterAccountId)
+          .map((ticket) => _requireAccountId(ticket.voterAccountId))
           .toSet()
           .toList();
       final thresholdSnapshot = results[1] as int?;
@@ -2309,8 +2309,8 @@ class _PersonalTransferDetailPageState
     return '${address.substring(0, 6)}...${address.substring(address.length - 6)}';
   }
 
-  String _requireAccountId(String accountId) {
-    if (!isCitizenAccountId(accountId)) {
+  String _requireAccountId(String? accountId) {
+    if (accountId == null || !isCitizenAccountId(accountId)) {
       throw const FormatException('account_id 必须为小写 0x + 64 位十六进制');
     }
     return accountId;

@@ -1,99 +1,15 @@
-// 严格解码机构岗位、任职及独立管理员名册的SCALE布局。
+// 严格解码机构岗位、人员CID任职及投票计划的SCALE布局。
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:citizen_citizen/administrators/admin_account.dart';
-
 import 'package:citizen_citizen/institution/institution_role_models.dart';
 
-/// entity 岗位/任职与 admins 钱包集合的严格 SCALE 解码器。
+/// 机构岗位和人员任职的严格SCALE解码器。
 class InstitutionRoleStorageCodec {
   InstitutionRoleStorageCodec._();
-
-  static InstitutionAdminsStorage? decodeAdmins(Uint8List data) {
-    var offset = 0;
-    // 机构 CID 是 `AdminAccounts` 的 storage key，不在 value 中重复保存。
-    // value 唯一布局为 institution_code:[u8;4] + admins：统一 Admin
-    // (account_id, cid_number, family_name, given_name)，公私权同构。
-    if (offset + 4 > data.length) return null;
-    final code = String.fromCharCodes(
-      data.sublist(offset, offset + 4).where((b) => b != 0),
-    );
-    offset += 4;
-    final decodedAdmins = decodeAdminVector(data, offset);
-    if (decodedAdmins == null) return null;
-    final admins = decodedAdmins.$1;
-    offset = decodedAdmins.$2;
-    if (offset != data.length) return null;
-    return InstitutionAdminsStorage(orgCode: code, admins: admins);
-  }
-
-  /// 从指定偏移严格解码统一管理员集合，并返回下一字段偏移。
-  ///
-  /// 机构管理员、个人多签管理员和全量管理员扫描必须共用本入口，避免
-  /// 在不同页面复制 SCALE 字段顺序。账户重复与畸形 UTF-8 均拒绝。
-  ///
-  /// 统一 `Admin` 后每条恒为 (account_id, cid_number, family_name, given_name)，
-  /// 故默认 `includeCitizenCid=true`；姓名由链端 `normalize_names` 填默认（个人多签空
-  /// cid），`allowEmptyNames=true` 只作宽松兜底，不会误拒链上数据。
-  static (List<AdminPerson>, int)? decodeAdminVector(
-    Uint8List data,
-    int offset, {
-    bool includeCitizenCid = true,
-    bool allowEmptyNames = true,
-  }) {
-    final count = _readCompact(data, offset);
-    if (count == null) return null;
-    offset += count.$2;
-    final admins = <AdminPerson>[];
-    final accountIds = <String>{};
-    for (var i = 0; i < count.$1; i++) {
-      if (offset + 32 > data.length) return null;
-      final accountId = citizenAccountIdFromBytes(
-        data.sublist(offset, offset + 32),
-      );
-      offset += 32;
-      var citizenCid = (<int>[], offset);
-      if (includeCitizenCid) {
-        final decodedCid = _readBytes(data, offset, maxLength: 32);
-        if (decodedCid == null) return null;
-        citizenCid = decodedCid;
-        offset = citizenCid.$2;
-      }
-      final familyName = _readBytes(
-        data,
-        offset,
-        minLength: allowEmptyNames ? 0 : 1,
-        maxLength: 128,
-      );
-      if (familyName == null) return null;
-      offset = familyName.$2;
-      final givenName = _readBytes(
-        data,
-        offset,
-        minLength: allowEmptyNames ? 0 : 1,
-        maxLength: 128,
-      );
-      if (givenName == null) return null;
-      offset = givenName.$2;
-      try {
-        final admin = AdminPerson(
-          accountId: accountId,
-          cidNumber: utf8.decode(citizenCid.$1),
-          familyName: utf8.decode(familyName.$1),
-          givenName: utf8.decode(givenName.$1),
-        );
-        if (!accountIds.add(admin.accountId)) return null;
-        admins.add(admin);
-      } on FormatException {
-        return null;
-      }
-    }
-    return (admins, offset);
-  }
 
   static InstitutionRole? decodeRole(Uint8List data) {
     try {
@@ -107,9 +23,10 @@ class InstitutionRoleStorageCodec {
       final name = _readBytes(data, offset, minLength: 1, maxLength: 128);
       if (name == null) return null;
       offset = name.$2;
-      if (offset + 2 != data.length ||
+      if (offset + 6 != data.length ||
           data[offset] > 1 ||
-          data[offset + 1] > 1) {
+          data[offset + 1] > 1 ||
+          CitizenScale.readUnsigned(data, offset + 2, 4) == BigInt.zero) {
         return null;
       }
       return InstitutionRole(
@@ -118,28 +35,27 @@ class InstitutionRoleStorageCodec {
         roleName: utf8.decode(name.$1),
         termRequired: data[offset] == 1,
         status: InstitutionRoleStatus.values[data[offset + 1]],
+        seats: CitizenScale.readUnsigned(data, offset + 2, 4).toInt(),
       );
     } on FormatException {
       return null;
     }
   }
 
-  static List<InstitutionAdminAssignment>? decodeAssignments(Uint8List data) {
+  static List<InstitutionAssignment>? decodeAssignments(Uint8List data) {
     var offset = 0;
     final count = _readCompact(data, offset);
     if (count == null) return null;
     offset += count.$2;
-    final out = <InstitutionAdminAssignment>[];
+    final out = <InstitutionAssignment>[];
+    final seats = <String>{};
     for (var i = 0; i < count.$1; i++) {
       final cid = _readBytes(data, offset, minLength: 1, maxLength: 32);
       if (cid == null) return null;
       offset = cid.$2;
-      if (offset + 32 > data.length) return null;
-      // 与人员名册使用同一规范 AccountId，避免任职关联被格式差异全部过滤。
-      final accountId = citizenAccountIdFromBytes(
-        data.sublist(offset, offset + 32),
-      );
-      offset += 32;
+      final person = _readUtf8(data, offset, minLength: 1, maxLength: 32);
+      if (person == null || !isPersonCid(person.$1)) return null;
+      offset = person.$2;
       final code = _readBytes(data, offset, minLength: 1, maxLength: 64);
       if (code == null) return null;
       offset = code.$2;
@@ -159,10 +75,15 @@ class InstitutionRoleStorageCodec {
       final status = data[offset++];
       if (status > 1) return null;
       try {
+        if (!seats.add(
+          '${utf8.decode(cid.$1)}:${utf8.decode(code.$1)}:${person.$1}',
+        )) {
+          return null;
+        }
         out.add(
-          InstitutionAdminAssignment(
+          InstitutionAssignment(
             cidNumber: utf8.decode(cid.$1),
-            accountId: accountId,
+            personCid: person.$1,
             roleCode: utf8.decode(code.$1),
             termStart: termStart,
             termEnd: termEnd,
@@ -176,6 +97,39 @@ class InstitutionRoleStorageCodec {
       }
     }
     return offset == data.length ? out : null;
+  }
+
+  /// 公权只允许CTZN；私权还允许NATP，机构码必须取完整CID中的四位类型。
+  static bool isPersonCid(String cid, {bool private = true}) {
+    final parts = cid.split('-');
+    if (parts.length != 4 ||
+        !RegExp(r'^[A-Z]{2}[0-9]{3}$').hasMatch(parts[0]) ||
+        !RegExp(r'^[0-9]{9}$').hasMatch(parts[2]) ||
+        !RegExp(r'^[0-9]{4}$').hasMatch(parts[3]) ||
+        !RegExp(r'^(CTZN|NATP)[0-9A-Z]$').hasMatch(parts[1])) {
+      return false;
+    }
+    return parts[1].startsWith('CTZN') ||
+        (private && parts[1].startsWith('NATP'));
+  }
+
+  /// 冻结选民按人员CID解码，同一岗位重复人员和尾随字节均拒绝。
+  static List<String>? decodePersons(Uint8List data) {
+    final count = _readCompact(data, 0);
+    if (count == null || count.$1 > data.length) return null;
+    var offset = count.$2;
+    final persons = <String>[];
+    for (var i = 0; i < count.$1; i++) {
+      final person = _readUtf8(data, offset, minLength: 1, maxLength: 32);
+      if (person == null ||
+          !isPersonCid(person.$1) ||
+          persons.contains(person.$1)) {
+        return null;
+      }
+      offset = person.$2;
+      persons.add(person.$1);
+    }
+    return offset == data.length ? persons : null;
   }
 
   /// 来源引用是业务字节：可读文本原样显示，其余与 Node 一样展示完整十六进制。

@@ -1,5 +1,7 @@
 // 验证提案详情持久化、冻结岗位票据及种类隔离。
 
+import 'dart:convert';
+
 import 'package:citizen_citizen/proposal/proposal_models.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:citizen_citizen/proposal/proposal_detail_local_store.dart';
@@ -20,6 +22,7 @@ void main() {
     );
     final ticket = EligibleVoterTicket(
       voterAccountId: 'account',
+      personCid: 'person-A',
       cidNumber: 'institution',
       voterRoleCode: 'COMMITTEE_MEMBER',
     );
@@ -39,6 +42,59 @@ void main() {
     expect(restored.detail, snapshot.detail);
     expect(restored.voterTickets.single.ticketKey, ticket.ticketKey);
     expect(restored.adminVotes[ticket.ticketKey], isTrue);
+  });
+
+  test('机构人员未绑定钱包仍保留冻结票据和已投记录', () {
+    const ticket = EligibleVoterTicket(
+      voterAccountId: null,
+      personCid: 'person-A',
+      cidNumber: 'institution',
+      voterRoleCode: 'COMMITTEE_MEMBER',
+    );
+    final id = BigInt.from(24);
+    final original =
+        ProposalDetailSnapshot(
+          proposalId: id,
+          proposalKind: 'transfer',
+          updatedAt: 1,
+        ).withState(
+          ProposalMeta(proposalId: id, kind: 0, stage: 0, status: 0),
+          tickets: [ticket],
+          votes: {ticket.ticketKey: true},
+        );
+    final restored = ProposalDetailSnapshot.fromJsonString(
+      jsonEncode(original.toJson()),
+      proposalKind: 'transfer',
+      proposalId: id,
+    )!;
+    expect(restored.voterTickets.single.personCid, 'person-A');
+    expect(restored.voterTickets.single.voterAccountId, isNull);
+    expect(restored.adminVotes[ticket.ticketKey], isTrue);
+  });
+
+  test('缺少人员CID的旧机构缓存失效，不从钱包倒推身份', () {
+    final snapshot = ProposalDetailSnapshot(
+      proposalId: BigInt.one,
+      proposalKind: 'transfer',
+      updatedAt: 1,
+      extra: const {
+        'voter_tickets': [
+          {
+            'account_id': 'wallet',
+            'cid_number': 'institution',
+            'role_code': 'MEMBER',
+          },
+        ],
+      },
+    );
+    expect(
+      ProposalDetailSnapshot.fromJsonString(
+        jsonEncode(snapshot.toJson()),
+        proposalKind: 'transfer',
+        proposalId: BigInt.one,
+      ),
+      isNull,
+    );
   });
 
   TestWidgetsFlutterBinding.ensureInitialized();

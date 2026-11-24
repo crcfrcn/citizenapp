@@ -1,6 +1,7 @@
 // 定义内置贴纸分类及稳定贴纸标识。
 
 /// 贴纸分类(面板分组用,顺序即分组展示顺序)。
+library;
 
 enum StickerCategory { smileys, gestures, hearts, celebration }
 

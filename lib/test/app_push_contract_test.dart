@@ -12,6 +12,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:citizen_testing/platform_input.dart';
 
+// 两端源码声明由产品宿主入口交付；所选平台生成物仍通过platformInput核对。
+String _source(String name) {
+  final root = Platform.environment['CITIZENAPP_SOURCE_ROOT'];
+  if (root == null || !Directory(root).isAbsolute) {
+    throw StateError('宿主测试须交付产品源码根CITIZENAPP_SOURCE_ROOT');
+  }
+  return File('$root/$name').readAsStringSync();
+}
+
 void main() {
   test('充值通知在CID通知前独立处理，前台恢复仅调用订单模块', () {
     final source = File('lib/app.dart').readAsStringSync();
@@ -144,7 +153,7 @@ void main() {
   });
 
   test('CitizenApp 双端只展示并清理固定聊天通知', () {
-    final android = File('android/app/MainActivity.kt').readAsStringSync();
+    final android = _source('android/app/MainActivity.kt');
     final appPush = File('system/lib/notifications/app_push_service.dart')
         .readAsStringSync();
 
@@ -153,7 +162,7 @@ void main() {
     expect(appPush, contains('setForegroundNotificationPresentationOptions'));
     expect(android, contains('clearChatNotifications(conversationId)'));
     expect(
-      File('ios/source/AppDelegate.swift').readAsStringSync(),
+      _source('ios/source/AppDelegate.swift'),
       contains('clearDeliveredChatNotifications'),
     );
   });
@@ -177,8 +186,8 @@ void main() {
   if (Platform.environment['PLATFORM'] != 'android') {
     test('iOS APNs 环境以 provisioning profile 和 App Store 收据为真源', () {
       final entitlements = platformInput('ios/Runner/Runner.entitlements');
-      final infoPlist = File('ios/source/Info.plist').readAsStringSync();
-      final appDelegate = File('ios/source/AppDelegate.swift').readAsStringSync();
+      final infoPlist = _source('ios/source/Info.plist');
+      final appDelegate = _source('ios/source/AppDelegate.swift');
 
       expect(entitlements, contains('<string>\$(APS_ENVIRONMENT)</string>'));
       expect(infoPlist, isNot(contains('\$(APS_ENVIRONMENT)')));
@@ -190,7 +199,7 @@ void main() {
     });
 
     test('iOS 正式包固定声明当前出口合规豁免结论', () {
-      final infoPlist = File('ios/source/Info.plist').readAsStringSync();
+      final infoPlist = _source('ios/source/Info.plist');
 
       // 当前销售范围排除法国，App Store Connect 已判定标准加密无须上传文稿。
       expect(infoPlist, contains('<key>ITSAppUsesNonExemptEncryption</key>'));
@@ -210,11 +219,10 @@ void main() {
         .map((value) => (value as Map)['name'])
         .toSet();
     expect(names, contains('chat'));
-    final storage = File('ios/chat/ChatStorageChannel.swift')
-        .readAsStringSync();
-    final app = File('ios/source/AppDelegate.swift').readAsStringSync();
+    final storage = _source('ios/chat/ChatStorageChannel.swift');
+    final app = _source('ios/source/AppDelegate.swift');
     expect(
-      File('android/app/src/main/AndroidManifest.xml').readAsStringSync(),
+      _source('android/app/AndroidManifest.xml'),
       contains('android:allowBackup="false"'),
     );
     expect(

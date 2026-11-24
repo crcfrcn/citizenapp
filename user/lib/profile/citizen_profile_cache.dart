@@ -79,11 +79,13 @@ class CitizenProfileCache {
     _reads[cid] = (generation: readGeneration(cid), read: order);
     return order;
   }
+
   static bool acceptsRead(String cid, int order) => _reads[cid]?.read == order;
   static void invalidateReads(String cid) {
     final order = ++_readSequence;
     _reads[cid] = (generation: order, read: order);
   }
+
   static const _updateFields = {
     'display_name',
     'profile_bio',
@@ -174,8 +176,9 @@ class CitizenProfileCache {
 
   bool updateMatches(user_store.Edit row, CitizenProfile profile) {
     // 版本0是只读占位，不能证明这次修改已经写入R2。
-    if (row.cidNumber != profile.cidNumber || profile.profileAt <= 0)
+    if (row.cidNumber != profile.cidNumber || profile.profileAt <= 0) {
       return false;
+    }
     final request = jsonDecode(row.requestData) as Map<String, dynamic>;
     final actual = profile.toJson();
     return request.entries.every((entry) {

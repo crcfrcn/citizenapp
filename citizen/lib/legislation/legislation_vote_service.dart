@@ -10,6 +10,7 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'package:citizen_citizen/legislation/legislation_vote_query_service.dart';
 import 'package:citizen_citizen/proposal/proposal_query_service.dart';
+import 'package:citizen_citizen/institution/institution_role_storage_codec.dart';
 
 /// 立法投票/签署提交服务(LegislationVote sub-pallet,pallet_index=26)。
 ///
@@ -104,11 +105,12 @@ class LegislationVoteService {
 
   // ──── 公开 API ────
 
-  /// 当前代表机构表决；同一钱包在不同机构的席位分别记票。
+  /// 当前代表机构表决；按机构岗位及人员CID记票，钱包只负责本次签名。
   Future<({String txHash, int usedNonce, String blockHash})>
   castRepresentativeVote({
     required BigInt proposalId,
     required String voterRoleCode,
+    required String personCid,
     required bool approve,
     required Uint8List signerPublicKey,
     required Future<String?> Function(
@@ -116,6 +118,9 @@ class LegislationVoteService {
     )
     externalSigning,
   }) async {
+    if (!InstitutionRoleStorageCodec.isPersonCid(personCid)) {
+      throw ArgumentError('代表机构票据必须使用人员CID');
+    }
     final meta = await _query.fetchRepresentativeMeta(proposalId);
     if (meta == null) throw StateError('代表机构表决元数据不存在');
     final bodyIndex = meta.currentBody;
@@ -145,7 +150,7 @@ class LegislationVoteService {
       bodyIndex,
       meta.bodies[bodyIndex].cidNumber,
       voterRoleCode,
-      citizenAccountIdFromBytes(signerPublicKey),
+      personCid,
     );
     if (vote != null && vote != approve) throw StateError('执行块的代表投票方向不一致');
     return (

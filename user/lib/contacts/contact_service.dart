@@ -333,8 +333,9 @@ class UserContactService {
     if (syncState.value.retryByPull ||
         syncState.value.errorCode == 'contact_version_conflict' ||
         syncState.value.errorCode == 'contact_legacy_confirmation_required' ||
-        _terminalDelete.contains(syncState.value.errorCode))
+        _terminalDelete.contains(syncState.value.errorCode)) {
       return syncState.value;
+    }
     if (rows.any(
       (r) => r.deleted == null || r.pendingAction == 'unsigned_delete',
     )) {
@@ -379,8 +380,9 @@ class UserContactService {
         failure.status == SquareSessionStatus.networkUnavailable ||
         error is SquareApiException &&
             [408, 429, 500, 502, 503, 504].contains(error.statusCode);
-    if (!transient || (_retryTimers[owner.cidNumber]?.isActive ?? false))
+    if (!transient || (_retryTimers[owner.cidNumber]?.isActive ?? false)) {
       return;
+    }
     final automatic =
         !retryByPull && _autoSync && _retryAttempt < _retryDelays.length;
     var wait = automatic
@@ -388,17 +390,20 @@ class UserContactService {
         : Duration.zero;
     if (error is SquareApiException &&
         error.retryAfter != null &&
-        error.retryAfter! > wait)
+        error.retryAfter! > wait) {
       wait = error.retryAfter!;
+    }
     if (wait <= Duration.zero) return;
     late final Timer timer;
     timer = Timer(wait, () async {
-      if (identical(_retryTimers[owner.cidNumber], timer))
+      if (identical(_retryTimers[owner.cidNumber], timer)) {
         _retryTimers.remove(owner.cidNumber);
+      }
       if (!automatic || _disposed || !_foreground) return;
       try {
-        if ((await _current.resolve())?.cidNumber == owner.cidNumber)
+        if ((await _current.resolve())?.cidNumber == owner.cidNumber) {
           await flushPending();
+        }
       } on Object {
         /* 旧身份等待结束不触发其它CID的补传。 */
       }
@@ -424,8 +429,9 @@ class UserContactService {
   }) {
     if (row.changeVersion > contact.changeVersion ||
         row.changeVersion == contact.changeVersion &&
-            row.changeVersion > expected)
+            row.changeVersion > expected) {
       return;
+    }
     if (conflict) {
       if (contact.changeVersion > row.changeVersion) _cloud(row, contact);
       return;
@@ -484,8 +490,9 @@ class UserContactService {
         );
         continue;
       }
-      if (selected.any((cid) => !expected.containsKey(cid)))
+      if (selected.any((cid) => !expected.containsKey(cid))) {
         throw const FormatException('联系人删除回执不匹配');
+      }
       _state(ContactSyncPhase.syncing);
       Map<String, dynamic> reply;
       try {
@@ -501,19 +508,23 @@ class UserContactService {
         continue;
       }
       await _assertOwner(owner);
-      if (reply['is_ok'] != true || reply['results'] is! List)
+      if (reply['is_ok'] != true || reply['results'] is! List) {
         throw const FormatException('联系人删除回执无效');
+      }
       final remaining = reply['remaining_cids'] ?? <String>[];
-      if (remaining is! List || remaining.any((cid) => cid is! String))
+      if (remaining is! List || remaining.any((cid) => cid is! String)) {
         throw const FormatException('联系人删除回执无效');
+      }
       final left = remaining.cast<String>().toSet();
       if (left.length != remaining.length ||
-          left.any((cid) => !selected.contains(cid)))
+          left.any((cid) => !selected.contains(cid))) {
         throw const FormatException('联系人删除回执不匹配');
+      }
       final results = <String, (UserContact, bool)>{};
       for (final raw in reply['results'] as List) {
-        if (raw is! Map || raw['conflict'] is! bool || raw['contact'] is! Map)
+        if (raw is! Map || raw['conflict'] is! bool || raw['contact'] is! Map) {
           throw const FormatException('联系人删除回执无效');
+        }
         final contact = UserContact.fromCloudJson(
           (raw['contact'] as Map).cast<String, dynamic>(),
         );
@@ -521,17 +532,20 @@ class UserContactService {
             left.contains(contact.cidNumber) ||
             results.containsKey(contact.cidNumber) ||
             contact.changeVersion <= expected[contact.cidNumber]! ||
-            raw['conflict'] == false && !contact.deleted)
+            raw['conflict'] == false && !contact.deleted) {
           throw const FormatException('联系人删除回执不匹配');
+        }
         results[contact.cidNumber] = (contact, raw['conflict'] as bool);
         if (raw['conflict'] == true) failure ??= _conflict;
       }
-      if (results.length + left.length != selected.length)
+      if (results.length + left.length != selected.length) {
         throw const FormatException('联系人删除回执不完整');
+      }
       SquareApiException? partial;
       if (left.isNotEmpty) {
-        if (reply['status_code'] is! int || reply['error_code'] is! String)
+        if (reply['status_code'] is! int || reply['error_code'] is! String) {
           throw const FormatException('联系人删除回执无效');
+        }
         partial = SquareApiException(
           '同步失败，点击重试',
           statusCode: reply['status_code'] as int,
@@ -557,8 +571,9 @@ class UserContactService {
           if (row.pendingAction == 'delete') row.pendingAction = '';
           await collection.put(row);
         }
-        if (left.isEmpty)
+        if (left.isEmpty) {
           await db.collection<store.ContactDeleteBatch>().delete(batch.id);
+        }
       });
       if (partial != null) {
         if (!_terminalDelete.contains(partial.errorCode)) throw partial;
@@ -580,8 +595,9 @@ class UserContactService {
       await _assertOwner(owner);
       if (reply['is_ok'] != true ||
           reply['conflict'] is! bool ||
-          reply['contact'] is! Map)
+          reply['contact'] is! Map) {
         throw const FormatException('联系人写入回执无效');
+      }
       final conflict = reply['conflict'] as bool;
       final confirmed = UserContact.fromCloudJson(
         (reply['contact'] as Map).cast<String, dynamic>(),
@@ -590,8 +606,9 @@ class UserContactService {
           confirmed.changeVersion <= sent.changeVersion ||
           !conflict &&
               (confirmed.deleted ||
-                  confirmed.contactRemark != sent.contactRemark))
+                  confirmed.contactRemark != sent.contactRemark)) {
         throw const FormatException('联系人写入回执不匹配');
+      }
       if (conflict) failure ??= _conflict;
       await _write(owner, (db) async {
         final collection = db.collection<store.Contact>();
@@ -632,8 +649,9 @@ class UserContactService {
     final rows = await _rows(owner);
     if (rows.any(
       (r) => r.deleted == null || r.pendingAction == 'unsigned_delete',
-    ))
+    )) {
       failure ??= _legacy;
+    }
     _state(
       failure != null
           ? ContactSyncPhase.failed
@@ -744,12 +762,14 @@ class UserContactService {
       if (row == null || _authorizedDelete(row) || row.deleted == true) {
         throw StateError('未找到联系人');
       }
-      if (row.contactRemark == remark && row.pendingAction != 'legacy_put')
+      if (row.contactRemark == remark && row.pendingAction != 'legacy_put') {
         return;
+      }
       changed = true;
       row.contactRemark = remark;
-      if (row.deleted != null || row.pendingAction == 'legacy_put')
+      if (row.deleted != null || row.pendingAction == 'legacy_put') {
         row.deleted = false;
+      }
       row.pendingAction = 'put';
       await rows.put(row);
     });
@@ -773,8 +793,9 @@ class UserContactService {
       await _tails[(_security, owner.cidNumber)];
       await _assertOwner(owner);
       final ids = cidNumbers.map(requireCidNumber).toSet().toList()..sort();
-      if (ids.length > 128 || ids.contains(owner.cidNumber))
+      if (ids.length > 128 || ids.contains(owner.cidNumber)) {
         throw const FormatException('删除名单无效');
+      }
       var existing = {for (final r in await _rows(owner)) r.cidNumber: r};
       if (ids.any(
         (cid) =>
@@ -789,8 +810,9 @@ class UserContactService {
               existing[cid] != null &&
               existing[cid]!.deleted == null &&
               existing[cid]!.pendingAction != 'legacy_put',
-        ))
+        )) {
           throw const AccountSecurityException('通讯录会话不可用');
+        }
       }
       final targets = [
         for (final cid in ids)
@@ -822,8 +844,9 @@ class UserContactService {
         accountId: owner.accountId,
         signature: signature,
         payload: payload,
-      ))
+      )) {
         throw const AccountSecurityException('联系人删除签名无效');
+      }
       await _assertOwner(owner);
       await _write(owner, (db) async {
         final collection = db.collection<store.Contact>();
@@ -836,8 +859,9 @@ class UserContactService {
               current.rowId != sent.rowId ||
               current.changeVersion != sent.changeVersion ||
               current.pendingAction != sent.pendingAction ||
-              current.contactRemark != sent.contactRemark)
+              current.contactRemark != sent.contactRemark) {
             throw const AccountSecurityException('联系人已变化，请重新确认');
+          }
         }
         final signed = {
           'intent': intent,
@@ -903,8 +927,9 @@ class UserContactService {
       final prior = existing[contact.cidNumber];
       if (prior != null &&
           (prior.deleted == null ||
-              contact.changeVersion <= prior.changeVersion))
+              contact.changeVersion <= prior.changeVersion)) {
         continue;
+      }
       final row =
           prior ??
           (store.Contact()
@@ -925,8 +950,9 @@ class UserContactService {
         if (r.deleteBatch.isNotEmpty) r.deleteBatch,
     };
     for (final batch in batches) {
-      if (!referenced.contains(batch.batchId))
+      if (!referenced.contains(batch.batchId)) {
         await db.collection<store.ContactDeleteBatch>().delete(batch.id);
+      }
     }
     return failure;
   });
@@ -943,20 +969,23 @@ class UserContactService {
       await _assertOwner(owner);
       if (page['is_ok'] != true ||
           page['contacts'] is! List ||
-          page['next_cursor'] != null && page['next_cursor'] is! String)
+          page['next_cursor'] != null && page['next_cursor'] is! String) {
         throw const FormatException('通讯录清单无效');
+      }
       for (final raw in page['contacts'] as List) {
         final contact = UserContact.fromCloudJson(
           (raw as Map).cast<String, dynamic>(),
         );
         if (contact.cidNumber == owner.cidNumber ||
-            incoming.containsKey(contact.cidNumber))
+            incoming.containsKey(contact.cidNumber)) {
           throw const FormatException('通讯录联系人无效或重复');
+        }
         incoming[contact.cidNumber] = contact;
       }
       cursor = page['next_cursor'] as String?;
-      if (cursor != null && (cursor.isEmpty || !cursors.add(cursor)))
+      if (cursor != null && (cursor.isEmpty || !cursors.add(cursor))) {
         throw const FormatException('通讯录分页游标重复');
+      }
     } while (cursor != null);
     return incoming;
   }

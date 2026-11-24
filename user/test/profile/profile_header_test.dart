@@ -100,6 +100,16 @@ Widget _wrap({
   );
 }
 
+class _DeferredProfileApi extends FakeProfileApi {
+  _DeferredProfileApi(super.result, this.gate);
+  final Future<void> gate;
+  @override
+  Future<CitizenProfile> fetchProfile(String cidNumber, {SquareSession? session}) async {
+    await gate;
+    return super.fetchProfile(cidNumber, session: session);
+  }
+}
+
 // 通过App公开资料接口交付确认结果，不替代SDK状态或本机身份资源。
 class _FollowApi extends FakeProfileApi {
   _FollowApi(
@@ -123,7 +133,7 @@ class _FollowApi extends FakeProfileApi {
     CitizenProfileCache? cache,
     CitizenProfileMediaCache? mediaCache,
   }) async {
-    if (!userInitiated)
+    if (!userInitiated) {
       return super.refreshProfile(
         cidNumber,
         session: session,
@@ -132,6 +142,7 @@ class _FollowApi extends FakeProfileApi {
         cache: cache,
         mediaCache: mediaCache,
       );
+    }
     refreshes++;
     if (failRead) {
       throw const SquareApiException('fixture profile refresh failed');
@@ -147,8 +158,9 @@ class _FollowApi extends FakeProfileApi {
             fresh,
             expectedCid: cidNumber,
             assertCurrent: () {
-              if (!(isCurrent?.call() ?? true))
+              if (!(isCurrent?.call() ?? true)) {
                 throw StateError('fixture session changed');
+              }
             },
           );
   }
@@ -794,12 +806,16 @@ void main() {
     expect(badge.style.checked, isTrue);
   });
 
-  testWidgets('本人首帧使用持久资料，后台刷新更新并保存', (tester) async {
-    final api = FakeProfileApi(sampleProfile(displayName: '刷新名'));
+  testWidgets('本人身份核实后先展示持久资料，后台刷新更新并保存', (tester) async {
+    final gate = Completer<void>();
+    final api = _DeferredProfileApi(sampleProfile(displayName: '刷新名'), gate.future);
     final cache = FakeProfileCache(sampleProfile(displayName: '本地名'));
     await tester.pumpWidget(_wrap(isSelf: true, api: api, cache: cache));
+    expect(find.text('本地名'), findsNothing, reason: '本人提示不是访问许可，仍需核对当前CID');
+    await tester.pumpAndSettle();
     expect(find.text('本地名'), findsWidgets);
     expect(find.text('刷新名'), findsNothing);
+    gate.complete();
     await tester.pumpAndSettle();
     expect(api.calls, 1);
     expect(cache.wrote, isTrue);

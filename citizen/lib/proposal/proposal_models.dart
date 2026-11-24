@@ -58,9 +58,11 @@ class EligibleVoterTicket {
     this.cidNumber,
     this.voterRoleCode,
     this.voterRoleName,
+    this.personCid,
   });
 
-  final String voterAccountId;
+  final String? voterAccountId;
+  final String? personCid;
   final String? cidNumber;
   final String? voterRoleCode;
 
@@ -70,7 +72,7 @@ class EligibleVoterTicket {
   bool get isInstitution => cidNumber != null && voterRoleCode != null;
 
   String get ticketKey => isInstitution
-      ? '${cidNumber!}:${voterRoleCode!}:$voterAccountId'
+      ? '${cidNumber!}:${voterRoleCode!}:${personCid ?? (throw StateError('机构票据缺少人员CID'))}'
       : 'personal:$voterAccountId';
 }
 

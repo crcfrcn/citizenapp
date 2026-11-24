@@ -5,6 +5,7 @@ import 'dart:convert';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_citizen/proposal/proposal_models.dart';
+import 'package:citizen_citizen/institution/institution_role_storage_codec.dart';
 
 /// InternalVote 通用查询服务。
 ///
@@ -66,12 +67,12 @@ class InternalVoteQueryService {
     BigInt proposalId,
     String cidNumber,
     String voterRoleCode,
-    String accountId,
+    String personCid,
   ) async {
     final data = await readVoteFields(
       _ticketVoteFields(
         proposalId,
-        accountId,
+        personCid,
         cidNumber: cidNumber,
         voterRoleCode: voterRoleCode,
       ),
@@ -113,7 +114,7 @@ class InternalVoteQueryService {
     for (final ticket in tickets) {
       storageByTicket[ticket.ticketKey] = _ticketVoteFields(
         proposalId,
-        ticket.voterAccountId,
+        ticket.isInstitution ? ticket.personCid! : ticket.voterAccountId!,
         cidNumber: ticket.cidNumber,
         voterRoleCode: ticket.voterRoleCode,
       );
@@ -165,7 +166,7 @@ class InternalVoteQueryService {
       for (final ticket in entry.value) {
         final storageKey = _ticketVoteFields(
           entry.key,
-          ticket.voterAccountId,
+          ticket.isInstitution ? ticket.personCid! : ticket.voterAccountId!,
           cidNumber: ticket.cidNumber,
           voterRoleCode: ticket.voterRoleCode,
         );
@@ -192,11 +193,16 @@ class InternalVoteQueryService {
     String? voterRoleCode,
   }) {
     if (proposalId.isNegative) throw ArgumentError('proposal_id不得为负');
-    final account = citizenAccountIdBytes(accountId);
     final CitizenScaleVariant ticket;
     if (cidNumber == null && voterRoleCode == null) {
-      ticket = (variant: 'Personal', fields: [account]);
+      ticket = (
+        variant: 'Personal',
+        fields: [citizenAccountIdBytes(accountId)],
+      );
     } else if (cidNumber != null && voterRoleCode != null) {
+      if (!InstitutionRoleStorageCodec.isPersonCid(accountId)) {
+        throw ArgumentError('机构票据必须使用人员CID');
+      }
       ticket = (
         variant: 'Institution',
         fields: [
@@ -205,7 +211,7 @@ class InternalVoteQueryService {
               _boundedText(cidNumber, 32, 'cid_number'),
               _boundedText(voterRoleCode, 64, 'voter_role_code'),
             ],
-            account,
+            _boundedText(accountId, 32, 'person_cid'),
           ],
         ],
       );

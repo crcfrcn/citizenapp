@@ -769,8 +769,9 @@ void main() {
     expect(openedContactMode, ContactPickMode.pickForTransfer);
     const cid = 'CN220-CTZN2-100000002-2026';
     Navigator.of(tester.element(find.text('通讯录测试页'))).pop(cid);
-    await _pumpUntilFound(tester, find.text('收款公民号：$cid'));
-    expect(find.text('收款公民号：$cid'), findsOneWidget);
+    await _pumpUntilFound(tester, find.text('收款身份CID号：CN220-CTZN2-100000002'));
+    expect(find.text('收款身份CID号：CN220-CTZN2-100000002'), findsOneWidget);
+    expect(find.text('收款身份CID号：$cid'), findsNothing);
   });
 
   testWidgets('换绑后先更新预填地址，不直接进入签名确认', (tester) async {

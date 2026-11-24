@@ -113,80 +113,40 @@ void main() {
     );
   });
 
-  test('机构管理员按账户、CID、姓、名严格解码', () {
-    final value = Uint8List.fromList([
-      ...utf8.encode('CGOV'),
-      8,
-      ...List.filled(32, 1),
-      0, // 空公民 CID（统一 Admin 恒带 cid，Compact(0)）
-      ...bytes('张'),
-      ...bytes('三'),
-      ...List.filled(32, 2),
-      0, // 空公民 CID
-      ...bytes('管理'),
-      ...bytes('员'),
-    ]);
-    final decoded = InstitutionRoleStorageCodec.decodeAdmins(value)!;
-    expect(decoded.orgCode, 'CGOV');
-    expect(decoded.admins, hasLength(2));
-    expect(decoded.admins.map((admin) => admin.familyName), ['张', '管理']);
-    expect(decoded.admins.map((admin) => admin.givenName), ['三', '员']);
-    expect(decoded.admins.map((admin) => admin.accountId), [
-      '0x${'01' * 32}',
-      '0x${'02' * 32}',
-    ]);
-  });
-
-  test('机构管理员拒绝纯账户、合并姓名和重复账户布局', () {
-    final account = List.filled(32, 7);
+  test('人员CID快照拒绝旧钱包名册、合并姓名、重复和尾随布局', () {
+    const person = 'CN220-CTZN2-198805200-2026';
+    final encoded = Uint8List.fromList([4, ...bytes(person)]);
+    expect(InstitutionRoleStorageCodec.decodePersons(encoded), [person]);
+    for (final raw in [
+      [...utf8.encode('CGOV'), 4, ...List.filled(32, 7)],
+      [4, ...bytes('管理员'), ...List.filled(32, 7)],
+      [8, ...bytes(person), ...bytes(person)],
+      [...encoded, 0],
+      [4, 4, 0xff],
+    ]) {
+      expect(
+        InstitutionRoleStorageCodec.decodePersons(Uint8List.fromList(raw)),
+        isNull,
+      );
+    }
+    for (var length = 0; length < encoded.length; length++) {
+      expect(
+        InstitutionRoleStorageCodec.decodePersons(
+          Uint8List.sublistView(encoded, 0, length),
+        ),
+        isNull,
+      );
+    }
     expect(
-      InstitutionRoleStorageCodec.decodeAdmins(
-        Uint8List.fromList([...utf8.encode('CGOV'), 4, ...account]),
-      ),
-      isNull,
+      InstitutionRoleStorageCodec.isPersonCid(person, private: false),
+      true,
     );
+    const resident = 'CN220-NATP2-198805200-2026';
+    expect(InstitutionRoleStorageCodec.isPersonCid(resident), true);
     expect(
-      InstitutionRoleStorageCodec.decodeAdmins(
-        Uint8List.fromList([
-          ...utf8.encode('CGOV'),
-          4,
-          ...bytes('管理员'),
-          ...account,
-        ]),
-      ),
-      isNull,
+      InstitutionRoleStorageCodec.isPersonCid(resident, private: false),
+      false,
     );
-    expect(
-      InstitutionRoleStorageCodec.decodeAdmins(
-        Uint8List.fromList([
-          ...utf8.encode('CGOV'),
-          8,
-          ...account,
-          ...bytes('管'),
-          ...bytes('理'),
-          ...account,
-          ...bytes('管'),
-          ...bytes('员'),
-        ]),
-      ),
-      isNull,
-    );
-  });
-
-  test('公权机构管理员按账户、公民 CID、姓、名解码并允许空资料', () {
-    final value = Uint8List.fromList([
-      ...utf8.encode('NRCG'),
-      4,
-      ...List.filled(32, 3),
-      ...bytes('CN220-CTZN2-198805200-2026'),
-      ...bytes(''),
-      ...bytes(''),
-    ]);
-    final decoded = InstitutionRoleStorageCodec.decodeAdmins(value)!;
-    expect(decoded.admins.single.accountId, '0x${'03' * 32}');
-    expect(decoded.admins.single.cidNumber, 'CN220-CTZN2-198805200-2026');
-    expect(decoded.admins.single.familyName, isEmpty);
-    expect(decoded.admins.single.givenName, isEmpty);
   });
 
   test('岗位和任职分别按 entity 布局解码', () {
@@ -197,6 +157,10 @@ void main() {
         ...bytes('董事'),
         1,
         0,
+        1,
+        0,
+        0,
+        0,
       ]),
     )!;
     expect(role.roleName, '董事');
@@ -206,7 +170,7 @@ void main() {
       Uint8List.fromList([
         4,
         ...bytes('CID-1'),
-        ...List.filled(32, 7),
+        ...bytes('CN220-CTZN2-198805200-2026'),
         ...bytes('DIRECTOR'),
         10,
         0,
@@ -222,14 +186,14 @@ void main() {
       ]),
     )!.single;
     expect(assignment.source, InstitutionAssignmentSource.registry);
-    expect(assignment.accountId, '0x${'07' * 32}');
+    expect(assignment.personCid, 'CN220-CTZN2-198805200-2026');
   });
 
   test('任职向量允许已核实空集，截断或尾随字节必须拒绝', () {
     final encoded = Uint8List.fromList([
       4,
       ...bytes('CID-1'),
-      ...List.filled(32, 7),
+      ...bytes('CN220-CTZN2-198805200-2026'),
       ...bytes('MEMBER'),
       ...List.filled(8, 0),
       0,
@@ -256,8 +220,8 @@ void main() {
       isNull,
     );
     expect(
-      InstitutionRoleStorageCodec.decodeAssignments(encoded)!.single.accountId,
-      '0x${'07' * 32}',
+      InstitutionRoleStorageCodec.decodeAssignments(encoded)!.single.personCid,
+      'CN220-CTZN2-198805200-2026',
     );
   });
 
@@ -273,7 +237,7 @@ void main() {
       final raw = Uint8List.fromList([
         4,
         ...bytes('CID-1'),
-        ...List.filled(32, 7),
+        ...bytes('CN220-CTZN2-198805200-2026'),
         ...bytes('MEMBER'),
         ...List.filled(8, 0),
         0,
@@ -283,7 +247,7 @@ void main() {
       ]);
       final decoded = InstitutionRoleStorageCodec.decodeAssignments(raw)!;
       expect(decoded.single.sourceRef, value.$2);
-      expect(decoded.single.accountId, '0x${'07' * 32}');
+      expect(decoded.single.personCid, 'CN220-CTZN2-198805200-2026');
       expect(decoded.single.roleCode, 'MEMBER');
       expect(
         InstitutionRoleStorageCodec.decodeAssignments(
@@ -295,9 +259,9 @@ void main() {
   }
 
   test('任期窗口包含起止日且无任期岗位只接受零值', () {
-    final base = InstitutionAdminAssignment(
+    final base = InstitutionAssignment(
       cidNumber: 'CID-1',
-      accountId: '0x${'07' * 32}',
+      personCid: 'CN220-CTZN2-198805200-2026',
       roleCode: 'ROLE-1',
       termStart: 10,
       termEnd: 20,
@@ -310,9 +274,9 @@ void main() {
     expect(base.isEffectiveOnDay(20), isTrue);
     expect(base.isEffectiveOnDay(21), isFalse);
     expect(base.termLabel, '1970/01/11-1970/01/21');
-    final nonTerm = InstitutionAdminAssignment(
+    final nonTerm = InstitutionAssignment(
       cidNumber: 'CID-1',
-      accountId: '0x${'07' * 32}',
+      personCid: 'CN220-CTZN2-198805200-2026',
       roleCode: 'ROLE-2',
       termStart: 0,
       termEnd: 0,
@@ -325,9 +289,9 @@ void main() {
   });
 
   test('任期显示使用UTC日期并正确处理闰日和未写入端点', () {
-    String label(int start, int end) => InstitutionAdminAssignment(
+    String label(int start, int end) => InstitutionAssignment(
       cidNumber: 'CID-1',
-      accountId: '0x${'07' * 32}',
+      personCid: 'CN220-CTZN2-198805200-2026',
       roleCode: 'MEMBER',
       termStart: start,
       termEnd: end,
@@ -378,7 +342,10 @@ void main() {
       ...List.filled(32, 0x23),
     ];
     final raw = Uint8List.fromList([...compact(body.length), ...body]);
-    final decoded = InstitutionChainService().decodeManageProposalData(BigInt.from(7), raw);
+    final decoded = InstitutionChainService().decodeManageProposalData(
+      BigInt.from(7),
+      raw,
+    );
     expect(decoded, isA<CloseProposalInfo>());
     final close = decoded! as CloseProposalInfo;
     expect(close.actorCidNumber, actorCidNumber);

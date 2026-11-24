@@ -307,8 +307,9 @@ class SquarePostStore
   }
 
   static void _validatePublication(social_store.Publish row) {
-    if (!const ['public', 'circle', 'profile'].contains(row.postVisibility))
+    if (!const ['public', 'circle', 'profile'].contains(row.postVisibility)) {
       throw const SquarePostStoreException('post_visibility不合法');
+    }
     _validateCidNumber(row.cidNumber);
     _requireNonEmpty(row.draftId, 'draft_id');
     _requireNonEmpty(row.postId, 'post_id');
@@ -747,8 +748,9 @@ class SquarePostStore
   }
 
   static SquareLocalPost validate(SquareLocalPost post) {
-    if (!const ['public', 'circle', 'profile'].contains(post.postVisibility))
+    if (!const ['public', 'circle', 'profile'].contains(post.postVisibility)) {
       throw const SquarePostStoreException('post_visibility不合法');
+    }
     _requireNonEmpty(post.postId, 'post_id');
     _validateCidNumber(post.cidNumber);
     if (!isCitizenAccountId(post.accountId)) {

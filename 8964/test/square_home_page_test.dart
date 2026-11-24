@@ -430,8 +430,9 @@ class _KindFeedSource implements SquareFeedSource {
     int limit = 20,
     SquareSession? session,
   }) async {
-    if (feedKind == SquareFeedKind.following)
+    if (feedKind == SquareFeedKind.following) {
       return SquareFeedPage(posts: following);
+    }
     return const SquareFeedPage(posts: []);
   }
 }
@@ -548,8 +549,9 @@ class _PagedScopeFeedSource implements SquareFeedSource {
     SquareSession? session,
   }) async {
     cursors.add(cursor);
-    if (cursor == null)
+    if (cursor == null) {
       return const SquareFeedPage(posts: [], nextCursor: 'next');
+    }
     if (fail) {
       fail = false;
       throw const SquareApiException('合成分页失败');
@@ -1527,7 +1529,9 @@ void main() {
         find.byKey(const ValueKey('compose-user-avatar')),
       );
       expect(avatar.imagePath, '/tmp/synced-avatar.png');
-      expect(avatar.borderRadius, 17);
+      // 与三个发布页共用身份栏的现行尺寸合同一致。
+      expect(avatar.size, 40);
+      expect(avatar.borderRadius, 20);
       expect(avatar.showBadge, isFalse);
       expect(find.byType(IdentityBadge), findsNothing);
       expect(find.text('不应显示的用户昵称'), findsNothing);
@@ -1897,8 +1901,9 @@ class _CirclePendingFeedSource implements SquareFeedSource {
     int limit = 20,
     SquareSession? session,
   }) async {
-    if (feedKind == SquareFeedKind.circle)
+    if (feedKind == SquareFeedKind.circle) {
       return SquareFeedPage(posts: await pending.future);
+    }
     return SquareFeedPage(
       posts: [_seedPost(id: 'stranger', text: '推荐陌生用户内容')],
     );

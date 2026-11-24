@@ -1,6 +1,7 @@
 // 定义法律层级、地区、状态及章节条款和版本模型。
 
 /// 法律层级(链端 Tier,1 字节枚举索引)。
+library;
 
 enum LawTier {
   constitution, // 0 宪法

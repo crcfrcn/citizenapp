@@ -499,12 +499,12 @@ class SubscriptionChain {
   );
 
   static Uint8List buildCancelPlatformCall(CitizenRuntimeContext runtime) =>
-      runtime.encodeCall('SquarePost', 'cancel', [_issuer(null)]);
+      runtime.encodeCall('Square', 'cancel', [_issuer(null)]);
 
   static Uint8List buildCancelCreatorCall(
     CitizenRuntimeContext runtime,
     String creatorCid,
-  ) => runtime.encodeCall('SquarePost', 'cancel', [_issuer(creatorCid)]);
+  ) => runtime.encodeCall('Square', 'cancel', [_issuer(creatorCid)]);
 
   static Uint8List buildChangePlatformPlanCall(
     CitizenRuntimeContext runtime,
@@ -537,7 +537,7 @@ class SubscriptionChain {
     String method,
     int levelByte,
     BigInt expectedPriceFen,
-  ) => runtime.encodeCall('SquarePost', method, [
+  ) => runtime.encodeCall('Square', method, [
     _issuer(null),
     (variant: 'Platform', fields: <Object>[_membershipLevel(levelByte)]),
     _price(expectedPriceFen),
@@ -550,7 +550,7 @@ class SubscriptionChain {
     String tierId,
     String billingPeriod,
     BigInt expectedPriceFen,
-  ) => runtime.encodeCall('SquarePost', method, [
+  ) => runtime.encodeCall('Square', method, [
     _issuer(creatorCid),
     (
       variant: 'Creator',
@@ -562,7 +562,7 @@ class SubscriptionChain {
   static Uint8List buildSetCreatorPlansCall(
     CitizenRuntimeContext runtime,
     List<CreatorTierInput> tiers,
-  ) => runtime.encodeCall('SquarePost', 'set_creator_plans', [
+  ) => runtime.encodeCall('Square', 'set_creator_plans', [
     [
       for (final tier in tiers)
         [
@@ -580,7 +580,7 @@ class SubscriptionChain {
     CitizenRuntimeContext runtime,
     String tierId,
     String tierName,
-  ) => runtime.encodeCall('SquarePost', 'update_creator_tier_name', [
+  ) => runtime.encodeCall('Square', 'update_creator_tier_name', [
     _tierId(tierId),
     _tierName(tierName),
   ]);
@@ -668,14 +668,14 @@ class SubscriptionChain {
     CitizenRuntimeContext runtime,
     String cidNumber,
     String? creatorCid,
-  ) => runtime.storageKey('SquarePost', 'Subscriptions', [
+  ) => runtime.storageKey('Square', 'Subscriptions', [
     [_cidNumber(cidNumber), _issuer(creatorCid)],
   ]);
 
   static Uint8List buildCreatorPlansStorageKey(
     CitizenRuntimeContext runtime,
     String creatorCid,
-  ) => runtime.storageKey('SquarePost', 'CreatorPlans', [
+  ) => runtime.storageKey('Square', 'CreatorPlans', [
     _cidNumber(creatorCid),
   ]);
 
@@ -683,7 +683,7 @@ class SubscriptionChain {
     CitizenRuntimeContext runtime,
     String creatorCid,
     String tierId,
-  ) => runtime.storageKey('SquarePost', 'CreatorTierNames', [
+  ) => runtime.storageKey('Square', 'CreatorTierNames', [
     _cidNumber(creatorCid),
     _tierId(tierId),
   ]);

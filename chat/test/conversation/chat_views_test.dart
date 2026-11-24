@@ -22,13 +22,14 @@ void main() {
       ),
     );
     for (var count = 1; count <= 3; count++) {
-      for (var i = 0; i < 3; i++)
+      for (var i = 0; i < 3; i++) {
         expect(
           tester
               .widget<Opacity>(find.byKey(ValueKey('chat-connection-dot-$i')))
               .opacity,
           i < count ? 1 : 0,
         );
+      }
       await tester.pump(const Duration(milliseconds: 400));
     }
     expect(

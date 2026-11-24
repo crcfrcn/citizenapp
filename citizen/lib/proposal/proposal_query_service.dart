@@ -6,8 +6,7 @@ import 'dart:typed_data';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_system/app_log.dart';
-import 'package:citizen_citizen/administrators/admin_account.dart';
-import 'package:citizen_citizen/administrators/institution_admin_service.dart';
+import 'package:citizen_citizen/institution/institution_chain_service.dart';
 import 'package:citizen_citizen/institution/institution_code_label.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_citizen/proposal/proposal_models.dart';
@@ -149,7 +148,7 @@ class ProposalQueryService {
     getStorageBatch,
   }) : _block = block,
        _getStorageBatch = getStorageBatch ?? chain?.getStorageBatch,
-       _adminService = InstitutionAdminService(
+       _institutionService = InstitutionChainService(
          chain: chain,
          getFinalizedHead: block == null ? getFinalizedHead : () async => block,
          getRuntimeContext: getStorageRuntimeContext ?? getRuntimeContext,
@@ -201,7 +200,7 @@ class ProposalQueryService {
   _getStorageBatch;
 
   final CitizenBlockRef? _block;
-  final InstitutionAdminService _adminService;
+  final InstitutionChainService _institutionService;
   final InternalVoteQueryService _internalVoteQuery;
 
   /// 与 runtime `MaxActiveProposals = 10` 对齐的提案主体上限。
@@ -386,7 +385,7 @@ class ProposalQueryService {
 
   Future<
     ({
-      List<String> accounts,
+      List<EligibleVoterTicket> tickets,
       Map<String, bool?> votes,
       bool? result,
       ({int yes, int no}) tally,
@@ -396,7 +395,7 @@ class ProposalQueryService {
     CitizenBlockRef block,
     ProposalMeta meta,
     InstitutionInfo institution,
-    List<String> accounts,
+    List<EligibleVoterTicket> tickets,
   ) async {
     final cid = institution.cidNumber;
     final role = institution.orgType == OrgType.prb
@@ -406,20 +405,37 @@ class ProposalQueryService {
       block: block,
       getStorageRuntimeContext: _getStorageRuntimeContext,
       getStorage: _getStorage,
+      getStorageBatch: _getStorageBatch,
     );
-    if (accounts.isEmpty && meta.status == 0 && meta.stage == 1) {
-      final plan = await query.fetchVotePlan(meta.proposalId);
-      if (plan?.voterSubjects.any((subject) {
-            final voter = subject.roleSubject;
-            return voter?.cidNumber == cid && voter?.roleCode == role;
-          }) ==
-          true) {
-        accounts = await query.fetchRoleVoterSnapshot(
-          meta.proposalId,
-          cid,
-          role,
-        );
-      }
+    if (meta.status == 0 && meta.stage == 1) {
+      tickets = (await query.fetchEligibleVoterTickets(
+        meta.proposalId,
+        institution,
+      )).where((ticket) => ticket.voterRoleCode == role).toList();
+    } else if (tickets.isNotEmpty) {
+      // 历史保留冻结人员；当前钱包只从本次最终块的有效双向绑定解析。
+      final at = await _getStorageRuntimeContext(block);
+      tickets = [
+        for (final ticket in tickets)
+          EligibleVoterTicket(
+            voterAccountId: await _institutionService.personAccount(
+              ticket.personCid!,
+              at,
+            ),
+            personCid: ticket.personCid,
+            cidNumber: ticket.cidNumber,
+            voterRoleCode: ticket.voterRoleCode,
+            voterRoleName: ticket.voterRoleName,
+          ),
+      ];
+    }
+    if (tickets.any(
+      (ticket) =>
+          ticket.cidNumber != cid ||
+          ticket.voterRoleCode != role ||
+          ticket.personCid == null,
+    )) {
+      throw const FormatException('联合投票冻结人员票据无效');
     }
     final runtime = RuntimeUpgradeService(
       getFinalizedHead: () async => block,
@@ -430,9 +446,21 @@ class ProposalQueryService {
     final (result, tally, votes) = await (
       runtime.fetchJointVoteByInstitution(meta.proposalId, cid),
       runtime.fetchJointInstitutionTally(meta.proposalId, cid),
-      runtime.fetchJointTicketVotesBatch(meta.proposalId, cid, role, accounts),
+      runtime.fetchJointTicketVotesBatch(
+        meta.proposalId,
+        cid,
+        role,
+        tickets.map((ticket) => ticket.personCid!),
+      ),
     ).wait;
-    return (accounts: accounts, votes: votes, result: result, tally: tally);
+    return (
+      tickets: tickets,
+      votes: {
+        for (final ticket in tickets) ticket.ticketKey: votes[ticket.personCid],
+      },
+      result: result,
+      tally: tally,
+    );
   }
 
   /// 比较业务期待的原字节与 SDK 交付的 metadata 字段。
@@ -612,26 +640,25 @@ class ProposalQueryService {
 
   /// 查询提案创建时锁定的管理员快照。
 
-  /// 查询一个完整机构岗位主体在提案创建时冻结的任职钱包。
-  Future<List<String>> fetchRoleVoterSnapshot(
+  /// 查询一个完整机构岗位主体在提案创建时冻结的任职人员CID。
+  Future<List<String>> fetchRoleVoters(
     BigInt proposalId,
     String cidNumber,
     String voterRoleCode,
   ) async {
     final subject = BytesBuilder(copy: false)
-      ..addByte(0) // AuthorizationSubject::Institution
       ..add(_encodeBoundedText(cidNumber, 32, 'cid_number'))
       ..add(_encodeBoundedText(voterRoleCode, 64, 'voter_role_code'));
-    final data = await readProposalStorage('VotingEngine', 'VoterSnapshot', [
+    final data = await readProposalStorage('VotingEngine', 'RoleVoters', [
       proposalId,
       (scale: subject.toBytes()),
     ]);
     if (data == null) {
-      throw StateError('提案 $proposalId 缺少岗位 $voterRoleCode 的 VoterSnapshot');
+      throw StateError('提案 $proposalId 缺少岗位 $voterRoleCode 的 RoleVoters');
     }
-    final decoded = decodeAdminSnapshot(data);
+    final decoded = InstitutionRoleStorageCodec.decodePersons(data);
     if (decoded == null || decoded.isEmpty) {
-      throw const FormatException('VotingEngine::VoterSnapshot SCALE 数据无效');
+      throw const FormatException('VotingEngine::RoleVoters SCALE 数据无效');
     }
     return decoded;
   }
@@ -642,6 +669,20 @@ class ProposalQueryService {
     InstitutionInfo institution, {
     bool includeRoleNames = false,
   }) async {
+    if (_block == null) {
+      final block = await _getFinalizedHead();
+      return ProposalQueryService(
+        block: block,
+        getStorageRuntimeContext: _getStorageRuntimeContext,
+        getStorage: _getStorage,
+        getStorageBatch: _getStorageBatch,
+      ).fetchEligibleVoterTickets(
+        proposalId,
+        institution,
+        includeRoleNames: includeRoleNames,
+      );
+    }
+    final runtime = await _getStorageRuntimeContext(_block);
     final plan = await fetchVotePlan(proposalId);
     if (plan == null) {
       throw StateError('提案 $proposalId 缺少有效 VotePlan');
@@ -650,15 +691,20 @@ class ProposalQueryService {
     for (final subject in plan.voterSubjects) {
       final role = subject.roleSubject;
       if (role == null || role.cidNumber != institution.cidNumber) continue;
-      final accountIds = await fetchRoleVoterSnapshot(
+      final persons = await fetchRoleVoters(
         proposalId,
         role.cidNumber,
         role.roleCode,
       );
-      for (final accountId in accountIds) {
+      for (final personCid in persons) {
+        final accountId = await _institutionService.personAccount(
+          personCid,
+          runtime,
+        );
         tickets.add(
           EligibleVoterTicket(
             voterAccountId: accountId,
+            personCid: personCid,
             cidNumber: role.cidNumber,
             voterRoleCode: role.roleCode,
           ),
@@ -673,9 +719,10 @@ class ProposalQueryService {
     // 仅详情页启用，列表和待投票检查不增加展示资料读取。
     Map<String, String> names = const {};
     try {
-      names = await _adminService.fetchRoleNames(
-        AdminAccountIdentity.fromInstitution(institution),
+      names = await _institutionService.fetchRoleNames(
+        InstitutionIdentity.fromInstitution(institution),
         tickets.map((ticket) => ticket.voterRoleCode!),
+        at: runtime,
       );
     } on Object catch (error) {
       AppLog.proposalFailure(stage: 'proposal_roles', error: error);
@@ -684,6 +731,7 @@ class ProposalQueryService {
       for (final ticket in tickets)
         EligibleVoterTicket(
           voterAccountId: ticket.voterAccountId,
+          personCid: ticket.personCid,
           cidNumber: ticket.cidNumber,
           voterRoleCode: ticket.voterRoleCode,
           voterRoleName: names[ticket.voterRoleCode],

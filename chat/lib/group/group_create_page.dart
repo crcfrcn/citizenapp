@@ -46,14 +46,16 @@ class _ChatCreatePageState extends State<ChatCreatePage> {
       final owner = _chatOwner(
         await context.read<CurrentUserContext>().resolve(),
       );
-      if (mounted && !_ownerInvalid)
+      if (mounted && !_ownerInvalid) {
         setState(() {
           _owner = owner;
           _error = null;
         });
+      }
     } on Object catch (error) {
-      if (mounted && !_ownerInvalid)
+      if (mounted && !_ownerInvalid) {
         setState(() => _error = chatUserErrorMessage(error));
+      }
     } finally {
       _ownerLoading = false;
     }
@@ -64,10 +66,13 @@ class _ChatCreatePageState extends State<ChatCreatePage> {
     _ownerInvalid = true;
     // 先同步禁用提交；移除旧选择页延到帧末，不能误弹出其上的其它页面。
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       final route = ModalRoute.of(context);
-      if (route != null && route.isActive)
+      if (route != null && route.isActive) {
         Navigator.of(context).removeRoute(route);
+      }
     });
   }
 
@@ -106,7 +111,11 @@ class _ChatCreatePageState extends State<ChatCreatePage> {
     });
     try {
       final owner = _owner!;
-      if (!await _sameOwner(owner)) {
+      final ownerMatches = await _sameOwner(owner);
+      if (!mounted) {
+        return;
+      }
+      if (!ownerMatches) {
         _invalidateOwner();
         return;
       }
@@ -131,8 +140,14 @@ class _ChatCreatePageState extends State<ChatCreatePage> {
             .map((contact) => contact.cidNumber)
             .toList(growable: false),
       );
-      if (!mounted) return;
-      if (!await _sameOwner(owner)) {
+      if (!mounted) {
+        return;
+      }
+      final ownerStillMatches = await _sameOwner(owner);
+      if (!mounted) {
+        return;
+      }
+      if (!ownerStillMatches) {
         _invalidateOwner();
         return;
       }
@@ -143,7 +158,9 @@ class _ChatCreatePageState extends State<ChatCreatePage> {
         owner: owner,
       ));
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _error = chatUserErrorMessage(error);
         _creating = false;

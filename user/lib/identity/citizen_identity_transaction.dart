@@ -232,11 +232,11 @@ class CitizenIdentityTransaction {
     final finalized = await _getFinalizedHead();
     final context = await _getRuntimeContext(finalized);
     final cid = _cidBytes(cidNumber);
-    final accountKey = context.storageKey('CitizenIdentity', 'AccountIdByCid', [
+    final accountKey = context.storageKey('Identity', 'AccountIdByCid', [
       cid,
     ]);
     final revisionKey = context.storageKey(
-      'CitizenIdentity',
+      'Identity',
       'BindingRevisionByCid',
       [cid],
     );
@@ -287,11 +287,11 @@ class CitizenIdentityTransaction {
     }
     final context = await _getRuntimeContext(finalizedBlock);
     final cid = _cidBytes(cidNumber);
-    final accountKey = context.storageKey('CitizenIdentity', 'AccountIdByCid', [
+    final accountKey = context.storageKey('Identity', 'AccountIdByCid', [
       cid,
     ]);
     final revisionKey = context.storageKey(
-      'CitizenIdentity',
+      'Identity',
       'BindingRevisionByCid',
       [cid],
     );
@@ -394,7 +394,7 @@ class CitizenIdentityTransaction {
   static Uint8List buildSelfOccupyCidCall(
     String cidNumber, {
     required CitizenRuntimeContext runtime,
-  }) => runtime.encodeCall('CitizenIdentity', 'self_occupy_cid', [
+  }) => runtime.encodeCall('Identity', 'self_occupy_cid', [
     _cidBytes(cidNumber),
   ]);
 
@@ -412,7 +412,7 @@ class CitizenIdentityTransaction {
         expectedBindingRevision > _u64Max) {
       throw ArgumentError('u64 字段超出范围');
     }
-    return runtime.encodeCall('CitizenIdentity', 'self_rebind_cid_account_id', [
+    return runtime.encodeCall('Identity', 'self_rebind_cid_account_id', [
       _cidBytes(cidNumber),
       expectedBindingRevision,
       currentAccountSignature,

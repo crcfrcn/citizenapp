@@ -10,8 +10,6 @@ import 'package:citizen_system/app_log.dart';
 import 'package:flutter/services.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
-import 'package:citizen_citizen/administrators/admin_account.dart';
-import 'package:citizen_citizen/administrators/institution_admin_service.dart';
 import 'package:citizen_citizen/proposal/proposal_context.dart';
 import 'package:citizen_citizen/proposal/proposal_models.dart';
 import 'package:citizen_citizen/proposal/proposal_query_service.dart';
@@ -100,7 +98,6 @@ class _MultisigTransferDetailPageState
 
   final ProposalDetailLocalStore _detailStore =
       ProposalDetailLocalStore.instance;
-  late final InstitutionAdminService _adminService;
   bool _dependenciesReady = false;
   int _generation = 0;
   Future<void>? _loadFlight;
@@ -109,8 +106,6 @@ class _MultisigTransferDetailPageState
   bool _hasDetails = false;
   bool _isCurrent(int generation) => mounted && generation == _generation;
 
-  AdminAccountIdentity get _accountIdentity =>
-      AdminAccountIdentity.fromInstitution(widget.institution);
   bool _loading = true;
   String? _error;
   bool _submitting = false;
@@ -177,8 +172,6 @@ class _MultisigTransferDetailPageState
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_dependenciesReady) return;
-    final sdk = context.read<CitizenSdk>();
-    _adminService = InstitutionAdminService(chain: sdk);
     _dependenciesReady = true;
     if (widget.resolveVoteContext == null) {
       _load();
@@ -236,6 +229,9 @@ class _MultisigTransferDetailPageState
       setState(() => _error = null);
     }
 
+    if (!mounted) {
+      return;
+    }
     try {
       final sdk = context.read<CitizenSdk>();
       final block =
@@ -255,12 +251,15 @@ class _MultisigTransferDetailPageState
       //   sweep      → MultisigTransfer.SweepProposalActions
       final detailFuture = widget.resolveVoteContext == null
           ? switch (widget.kind) {
-              MultisigTransferKind.transfer =>
-                reads.fetchProposalAction(widget.proposalId),
-              MultisigTransferKind.safetyFund =>
-                reads.fetchSafetyFundAction(widget.proposalId),
-              MultisigTransferKind.sweep =>
-                reads.fetchSweepAction(widget.proposalId),
+              MultisigTransferKind.transfer => reads.fetchProposalAction(
+                widget.proposalId,
+              ),
+              MultisigTransferKind.safetyFund => reads.fetchSafetyFundAction(
+                widget.proposalId,
+              ),
+              MultisigTransferKind.sweep => reads.fetchSweepAction(
+                widget.proposalId,
+              ),
             }
           : Future.value(switch (widget.kind) {
               MultisigTransferKind.transfer => _transferInfo,
@@ -299,6 +298,7 @@ class _MultisigTransferDetailPageState
       final voterTickets = results[0] as List<EligibleVoterTicket>;
       final admins = voterTickets
           .map((ticket) => ticket.voterAccountId)
+          .whereType<String>()
           .toSet()
           .toList();
       final thresholdSnapshot = results[1] as int?;
@@ -316,7 +316,7 @@ class _MultisigTransferDetailPageState
       for (final w in _voteWallets) {
         final accountId = _requireAccountId(w.accountId);
         final walletTickets = voterTickets.where(
-          (ticket) => _requireAccountId(ticket.voterAccountId) == accountId,
+          (ticket) => ticket.voterAccountId == accountId,
         );
         if (walletTickets.any((ticket) => votes[ticket.ticketKey] == null)) {
           votable.add(w);
@@ -408,7 +408,9 @@ class _MultisigTransferDetailPageState
         _noCount = snapshot.noCount;
         _thresholdSnapshot = snapshot.threshold;
         _adminVotes = snapshot.adminVotes;
-        if (widget.resolveVoteContext != null) _voterTickets = snapshot.voterTickets;
+        if (widget.resolveVoteContext != null) {
+          _voterTickets = snapshot.voterTickets;
+        }
         _votableWallets = votable;
         _selectedVoteWallet = votable.isNotEmpty ? votable.first : null;
         _transferInfo = null;
@@ -600,7 +602,7 @@ class _MultisigTransferDetailPageState
     for (final w in _voteWallets) {
       final accountId = _requireAccountId(w.accountId);
       final tickets = _voterTickets.where(
-        (ticket) => _requireAccountId(ticket.voterAccountId) == accountId,
+        (ticket) => ticket.voterAccountId == accountId,
       );
       if (tickets.any((ticket) => _adminVotes[ticket.ticketKey] == null)) {
         return false;
@@ -649,7 +651,9 @@ class _MultisigTransferDetailPageState
             chain: sdk,
           );
       if (balanceBlockedReason != null) {
-        if (!mounted) return;
+        if (!mounted) {
+          return;
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(balanceBlockedReason),
@@ -658,13 +662,15 @@ class _MultisigTransferDetailPageState
         );
         return;
       }
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       final signerPublicKeyBytes = citizenAccountIdBytes(wallet.accountId);
       final accountId = _requireAccountId(wallet.accountId);
       final availableTickets = _voterTickets
           .where(
             (ticket) =>
-                _requireAccountId(ticket.voterAccountId) == accountId &&
+                ticket.voterAccountId == accountId &&
                 _adminVotes[ticket.ticketKey] == null,
           )
           .toList(growable: false);
@@ -673,7 +679,9 @@ class _MultisigTransferDetailPageState
       }
       final ticket = await _selectTicket(availableTickets);
       if (ticket == null) throw StateError('已取消选择投票岗位');
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       // 机构岗位快照选民和个人多签管理员都统一走 InternalVote::cast(20.0)。
       // 业务 kind 仅用于 QR 展示的文案与 storage 读取。
@@ -696,7 +704,9 @@ class _MultisigTransferDetailPageState
         '[MultisigTransferVote] submit 已入块 txHash=${result.txHash} nonce=${result.usedNonce} block=${result.blockHash}',
       );
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _adminVotes[ticket.ticketKey] = approve;
         _votableWallets = _votableWallets
@@ -704,7 +714,7 @@ class _MultisigTransferDetailPageState
               final accountId = _requireAccountId(w.accountId);
               return _voterTickets.any(
                 (candidate) =>
-                    _requireAccountId(candidate.voterAccountId) == accountId &&
+                    candidate.voterAccountId == accountId &&
                     _adminVotes[candidate.ticketKey] == null,
               );
             })
@@ -722,12 +732,13 @@ class _MultisigTransferDetailPageState
         ),
       );
 
-      _adminService.clearCache(_accountIdentity);
       if (widget.resolveVoteContext == null) {
         unawaited(_load(showSpinner: false));
       }
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('投票失败：$e'), backgroundColor: AppTheme.danger),
       );
@@ -743,11 +754,15 @@ class _MultisigTransferDetailPageState
     try {
       if (resolve != null) {
         final verified = await resolve();
-        if (!mounted) return;
+        if (!mounted) {
+          return;
+        }
         if (!verified.isAdmin) throw StateError('当前钱包没有投票资格');
         _verifiedVoteContext = verified;
         await _load(showSpinner: false);
-        if (!mounted) return;
+        if (!mounted) {
+          return;
+        }
         if (_error != null || !(_isCurrentUserAdmin && _canVote)) {
           throw StateError(_error ?? '提案已停止投票或当前钱包没有未使用的投票票据');
         }
@@ -760,43 +775,50 @@ class _MultisigTransferDetailPageState
       var selected = _selectedVoteWallet;
       final confirmed = await showDialog<bool>(
         context: context,
-        builder: (ctx) => StatefulBuilder(builder: (ctx, updateDialog) {
-          return AlertDialog(
-            title: Text('确认$label'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('确定要对此提案投"$label"票吗？投票后不可更改。'),
-                if (choices.isNotEmpty)
-                  DropdownButton<int>(
-                    isExpanded: true,
-                    value: selected?.walletIndex,
-                    items: [
-                      for (final wallet in choices)
-                        DropdownMenuItem(
-                          value: wallet.walletIndex,
-                          child: Text(wallet.ss58Address, overflow: TextOverflow.ellipsis),
-                        ),
-                    ],
-                    onChanged: (index) => updateDialog(() {
-                      selected = choices.firstWhere((wallet) => wallet.walletIndex == index);
-                    }),
-                  ),
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, updateDialog) {
+            return AlertDialog(
+              title: Text('确认$label'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('确定要对此提案投"$label"票吗？投票后不可更改。'),
+                  if (choices.isNotEmpty)
+                    DropdownButton<int>(
+                      isExpanded: true,
+                      value: selected?.walletIndex,
+                      items: [
+                        for (final wallet in choices)
+                          DropdownMenuItem(
+                            value: wallet.walletIndex,
+                            child: Text(
+                              wallet.ss58Address,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: (index) => updateDialog(() {
+                        selected = choices.firstWhere(
+                          (wallet) => wallet.walletIndex == index,
+                        );
+                      }),
+                    ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('取消'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: Text(label),
+                ),
               ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('取消'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: Text(label),
-              ),
-            ],
-          );
-        }),
+            );
+          },
+        ),
       );
       if (!mounted || confirmed != true) return;
       if (resolve != null && ModalRoute.of(context)?.isCurrent != true) return;
@@ -804,9 +826,9 @@ class _MultisigTransferDetailPageState
       await _submitVote(approve);
     } on Object catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('投票校验未通过：$error')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('投票校验未通过：$error')));
       }
     } finally {
       if (resolve != null && mounted) {
@@ -839,7 +861,8 @@ class _MultisigTransferDetailPageState
           : _error != null
           ? _buildError()
           : _buildContent(),
-      bottomNavigationBar: !_loading &&
+      bottomNavigationBar:
+          !_loading &&
               _error == null &&
               _status == _statusVoting &&
               (widget.resolveVoteContext != null || _isCurrentUserAdmin)
@@ -889,7 +912,9 @@ class _MultisigTransferDetailPageState
             ),
             SizedBox(height: AppLayout.scaledValue(16)),
             OutlinedButton(
-              onPressed: widget.resolveVoteContext == null ? _load : _readLocalDetail,
+              onPressed: widget.resolveVoteContext == null
+                  ? _load
+                  : _readLocalDetail,
               child: const Text('重试'),
             ),
           ],
@@ -901,7 +926,6 @@ class _MultisigTransferDetailPageState
   Widget _buildContent() {
     return RefreshIndicator(
       onRefresh: () async {
-        _adminService.clearCache(_accountIdentity);
         if (widget.resolveVoteContext == null) {
           await _load();
         } else {

@@ -185,7 +185,7 @@ class LegislationApi {
   Future<Uint8List?> _readStorage(String item, [List<Object> keys = const []]) async {
     final finalized = await _getFinalizedHead();
     final runtime = await _getRuntimeContext(finalized);
-    return _getStorage(finalized, runtime.storageKey('LegislationYuan', item, keys));
+    return _getStorage(finalized, runtime.storageKey('Legislation', item, keys));
   }
 
   String _hex(Uint8List b) =>

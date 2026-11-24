@@ -92,7 +92,7 @@ class OnchainPaymentService {
 
   static int _remarkLimit(CitizenRuntimeContext runtime) {
     final limit = runtime.unsignedConstant(
-      'OnchainTransaction',
+      'Onchain',
       'MaxTransferRemarkLen',
     );
     if (limit.isNegative || limit.bitLength > 32) {
@@ -204,7 +204,7 @@ class OnchainPaymentService {
     // 表单编码错误只属于准备前校验；SDK 的原始错误码和阶段必须原样交还页面。
     late final Uint8List callData;
     try {
-      callData = runtime.encodeCall('OnchainTransaction', 'transfer_with_remark', [
+      callData = runtime.encodeCall('Onchain', 'transfer_with_remark', [
         citizenAccountIdBytesFromSs58(toAddress),
         draft.amountFen,
         remark,

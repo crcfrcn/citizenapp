@@ -15,8 +15,7 @@ import 'package:citizen_citizen/proposal/proposal_tab.dart';
 import 'package:citizen_citizen/proposal/proposal_vote_widgets.dart';
 import 'package:citizen_citizen/proposal/proposal_context.dart';
 import 'package:citizen_citizen/proposal/proposal_local_store.dart';
-import 'package:citizen_citizen/administrators/institution_admin_service.dart';
-import 'package:citizen_citizen/administrators/admin_activation_service.dart';
+import 'package:citizen_citizen/institution/institution_chain_service.dart';
 import 'package:citizen_citizen/institution/institution_repository.dart';
 import 'package:citizen_citizen/public/public_institution_repository.dart';
 import 'package:citizen_multisig/multisig_transfer_proposal_adapter.dart';
@@ -147,6 +146,7 @@ class _FeedVoteQuery extends ProposalQueryService {
   int eventsRead = 0;
   int metaReads = 0;
   bool voteOnly = false;
+  List<EligibleVoterTicket> frozen = const [];
   List<CitizenSystemEvent>? eventOverride;
   ProposalMeta? metaOverride;
 
@@ -184,7 +184,7 @@ class _FeedVoteQuery extends ProposalQueryService {
   @override
   Future<
     ({
-      List<String> accounts,
+      List<EligibleVoterTicket> tickets,
       Map<String, bool?> votes,
       bool? result,
       ({int yes, int no}) tally,
@@ -194,9 +194,9 @@ class _FeedVoteQuery extends ProposalQueryService {
     CitizenBlockRef block,
     ProposalMeta meta,
     InstitutionInfo institution,
-    List<String> accounts,
+    List<EligibleVoterTicket> tickets,
   ) async => (
-    accounts: accounts,
+    tickets: tickets.isEmpty ? frozen : tickets,
     votes: const <String, bool?>{},
     result: null,
     tally: (yes: voteOnly ? 2 : 1, no: 0),
@@ -335,29 +335,7 @@ class _PageFeed extends MultisigTransferProposalFeed {
 }
 
 class _PageContext extends ProposalContextResolver {
-  _PageContext()
-    : super(
-        adminService: (() {
-          final reads0 = TestChainReads();
-          return InstitutionAdminService(
-            getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
-            getFinalizedHead: reads0.getFinalizedHead,
-            getStorageKeysPaged: reads0.getStorageKeysPaged,
-            getStorageBatch: reads0.getStorageBatch,
-          );
-        })(),
-        activationService: ActivationService(
-          adminService: (() {
-            final reads0 = TestChainReads();
-            return InstitutionAdminService(
-              getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
-              getFinalizedHead: reads0.getFinalizedHead,
-              getStorageKeysPaged: reads0.getStorageKeysPaged,
-              getStorageBatch: reads0.getStorageBatch,
-            );
-          })(),
-        ),
-      );
+  _PageContext() : super(institutionService: InstitutionChainService());
   Object? failure;
   InstitutionInfo? institution;
   int voteChecks = 0;
@@ -578,6 +556,7 @@ class _DetailReads extends MultisigTransferService {
   Future<Map<String, bool?>>? pendingVotes;
   EligibleVoterTicket get ticket => EligibleVoterTicket(
     voterAccountId: account,
+    personCid: 'CN220-CTZN2-198805200-2026',
     cidNumber: kNrc.first.cidNumber,
     voterRoleCode: 'COMMITTEE_MEMBER',
     voterRoleName: roleName,
@@ -614,6 +593,98 @@ class _DetailReads extends MultisigTransferService {
 
 void main() {
   useIsolatedIsar();
+  testWidgets('Runtime升级缓存保留无绑定人员，但当前岗位钱包也不能凭缓存直接投票', (tester) async {
+    final transport = _PageReads();
+    final sdk = await transport.open();
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.runAsync(() async {
+        await sdk.close();
+        await transport.dispose();
+      });
+    });
+    final wallet = testCitizenWalletState().accounts.first;
+    final institution = kNrc.first;
+    final tickets = [
+      EligibleVoterTicket(
+        voterAccountId: wallet.accountId,
+        personCid: 'CN220-CTZN2-198805200-2026',
+        cidNumber: institution.cidNumber,
+        voterRoleCode: 'COMMITTEE_MEMBER',
+      ),
+      EligibleVoterTicket(
+        voterAccountId: null,
+        personCid: 'CN951-CTZN1-539598435-2026',
+        cidNumber: institution.cidNumber,
+        voterRoleCode: 'COMMITTEE_MEMBER',
+      ),
+    ];
+    final snapshot = ProposalDetailSnapshot(
+      proposalId: BigInt.one,
+      proposalKind: 'runtime_upgrade',
+      updatedAt: DateTime.now().millisecondsSinceEpoch,
+      status: 0,
+      admins: [wallet.accountId],
+      adminVotes: {for (final ticket in tickets) ticket.ticketKey: null},
+      threshold: 13,
+      detail: {
+        'actor_cid_number': institution.cidNumber,
+        'reason': '合成升级缓存',
+        'code_hash_hex': '0x${'11' * 32}',
+        'expected_pow_params_hash_hex': '0x${'22' * 32}',
+        'params_version': 1,
+        'algorithm_version': 1,
+        'target_block_time_ms': 360000,
+        'adjustment_interval': 10,
+        'max_adjust_up_factor': 4,
+        'max_adjust_down_divisor': 4,
+      },
+      extra: {
+        'meta_kind': 1,
+        'meta_stage': 1,
+        'meta_status': 0,
+        'meta_actor_cid_number': institution.cidNumber,
+        'voter_tickets': ProposalDetailSnapshot.encodeTickets(tickets),
+      },
+    );
+    await tester.runAsync(
+      () => ProposalDetailLocalStore.instance.put(snapshot),
+    );
+    await tester.pumpWidget(
+      Provider<CitizenSdk>.value(
+        value: sdk,
+        child: MaterialApp(
+          home: RuntimeUpgradeDetailPage(
+            proposalId: BigInt.one,
+            proposalContext: ProposalContext(
+              institution: institution,
+              role: ProposalRole.admin,
+              adminWallets: [wallet],
+            ),
+          ),
+        ),
+      ),
+    );
+    for (var i = 0; i < 8; i++) {
+      await _flush(tester);
+    }
+    expect(find.text('合成升级缓存'), findsOneWidget);
+    expect(find.text('当前没有可用的岗位选民钱包'), findsNothing);
+    for (final label in ['赞成', '反对']) {
+      final button = tester.widget<ElevatedButton>(
+        find.widgetWithText(ElevatedButton, label),
+      );
+      expect(button.onPressed, isNull, reason: '展示缓存不能代替投票前链上核验');
+    }
+    final saved = await tester.runAsync(
+      () =>
+          ProposalDetailLocalStore.instance.read('runtime_upgrade', BigInt.one),
+    );
+    expect(saved!.voterTickets, hasLength(2));
+    expect(saved.voterTickets.last.voterAccountId, isNull);
+    expect(saved.voterTickets.last.personCid, tickets.last.personCid);
+    expect(tester.takeException(), isNull);
+  });
   for (final reason in [
     CitizenCapabilityReason.engineNotRunning,
     CitizenCapabilityReason.dependencyNotReady,
@@ -904,12 +975,13 @@ void main() {
     expect(stored!.adminVotes.values, everyElement(isNull));
     await tester.pumpWidget(const SizedBox.shrink());
   });
-  testWidgets('票据仅替换岗位名称，圆圈序号、单行地址、发起人和逐岗位状态保留', (tester) async {
+  testWidgets('票据展示人员CID与岗位，保留序号、单行账户、发起人和逐岗状态', (tester) async {
     final account = '0x${'07' * 32}';
     final tickets = [
       for (final role in ['ROLE_A', 'ROLE_B'])
         EligibleVoterTicket(
           voterAccountId: account,
+          personCid: 'CN220-CTZN2-198805200-2026',
           cidNumber: 'CID',
           voterRoleCode: role,
           voterRoleName: '委员',
@@ -943,6 +1015,7 @@ void main() {
       );
     }
     expect(find.text(address), findsNWidgets(2));
+    expect(find.text('CN220-CTZN2-198805200-2026'), findsNWidgets(2));
     expect(find.text('委员'), findsNWidgets(2));
     expect(find.text('ROLE_A'), findsNothing);
     expect(find.text('ROLE_B'), findsNothing);
@@ -950,10 +1023,13 @@ void main() {
     expect(find.text('赞成 ✓'), findsOneWidget);
     expect(find.text('投票中'), findsOneWidget);
     for (var i = 0; i < 2; i++) {
-      final a = tester.getRect(find.text(address).at(i));
+      final a = tester.getRect(find.text('CN220-CTZN2-198805200-2026').at(i));
       final name = tester.getRect(find.text('委员').at(i));
       expect(a.right, lessThan(name.left));
       expect(a.center.dy, name.center.dy);
+      final wallet = tester.widget<Text>(find.text(address).at(i));
+      expect(wallet.maxLines, 1);
+      expect(wallet.overflow, TextOverflow.ellipsis);
     }
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
@@ -964,16 +1040,23 @@ void main() {
 
   test('机构上下文保留actor CID优先，不从执行钱包反推机构', () async {
     final reads = TestChainReads();
-    final admins = InstitutionAdminService(
+    final admins = InstitutionChainService(
       getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
       getFinalizedHead: reads.getFinalizedHead,
       getStorageKeysPaged: reads.getStorageKeysPaged,
       getStorageBatch: reads.getStorageBatch,
     );
     final resolver = ProposalContextResolver(
-      adminService: admins,
-      activationService: ActivationService(adminService: admins),
-      getWalletState: () => testCitizenOperation(testCitizenWalletState),
+      institutionService: admins,
+      getWalletState: () => testCitizenOperation(
+        () => CitizenWalletState(
+          revision: BigInt.one,
+          hotProfile: null,
+          accounts: const [],
+          initializationState: CitizenWalletInitializationState.empty,
+          cleanupPending: false,
+        ),
+      ),
     );
     final values = await resolver.resolveBatch(
       [kNrc.first.cidNumber],
@@ -981,6 +1064,8 @@ void main() {
       internalCodeList: ['PMUL'],
     );
     expect(values.single.institution!.cidNumber, kNrc.first.cidNumber);
+    expect(values.single.role, ProposalRole.viewer);
+    expect(values.single.adminWallets, isEmpty);
   });
   for (final shortName in ['国储委', '合成机构的特别长简称用于验证卡片宽度约束', '']) {
     testWidgets('提案卡片简称在编号左侧且窄屏大字号不遮挡状态：$shortName', (tester) async {
@@ -1114,8 +1199,20 @@ void main() {
           ),
         ),
       ];
-    final query = _FeedVoteQuery();
-    final resolver = _PageContext()..failure = StateError('票据链查询失败');
+    final query = _FeedVoteQuery()
+      ..frozen = [
+        for (final person in [
+          'CN220-CTZN2-198805200-2026',
+          'CN951-CTZN1-539598435-2026',
+        ])
+          EligibleVoterTicket(
+            voterAccountId: null,
+            personCid: person,
+            cidNumber: cid,
+            voterRoleCode: 'COMMITTEE_MEMBER',
+          ),
+      ];
+    final resolver = _PageContext()..institution = kNrc.first;
     final transport = await _openProposal(
       tester,
       feed,
@@ -1123,12 +1220,25 @@ void main() {
       query: query,
       resolver: resolver,
     );
+    resolver.failure = StateError('票据链查询失败');
     final local = await tester.runAsync(
       () => ProposalLocalStore.instance.readFeed(
         ProposalLocalStore.feedKey('test-chain', null),
       ),
     );
     expect(local?.ids, [BigInt.one]);
+    final detail = await tester.runAsync(
+      () =>
+          ProposalDetailLocalStore.instance.read('runtime_upgrade', BigInt.one),
+    );
+    expect(
+      detail!.voterTickets.map((ticket) => ticket.personCid),
+      query.frozen.map((ticket) => ticket.personCid),
+    );
+    expect(detail.voterTickets.map((ticket) => ticket.voterAccountId), [
+      null,
+      null,
+    ]);
     feed.details = (_) async => throw StateError('浏览详情发起了链读取');
     await tester.tap(find.text('2026000001'));
     await _flush(tester);
@@ -1753,9 +1863,12 @@ void main() {
   });
 
   test('机构按完整岗位主体读取选民快照，个人多签读取管理员快照', () async {
+    const person = 'CN220-CTZN2-198805200-2026';
+    final personBytes = utf8.encode(person);
     final raw = Uint8List.fromList([
-      4, // Compact(1)
-      ...List.filled(32, 0x33),
+      4,
+      ...CitizenScale.compact(personBytes.length),
+      ...personBytes,
     ]);
     final rpc = _RawStorageChain(raw);
     final query = ProposalQueryService(
@@ -1780,15 +1893,39 @@ void main() {
     );
 
     expect(
-      await query.fetchRoleVoterSnapshot(
+      await query.fetchRoleVoters(
         BigInt.from(7),
         institution.cidNumber,
         'COMMITTEE_MEMBER',
       ),
-      ['0x${'33' * 32}'],
+      [person],
     );
 
-    expect(rpc.storageKeys, hasLength(1));
+    final runtime = await CitizenSdkTestFixture.runtimeContext(
+      await rpc.getFinalizedHead(),
+    );
+    final key = runtime.storageKey('VotingEngine', 'RoleVoters', [
+      BigInt.from(7),
+      (
+        scale: Uint8List.fromList([
+          ...CitizenScale.compact(utf8.encode(institution.cidNumber).length),
+          ...utf8.encode(institution.cidNumber),
+          ...CitizenScale.compact(utf8.encode('COMMITTEE_MEMBER').length),
+          ...utf8.encode('COMMITTEE_MEMBER'),
+        ]),
+      ),
+    ]);
+    expect(
+      rpc.storageKeys.single,
+      '0x${key.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}',
+    );
+    expect(
+      ProposalQueryService.decodeAdminSnapshot(
+        Uint8List.fromList([4, ...List.filled(32, 0x33)]),
+      ),
+      ['0x${'33' * 32}'],
+      reason: '个人AdminSnapshot仍读取原账户',
+    );
   });
 
   test('公民提案流按默认机构码和订阅机构 CID 合并过滤', () {

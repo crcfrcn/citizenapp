@@ -33,6 +33,7 @@ import 'package:citizen_user/identity/identity_register_guide.dart';
 import 'package:citizen_square/post/square_post_sync_service.dart';
 import 'package:citizen_user/navigation.dart';
 import 'package:citizen_user/identity/current_user_context.dart';
+import 'package:citizen_user/identity/identity_badge_snapshot_store.dart';
 import 'package:citizen_user/identity/identity_binding.dart';
 import 'package:citizen_user/identity/account_security_service.dart';
 import 'package:citizen_user/identity/finalized_identity_resolver.dart';
@@ -69,8 +70,9 @@ class UserProfilePage extends StatefulWidget {
       if (viewer != page.cidNumber) {
         final session = await sessions.ensureSession();
         if (session == null) throw StateError('当前会话不可用');
-        if (viewer != null && session.cidNumber != viewer)
+        if (viewer != null && session.cidNumber != viewer) {
           throw StateError('当前身份已变化');
+        }
         final api = page.api ?? CitizenProfileApi();
         final binding = identity?.binding;
         if (binding != null) {
@@ -112,7 +114,11 @@ class UserProfilePage extends StatefulWidget {
         MaterialPageRoute(
           builder: (_) => consumeEntry == null
               ? page
-              : _ProfileEntry(consume: consumeEntry, profile: entryProfile, child: page),
+              : _ProfileEntry(
+                  consume: consumeEntry,
+                  profile: entryProfile,
+                  child: page,
+                ),
         ),
       );
     } on Object catch (error, stackTrace) {
@@ -124,28 +130,36 @@ class UserProfilePage extends StatefulWidget {
       _showAccessNotice(context, error);
       if (!_privacyDenied(error)) {
         AppLog.profileLoadFailure(
-          stage: 'access', error: error, stackTrace: stackTrace,
+          stage: 'access',
+          error: error,
+          stackTrace: stackTrace,
         );
       }
     }
   }
 
   static String _accessMessage(Object error) => switch (error) {
-    SquareApiException(statusCode: 403, errorCode: 'profile_private' ||
-        'profile_followers_required' || 'profile_mutual_required') =>
+    SquareApiException(
+      statusCode: 403,
+      errorCode: 'profile_private' ||
+          'profile_followers_required' ||
+          'profile_mutual_required',
+    ) =>
       '用户尚未开放主页访问，请稍后重试。',
-    SquareApiException(statusCode: 404, errorCode: 'user_not_found') => '用户主页暂不可用',
+    SquareApiException(statusCode: 404, errorCode: 'user_not_found') =>
+      '用户主页暂不可用',
     _ => '内容加载失败，请下拉刷新',
   };
 
   static bool _privacyDenied(Object error) =>
       error is SquareApiException &&
-      (error.statusCode == 403 && const [
-        'profile_private',
-        'profile_followers_required',
-        'profile_mutual_required',
-      ].contains(error.errorCode) ||
-       error.statusCode == 404 && error.errorCode == 'user_not_found');
+      (error.statusCode == 403 &&
+              const [
+                'profile_private',
+                'profile_followers_required',
+                'profile_mutual_required',
+              ].contains(error.errorCode) ||
+          error.statusCode == 404 && error.errorCode == 'user_not_found');
 
   /// 只有明确的主页隐私拒绝才短暂提示；404及服务故障不能冒充权限结论。
   static void _showAccessNotice(BuildContext context, Object error) {
@@ -156,11 +170,14 @@ class UserProfilePage extends StatefulWidget {
     }
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(
-        content: Text(_accessMessage(error)),
-        duration: const Duration(seconds: 2),
-      ));
+      ..showSnackBar(
+        SnackBar(
+          content: Text(_accessMessage(error)),
+          duration: const Duration(seconds: 2),
+        ),
+      );
   }
+
   const UserProfilePage({
     super.key,
     required this.cidNumber,
@@ -177,6 +194,7 @@ class UserProfilePage extends StatefulWidget {
     this.initialMembershipState,
     this.onOpenDirectChat,
     this.currentUserContext,
+    this.badgeSnapshotStore,
   });
 
   /// 主页身份主键 = CID 号（cid_number）。资料/关注/帖子全按此 cid 寻址。
@@ -206,6 +224,8 @@ class UserProfilePage extends StatefulWidget {
   /// 私聊入口，测试可注入 spy；默认交给本地 chat。
   final DirectChatOpener? onOpenDirectChat;
   final CurrentUserContext? currentUserContext;
+  /// 仅用于核对本人缓存展示，不能恢复绑定或授予业务操作资格。
+  final IdentityBadgeSnapshotStore? badgeSnapshotStore;
 
   @override
   State<UserProfilePage> createState() => _UserProfilePageState();
@@ -213,12 +233,18 @@ class UserProfilePage extends StatefulWidget {
 
 /// 仅本次导航内部消费一次预检；不写入权限缓存，也不向页面公开放行参数。
 class _ProfileEntry extends InheritedWidget {
-  const _ProfileEntry({required this.consume, required this.profile, required super.child});
+  const _ProfileEntry({
+    required this.consume,
+    required this.profile,
+    required super.child,
+  });
   final bool Function(SquareSession, int?) consume;
   final ProfileEntryRefreshResult? profile;
   @override
   bool updateShouldNotify(_ProfileEntry oldWidget) => false;
 }
+
+enum _SelfStatus { other, cached, verified }
 
 class _UserProfilePageState extends State<UserProfilePage>
     with WidgetsBindingObserver {
@@ -247,12 +273,13 @@ class _UserProfilePageState extends State<UserProfilePage>
   late MembershipDisplayDecision _membershipDecision;
   SquareMembershipState? _membershipState;
 
-  /// 「他人视角」下识别本人；本人只开放通用关注操作。
+  /// 本人缓存展示与已验证绑定分开，展示快照不能授予操作资格。
   bool _relationsReady = false;
   CurrentUserContext? _currentUser;
   bool _accessAllowed = false;
-  bool _verifiedSelf = false;
-  bool get _isSelf => _verifiedSelf;
+  _SelfStatus _selfStatus = _SelfStatus.other;
+  bool get _verifiedSelf => _selfStatus == _SelfStatus.verified;
+  bool get _isSelf => _selfStatus != _SelfStatus.other;
   String? _accessError;
   bool _denyingAccess = false;
   String? _viewerCid;
@@ -324,7 +351,7 @@ class _UserProfilePageState extends State<UserProfilePage>
     setState(() {
       _accessAllowed = false;
       if (refreshOnEntry) _relationsReady = false;
-      _verifiedSelf = false;
+      _selfStatus = _SelfStatus.other;
       _session = null;
       _sessionFuture = null;
       _sessionResolved = false;
@@ -342,8 +369,21 @@ class _UserProfilePageState extends State<UserProfilePage>
         revision == _profileSecurity?.revision.value;
     try {
       final local = await _currentUser?.resolve();
-      final citizen =
-          local?.cidNumber ?? await _sessionProvider.currentCitizenId();
+      var citizen = local?.cidNumber;
+      var cachedSelf = false;
+      if (local != null && local.binding == null && !local.isUnregistered) {
+        // 展示快照只能开放该账户本人的本地资料，不能补造绑定、会话或操作资格。
+        final saved = await (widget.badgeSnapshotStore ?? IdentityBadgeSnapshotStore()).readForAccountId(local.accountId);
+        final identity = saved?.identity;
+        if (saved?.verified == true && saved?.accountId == local.accountId &&
+            identity != null && identity.cidNumber == widget.cidNumber &&
+            citizenAccountIdFromBytes(identity.accountId) == local.accountId) {
+          citizen = identity.cidNumber;
+          cachedSelf = true;
+        }
+      } else if (local == null) {
+        citizen = await _sessionProvider.currentCitizenId();
+      }
       if (!current()) return;
       if (citizen == null || citizen.isEmpty) throw StateError('当前公民身份尚未就绪');
       _viewerCid = citizen;
@@ -369,18 +409,23 @@ class _UserProfilePageState extends State<UserProfilePage>
         if (!current()) return;
       }
       setState(() {
-        _verifiedSelf = isSelf;
+        _selfStatus = isSelf ? (cachedSelf ? _SelfStatus.cached : _SelfStatus.verified) : _SelfStatus.other;
         _accessAllowed = true;
         _accessError = null;
       });
+      if (cachedSelf) {
+        setState(() { _sessionResolved = true; _relationsReady = false; });
+        return;
+      }
       if (!refreshOnEntry) return;
       if (result == null) {
         var binding = local?.binding;
         if (binding == null) {
           // 独立页面/注入依赖仍可使用既有会话边界；正式App优先本地绑定并先检查限速。
           final session = await _ensureSession();
-          if (!current() || session == null || session.cidNumber != citizen)
+          if (!current() || session == null || session.cidNumber != citizen) {
             throw StateError('当前公民会话不可用');
+          }
           binding = IdentityBinding(
             genesisHash: '',
             cidNumber: session.cidNumber,
@@ -429,8 +474,9 @@ class _UserProfilePageState extends State<UserProfilePage>
       setState(() {
         _sessionResolved = true;
         _relationsReady = false;
-        if (!_accessAllowed)
+        if (!_accessAllowed) {
           _accessError = UserProfilePage._accessMessage(error);
+        }
       });
     }
   }
@@ -474,6 +520,7 @@ class _UserProfilePageState extends State<UserProfilePage>
     setState(() {
       _accessAllowed = false;
       _accessError = message;
+      _selfStatus = _SelfStatus.other;
       _relationsReady = false;
       _profile = null;
       _profileMedia = const CitizenProfileMediaSnapshot();
@@ -1135,8 +1182,9 @@ class _UserProfilePageState extends State<UserProfilePage>
   /// 他人主页的创作者订阅入口：SquarePost 以公民 CID 为创作者唯一主键。
   /// 本人主页不显示；CID 不因换绑改变，因此换绑不会重建或丢失订阅态。
   Widget? _creatorSubscribeButton() {
-    if (_isSelf || !_accessAllowed || !_relationsReady || _session == null)
+    if (_isSelf || !_accessAllowed || !_relationsReady || _session == null) {
       return null;
+    }
     final creatorCid = widget.cidNumber.trim();
     if (creatorCid.isEmpty) {
       return null;
@@ -1180,6 +1228,9 @@ class _UserProfilePageState extends State<UserProfilePage>
   }
 
   Widget _tabBody(ProfileTab tab) {
+    if (_selfStatus == _SelfStatus.cached) {
+      return const Center(child: Text('身份核验完成后显示动态'));
+    }
     final session = _session;
     final revision = _postsRevision;
     void accessDenied(SquareApiException error) {
@@ -1325,7 +1376,7 @@ class _UserProfilePageState extends State<UserProfilePage>
                       actions: [
                         ProfileKebabMenu(
                           isSelf: _isSelf,
-                          onUserCode: _accessAllowed ? _openUserCode : null,
+                          onUserCode: _accessAllowed && _verifiedSelf ? _openUserCode : null,
                           onEditProfile: _accessAllowed && _verifiedSelf
                               ? _openEditProfile
                               : null,

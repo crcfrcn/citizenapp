@@ -358,7 +358,7 @@ class SquareChainService implements SquarePostChainPublisher {
   }
 
   static Uint8List _platformPriceKey(CitizenRuntimeContext runtime, String level) =>
-      runtime.storageKey('SquarePost', 'PlatformPrice', [
+      runtime.storageKey('Square', 'PlatformPrice', [
         SubscriptionChain.membershipLevelVariant(level),
       ]);
 

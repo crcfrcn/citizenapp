@@ -31,10 +31,10 @@ void main() {
         home: Scaffold(body: RebindAccountSheet(targets: [])),
       ),
     );
-    expect(find.text('更换公民号绑定的账户'), findsOneWidget);
+    expect(find.text('更换身份CID号绑定的账户'), findsOneWidget);
     expect(
       find.text(
-        '更换公民号绑定的签名账户为以下选中的账户，更换绑定需当前钱包账户与目标钱包账户'
+        '更换身份CID号绑定的签名账户为以下选中的账户，更换绑定需当前钱包账户与目标钱包账户'
         '各签名一次（共两次生物识别授权）。',
       ),
       findsOneWidget,

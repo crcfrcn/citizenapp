@@ -29,15 +29,15 @@ void main() {
         values[id(runtime.storageKey(pallet, name, keys))] = Uint8List.fromList(
           bytes,
         );
-    put('CitizenIdentity', 'CidByAccountId', [
+    put('Identity', 'CidByAccountId', [
       citizenAccountIdBytes(owner),
     ], CitizenIdentityChainReader.encodeBoundedBytes(utf8.encode(f.cidA)));
-    put('CitizenIdentity', 'AccountIdByCid', [
+    put('Identity', 'AccountIdByCid', [
       cid,
     ], citizenAccountIdBytes(owner));
-    put('CitizenIdentity', 'BindingRevisionByCid', [cid], number(1, 8));
+    put('Identity', 'BindingRevisionByCid', [cid], number(1, 8));
     put(
-      'CitizenIdentity',
+      'Identity',
       'CidRegistry',
       [cid],
       [
@@ -52,7 +52,7 @@ void main() {
     );
     put('Timestamp', 'Now', [], number(1000, 8));
     for (final level in ['freedom', 'democracy', 'spark']) {
-      put('SquarePost', 'PlatformPrice', [
+      put('Square', 'PlatformPrice', [
         SubscriptionChain.membershipLevelVariant(level),
       ], number(199900, 16));
     }
@@ -117,7 +117,7 @@ void main() {
       isNot(
         contains(
           id(
-            runtime.storageKey('SquarePost', 'CreatorPlans', [
+            runtime.storageKey('Square', 'CreatorPlans', [
               (
                 scale: CitizenIdentityChainReader.encodeBoundedBytes(
                   utf8.encode(f.cidA),
@@ -134,7 +134,7 @@ void main() {
         isNot(
           contains(
             id(
-              runtime.storageKey('SquarePost', 'PlatformPrice', [
+              runtime.storageKey('Square', 'PlatformPrice', [
                 SubscriptionChain.membershipLevelVariant(level),
               ]),
             ),
@@ -174,7 +174,7 @@ void main() {
       keys,
       contains(
         id(
-          runtime.storageKey('SquarePost', 'CreatorPlans', [
+          runtime.storageKey('Square', 'CreatorPlans', [
             (
               scale: CitizenIdentityChainReader.encodeBoundedBytes(
                 utf8.encode(f.cidA),
@@ -252,7 +252,7 @@ void main() {
     final cid = (
       scale: CitizenIdentityChainReader.encodeBoundedBytes(utf8.encode(f.cidA)),
     );
-    values[id(runtime.storageKey('CitizenIdentity', 'AccountIdByCid', [cid]))] =
+    values[id(runtime.storageKey('Identity', 'AccountIdByCid', [cid]))] =
         citizenAccountIdBytes(f.account(2));
     final data = await reader.read(
       genesisHash: f.hash(0),

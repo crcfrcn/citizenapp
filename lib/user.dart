@@ -428,6 +428,7 @@ class _ProfilePageState extends State<MyTab> {
           cidNumber: cid,
           isSelf: true,
           currentUserContext: _currentUserContext,
+          badgeSnapshotStore: _badgeSnapshotStore,
           initialProfile: _publicProfile?.cidNumber == cid
               ? _publicProfile
               : null,

@@ -30,11 +30,11 @@ void main() {
 
     test('binaryDomainPrefix(0x18) == ACTIVATE_ADMIN fixture prefix', () async {
       final v = byName['ACTIVATE_ADMIN']!;
-      expect(kOpSignActivateAdmin, 0x18);
+      expect(kOpSignRoleAccess, 0x18);
       expect(
         _hexLower(
           (await CitizenSdk.encodePayload(
-            CitizenSigningPayload.binaryPrefix(kOpSignActivateAdmin),
+            CitizenSigningPayload.binaryPrefix(kOpSignRoleAccess),
           )),
         ),
         (v['prefix_hex'] as String).toLowerCase(),
@@ -43,11 +43,11 @@ void main() {
 
     test('binaryDomainPrefix(0x19) == DECRYPT fixture prefix', () async {
       final v = byName['DECRYPT']!;
-      expect(kOpSignDecrypt, 0x19);
+      expect(kOpSignClearingDecrypt, 0x19);
       expect(
         _hexLower(
           (await CitizenSdk.encodePayload(
-            CitizenSigningPayload.binaryPrefix(kOpSignDecrypt),
+            CitizenSigningPayload.binaryPrefix(kOpSignClearingDecrypt),
           )),
         ),
         (v['prefix_hex'] as String).toLowerCase(),
@@ -58,7 +58,7 @@ void main() {
       final v = byName['ACTIVATE_ADMIN']!;
       final inputs = v['sample_inputs'] as Map<String, dynamic>;
       final payload = (await CitizenSdk.encodePayload(
-        CitizenSigningPayload.activateAdmin(
+        CitizenSigningPayload.roleAccess(
           cidNumber: inputs['cid_number'] as String,
           institutionCode: _hexToBytes(
             inputs['institution_code_hex'] as String,
@@ -79,7 +79,7 @@ void main() {
       final v = byName['DECRYPT']!;
       final inputs = v['sample_inputs'] as Map<String, dynamic>;
       final payload = (await CitizenSdk.encodePayload(
-        CitizenSigningPayload.decryptAdmin(
+        CitizenSigningPayload.clearingDecrypt(
           cidNumber: inputs['cid_number'] as String,
           signerPublicKey: _hexToBytes(
             inputs['signer_public_key_hex'] as String,

@@ -130,15 +130,30 @@ class ProposalDetailSnapshot {
     if (rows is! List) return const [];
     return [
       for (final row in rows)
-        if (row case {'account_id': final String account})
+        if (row is Map<String, dynamic>)
           EligibleVoterTicket(
-            voterAccountId: account,
+            voterAccountId: row['account_id'] as String?,
+            personCid: row['person_cid'] as String?,
             cidNumber: row['cid_number'] as String?,
             voterRoleCode: row['role_code'] as String?,
             voterRoleName: row['role_name'] as String?,
           ),
     ];
   }
+
+  /// 机构详情与事件增量复用同一票据序列化合同，人员CID和缺失钱包均原样保留。
+  static List<Map<String, Object?>> encodeTickets(
+    Iterable<EligibleVoterTicket> tickets,
+  ) => [
+    for (final ticket in tickets)
+      {
+        'account_id': ticket.voterAccountId,
+        'person_cid': ticket.personCid,
+        'cid_number': ticket.cidNumber,
+        'role_code': ticket.voterRoleCode,
+        'role_name': ticket.voterRoleName,
+      },
+  ];
 
   /// 只更新事件影响的字段，保留已经落盘的业务正文。
   ProposalDetailSnapshot withState(
@@ -165,16 +180,7 @@ class ProposalDetailSnapshot {
       detail: detail,
       extra: {
         ...extra,
-        if (tickets != null)
-          'voter_tickets': [
-            for (final ticket in tickets)
-              {
-                'account_id': ticket.voterAccountId,
-                'cid_number': ticket.cidNumber,
-                'role_code': ticket.voterRoleCode,
-                'role_name': ticket.voterRoleName,
-              },
-          ],
+        if (tickets != null) 'voter_tickets': encodeTickets(tickets),
         'meta_status': meta.status,
         'meta_stage': meta.stage,
         if (tally != null && proposalKind == 'runtime_upgrade') ...{
@@ -310,6 +316,31 @@ class ProposalDetailSnapshot {
           updatedAt == null) {
         return null;
       }
+      final extra = _objectMap(decoded['extra']);
+      final tickets = extra['voter_tickets'];
+      if (tickets != null) {
+        if (tickets is! List) return null;
+        for (final row in tickets) {
+          if (row is! Map<String, dynamic>) return null;
+          final institution = row['cid_number'];
+          final role = row['role_code'];
+          final person = row['person_cid'];
+          final account = row['account_id'];
+          if (institution != null || role != null) {
+            if (institution is! String ||
+                institution.isEmpty ||
+                role is! String ||
+                role.isEmpty ||
+                person is! String ||
+                person.isEmpty ||
+                (account != null && account is! String)) {
+              return null;
+            }
+          } else if (account is! String || account.isEmpty || person != null) {
+            return null;
+          }
+        }
+      }
       return ProposalDetailSnapshot(
         proposalId: proposalId,
         proposalKind: proposalKind,
@@ -322,7 +353,7 @@ class ProposalDetailSnapshot {
         adminVotes: _voteMap(decoded['admin_votes']),
         pendingPublicKeys: _stringList(decoded['pending_public_keys']),
         detail: _objectMap(decoded['detail']),
-        extra: _objectMap(decoded['extra']),
+        extra: extra,
       );
     } catch (_) {
       return null;

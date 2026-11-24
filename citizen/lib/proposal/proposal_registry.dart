@@ -30,7 +30,7 @@ class ProposalSubject {
   const ProposalSubject({
     required this.subjectType,
     required this.orgCode,
-    required this.adminModule,
+    required this.entityPallet,
     this.cidNumber,
   });
 
@@ -44,23 +44,23 @@ class ProposalSubject {
       return ProposalSubject(
         subjectType: ProposalSubjectType.fixedGovernanceInstitution,
         orgCode: code,
-        adminModule: 'PublicAdmins',
+        entityPallet: 'PublicEntity',
         cidNumber: institution.cidNumber,
       );
     }
-    if (InstitutionCodeLabel.isPublicAdminCode(code)) {
+    if (InstitutionCodeLabel.isPublicEntityCode(code)) {
       return ProposalSubject(
         subjectType: ProposalSubjectType.publicInstitution,
         orgCode: code,
-        adminModule: 'PublicAdmins',
+        entityPallet: 'PublicEntity',
         cidNumber: institution.cidNumber,
       );
     }
-    if (InstitutionCodeLabel.isPrivateAdminCode(code)) {
+    if (InstitutionCodeLabel.isPrivateEntityCode(code)) {
       return ProposalSubject(
         subjectType: ProposalSubjectType.privateInstitution,
         orgCode: code,
-        adminModule: 'PrivateAdmins',
+        entityPallet: 'PrivateEntity',
         cidNumber: institution.cidNumber,
       );
     }
@@ -69,21 +69,21 @@ class ProposalSubject {
         subjectType: ProposalSubjectType.unincorporatedInstitution,
         orgCode: code,
         // 非法人机构码本身不能决定 public/private 管理员模块。
-        adminModule: 'Unresolved',
+        entityPallet: 'Unresolved',
         cidNumber: institution.cidNumber,
       );
     }
     return ProposalSubject(
       subjectType: ProposalSubjectType.publicInstitution,
       orgCode: code,
-      adminModule: 'PublicAdmins',
+      entityPallet: 'PublicEntity',
       cidNumber: institution.cidNumber,
     );
   }
 
   final ProposalSubjectType subjectType;
   final String orgCode;
-  final String adminModule;
+  final String entityPallet;
 
   /// 机构主体唯一主键。
   final String? cidNumber;
@@ -92,7 +92,7 @@ class ProposalSubject {
       subjectType == ProposalSubjectType.fixedGovernanceInstitution;
   bool get isUnincorporated =>
       subjectType == ProposalSubjectType.unincorporatedInstitution;
-  bool get hasResolvedAdminModule => adminModule != 'Unresolved';
+  bool get hasResolvedEntityPallet => entityPallet != 'Unresolved';
 }
 
 class ProposalCapability {
@@ -132,7 +132,7 @@ class ProposalCapabilityRegistry {
     ProposalCapability(
       kind: ProposalKind.transfer,
       enabled: true,
-      pallet: 'MultisigTransfer',
+      pallet: 'Multisig',
       call: 'propose_transfer',
       voteEngine: 'InternalVote',
       allows: (subject) => true,
@@ -140,7 +140,7 @@ class ProposalCapabilityRegistry {
     ProposalCapability(
       kind: ProposalKind.feeTransfer,
       enabled: true,
-      pallet: 'MultisigTransfer',
+      pallet: 'Multisig',
       call: 'propose_sweep_to_main',
       voteEngine: 'InternalVote',
       allows: (subject) => _sweepCodes.contains(subject.orgCode),
@@ -149,7 +149,7 @@ class ProposalCapabilityRegistry {
     ProposalCapability(
       kind: ProposalKind.safetyFundTransfer,
       enabled: true,
-      pallet: 'MultisigTransfer',
+      pallet: 'Multisig',
       call: 'propose_safety_fund_transfer',
       voteEngine: 'InternalVote',
       allows: (subject) => subject.orgCode == 'NRC',
@@ -157,7 +157,7 @@ class ProposalCapabilityRegistry {
     ProposalCapability(
       kind: ProposalKind.resolutionIssuance,
       enabled: true,
-      pallet: 'ResolutionIssuance',
+      pallet: 'ResolutionIssue',
       call: 'propose_issuance',
       voteEngine: 'JointVote',
       allows: (subject) => _jointGovernanceCodes.contains(subject.orgCode),
@@ -165,7 +165,7 @@ class ProposalCapabilityRegistry {
     ProposalCapability(
       kind: ProposalKind.resolutionDestroy,
       enabled: true,
-      pallet: 'ResolutionDestroy',
+      pallet: 'Destroy',
       call: 'propose_destroy',
       voteEngine: 'InternalVote',
       allows: (subject) => _destroyGovernanceCodes.contains(subject.orgCode),
@@ -173,7 +173,7 @@ class ProposalCapabilityRegistry {
     ProposalCapability(
       kind: ProposalKind.runtimeUpgrade,
       enabled: true,
-      pallet: 'RuntimeUpgrade',
+      pallet: 'Upgrade',
       call: 'propose_runtime_upgrade',
       voteEngine: 'JointVote',
       allows: (subject) => _jointGovernanceCodes.contains(subject.orgCode),
@@ -181,7 +181,7 @@ class ProposalCapabilityRegistry {
     ProposalCapability(
       kind: ProposalKind.grandpaKey,
       enabled: true,
-      pallet: 'GrandpaKeyChange',
+      pallet: 'GrandpaKey',
       call:
           'schedule_grandpa_key_rotation/propose_emergency_grandpa_key_recovery',
       voteEngine: 'Normal=None;Emergency=InternalVote',
@@ -190,7 +190,7 @@ class ProposalCapabilityRegistry {
     ProposalCapability(
       kind: ProposalKind.legislation,
       enabled: true,
-      pallet: 'LegislationYuan',
+      pallet: 'Legislation',
       call: 'propose_enact_law/propose_amend_law/propose_repeal_law',
       voteEngine: 'LegislationVote',
       allows: (subject) => _legislationProposerCodes.contains(subject.orgCode),

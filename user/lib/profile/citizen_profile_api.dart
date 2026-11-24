@@ -77,8 +77,9 @@ class CitizenProfileApi {
         final now = _now().millisecondsSinceEpoch;
         final previous = prefs.getInt(key);
         if (previous != null &&
-            now - previous < entryRefreshInterval.inMilliseconds)
+            now - previous < entryRefreshInterval.inMilliseconds) {
           return null;
+        }
         if (!(isCurrentIdentity?.call() ?? true)) return null;
         if (!await prefs.setInt(key, now)) throw StateError('自动刷新限速记录保存失败');
         final resolution = await sessions.resolveSession();
@@ -87,8 +88,9 @@ class CitizenProfileApi {
             session == null ||
             session.cidNumber != binding.cidNumber ||
             session.accountId != binding.accountId ||
-            session.bindRev != binding.bindRev)
+            session.bindRev != binding.bindRev) {
           throw StateError('主页刷新身份尚未就绪');
+        }
         final result = await refreshProfile(
           targetCid,
           session: session,
@@ -178,10 +180,15 @@ class CitizenProfileApi {
         throw StateError('资料读取已被较新操作取代');
       }
     }
+
     late CitizenProfileLoadResult result;
     try {
       checkRead();
-      result = await target.receiveRemote(remote, expectedCid: cidNumber, assertCurrent: checkRead);
+      result = await target.receiveRemote(
+        remote,
+        expectedCid: cidNumber,
+        assertCurrent: checkRead,
+      );
     } catch (_) {
       check();
       if (CitizenProfileCache.acceptsRead(cidNumber, order)) rethrow;
@@ -190,7 +197,11 @@ class CitizenProfileApi {
       check();
       if (local == null) rethrow;
       // 迟到结果只返回当前本地快照，不落盘、不刷新旧图片或新增提示。
-      return CitizenProfileLoadResult(local, CitizenProfileLoadStatus.unchanged, usedLocal: true);
+      return CitizenProfileLoadResult(
+        local,
+        CitizenProfileLoadStatus.unchanged,
+        usedLocal: true,
+      );
     }
     await session.validateCurrent();
     check();

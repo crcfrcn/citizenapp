@@ -322,7 +322,7 @@ void main() {
     expect(service.registerCalls, 1);
     // Widget 流程不抢在 finalized 闭环前失效缓存或广播；MyIdService 在完整闭环成立后
     // 统一执行，相关“一次失效 + 一次 revision”由 myid_service_test 单独钉死。
-    expect(find.textContaining('身份 CID 已注册'), findsOneWidget);
+    expect(find.textContaining('身份CID号 已注册'), findsOneWidget);
   });
 
   for (final failure in <(CitizenSdkErrorCode, String)>[

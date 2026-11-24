@@ -59,7 +59,7 @@ class ChainDataReader {
     final pricesFuture = prices
         ? batch.read(block, [
             for (final level in levels)
-              runtime.storageKey('SquarePost', 'PlatformPrice', [
+              runtime.storageKey('Square', 'PlatformPrice', [
                 SubscriptionChain.membershipLevelVariant(level),
               ]),
           ])

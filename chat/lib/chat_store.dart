@@ -2054,7 +2054,7 @@ class ChatStore implements ChatFlowStore<ChatBindingFenceToken> {
       ..bindingRevision = bindingRevision
       ..accountId = accountId
       ..conversationId = groupId
-      ..peerUserId = existing?.peerUserId ?? (group?.creatorUserId ?? '')
+      ..peerUserId = existing?.peerUserId ?? group.creatorUserId
       ..title = null
       ..conversationKind = 'group'
       ..lastMessageSummary = replacesLatest

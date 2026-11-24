@@ -9,8 +9,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:citizen_system/app_log.dart';
 import 'package:flutter/services.dart';
-import 'package:citizen_citizen/administrators/admin_account.dart';
-import 'package:citizen_citizen/administrators/institution_admin_service.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
 import 'package:citizen_citizen/proposal/internal_vote_service.dart';
 import 'package:citizen_citizen/proposal/proposal_context.dart';
@@ -72,7 +70,6 @@ class _MultisigProposalDetailPageState
   final ProposalDetailLocalStore _detailStore =
       ProposalDetailLocalStore.instance;
   final InstitutionChainService _manageService = InstitutionChainService();
-  late final InstitutionAdminService _adminService;
   bool _dependenciesReady = false;
   int _generation = 0;
   Future<void>? _loadFlight;
@@ -81,8 +78,6 @@ class _MultisigProposalDetailPageState
   bool _hasDetails = false;
   bool _isCurrent(int generation) => mounted && generation == _generation;
 
-  AdminAccountIdentity get _accountIdentity =>
-      AdminAccountIdentity.fromInstitution(widget.institution);
   bool _loading = true;
   String? _error;
   bool _submitting = false;
@@ -116,8 +111,6 @@ class _MultisigProposalDetailPageState
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_dependenciesReady) return;
-    final sdk = context.read<CitizenSdk>();
-    _adminService = InstitutionAdminService(chain: sdk);
     _dependenciesReady = true;
     if (widget.resolveVoteContext == null) {
       _load();
@@ -217,6 +210,7 @@ class _MultisigProposalDetailPageState
       final voterTickets = results[0] as List<EligibleVoterTicket>;
       final admins = voterTickets
           .map((ticket) => ticket.voterAccountId)
+          .whereType<String>()
           .toSet()
           .toList();
       final status = results[1] as int?;
@@ -264,7 +258,7 @@ class _MultisigProposalDetailPageState
       for (final w in _voteWallets) {
         final accountId = _requireAccountId(w.accountId);
         final walletTickets = voterTickets.where(
-          (ticket) => _requireAccountId(ticket.voterAccountId) == accountId,
+          (ticket) => ticket.voterAccountId == accountId,
         );
         if (walletTickets.any((ticket) => votes[ticket.ticketKey] == null)) {
           votable.add(w);
@@ -283,6 +277,7 @@ class _MultisigProposalDetailPageState
               tally: tally,
               threshold: threshold,
               admins: admins,
+              tickets: voterTickets,
               votes: votes,
               institutionCloseInfo: institutionCloseInfo,
             ),
@@ -329,12 +324,28 @@ class _MultisigProposalDetailPageState
         widget.proposalId,
       );
       if (snapshot == null || !mounted) return snapshot;
-      final admins = snapshot.admins;
+      final tickets = snapshot.voterTickets;
+      if (tickets.isEmpty ||
+          tickets.any(
+            (ticket) =>
+                ticket.cidNumber != widget.institution.cidNumber ||
+                ticket.personCid == null,
+          )) {
+        return null;
+      }
+      final admins = tickets
+          .map((ticket) => ticket.voterAccountId)
+          .whereType<String>()
+          .toSet()
+          .toList();
       final votable = <CitizenWalletStateAccount>[];
       for (final w in _voteWallets) {
         final accountId = _requireAccountId(w.accountId);
-        if (admins.contains(accountId) &&
-            snapshot.adminVotes[accountId] == null) {
+        if (tickets.any(
+          (ticket) =>
+              ticket.voterAccountId == accountId &&
+              snapshot.adminVotes[ticket.ticketKey] == null,
+        )) {
           votable.add(w);
         }
       }
@@ -350,9 +361,7 @@ class _MultisigProposalDetailPageState
         _noCount = snapshot.noCount;
         _threshold = snapshot.threshold ?? 0;
         _adminVotes = snapshot.adminVotes;
-        if (widget.resolveVoteContext != null) {
-          _voterTickets = snapshot.voterTickets;
-        }
+        _voterTickets = tickets;
         _votableWallets = votable;
         _selectedVoteWallet = votable.isNotEmpty ? votable.first : null;
         _institutionCloseInfo = institutionCloseInfo;
@@ -370,6 +379,7 @@ class _MultisigProposalDetailPageState
     required ({int yes, int no}) tally,
     required int threshold,
     required List<String> admins,
+    required List<EligibleVoterTicket> tickets,
     required Map<String, bool?> votes,
     required institution_models.CloseProposalInfo? institutionCloseInfo,
   }) {
@@ -385,6 +395,7 @@ class _MultisigProposalDetailPageState
       // 票据键包含CID和岗位码，不是钱包地址，必须按原键保存。
       adminVotes: Map.of(votes),
       pendingPublicKeys: const [],
+      extra: {'voter_tickets': ProposalDetailSnapshot.encodeTickets(tickets)},
       detail: institutionCloseInfo != null
           ? _institutionCloseInfoToJson(institutionCloseInfo)
           : const {},
@@ -465,7 +476,7 @@ class _MultisigProposalDetailPageState
     for (final w in _voteWallets) {
       final accountId = _requireAccountId(w.accountId);
       final tickets = _voterTickets.where(
-        (ticket) => _requireAccountId(ticket.voterAccountId) == accountId,
+        (ticket) => ticket.voterAccountId == accountId,
       );
       if (tickets.any((ticket) => _adminVotes[ticket.ticketKey] == null)) {
         return false;
@@ -516,7 +527,7 @@ class _MultisigProposalDetailPageState
       final availableTickets = _voterTickets
           .where(
             (ticket) =>
-                _requireAccountId(ticket.voterAccountId) == accountId &&
+                ticket.voterAccountId == accountId &&
                 _adminVotes[ticket.ticketKey] == null,
           )
           .toList(growable: false);
@@ -565,7 +576,7 @@ class _MultisigProposalDetailPageState
               final accountId = _requireAccountId(w.accountId);
               return _voterTickets.any(
                 (candidate) =>
-                    _requireAccountId(candidate.voterAccountId) == accountId &&
+                    candidate.voterAccountId == accountId &&
                     _adminVotes[candidate.ticketKey] == null,
               );
             })
@@ -583,7 +594,6 @@ class _MultisigProposalDetailPageState
         ),
       );
 
-      _adminService.clearCache(_accountIdentity);
       if (widget.resolveVoteContext == null) {
         unawaited(_load());
       }
@@ -784,7 +794,6 @@ class _MultisigProposalDetailPageState
   Widget _buildContent() {
     return RefreshIndicator(
       onRefresh: () async {
-        _adminService.clearCache(_accountIdentity);
         if (widget.resolveVoteContext == null) {
           await _load();
         } else {

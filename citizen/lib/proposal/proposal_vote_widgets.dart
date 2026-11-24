@@ -213,9 +213,14 @@ class ProposalAdminVoteList extends StatelessWidget {
                 final ticket = voterTickets.isEmpty
                     ? null
                     : voterTickets[index];
-                final accountId = ticket?.voterAccountId ?? admins[index];
-                final vote = adminVotes[ticket?.ticketKey ?? accountId];
-                final ss58 = citizenSs58FromAccountId(accountId);
+                final accountId = ticket == null
+                    ? admins[index]
+                    : ticket.voterAccountId;
+                final ticketKey = ticket?.ticketKey ?? accountId!;
+                final vote = adminVotes[ticketKey];
+                final ss58 = accountId == null
+                    ? null
+                    : citizenSs58FromAccountId(accountId);
                 final isProposer = proposerSs58 != null && proposerSs58 == ss58;
 
                 return ListTile(
@@ -238,7 +243,9 @@ class ProposalAdminVoteList extends StatelessWidget {
                     children: [
                       Flexible(
                         child: Text(
-                          _truncateAddress(ss58),
+                          ticket?.personCid ??
+                              (ss58 == null ? '未绑定钱包' : _truncateAddress(ss58)),
+                          maxLines: 1,
                           style: TextStyle(
                             fontSize: AppLayout.scaled(context, 13),
                           ),
@@ -280,10 +287,16 @@ class ProposalAdminVoteList extends StatelessWidget {
                       ],
                     ],
                   ),
-                  trailing: _buildVoteStatusChip(
-                    vote,
-                    ticket?.ticketKey ?? accountId,
-                  ),
+                  subtitle: ticket?.isInstitution == true
+                      ? Text(
+                          ss58 == null
+                              ? '当前无有效钱包绑定，不能签名'
+                              : _truncateAddress(ss58),
+                          maxLines: ss58 == null ? 2 : 1,
+                          overflow: TextOverflow.ellipsis,
+                        )
+                      : null,
+                  trailing: _buildVoteStatusChip(vote, ticketKey),
                 );
               },
             ),

@@ -16,14 +16,12 @@ import 'package:citizen_citizen/institution/institution_accounts_page.dart';
 import 'package:citizen_citizen/institution/institution_chain_state.dart';
 import 'package:citizen_citizen/institution/institution_classification.dart';
 import 'package:citizen_citizen/institution/institution_repository.dart';
-import 'package:citizen_citizen/public/public_institution_admin_list_page.dart';
+import 'package:citizen_citizen/public/public_institution_assignments_page.dart';
 import 'package:citizen_citizen/legislation/law_models.dart';
 import 'package:citizen_citizen/legislation/law_list_page.dart';
-import 'package:citizen_citizen/administrators/admin_account.dart';
-import 'package:citizen_citizen/administrators/admin_activation_service.dart';
-import 'package:citizen_citizen/administrators/institution_admin_service.dart';
+import 'package:citizen_citizen/institution/institution_chain_service.dart';
 import 'package:citizen_citizen/proposal/proposal_entry_page.dart';
-import 'package:citizen_citizen/institution/institution_admin_list_page.dart';
+import 'package:citizen_citizen/institution/institution_assignments_page.dart';
 import 'package:citizen_citizen/runtime/runtime_upgrade_detail_page.dart';
 import 'package:citizen_citizen/institution/institution_role_models.dart';
 import 'package:citizen_citizen/institution/institution_info.dart';
@@ -53,7 +51,6 @@ class InstitutionDetailPage extends StatefulWidget {
     this.chainState,
     this.subscriberCidNumberProvider,
     this.contextResolver,
-    this.activationService,
   });
 
   final String cidNumber;
@@ -64,7 +61,6 @@ class InstitutionDetailPage extends StatefulWidget {
 
   /// 可注入原角色/激活接口；测试与生产共用同一名册和权限加载路径。
   final ProposalContextResolver? contextResolver;
-  final ActivationService? activationService;
 
   /// 当前已注册公民的永久 CID（只用于本地关注关系归属）。
   ///
@@ -77,9 +73,7 @@ class InstitutionDetailPage extends StatefulWidget {
 
 class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
   late final InstitutionChainState _chainState;
-  InstitutionAdminService? _adminService;
   MultisigTransferProposalFeed? _multisigTransferFeed;
-  ActivationService? _activationService;
   ProposalContextResolver? _contextResolver;
   bool _dependenciesReady = false;
 
@@ -99,9 +93,9 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
   List<InstitutionAccountRow> _accounts = const [];
   String _areaPath = '';
 
-  List<InstitutionAdminView> _adminViews = const [];
-  bool _adminsLoaded = false;
-  bool _adminsLoading = true;
+  List<InstitutionPersonView> _adminViews = const [];
+  bool _assignmentsLoaded = false;
+  bool _assignmentsLoading = true;
   int _adminGeneration = 0;
   int _roleGeneration = 0;
   bool _roleLoading = false;
@@ -110,18 +104,17 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
   // 治理路径专用(管理员角色 / 激活 / 富提案列表)。
   List<CitizenWalletStateAccount> _adminWallets = const [];
   bool _isCurrentUserAdmin = false;
-  Set<String> _activatedAccountIds = const {};
   List<LocalProposalSummary> _govProposals = const [];
   Map<BigInt, ProposalWithDetail> _govProposalDetailsById = const {};
 
   // 公权路径专用(只读提案摘要)。
   List<InstitutionProposalSummary> _publicProposals = const [];
 
-  AdminAccountIdentity? get _accountIdentity {
+  InstitutionIdentity? get _accountIdentity {
     final info = _govInfo;
     if (info == null) return null;
     try {
-      return AdminAccountIdentity.fromInstitution(info);
+      return InstitutionIdentity.fromInstitution(info);
     } on ArgumentError {
       // 非治理且非注册账户身份暂无法解析 → 优雅降级(提案入口仍开,但需激活后才能发起)。
       return null;
@@ -157,12 +150,7 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
     );
     final multisigFeed = MultisigTransferProposalFeed(service: multisigService);
     _multisigTransferFeed = multisigFeed;
-    final adminService = InstitutionAdminService(chain: sdk);
-    _adminService = adminService;
-    final activationService =
-        widget.activationService ??
-        ActivationService(adminService: adminService);
-    _activationService = activationService;
+    final adminService = InstitutionChainService(chain: sdk);
     _chainState =
         widget.chainState ??
         LiveInstitutionChainState(
@@ -175,8 +163,7 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
         widget.contextResolver ??
         ProposalContextResolver(
           wallet: wallet,
-          adminService: adminService,
-          activationService: activationService,
+          institutionService: adminService,
         );
     _dependenciesReady = true;
     _load();
@@ -245,7 +232,7 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
     if (inst == null) return;
     // 名册、权限、余额和提案独立完成，任何一项的失败不能抹去其它已读结果。
     await Future.wait<void>([
-      _loadAdmins(force: force),
+      _loadAssignments(force: force),
       _loadRole(force: force),
       if (_isGovernance)
         _loadGovernanceProposals(force: force)
@@ -254,32 +241,26 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
     ]);
   }
 
-  Future<void> _reloadAdmins() async {
-    await Future.wait<void>([_loadAdmins(force: true), _loadRole(force: true)]);
-  }
-
   /// 所有机构名册只由这一条路径写入；失败保留旧名单，未核实不显示0人。
-  Future<void> _loadAdmins({bool force = false}) async {
+  Future<void> _loadAssignments({bool force = false}) async {
     final inst = _inst;
     if (inst == null) return;
     final generation = ++_adminGeneration;
-    final identity = _accountIdentity;
-    if (force && identity != null) _adminService?.clearCache(identity);
     setState(() {
-      _adminsLoading = true;
+      _assignmentsLoading = true;
     });
     try {
-      final views = await _chainState.adminViews(inst);
+      final views = await _chainState.personViews(inst);
       if (!mounted || generation != _adminGeneration) return;
       setState(() {
         _adminViews = views;
-        _adminsLoaded = true;
-        _adminsLoading = false;
+        _assignmentsLoaded = true;
+        _assignmentsLoading = false;
       });
     } on Object {
       if (!mounted || generation != _adminGeneration) return;
       setState(() {
-        _adminsLoading = false;
+        _assignmentsLoading = false;
       });
     }
   }
@@ -289,41 +270,26 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
     final identity = _accountIdentity;
     final govInfo = _govInfo;
     final resolver = _contextResolver;
-    final activation = _activationService;
-    if (identity == null ||
-        govInfo == null ||
-        resolver == null ||
-        activation == null) {
+    if (identity == null || govInfo == null || resolver == null) {
       return;
     }
     final generation = ++_roleGeneration;
-    if (force) resolver.clearWalletCache();
     setState(() {
       _roleLoading = true;
       _roleFailed = false;
       _adminWallets = const [];
       _isCurrentUserAdmin = false;
-      _activatedAccountIds = const {};
     });
     try {
-      final results = await Future.wait<Object>([
-        resolver.resolve(
-          actorCidNumber: govInfo.cidNumber,
-          knownInstitution: govInfo,
-        ),
-        activation.getActivatedAdmins(identity),
-      ]);
-      final ctx = results[0] as ProposalContext;
-      final activated = results[1] as List<ActivatedAdmin>;
+      final ctx = await resolver.resolve(
+        actorCidNumber: govInfo.cidNumber,
+        knownInstitution: govInfo,
+      );
       if (!mounted || generation != _roleGeneration) return;
-      if (ctx.isAdmin) {
-        ProposalContextResolver.markInstitutionAdmin(govInfo.cidNumber);
-      }
       setState(() {
         _govInfo = ctx.institution ?? govInfo;
         _adminWallets = ctx.adminWallets;
         _isCurrentUserAdmin = ctx.isAdmin;
-        _activatedAccountIds = activated.map((item) => item.accountId).toSet();
         _roleLoading = false;
       });
     } on Object {
@@ -440,7 +406,7 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
           _lawOriginalEntry(inst),
         ],
         SizedBox(height: AppLayout.scaledValue(12)),
-        _adminsEntry(),
+        _assignmentsEntry(),
         SizedBox(height: AppLayout.scaledValue(12)),
         _proposalList(),
       ],
@@ -618,15 +584,15 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
   // ──── ④ 管理员入口(治理→AdminListPage 含激活;公权→只读列表)────
 
   /// 管理员入口保持单一卡片；岗位/权限故障不增加外部按钮，也不能伪造零人。
-  Widget _adminsEntry() => _entryCard(
+  Widget _assignmentsEntry() => _entryCard(
     icon: Icons.people_outline,
-    title: '管理员',
-    subtitle: _adminsLoaded
-        ? '共 ${_adminViews.length} 位管理员'
-        : _adminsLoading
-        ? '正在读取管理员'
-        : '管理员信息暂不可用',
-    onTap: !_adminsLoaded
+    title: '人员任职',
+    subtitle: _assignmentsLoaded
+        ? '共 ${_adminViews.length} 位人员'
+        : _assignmentsLoading
+        ? '正在读取任职'
+        : '人员任职暂不可用',
+    onTap: !_assignmentsLoaded
         ? null
         : _accountIdentity != null
         ? _openGovernanceAdminList
@@ -639,15 +605,10 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
     if (govInfo == null || identity == null) return;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => AdminListPage(
+        builder: (_) => InstitutionAssignmentsPage(
           institution: govInfo,
-          accountIdentity: identity,
-          admins: _adminViews,
-          activatedAccountIds: _activatedAccountIds,
-          badgeColor: AppTheme.primary,
-          onActivated: () {
-            unawaited(_reloadAdmins());
-          },
+          identity: identity,
+          persons: _adminViews,
         ),
       ),
     );
@@ -656,9 +617,9 @@ class _InstitutionDetailPageState extends State<InstitutionDetailPage> {
   void _openPublicAdminList() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => PublicInstitutionAdminListPage(
-          admins: _adminViews,
-          accountIdentity: _accountIdentity,
+        builder: (_) => PublicInstitutionAssignmentsPage(
+          persons: _adminViews,
+          identity: _accountIdentity,
         ),
       ),
     );

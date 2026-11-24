@@ -1,6 +1,7 @@
 // 定义机构岗位、任职、业务权限及投票计划的链协议模型。
 
-import 'package:citizen_citizen/administrators/admin_account.dart';
+import 'package:citizen_citizen/institution/institution_code_label.dart';
+import 'package:citizen_citizen/institution/institution_info.dart';
 
 /// 机构岗位状态，序号与 entity runtime 枚举一致。
 enum InstitutionRoleStatus { active, inactive }
@@ -103,6 +104,7 @@ class InstitutionRole {
     required this.roleName,
     required this.termRequired,
     required this.status,
+    required this.seats,
   });
 
   final String cidNumber;
@@ -110,13 +112,14 @@ class InstitutionRole {
   final String roleName;
   final bool termRequired;
   final InstitutionRoleStatus status;
+  final int seats;
 }
 
 /// 管理员钱包与机构岗位的一条任职关系。
-class InstitutionAdminAssignment {
-  const InstitutionAdminAssignment({
+class InstitutionAssignment {
+  const InstitutionAssignment({
     required this.cidNumber,
-    required this.accountId,
+    required this.personCid,
     required this.roleCode,
     required this.termStart,
     required this.termEnd,
@@ -128,7 +131,7 @@ class InstitutionAdminAssignment {
   });
 
   final String cidNumber;
-  final String accountId;
+  final String personCid;
   final String roleCode;
   final String roleName;
   final bool termRequired;
@@ -163,41 +166,65 @@ class InstitutionAdminAssignment {
     return termStart > 0 && termStart <= currentDay && currentDay <= termEnd;
   }
 
-  InstitutionAdminAssignment withRole(InstitutionRole role) =>
-      InstitutionAdminAssignment(
-        cidNumber: cidNumber,
-        accountId: accountId,
-        roleCode: roleCode,
-        roleName: role.roleName,
-        termRequired: role.termRequired,
-        termStart: termStart,
-        termEnd: termEnd,
-        source: source,
-        sourceRef: sourceRef,
-        active: active,
-      );
+  InstitutionAssignment withRole(InstitutionRole role) => InstitutionAssignment(
+    cidNumber: cidNumber,
+    personCid: personCid,
+    roleCode: roleCode,
+    roleName: role.roleName,
+    termRequired: role.termRequired,
+    termStart: termStart,
+    termEnd: termEnd,
+    source: source,
+    sourceRef: sourceRef,
+    active: active,
+  );
 }
 
-/// admins pallet 的机构管理员值；岗位资料仍由 entity 独立保存。
-class InstitutionAdminsStorage {
-  const InstitutionAdminsStorage({required this.orgCode, required this.admins});
-
-  final String orgCode;
-  final List<AdminPerson> admins;
-}
-
-/// 一名机构管理员及其零到多条岗位任职。
-///
-/// 管理员人员集合是主记录；岗位任职只是附加展示。没有岗位的管理员仍保留本行。
-class InstitutionAdminView {
-  const InstitutionAdminView({
-    required this.admin,
-    this.assignments = const [],
-    this.assignmentsLoaded = true,
+/// 机构查询主体仅保存机构CID及所属公私权类别，不保存独立管理员钱包。
+class InstitutionIdentity {
+  const InstitutionIdentity({
+    required this.cidNumber,
+    required this.orgCode,
+    this.kind,
+    this.accountLabel = '',
   });
+  factory InstitutionIdentity.fromInstitution(InstitutionInfo institution) =>
+      InstitutionIdentity(
+        cidNumber: institution.cidNumber,
+        orgCode:
+            institution.adminCode ??
+            switch (institution.orgType) {
+              0 => 'NRC',
+              1 => 'PRC',
+              2 => 'PRB',
+              _ => throw ArgumentError('机构缺少机构码'),
+            },
+        kind: institution.adminCode == null
+            ? 0
+            : InstitutionCodeLabel.isUnincorporated(institution.adminCode!)
+            ? null
+            : InstitutionCodeLabel.entityKind(institution.adminCode!),
+        accountLabel: institution.shortName,
+      );
+  final String cidNumber;
+  final String orgCode;
+  final int? kind;
+  final String accountLabel;
+  String get pallet => switch (kind) {
+    0 => 'PublicEntity',
+    1 => 'PrivateEntity',
+    _ => throw StateError('机构所属公私权类别尚未查链'),
+  };
+}
 
-  /// 只表示附加岗位资料是否完整读取，不参与任何业务授权。
-  final bool assignmentsLoaded;
-  final AdminPerson admin;
-  final List<InstitutionAdminAssignment> assignments;
+/// 同一人员在一个机构的有效任职；当前钱包只是同块链上解析结果。
+class InstitutionPersonView {
+  const InstitutionPersonView({
+    required this.personCid,
+    required this.accountId,
+    required this.assignments,
+  });
+  final String personCid;
+  final String? accountId;
+  final List<InstitutionAssignment> assignments;
 }

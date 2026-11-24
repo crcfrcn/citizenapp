@@ -142,58 +142,16 @@ class InstitutionCodeLabel {
     return isInstitution(code);
   }
 
-  /// 是否归 PublicAdmins 管理。
-  static bool isPublicAdminCode(String code) {
-    return isPublicLegal(code) || isFixedGovernance(code);
-  }
+  /// 公权法人和固定治理机构的人员任职由PublicEntity管理。
+  static bool isPublicEntityCode(String code) =>
+      isPublicLegal(code) || isFixedGovernance(code);
+  static bool isPrivateEntityCode(String code) => isPrivateLegal(code);
 
-  /// 是否归 PrivateAdmins 管理。
-  ///
-  /// 非法人不是私权同义词。SFGT/SFGP/UNIN 只能说明是非法人机构码,
-  /// 不能决定管理员模块;必须由 CID 注册关系按所属公法人/私法人显式路由。
-  static bool isPrivateAdminCode(String code) {
-    return isPrivateLegal(code);
-  }
-
-  /// 非法人管理员模块候选码。调用方必须再结合所属法人决定 public/private。
-  static bool isUnincorporatedAdminCode(String code) {
-    return isUnincorporated(code);
-  }
-
-  /// 是否可被 PublicAdmins 保存。仅作为显式路由后的 storage 能力判断。
-  static bool canStorePublicAdminCode(String code) {
-    return isPublicAdminCode(code) || isUnincorporatedAdminCode(code);
-  }
-
-  /// 是否可被 PrivateAdmins 保存。仅作为显式路由后的 storage 能力判断。
-  static bool canStorePrivateAdminCode(String code) {
-    return isPrivateAdminCode(code) || isUnincorporatedAdminCode(code);
-  }
-
-  /// AdminAccountKind 链上枚举值：0 公权 / 1 私权 / 2 个人。
-  static int adminAccountKind(String code) {
-    if (isPublicAdminCode(code)) return 0;
-    if (isPrivateAdminCode(code)) return 1;
-    throw ArgumentError('无法按机构码选择管理员类型: $code');
-  }
-
-  /// `AdminAccounts` 所属 runtime pallet 名。
-  static String adminAccountsPalletName(String code) {
-    if (isPublicAdminCode(code)) return 'PublicAdmins';
-    if (isPrivateAdminCode(code)) return 'PrivateAdmins';
-    throw ArgumentError('无法按机构码选择管理员模块: $code');
-  }
-
-  /// 按链上 AdminAccountKind 选择管理员模块。
-  ///
-  /// 非法人机构的机构码不能决定 public/private,但链上 AdminAccount.kind
-  /// 已经携带了最终模块归属。涉及已注册账户的读取/提交应优先用 kind 路由。
-  static String adminAccountsPalletNameForKind(int kind) {
-    return switch (kind) {
-      0 => 'PublicAdmins',
-      1 => 'PrivateAdmins',
-      _ => throw ArgumentError('无法按管理员类型选择管理员模块: $kind'),
-    };
+  /// 非法人机构必须以实际链上所属模块确定类别，不能由机构码猜测。
+  static int entityKind(String code) {
+    if (isPublicEntityCode(code)) return 0;
+    if (isPrivateEntityCode(code)) return 1;
+    throw ArgumentError('机构所属类别需要查链: $code');
   }
 
   /// 机构码人机展示标签：固定治理档/个人多签特化为中文名，其余返回码字符串本身。

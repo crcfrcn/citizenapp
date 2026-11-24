@@ -92,8 +92,9 @@ String chatUserErrorMessage(
   Object error, {
   String fallback = '聊天暂时无法使用，请稍后重试',
 }) {
-  if (error is ChatConnectionException && error.code == 'dm_forbidden')
+  if (error is ChatConnectionException && error.code == 'dm_forbidden') {
     return dmForbiddenMessage;
+  }
   if (error is SquarePreflightException) {
     return error.message;
   }

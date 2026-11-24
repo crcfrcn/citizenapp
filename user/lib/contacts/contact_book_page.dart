@@ -188,8 +188,9 @@ class _ContactBookPageState extends State<ContactBookPage> {
           ContactSyncPhase.synced,
           ContactSyncPhase.failed,
           ContactSyncPhase.offline,
-        ].contains(state.phase))
+        ].contains(state.phase)) {
       unawaited(_reloadLocalContacts());
+    }
   }
 
   Future<void> _reloadLocalContacts() async {
@@ -264,11 +265,15 @@ class _ContactBookPageState extends State<ContactBookPage> {
   }
 
   void _toggleContact(UserContact contact) {
-    if (!widget.selectionEnabled || _loading || contact.cidNumber == _ownerCid)
+    if (!widget.selectionEnabled ||
+        _loading ||
+        contact.cidNumber == _ownerCid) {
       return;
+    }
     setState(() {
-      if (!_selected.add(contact.cidNumber))
+      if (!_selected.add(contact.cidNumber)) {
         _selected.remove(contact.cidNumber);
+      }
     });
     _notifySelection();
   }
@@ -486,8 +491,9 @@ class _ContactBookPageState extends State<ContactBookPage> {
           try {
             final profile =
                 _profiles[cidNumber] ?? await _profileCache.read(cidNumber);
-            if (profile == null || !mounted || generation != _loadGeneration)
+            if (profile == null || !mounted || generation != _loadGeneration) {
               continue;
+            }
             _profiles[cidNumber] = profile;
             _resolvedProfileCidNumbers.add(cidNumber);
             try {
@@ -654,15 +660,17 @@ class _ContactBookPageState extends State<ContactBookPage> {
           action: UserContactService.deleteAction,
         ),
       );
-      if (mounted && generation == _loadGeneration)
+      if (mounted && generation == _loadGeneration) {
         setState(() => _contacts = contacts);
+      }
     } catch (error) {
-      if (mounted && generation == _loadGeneration)
+      if (mounted && generation == _loadGeneration) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(SquareSessionResolution.fromError(error).message),
           ),
         );
+      }
     }
   }
 

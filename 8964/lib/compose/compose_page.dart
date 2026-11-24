@@ -634,8 +634,9 @@ class _SquareComposePageState extends State<SquareComposePage>
         _changingIdentity ||
         _publishing ||
         owner.recovering ||
-        selected == null)
+        selected == null) {
       return;
+    }
     setState(() => owner.visibility = selected);
     _handleBodyChanged(owner);
   }
@@ -1049,7 +1050,7 @@ class _IdentityBar extends StatelessWidget {
                 ),
               ),
             ),
-            if (mediaAction != null) mediaAction!,
+            ?mediaAction,
           ],
         ),
       ),

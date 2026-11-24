@@ -397,7 +397,7 @@ Uint8List _mappingMetadata({
         ),
       if (remarkLimit != null)
         metadata.PalletMetadata(
-          name: 'OnchainTransaction',
+          name: 'Onchain',
           index: 4,
           storage: null,
           docs: [],

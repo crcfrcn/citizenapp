@@ -776,7 +776,18 @@ export async function generatedHeaders(source) {
   const path=join(source,name);let text;
   try{text=await readFile(path,'utf8');}catch(error){if(error.code==='ENOENT')continue;throw error;}
   const header=(name.endsWith('.rs')?'//! ':'// ')+intro;
-  if(text.startsWith(header+'\n'))continue;
+  // 用户仅授权social_isar的原生成API声明；不改变其它生成物或手写检查。
+  let generatedDeclaration=false;
+  if(name==='storage/lib/social_isar.g.dart'&&!/^\/\/ ignore_for_file: experimental_member_use$/mu.test(text)){
+   const part="part of 'social_isar.dart';";
+   if(!text.includes(part))throw Error('social_isar生成输出缺少原part声明');
+   text=text.replace(part,'// ignore_for_file: experimental_member_use\n\n'+part);
+   generatedDeclaration=true;
+  }
+  if(text.startsWith(header+'\n')){
+   if(generatedDeclaration)await writeFile(path,text);
+   continue;
+  }
   const first=text.slice(0,text.indexOf('\n'));
   if(/^(?:\/\/!?|#) [\u3400-\u9fff]/u.test(first)&&!/(?:版权|版权所有)/u.test(first))text=text.slice(first.length).replace(/^\n+/u,'');
   text=header+'\n\n'+text;

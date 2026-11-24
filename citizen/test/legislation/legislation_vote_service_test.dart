@@ -186,6 +186,7 @@ void main() {
     final result = await service.castRepresentativeVote(
       proposalId: BigInt.from(7),
       voterRoleCode: 'DIRECTOR',
+      personCid: 'CN220-CTZN2-198805200-2026',
       approve: false,
       signerPublicKey: signer,
       externalSigning: (_) async => 'synthetic-response',
@@ -197,6 +198,7 @@ void main() {
       service.castRepresentativeVote(
         proposalId: BigInt.from(7),
         voterRoleCode: 'OTHER',
+        personCid: 'CN220-CTZN2-198805200-2026',
         approve: false,
         signerPublicKey: signer,
         externalSigning: (_) async => null,
@@ -260,6 +262,7 @@ void main() {
         })().castRepresentativeVote(
           proposalId: BigInt.from(7),
           voterRoleCode: 'DIRECTOR',
+      personCid: 'CN220-CTZN2-198805200-2026',
           approve: true,
           signerPublicKey: signer,
           externalSigning: (_) async => null,

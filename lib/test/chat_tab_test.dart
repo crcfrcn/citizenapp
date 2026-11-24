@@ -1484,15 +1484,21 @@ void main() {
       baseUrl: 'https://square.test/api',
       httpClient: MockClient((request) async {
         if (request.method == 'GET') {
-          return http.Response(jsonEncode({
-            'is_ok': true,
-            'items': blocked ? [_peerUserId] : [],
-            'next_cursor': null,
-          }), 200);
+          return http.Response(
+            jsonEncode({
+              'is_ok': true,
+              'items': blocked ? [_peerUserId] : [],
+              'next_cursor': null,
+            }),
+            200,
+          );
         }
         expect(request.url.path, '/api/8964/blocks/$_peerUserId');
         blocked = request.method == 'PUT';
-        return http.Response(jsonEncode({'is_ok': true, 'blocked': blocked}), 200);
+        return http.Response(
+          jsonEncode({'is_ok': true, 'blocked': blocked}),
+          200,
+        );
       }),
     );
     addTearDown(api.close);
@@ -1505,35 +1511,45 @@ void main() {
       expiresAt: 9999999999999,
       authenticateRequest: fakeMlsRequestHeaders,
     );
-    final store = _FakeChatStore(conversations: [
-      ChatConversationPreview(
-        conversationId: _directConversationId,
-        title: 'Bob',
-        peerUserId: _peerUserId,
-        lastMessage: '原有消息',
-        lastUpdatedAt: DateTime.fromMillisecondsSinceEpoch(2),
-        unreadCount: 3,
+    final store = _FakeChatStore(
+      conversations: [
+        ChatConversationPreview(
+          conversationId: _directConversationId,
+          title: 'Bob',
+          peerUserId: _peerUserId,
+          lastMessage: '原有消息',
+          lastUpdatedAt: DateTime.fromMillisecondsSinceEpoch(2),
+          unreadCount: 3,
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      Provider<SquareApiClient>.value(
+        value: api,
+        child: MaterialApp(
+          home: ChatTab(
+            store: store,
+            cidNumber: _ownerUserId,
+            accountId: testMlsAccountId,
+            runtime: _FakeRuntime(address: testMlsAccountId, store: store),
+            sessionProvider: _BlockSessions(session),
+          ),
+        ),
       ),
-    ]);
-    await tester.pumpWidget(Provider<SquareApiClient>.value(
-      value: api,
-      child: MaterialApp(home: ChatTab(
-        store: store,
-        cidNumber: _ownerUserId,
-        accountId: testMlsAccountId,
-        runtime: _FakeRuntime(address: testMlsAccountId, store: store),
-        sessionProvider: _BlockSessions(session),
-      )),
-    ));
+    );
     await tester.pump(const Duration(milliseconds: 400));
-    final row = find.byKey(const ValueKey('chat-conversation-$_directConversationId'));
+    final row = find.byKey(
+      const ValueKey('chat-conversation-$_directConversationId'),
+    );
     expect(row, findsOneWidget);
     await tester.tap(row);
     await tester.pumpAndSettle();
     await tester.tap(find.byIcon(Icons.more_vert_rounded));
     await tester.pumpAndSettle();
-    expect(tester.getTopLeft(find.text('拉黑用户')).dy,
-        lessThan(tester.getTopLeft(find.text('删除聊天记录')).dy));
+    expect(
+      tester.getTopLeft(find.text('拉黑用户')).dy,
+      lessThan(tester.getTopLeft(find.text('删除聊天记录')).dy),
+    );
     await tester.tap(find.text('拉黑用户'));
     await tester.pumpAndSettle();
     expect(blocked, isTrue);
@@ -2087,8 +2103,9 @@ class _ChatEntryProfileApi extends CitizenProfileApi {
   }) async {
     calls++;
     final profile = await onRead(cidNumber);
-    if (isCurrent?.call() == false)
+    if (isCurrent?.call() == false) {
       throw StateError('synthetic identity changed');
+    }
     await cache!.write(profile);
     return CitizenProfileLoadResult(profile, CitizenProfileLoadStatus.updated);
   }

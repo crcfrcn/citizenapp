@@ -120,7 +120,7 @@ void main() {
     );
     await expectLater(query.fetchReferendumTally(BigInt.from(7)), throwsFormatException);
     await expectLater(
-      query.fetchRepresentativeVote(BigInt.from(7), 0, 'CID', 'ROLE', '0x${'01' * 32}'),
+      query.fetchRepresentativeVote(BigInt.from(7), 0, 'CID', 'ROLE', 'CN220-CTZN2-198805200-2026'),
       throwsFormatException,
     );
   });

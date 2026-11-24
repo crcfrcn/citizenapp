@@ -16,8 +16,7 @@ import 'package:citizen_citizen/proposal/institution_manage_detail_page.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_widgets/pressable_card.dart';
 import 'package:citizen_widgets/shimmer_loading.dart';
-import 'package:citizen_citizen/administrators/institution_admin_service.dart';
-import 'package:citizen_citizen/administrators/admin_activation_service.dart';
+import 'package:citizen_citizen/institution/institution_chain_service.dart';
 import 'package:citizen_citizen/proposal/proposal_context.dart';
 import 'package:citizen_citizen/proposal/proposal_detail_local_store.dart';
 import 'package:citizen_citizen/proposal/proposal_local_store.dart';
@@ -98,7 +97,7 @@ class _ProposalViewState extends State<ProposalTab> {
   };
 
   late final MultisigTransferProposalFeed _multisigTransferFeed;
-  late final InstitutionAdminService _adminService;
+  late final InstitutionChainService _adminService;
   late final ProposalContextResolver _contextResolver;
   final ScrollController _scrollController = ScrollController();
   late final InstitutionRepository _institutionRepo;
@@ -175,14 +174,12 @@ class _ProposalViewState extends State<ProposalTab> {
     );
     _multisigTransferFeed =
         widget.feed ?? MultisigTransferProposalFeed(service: multisigService);
-    _adminService = InstitutionAdminService(chain: sdk);
-    final activationService = ActivationService(adminService: _adminService);
+    _adminService = InstitutionChainService(chain: sdk);
     _contextResolver =
         widget.contextResolver ??
         ProposalContextResolver(
           wallet: _wallet,
-          adminService: _adminService,
-          activationService: activationService,
+          institutionService: _adminService,
         );
     _proposalQuery = widget.query ?? ProposalQueryService(chain: sdk);
     _dependenciesReady = true;
@@ -219,7 +216,6 @@ class _ProposalViewState extends State<ProposalTab> {
         _chainReady = ready;
       }
       if (event is CitizenSdkWalletChanged) {
-        _contextResolver.clearWalletCache();
         unawaited(_refresh());
       }
     });
@@ -605,9 +601,14 @@ class _ProposalViewState extends State<ProposalTab> {
           block,
           meta,
           institution,
-          detail.admins,
+          detail.voterTickets,
         );
-        accounts = joint.accounts;
+        tickets = joint.tickets;
+        accounts = tickets
+            .map((ticket) => ticket.voterAccountId)
+            .whereType<String>()
+            .toSet()
+            .toList();
         votes = joint.votes;
         institutionVote = (result: joint.result, tally: joint.tally);
       }
@@ -627,6 +628,7 @@ class _ProposalViewState extends State<ProposalTab> {
         }
         accounts = tickets
             .map((ticket) => ticket.voterAccountId)
+            .whereType<String>()
             .toSet()
             .toList();
         votes = await query.fetchTicketVotesBatch(meta.proposalId, tickets);
@@ -1191,7 +1193,6 @@ class _ProposalViewState extends State<ProposalTab> {
     if (!mounted) return;
     final local = ProposalContext(institution: institution);
     Future<ProposalContext> resolveVoteContext() {
-      _contextResolver.clearWalletCache();
       return _contextResolver.resolve(
         actorCidNumber: summary.actorCidNumber,
         executionAccountId: summary.meta.executionAccountId?.toList(),

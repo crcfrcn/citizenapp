@@ -534,8 +534,9 @@ class ChatGroupFlow<TBindingToken> {
   }) async {
     final message = EncryptedMessage.fromBuffer(messageBytes);
     validateChatEnvelope(message);
-    if (!message.conversationId.startsWith('grp:'))
+    if (!message.conversationId.startsWith('grp:')) {
       throw const FormatException('群流程只接受群聊信封');
+    }
     final wire = mlsWireMessageFromEncryptedMessage(message);
     final acceptedMessages = <EncryptedMessage>[];
     final messageIds = <String, String>{wire.wireHex: message.messageId};

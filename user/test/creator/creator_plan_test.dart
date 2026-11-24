@@ -142,7 +142,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.textContaining('暂时无法核实公民号身份'), findsOneWidget);
+    expect(find.textContaining('暂时无法核实身份CID号'), findsOneWidget);
     expect(find.text('已开通'), findsNothing);
     await tester.tap(find.text('重试'));
     await tester.pumpAndSettle();
@@ -185,7 +185,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.textContaining('暂时无法核实公民号身份'), findsOneWidget);
+    expect(find.textContaining('暂时无法核实身份CID号'), findsOneWidget);
     // 构造时原会员恢复可能核对一次身份，本次广播不得追加链或会话请求。
     final initialReads = resolver.calls, initialSessions = sessions.calls;
     gate.result = Future.value(
@@ -198,7 +198,7 @@ void main() {
       );
       await tester.pump();
     }
-    expect(find.textContaining('暂时无法核实公民号身份'), findsNothing);
+    expect(find.textContaining('暂时无法核实身份CID号'), findsNothing);
     // 新CID没有会员快照时保持未确认展示，不借旧入口状态伪造无会员结论。
     expect(find.byTooltip('刷新'), findsNothing);
     expect(

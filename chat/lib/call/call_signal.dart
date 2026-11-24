@@ -1,6 +1,7 @@
 // 定义部署无关的WebRTC信令及其唯一连接关联字段。
 
 /// WebRTC 信令类型。字段值与部署端既有 WSS 合同完全一致。
+library;
 
 enum CallSignalKind {
   offer('offer'),

@@ -80,11 +80,11 @@ void main() {
   test('从同一 finalized 块读取 CID，区分无绑定和损坏值', () async {
     final block = _block(CitizenBlockFinality.finalized);
     final runtime = await CitizenSdkTestFixture.runtimeContext(block);
-    final key = runtime.storageKey('OffchainTransaction', 'UserBank', [
+    final key = runtime.storageKey('Offchain', 'UserBank', [
       citizenAccountIdBytes(accountId),
     ]);
     final other = citizenAccountIdFromBytes(Uint8List.fromList(List.filled(32, 1)));
-    final otherKey = runtime.storageKey('OffchainTransaction', 'UserBank', [
+    final otherKey = runtime.storageKey('Offchain', 'UserBank', [
       citizenAccountIdBytes(other),
     ]);
     var reads = 0;
@@ -132,10 +132,10 @@ void main() {
   test('当前绑定和节点同块读取，缺节点不得视为未绑定', () async {
     final block = _block(CitizenBlockFinality.finalized);
     final runtime = await CitizenSdkTestFixture.runtimeContext(block);
-    final accountKey = runtime.storageKey('OffchainTransaction', 'UserBank', [
+    final accountKey = runtime.storageKey('Offchain', 'UserBank', [
       citizenAccountIdBytes(accountId),
     ]);
-    final nodeKey = runtime.storageKey('OffchainTransaction', 'ClearingBankNodes', [
+    final nodeKey = runtime.storageKey('Offchain', 'ClearingBankNodes', [
       Uint8List.fromList(utf8.encode(_bankB)),
     ]);
     List<int> text(String value) => [utf8.encode(value).length << 2, ...utf8.encode(value)];
@@ -278,7 +278,7 @@ void main() {
     expect(find.text('确认切换'), findsOneWidget);
     expect(
       find.byWidgetPredicate(
-        (widget) => widget is SelectableText && widget.data == _bankB,
+        (widget) => widget is SelectableText && widget.data == 'GD001-SCB01-000000002',
       ),
       findsOneWidget,
     );

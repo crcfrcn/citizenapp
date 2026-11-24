@@ -259,7 +259,7 @@ class ChatCreateView extends StatelessWidget {
               children: [
                 Text('选择联系人', style: Theme.of(context).textTheme.titleSmall),
                 const Spacer(),
-                Text('已选 ${selectedCount}'),
+                Text('已选 $selectedCount'),
               ],
             ),
           ),

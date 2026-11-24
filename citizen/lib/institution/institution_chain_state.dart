@@ -2,8 +2,8 @@
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_citizen/institution/institution.dart';
-import 'package:citizen_citizen/administrators/admin_account.dart';
-import 'package:citizen_citizen/administrators/institution_admin_service.dart';
+import 'package:citizen_citizen/institution/institution_code_label.dart';
+import 'package:citizen_citizen/institution/institution_chain_service.dart';
 import 'package:citizen_citizen/institution/institution_role_models.dart';
 import 'package:citizen_multisig/multisig_transfer_proposal_adapter.dart';
 import 'package:citizen_multisig/multisig_transfer_service.dart';
@@ -34,7 +34,7 @@ class InstitutionProposalSummary {
 /// 统一机构链态读服务接口(可注入 fake 单测)。
 abstract interface class InstitutionChainState {
   /// 完整管理员人员集合左连接岗位任职；无岗位管理员仍保留。
-  Future<List<InstitutionAdminView>> adminViews(Institution institution);
+  Future<List<InstitutionPersonView>> personViews(Institution institution);
 
   /// 该机构当年提案(按 subject_cid_numbers 包含机构 CID 过滤当年缓存)。
   Future<List<InstitutionProposalSummary>> proposals(Institution institution);
@@ -45,9 +45,9 @@ class LiveInstitutionChainState implements InstitutionChainState {
   LiveInstitutionChainState({
     required CitizenSdk chain,
     required CitizenSdk transactions,
-    InstitutionAdminService? adminService,
+    InstitutionChainService? adminService,
     MultisigTransferProposalFeed? feed,
-  }) : _adminService = adminService ?? InstitutionAdminService(chain: chain),
+  }) : _adminService = adminService ?? InstitutionChainService(chain: chain),
        _feed =
            feed ??
            MultisigTransferProposalFeed(
@@ -57,15 +57,12 @@ class LiveInstitutionChainState implements InstitutionChainState {
              ),
            );
 
-  final InstitutionAdminService _adminService;
+  final InstitutionChainService _adminService;
   final MultisigTransferProposalFeed _feed;
 
   @override
-  Future<List<InstitutionAdminView>> adminViews(Institution institution) {
-    return _adminService.fetchAdminViews(
-      adminIdentityOf(institution),
-      institution.cidNumber,
-    );
+  Future<List<InstitutionPersonView>> personViews(Institution institution) {
+    return _adminService.fetchPersonViews(institutionIdentityOf(institution));
   }
 
   @override
@@ -91,10 +88,13 @@ class LiveInstitutionChainState implements InstitutionChainState {
 
 /// 机构 → 管理员账户身份(单一路由,机构码决定):
 /// 所有机构统一以 CID 构造管理员主体，具体账户不进入授权身份。
-AdminAccountIdentity adminIdentityOf(Institution institution) {
-  return AdminAccountIdentity.institution(
+InstitutionIdentity institutionIdentityOf(Institution institution) {
+  return InstitutionIdentity(
     cidNumber: institution.cidNumber,
     orgCode: institution.orgCode,
+    kind: InstitutionCodeLabel.isUnincorporated(institution.orgCode)
+        ? null
+        : InstitutionCodeLabel.entityKind(institution.orgCode),
     accountLabel: institution.fullName,
   );
 }

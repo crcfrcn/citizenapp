@@ -571,7 +571,8 @@ class SquareApiClient
       <WeakReference<SquareApiClient>>[];
   static _FinalizedSessionBinding? _finalizedSessionBinding;
   // 仅合并同一会话和完整URL的在途GET，响应结束即移除；不保存证明或结果缓存。
-  static final Map<(SquareSession, Uri, int), Future<http.Response>> _reads = {};
+  static final Map<(SquareSession, Uri, int), Future<http.Response>> _reads =
+      {};
 
   /// finalized 绑定切换后立即清除所有现存 API 客户端中的非当前 Session。
   ///
@@ -614,9 +615,13 @@ class SquareApiClient
       client._sessions.removeWhere((_, session) => !binding.matches(session));
       client._inflightSessions.clear();
       client._blockChanges++;
-      client._blocks.removeWhere((key, _) =>
-          key != (binding.cidNumber, binding.accountId, binding.bindRev));
-      client._completeBlocks.retainWhere((key) => client._blocks.containsKey(key));
+      client._blocks.removeWhere(
+        (key, _) =>
+            key != (binding.cidNumber, binding.accountId, binding.bindRev),
+      );
+      client._completeBlocks.retainWhere(
+        (key) => client._blocks.containsKey(key),
+      );
       client._blockReads.clear();
     }
   }
@@ -1169,8 +1174,9 @@ class SquareApiClient
     DmPolicy? dmPolicy,
     ProfileVisibility? profileVisibility,
   }) async {
-    if (dmPolicy == null && profileVisibility == null)
+    if (dmPolicy == null && profileVisibility == null) {
       throw ArgumentError('没有隐私修改');
+    }
     final saved = _decodePrivacy(
       await _putJson('/user/privacy', {
         if (dmPolicy != null) 'dm_policy': dmPolicy.name,
@@ -1191,12 +1197,15 @@ class SquareApiClient
   );
 
   Future<Set<String>> blockedUsers(
-    SquareSession session, {bool refresh = false}
-  ) async {
+    SquareSession session, {
+    bool refresh = false,
+  }) async {
     await session.validateCurrent();
     final owner = (session.cidNumber, session.accountId, session.bindRev);
     final cached = _blocks[owner];
-    if (!refresh && cached != null && _completeBlocks.contains(owner)) return cached;
+    if (!refresh && cached != null && _completeBlocks.contains(owner)) {
+      return cached;
+    }
     final pending = _blockReads[owner];
     if (pending != null) return pending;
     final epoch = _blockChanges;
@@ -1210,10 +1219,17 @@ class SquareApiClient
         );
         final items = page['items'];
         final next = page['next_cursor'];
-        if (page['is_ok'] != true || items is! List ||
-            items.any((item) => item is! String || item.isEmpty || item == session.cidNumber) ||
-            (next != null && (next is! String || (cursor != null && next.compareTo(cursor) <= 0) ||
-                items.isEmpty || items.last != next))) {
+        if (page['is_ok'] != true ||
+            items is! List ||
+            items.any(
+              (item) =>
+                  item is! String || item.isEmpty || item == session.cidNumber,
+            ) ||
+            (next != null &&
+                (next is! String ||
+                    (cursor != null && next.compareTo(cursor) <= 0) ||
+                    items.isEmpty ||
+                    items.last != next))) {
           throw const SquareApiException('黑名单响应无效');
         }
         peers.addAll(items.cast<String>());
@@ -1238,7 +1254,11 @@ class SquareApiClient
     }
   }
 
-  Future<void> setBlocked(SquareSession session, String peer, bool blocked) async {
+  Future<void> setBlocked(
+    SquareSession session,
+    String peer,
+    bool blocked,
+  ) async {
     if (peer.isEmpty || peer == session.cidNumber) {
       throw ArgumentError('黑名单目标无效');
     }
@@ -1247,7 +1267,9 @@ class SquareApiClient
       blocked ? 'PUT' : 'DELETE',
       _uri('/8964/blocks/${Uri.encodeComponent(peer)}'),
     );
-    final reply = _decodeResponse(await _protectedJsonRequest(request, session));
+    final reply = _decodeResponse(
+      await _protectedJsonRequest(request, session),
+    );
     if (reply['is_ok'] != true || reply['blocked'] != blocked) {
       throw const SquareApiException('黑名单保存回执无效');
     }
@@ -1275,8 +1297,9 @@ class SquareApiClient
       '/user/profiles/${Uri.encodeComponent(cidNumber)}/access',
       session: session,
     );
-    if (data.length != 1 || data['is_ok'] != true)
+    if (data.length != 1 || data['is_ok'] != true) {
       throw const SquareApiException('主页权限响应无效');
+    }
   }
 
   /// 服务端只交付本次资源许可、规则和实际用量。
@@ -1452,7 +1475,7 @@ class SquareApiClient
     List<String>? remainingCids,
   }) => _postJson('/user/contacts/delete', {
     ...signed,
-    if (remainingCids != null) 'remaining_cids': remainingCids,
+    'remaining_cids': ?remainingCids,
   }, session: session);
 
   Future<List<SquarePreparedMediaUpload>> beginUpload({
@@ -1839,8 +1862,9 @@ class SquareApiClient
       throw const SquareApiException('广场 feed 响应缺少内容列表');
     }
     final next = data['next_cursor'];
-    if (next != null && (next is! String || next.isEmpty))
+    if (next != null && (next is! String || next.isEmpty)) {
       throw const SquareApiException('信息流游标无效');
+    }
     return SquareFeedPage(
       nextCursor: next as String?,
       posts: posts
@@ -2435,7 +2459,8 @@ class SquareApiClient
             request.method == 'GET' &&
             uri.queryParameters['group'] == 'post') {
           operation = 'square'; // 含帖子摘要的通知分组沿广场会员规则。
-        } else if (path.startsWith('/8964/') && path != '/8964/blocks' &&
+        } else if (path.startsWith('/8964/') &&
+            path != '/8964/blocks' &&
             !path.startsWith('/8964/blocks/')) {
           operation =
               path.contains('/feed/') ||

@@ -148,7 +148,7 @@ class OnchainClearingBankChain {
     if (bytes.isEmpty || bytes.length > 32) {
       throw ArgumentError('清算行机构 CID 必须为 1 到 32 个 UTF-8 字节');
     }
-    return _buildCall('OffchainTransaction', method, [bytes]);
+    return _buildCall('Offchain', method, [bytes]);
   }
 
   /// 链端金额字段是 u128，由同一 Runtime metadata 决定实际字节。
@@ -156,7 +156,7 @@ class OnchainClearingBankChain {
     if (amountFen <= BigInt.zero || amountFen.bitLength > 128) {
       throw ArgumentError('amount 必须为正 u128 分');
     }
-    return _buildCall('OffchainTransaction', method, [amountFen]);
+    return _buildCall('Offchain', method, [amountFen]);
   }
 
   /// 把 App 业务 callData 直接交给 CitizenSDK；nonce、era、签名、

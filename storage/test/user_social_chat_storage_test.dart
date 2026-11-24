@@ -84,13 +84,14 @@ const _userColumns = <String, Set<String>>{
   'list': {
     'id',
     'cid_number',
+    'finalized_hash',
+    'finalized_height',
     'proposal_ids',
     'proposal_id_texts',
     'synced_at',
   },
   'proposal': {'id', 'kind', 'proposal_id', 'data', 'proposal_id_text'},
   'law': {'id', 'state_key', 'state_hex'},
-  'admin': {'id', 'data'},
   'member': {'id', 'cid_number', 'kind', 'data'},
   'creator': {'id', 'cid_number', 'data'},
   'account': {
@@ -161,6 +162,7 @@ const _socialColumns = <String, Set<String>>{
     'account_id',
     'post_category',
     'post_type',
+    'post_visibility',
     'manifest_bytes',
     'content_hash',
     'receipt_id',
@@ -173,6 +175,7 @@ const _socialColumns = <String, Set<String>>{
     'cid_number',
     'draft_id',
     'post_type',
+    'post_visibility',
     'post_title',
     'post_text',
     'media_data',
@@ -222,6 +225,7 @@ const _socialColumns = <String, Set<String>>{
     'account_id',
     'post_id',
     'post_type',
+    'post_visibility',
     'content_hash',
     'receipt_id',
     'upload_id',
@@ -262,7 +266,6 @@ void main() {
       user.ProposalListSchema,
       user.ProposalSchema,
       user.LawSnapshotSchema,
-      user.AdminSchema,
       user.MemberSchema,
       user.CreatorSchema,
       user.AccountSchema,
@@ -297,7 +300,7 @@ void main() {
     }
   });
 
-  test('三个 Isar 文件交错并发打开，统一用户库包含全部 28 张表', () async {
+  test('三个 Isar 文件交错并发打开，统一用户库包含全部 27 张表', () async {
     final opened = await Future.wait([
       user.UserIsar.instance.db(),
       social.SocialIsar.instance.db(),
@@ -333,7 +336,6 @@ void main() {
       db.proposalLists,
       db.proposals,
       db.lawSnapshots,
-      db.admins,
       db.members,
       db.creators,
       db.accounts,
@@ -363,7 +365,6 @@ void main() {
       'list',
       'proposal',
       'law',
-      'admin',
       'member',
       'creator',
       'account',
@@ -371,7 +372,11 @@ void main() {
       'cursor',
       'entry',
     });
-    expect(collections, hasLength(28));
+    expect(collections, hasLength(27));
+    expect(
+      collections.map((collection) => collection.name),
+      isNot(contains('admin')),
+    );
     for (final collection in collections) {
       expect(collection.isar, same(db));
       expect(await collection.count(), 0);

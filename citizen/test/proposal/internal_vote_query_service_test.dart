@@ -94,21 +94,23 @@ void main() {
       );
     });
   }
-  test('机构票据CID、岗位及钱包都进入键，文本按UTF-8编码', () async {
+  test('机构票据包含机构CID、岗位及人员CID，文本按UTF-8编码', () async {
     final chain = Chain();
     await InternalVoteQueryService(
       getFinalizedHead: chain.getFinalizedHead,
       getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
       getStorage: chain.getStorage,
       getStorageBatch: chain.getStorageBatch,
-    ).fetchInstitutionTicketVote(BigInt.from(7), '机构', '岗位', account);
+    ).fetchInstitutionTicketVote(BigInt.from(7), '机构', '岗位', 'CN220-CTZN2-198805200-2026');
+    const personCid = 'CN220-CTZN2-198805200-2026';
     final suffix = [
-      1,
+      2,
       utf8.encode('机构').length << 2,
       ...utf8.encode('机构'),
       utf8.encode('岗位').length << 2,
       ...utf8.encode('岗位'),
-      ...List.filled(32, 1),
+      utf8.encode(personCid).length << 2,
+      ...utf8.encode(personCid),
     ];
     expect(chain.key!.sublist(chain.key!.length - suffix.length), suffix);
   });

@@ -1870,12 +1870,19 @@ class PersonalProposalQueryService extends ProposalQueryService {
     BigInt proposalId,
     Iterable<EligibleVoterTicket> tickets,
   ) async {
-    final votes = await _personalVotes.fetchVotesBatch(
-      proposalId,
-      tickets.map((t) => t.voterAccountId),
-    );
+    final personalTickets = tickets.toList(growable: false);
+    final accounts = personalTickets
+        .map((ticket) {
+          final account = ticket.voterAccountId;
+          if (ticket.isInstitution || account == null) {
+            throw StateError('个人票据必须包含冻结钱包且不能包含机构岗位');
+          }
+          return account;
+        })
+        .toList(growable: false);
+    final votes = await _personalVotes.fetchVotesBatch(proposalId, accounts);
     return {
-      for (final ticket in tickets)
+      for (final ticket in personalTickets)
         ticket.ticketKey: votes[ticket.voterAccountId],
     };
   }

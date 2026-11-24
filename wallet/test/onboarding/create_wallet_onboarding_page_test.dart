@@ -310,7 +310,7 @@ void main() {
               .renameWallet(
                 expectedRevision: state.revision,
                 walletIndex: 0,
-                name: 'fixture changed',
+                name: 'fixture2',
               )
               .result;
         });

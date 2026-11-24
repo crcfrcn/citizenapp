@@ -11,6 +11,7 @@ import 'package:citizen_testing/fake_citizen_sdk.dart';
 import 'dart:convert';
 
 import 'package:citizen_citizen/proposal/proposal_query_service.dart';
+import 'package:citizen_citizen/proposal/proposal_models.dart';
 import 'package:citizen_citizen/institution/governance_registry.dart';
 
 final signer = Uint8List.fromList(List.filled(32, 1));
@@ -152,12 +153,28 @@ void main() {
     final id = BigInt.from(7);
     final cid = utf8.encode('CN220');
     final data = <String, Uint8List>{
-      runtime.storageKey('LegislationVote', 'RepresentativeTallies', [id, 2]).join(','):
-          Uint8List.fromList([3, 0, 0, 0, 2, 0, 0, 0]),
+      runtime
+          .storageKey('LegislationVote', 'RepresentativeTallies', [id, 2])
+          .join(','): Uint8List.fromList([
+        3,
+        0,
+        0,
+        0,
+        2,
+        0,
+        0,
+        0,
+      ]),
       runtime.storageKey('ElectionVote', 'ElectionTallyStore', [id]).join(','):
           Uint8List.fromList([5, 0, 0, 0]),
-      runtime.storageKey('ElectionVote', 'ElectionCandidateTallies', [id, cid]).join(','):
-          Uint8List.fromList([4, 0, 0, 0]),
+      runtime
+          .storageKey('ElectionVote', 'ElectionCandidateTallies', [id, cid])
+          .join(','): Uint8List.fromList([
+        4,
+        0,
+        0,
+        0,
+      ]),
     };
     final read = <String>[];
     final query = ProposalQueryService(
@@ -170,19 +187,30 @@ void main() {
     );
     final events = [
       const CitizenSystemEvent(
-        eventIndex: 0, extrinsicIndex: 0,
-        pallet: 'LegislationVote', name: 'RepresentativeVoteCast',
+        eventIndex: 0,
+        extrinsicIndex: 0,
+        pallet: 'LegislationVote',
+        name: 'RepresentativeVoteCast',
         fields: {'proposal_id': '7', 'body_index': '2'},
       ),
       CitizenSystemEvent(
-        eventIndex: 1, extrinsicIndex: 0,
-        pallet: 'ElectionVote', name: 'ElectionVoteCast',
-        fields: {'proposal_id': '7', 'candidate_subject': {'cid_number': cid.map((byte) => '$byte').toList()}},
+        eventIndex: 1,
+        extrinsicIndex: 0,
+        pallet: 'ElectionVote',
+        name: 'ElectionVoteCast',
+        fields: {
+          'proposal_id': '7',
+          'candidate_subject': {
+            'cid_number': cid.map((byte) => '$byte').toList(),
+          },
+        },
       ),
     ];
     expect(await query.trackTalliesAt(block, id, events), {
-      'representative_2_yes': 3, 'representative_2_no': 2,
-      'election_casted': 5, 'candidate_CN220': 4,
+      'representative_2_yes': 3,
+      'representative_2_no': 2,
+      'election_casted': 5,
+      'candidate_CN220': 4,
     });
     expect(read, unorderedEquals(data.keys));
   });
@@ -216,25 +244,48 @@ void main() {
       runtime.storageKey('VotingEngine', 'ProposalVotePlans', [BigInt.one]),
     );
     final snapshotKey = base64.encode(
-      runtime.storageKey('VotingEngine', 'VoterSnapshot', [
+      runtime.storageKey('VotingEngine', 'RoleVoters', [
         BigInt.one,
-        (
-          scale: Uint8List.fromList([
-            0,
-            ...fixtureBytes('role_subject_nrc_committee'),
-          ]),
-        ),
+        (scale: fixtureBytes('role_subject_nrc_committee')),
       ]),
     );
-    final roleKey = runtime.storageKey('PublicManage', 'InstitutionRoles', [
+    final roleKey = runtime.storageKey('PublicEntity', 'InstitutionRoles', [
       Uint8List.fromList(utf8.encode(institution.cidNumber)),
       Uint8List.fromList(utf8.encode('COMMITTEE_MEMBER')),
     ]);
     final snapshot = Uint8List.fromList([
       8,
-      ...List.filled(32, 7),
-      ...List.filled(32, 8),
+      ...text('CN220-CTZN2-198805200-2026'),
+      ...text('CN951-CTZN1-539598435-2026'),
     ]);
+    final jointKeys = [
+      for (final person in [
+        'CN220-CTZN2-198805200-2026',
+        'CN951-CTZN1-539598435-2026',
+      ])
+        runtime.storageKey('JointVote', 'JointVotesByTicket', [
+          BigInt.one,
+          [
+            [
+              Uint8List.fromList(utf8.encode(institution.cidNumber)),
+              Uint8List.fromList(utf8.encode('COMMITTEE_MEMBER')),
+            ],
+            Uint8List.fromList(utf8.encode(person)),
+          ],
+        ]),
+    ];
+    final resultKey = base64.encode(
+      runtime.storageKey('JointVote', 'JointVotesByInstitution', [
+        BigInt.one,
+        Uint8List.fromList(utf8.encode(institution.cidNumber)),
+      ]),
+    );
+    final tallyKey = base64.encode(
+      runtime.storageKey('JointVote', 'JointInstitutionTallies', [
+        BigInt.one,
+        Uint8List.fromList(utf8.encode(institution.cidNumber)),
+      ]),
+    );
     for (final mode in ['ready', 'missing', 'failed', 'wrongCid']) {
       var roleReads = 0;
       final query = ProposalQueryService(
@@ -243,12 +294,27 @@ void main() {
         getStorage: (at, key) async {
           expect(at.hash, block.hash);
           final id = base64.encode(key);
-          if (id == planKey)
+          if (id == planKey) {
             return fixtureBytes('vote_plan_resolution_issuance_joint');
+          }
           if (id == snapshotKey) return snapshot;
+          if (id == resultKey) return Uint8List.fromList([1]);
+          if (id == tallyKey) {
+            return Uint8List.fromList([1, 0, 0, 0, 1, 0, 0, 0]);
+          }
           throw StateError('不应读取当前管理员姓名或额外storage');
         },
         getStorageBatch: (at, keys) async {
+          // 冻结人员未恢复当前钱包时仍保留票据；绑定查询不是岗位名称读取。
+          if (keys.length == 3) return [null, null, null];
+          if (keys.length == 2) {
+            expect(at.hash, block.hash);
+            expect(keys, jointKeys, reason: '联合投票主键必须为冻结人员CID，不能传当前钱包');
+            return [
+              Uint8List.fromList([1]),
+              Uint8List.fromList([0]),
+            ];
+          }
           roleReads++;
           expect(at.hash, block.hash);
           expect(keys, hasLength(1), reason: '同岗位两张票据只读一次名称');
@@ -261,7 +327,14 @@ void main() {
                     ...text(
                       mode == 'wrongCid' ? 'OTHER-CID' : institution.cidNumber,
                     ),
-                    ...text('COMMITTEE_MEMBER'), ...text('委员'), 0, 1,
+                    ...text('COMMITTEE_MEMBER'),
+                    ...text('委员'),
+                    0,
+                    1,
+                    19,
+                    0,
+                    0,
+                    0,
                     // 已停用岗位仍可为历史冻结票据提供名称，不代表当前授予投票资格。
                   ]),
           ];
@@ -282,12 +355,44 @@ void main() {
         named.map((ticket) => ticket.ticketKey),
         plain.map((ticket) => ticket.ticketKey),
       );
-      expect(named.map((ticket) => ticket.voterAccountId), [
-        '0x${'07' * 32}',
-        '0x${'08' * 32}',
+      expect(named.map((ticket) => ticket.voterAccountId), [null, null]);
+      expect(named.map((ticket) => ticket.personCid), [
+        'CN220-CTZN2-198805200-2026',
+        'CN951-CTZN1-539598435-2026',
       ]);
-      for (final ticket in named)
+      for (final ticket in named) {
         expect(ticket.voterRoleName, mode == 'ready' ? '委员' : isNull);
+      }
+      if (mode == 'ready') {
+        for (final status in [0, 2]) {
+          final joint = await query.jointInstitutionAt(
+            block,
+            ProposalMeta(
+              proposalId: BigInt.one,
+              kind: 1,
+              stage: 1,
+              status: status,
+            ),
+            institution,
+            named,
+          );
+          expect(
+            joint.tickets.map((ticket) => ticket.personCid),
+            named.map((ticket) => ticket.personCid),
+          );
+          expect(joint.tickets.map((ticket) => ticket.voterAccountId), [
+            null,
+            null,
+          ]);
+          expect(joint.votes, {
+            named[0].ticketKey: true,
+            named[1].ticketKey: false,
+          });
+          expect(joint.result, true);
+          expect(joint.tally, (yes: 1, no: 1));
+        }
+        expect(roleReads, 1, reason: '联合票据读取不增加展示名称读取');
+      }
     }
   });
 

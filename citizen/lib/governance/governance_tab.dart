@@ -11,9 +11,11 @@ import 'package:citizen_citizen/institution/institution.dart';
 import 'package:citizen_citizen/institution/institution_classification.dart';
 import 'package:citizen_citizen/institution/institution_detail_page.dart';
 import 'package:citizen_citizen/institution/institution_repository.dart';
-import 'package:citizen_citizen/institution/institution_info.dart'
-    show OrgType;
-import 'package:citizen_citizen/proposal/proposal_context.dart';
+import 'package:citizen_citizen/institution/institution_info.dart' show OrgType;
+import 'package:citizen_citizen/institution/institution_chain_service.dart';
+import 'package:citizen_citizen/institution/institution_chain_state.dart';
+import 'package:provider/provider.dart';
+import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_citizen/governance/whitepaper_page.dart';
 import 'package:citizen_storage/user_isar.dart';
 import 'package:citizen_system/theme/app_theme.dart';
@@ -23,7 +25,8 @@ import 'package:citizen_system/theme/app_layout.dart';
 
 const String _governanceProvincialCouncilIconAsset =
     'packages/citizen_assets/icons/government-line.svg';
-const String _governanceProvincialBankIconAsset = 'packages/citizen_assets/icons/bank.svg';
+const String _governanceProvincialBankIconAsset =
+    'packages/citizen_assets/icons/bank.svg';
 
 @visibleForTesting
 List<Institution> applyGovernanceInstitutionOrder(
@@ -173,6 +176,9 @@ class _GovernanceTabState extends State<GovernanceTab> {
   List<Institution> _national = const [];
   List<Institution> _provincialCouncils = const [];
   List<Institution> _provincialBanks = const [];
+  final Set<String> _assignedCids = {};
+  int _qualificationGeneration = 0;
+  StreamSubscription<CitizenSdkEvent>? _walletEvents;
   bool _loading = true;
   String? _loadError;
   _GovernanceSectionKind? _expandedSection =
@@ -186,7 +192,57 @@ class _GovernanceTabState extends State<GovernanceTab> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final sdk = context.read<CitizenSdk?>();
+    if (sdk != null && _walletEvents == null) {
+      _walletEvents = sdk.events.listen((event) {
+        if (event is CitizenSdkWalletChanged) unawaited(_readQualifications());
+      });
+    }
+  }
+
+  /// 此集合只渲染本页颜色；发起提案仍重新查链，不能授予资格。
+  Future<void> _readQualifications() async {
+    final generation = ++_qualificationGeneration;
+    if (mounted) setState(_assignedCids.clear);
+    final sdk = context.read<CitizenSdk?>();
+    if (sdk == null) return;
+    try {
+      final wallet = await sdk.getWalletState().result;
+      if (wallet.accounts.isEmpty) return;
+      final service = InstitutionChainService(chain: sdk);
+      final runtime = await service.finalizedRuntime();
+      final found = <String>{};
+      for (final institution in [
+        ..._national,
+        ..._provincialCouncils,
+        ..._provincialBanks,
+      ]) {
+        if (!mounted || generation != _qualificationGeneration) return;
+        final assignments = await service.walletAssignments(
+          institutionIdentityOf(institution),
+          wallet.accounts.map((w) => w.accountId),
+          at: runtime,
+        );
+        if (assignments.isNotEmpty) found.add(institution.cidNumber);
+      }
+      final current = await sdk.getWalletState().result;
+      if (!mounted ||
+          generation != _qualificationGeneration ||
+          current.revision != wallet.revision) {
+        return;
+      }
+      setState(() => _assignedCids.addAll(found));
+    } on Object {
+      // 读取失败不复用旧机构资格或本机激活记录。
+    }
+  }
+
+  @override
   void dispose() {
+    _qualificationGeneration++;
+    unawaited(_walletEvents?.cancel());
     _institutionScrollController.dispose();
     super.dispose();
   }
@@ -228,6 +284,7 @@ class _GovernanceTabState extends State<GovernanceTab> {
         _provincialBanks = banks;
         _loading = false;
       });
+      unawaited(_readQualifications());
     } on Object {
       if (!mounted) return;
       setState(() {
@@ -272,8 +329,9 @@ class _GovernanceTabState extends State<GovernanceTab> {
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('保存治理机构顺序失败：$e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('保存治理机构顺序失败：$e')));
     }
   }
 
@@ -328,7 +386,8 @@ class _GovernanceTabState extends State<GovernanceTab> {
       institutions: isCouncil ? _provincialCouncils : _provincialBanks,
       onReorder: (fromIndex, toIndex) =>
           _reorderInstitution(sectionKind, fromIndex, toIndex),
-      onReturnFromDetail: () => setState(() {}),
+      assignedCids: _assignedCids,
+      onReturnFromDetail: () => unawaited(_readQualifications()),
     );
   }
 
@@ -490,8 +549,7 @@ class _GovernanceTabState extends State<GovernanceTab> {
     final institution = _national.isEmpty ? null : _national.first;
     final enabled = institution != null;
     final isAdmin =
-        institution != null &&
-        ProposalContextResolver.isInstitutionAdmin(institution.cidNumber);
+        institution != null && _assignedCids.contains(institution.cidNumber);
     final card = Container(
       key: institution == null
           ? const ValueKey('governance_national_card_placeholder')
@@ -628,6 +686,7 @@ class _GovernanceInstitutionGrid extends StatelessWidget {
     required this.badgeColor,
     required this.institutions,
     required this.onReorder,
+    required this.assignedCids,
     required this.onReturnFromDetail,
   });
 
@@ -635,6 +694,7 @@ class _GovernanceInstitutionGrid extends StatelessWidget {
   final IconData icon;
   final Color badgeColor;
   final List<Institution> institutions;
+  final Set<String> assignedCids;
   final Future<void> Function(int fromIndex, int toIndex) onReorder;
   final VoidCallback onReturnFromDetail;
 
@@ -661,9 +721,7 @@ class _GovernanceInstitutionGrid extends StatelessWidget {
           ),
           itemBuilder: (context, index) {
             final inst = institutions[index];
-            final isAdmin = ProposalContextResolver.isInstitutionAdmin(
-              inst.cidNumber,
-            );
+            final isAdmin = assignedCids.contains(inst.cidNumber);
             final card = _GovernanceCard(
               repository: repository,
               institution: inst,

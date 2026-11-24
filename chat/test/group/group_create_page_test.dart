@@ -12,7 +12,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:citizen_user/identity/square_session_provider.dart';
-import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_testing/isar_test_env.dart';
 
 const _self = 'CN220-CTZN2-100000001-2026';
