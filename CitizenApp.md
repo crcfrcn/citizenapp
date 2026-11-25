@@ -9,6 +9,6 @@
 - [聊天与通讯录](../tataconsole/work/Citizen/聊天与通讯录.md)
 - [钱包与发币](../tataconsole/work/Citizen/钱包与发币.md)
 - [协议SDK与交付](../tataconsole/work/Citizen/协议SDK与交付.md)
-- [治理与链上中国](../tataconsole/work/Citizen/治理与链上中国.md)
+- [链上中国](../tataconsole/work/Citizen/链上中国.md)
 
 [许可证](LICENSE)
