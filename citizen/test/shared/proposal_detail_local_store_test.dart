@@ -1,6 +1,7 @@
 // 验证提案详情持久化、冻结岗位票据及种类隔离。
 
 import 'dart:convert';
+import 'package:citizen_citizen/institution/institution_models.dart';
 
 import 'package:citizen_citizen/proposal/proposal_models.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -99,6 +100,41 @@ void main() {
 
   TestWidgetsFlutterBinding.ensureInitialized();
   useIsolatedIsar();
+  test('政策详情和完整状态指纹经通用缓存保存，计票更新不改业务正文', () async {
+    final info = InstitutionChangeInfo(
+      proposalId: BigInt.from(91),
+      actorCidNumber: 'LN001-CGOV0-944805165-2026',
+      action: 5,
+      rows: [
+        const InstitutionDetailRow('完整替换原生权限', 'R_POLICY'),
+        InstitutionDetailRow('期望机构状态指纹', '0x${'09' * 32}', copyable: true),
+      ],
+    );
+    final snapshot = ProposalDetailSnapshot(
+      proposalId: info.proposalId,
+      proposalKind: 'institution_multisig',
+      updatedAt: 1,
+      status: 0,
+      threshold: 2,
+      detail: info.toJson(),
+    );
+    await ProposalDetailLocalStore.instance.put(snapshot);
+    final saved = (await ProposalDetailLocalStore.instance.read(
+      'institution_multisig',
+      info.proposalId,
+    ))!;
+    expect(
+      InstitutionProposalInfo.fromJson(info.proposalId, saved.detail)?.toJson(),
+      info.toJson(),
+    );
+    final changed = saved.withState(
+      ProposalMeta(proposalId: info.proposalId, kind: 0, stage: 0, status: 1),
+      tally: (yes: 2, no: 0),
+    );
+    expect(changed.detail, saved.detail);
+    expect(changed.threshold, 2);
+  });
+
   test('同一钱包的岗位票据键完整保留CID和岗位大小写，不按地址去重', () async {
     final account = '0x${'ab' * 32}';
     final first = 'TEST-CID:COMMITTEE_MEMBER:$account';

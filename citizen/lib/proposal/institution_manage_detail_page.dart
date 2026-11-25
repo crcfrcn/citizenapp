@@ -23,7 +23,7 @@ import 'package:citizen_citizen/institution/institution_models.dart'
 import 'package:citizen_citizen/institution/institution_chain_service.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
-/// 多签管理提案详情页：展示创建/关闭提案信息、投票进度及投票操作。
+/// 机构管理提案详情页：展示关闭、岗位任职、账户新增及政策内容和原投票进度。
 class MultisigProposalDetailPage extends StatefulWidget {
   const MultisigProposalDetailPage({
     super.key,
@@ -84,8 +84,8 @@ class _MultisigProposalDetailPageState
 
   int? _status;
 
-  // 提案详情（二选一）
-  institution_models.CloseProposalInfo? _institutionCloseInfo;
+  // 冻结业务详情只供审阅；实际投票仍重读原票据和当前身份绑定。
+  institution_models.InstitutionProposalInfo? _institutionInfo;
 
   // 投票计数
   int _yesCount = 0;
@@ -136,19 +136,37 @@ class _MultisigProposalDetailPageState
     super.dispose();
   }
 
-  Future<void> _load({bool showSpinner = true}) {
+  Future<void> _load({bool showSpinner = true, bool verifyDetails = false}) {
     final pending = _loadFlight;
-    if (pending != null) return pending;
+    if (pending != null) {
+      // 投票前的正文重验不能合并进只读缓存加载，须等它结束后另读最终块。
+      return verifyDetails
+          ? pending.then(
+              (_) => mounted
+                  ? _load(showSpinner: showSpinner, verifyDetails: true)
+                  : Future<void>.value(),
+            )
+          : pending;
+    }
     final generation = ++_generation;
     late final Future<void> task;
-    task = _readDetails(generation, showSpinner: showSpinner).whenComplete(() {
-      if (identical(_loadFlight, task)) _loadFlight = null;
-    });
+    task =
+        _readDetails(
+          generation,
+          showSpinner: showSpinner,
+          verifyDetails: verifyDetails,
+        ).whenComplete(() {
+          if (identical(_loadFlight, task)) _loadFlight = null;
+        });
     _loadFlight = task;
     return task;
   }
 
-  Future<void> _readDetails(int generation, {required bool showSpinner}) async {
+  Future<void> _readDetails(
+    int generation, {
+    required bool showSpinner,
+    required bool verifyDetails,
+  }) async {
     if (!_isCurrent(generation)) return;
     setState(() => _ticketsReady = false);
 
@@ -224,25 +242,21 @@ class _MultisigProposalDetailPageState
         '[VoteDetail._load] step1 完成 admins.len=${admins.length} status=$status yes=${tally.yes} no=${tally.no} threshold=$threshold',
       );
 
-      final browseLocal = widget.resolveVoteContext != null;
+      final browseLocal = widget.resolveVoteContext != null && !verifyDetails;
       final raw = browseLocal
           ? null
           : await proposalReadStage(
               'proposal_details',
               () => reads.fetchProposalData(widget.proposalId),
             );
-      var institutionCloseInfo = browseLocal ? _institutionCloseInfo : null;
-      if (raw != null && raw.isNotEmpty) {
-        final orgDetail = _manageService.decodeManageProposalData(
-          widget.proposalId,
-          raw,
-        );
-        if (orgDetail is institution_models.CloseProposalInfo) {
-          if (orgDetail.actorCidNumber != widget.institution.cidNumber) {
-            throw StateError('机构关闭提案 actor CID 与当前机构不一致');
-          }
-          institutionCloseInfo = orgDetail;
-        }
+      final institutionInfo = browseLocal
+          ? _institutionInfo
+          : raw == null
+          ? null
+          : _manageService.decodeManageProposalData(widget.proposalId, raw);
+      if (institutionInfo == null ||
+          institutionInfo.actorCidNumber != widget.institution.cidNumber) {
+        throw const FormatException('机构管理提案内容缺失、损坏或机构不匹配');
       }
 
       // step3:批量查询每张快照票据的投票记录，避免逐条 RPC。
@@ -279,7 +293,7 @@ class _MultisigProposalDetailPageState
               admins: admins,
               tickets: voterTickets,
               votes: votes,
-              institutionCloseInfo: institutionCloseInfo,
+              institutionInfo: institutionInfo,
             ),
           );
         } catch (_) {
@@ -298,7 +312,7 @@ class _MultisigProposalDetailPageState
         _voterTickets = voterTickets;
         _votableWallets = votable;
         _selectedVoteWallet = votable.isNotEmpty ? votable.first : null;
-        _institutionCloseInfo = institutionCloseInfo;
+        _institutionInfo = institutionInfo;
         _loading = false;
         _error = null;
         _ticketsReady = true;
@@ -308,12 +322,18 @@ class _MultisigProposalDetailPageState
     } on Object catch (error) {
       AppLog.proposalFailure(stage: 'proposal_display', error: error);
       if (!_isCurrent(generation)) return;
-      if (widget.resolveVoteContext != null) rethrow;
       setState(() {
         _ticketsReady = false;
         _loading = false;
-        if (!_hasDetails) _error = '提案链状态暂时不可用';
+        if (error is FormatException) {
+          _institutionInfo = null;
+          _hasDetails = false;
+          _error = '机构管理提案内容无效或机构不匹配';
+        } else if (!_hasDetails) {
+          _error = '提案链状态暂时不可用';
+        }
       });
+      if (widget.resolveVoteContext != null) rethrow;
     }
   }
 
@@ -349,8 +369,8 @@ class _MultisigProposalDetailPageState
           votable.add(w);
         }
       }
-      final institutionCloseInfo = _institutionCloseInfoFromSnapshot(snapshot);
-      if (institutionCloseInfo == null) {
+      final institutionInfo = _institutionInfoFromSnapshot(snapshot);
+      if (institutionInfo == null) {
         return null;
       }
       setState(() {
@@ -364,7 +384,7 @@ class _MultisigProposalDetailPageState
         _voterTickets = tickets;
         _votableWallets = votable;
         _selectedVoteWallet = votable.isNotEmpty ? votable.first : null;
-        _institutionCloseInfo = institutionCloseInfo;
+        _institutionInfo = institutionInfo;
         _loading = false;
         _error = null;
       });
@@ -381,7 +401,7 @@ class _MultisigProposalDetailPageState
     required List<String> admins,
     required List<EligibleVoterTicket> tickets,
     required Map<String, bool?> votes,
-    required institution_models.CloseProposalInfo? institutionCloseInfo,
+    required institution_models.InstitutionProposalInfo? institutionInfo,
   }) {
     return ProposalDetailSnapshot(
       proposalId: widget.proposalId,
@@ -396,51 +416,24 @@ class _MultisigProposalDetailPageState
       adminVotes: Map.of(votes),
       pendingPublicKeys: const [],
       extra: {'voter_tickets': ProposalDetailSnapshot.encodeTickets(tickets)},
-      detail: institutionCloseInfo != null
-          ? _institutionCloseInfoToJson(institutionCloseInfo)
+      detail: institutionInfo != null
+          ? _institutionInfoToJson(institutionInfo)
           : const {},
     );
   }
 
-  Map<String, Object?> _institutionCloseInfoToJson(
-    institution_models.CloseProposalInfo info,
-  ) {
-    return {
-      'kind': 'institution_close',
-      'actor_cid_number': info.actorCidNumber,
-      'institution_account_id': info.institutionAccountId,
-      'beneficiary': info.beneficiary,
-      'proposer': info.proposer,
-      'status': info.status,
-    };
-  }
+  Map<String, Object?> _institutionInfoToJson(
+    institution_models.InstitutionProposalInfo info,
+  ) => info.toJson();
 
-  institution_models.CloseProposalInfo? _institutionCloseInfoFromSnapshot(
+  institution_models.InstitutionProposalInfo? _institutionInfoFromSnapshot(
     ProposalDetailSnapshot snapshot,
   ) {
-    final detail = snapshot.detail;
-    if (detail['kind'] != 'institution_close') return null;
-    final actorCidNumber = detail['actor_cid_number']?.toString();
-    final institutionAccountId = detail['institution_account_id'];
-    final beneficiary = detail['beneficiary']?.toString();
-    final proposer = detail['proposer']?.toString();
-    if (actorCidNumber != widget.institution.cidNumber ||
-        institutionAccountId is! String ||
-        !isCitizenAccountId('0x$institutionAccountId') ||
-        beneficiary == null ||
-        beneficiary.isEmpty ||
-        proposer == null ||
-        proposer.isEmpty) {
-      return null;
-    }
-    return institution_models.CloseProposalInfo(
-      proposalId: snapshot.proposalId,
-      actorCidNumber: actorCidNumber!,
-      institutionAccountId: institutionAccountId,
-      beneficiary: beneficiary,
-      proposer: proposer,
-      status: snapshot.status,
+    final info = institution_models.InstitutionProposalInfo.fromJson(
+      snapshot.proposalId,
+      snapshot.detail,
     );
+    return info?.actorCidNumber == widget.institution.cidNumber ? info : null;
   }
 
   // ──── 工具方法 ────
@@ -450,13 +443,14 @@ class _MultisigProposalDetailPageState
     return '${address.substring(0, 6)}...${address.substring(address.length - 6)}';
   }
 
-  int _resolveVoteThreshold(int? snapshotThreshold, int adminsLen) {
-    if (snapshotThreshold != null && snapshotThreshold > 0) {
-      return snapshotThreshold;
+  /// 阈值来自原提案快照；缺失时拒绝，不能以当前机构的新阈值补齐旧提案。
+  int _resolveVoteThreshold(int? snapshotThreshold, int tickets) {
+    if (snapshotThreshold == null ||
+        snapshotThreshold <= 0 ||
+        snapshotThreshold > tickets) {
+      throw const FormatException('原提案阈值快照缺失或损坏');
     }
-    final institutionThreshold = widget.institution.internalThreshold;
-    if (institutionThreshold > 0) return institutionThreshold;
-    return adminsLen;
+    return snapshotThreshold;
   }
 
   // ──── 投票提交 ────
@@ -464,7 +458,7 @@ class _MultisigProposalDetailPageState
   bool get _isCurrentUserAdmin => _proposalContext.isAdmin;
 
   bool get _canVote {
-    if (!_ticketsReady) return false;
+    if (!_ticketsReady || _institutionInfo == null) return false;
     if (_selectedVoteWallet == null) return false;
     if (_status != _statusVoting) return false;
     return _votableWallets.isNotEmpty;
@@ -546,7 +540,7 @@ class _MultisigProposalDetailPageState
         throw StateError('当前投票钱包余额不足，无法支付链上投票手续费');
       }
 
-      // 创建/关闭多签的投票都走 InternalVote::cast(20.0),
+      // 机构管理投票统一走 InternalVote::cast(20.0)，
       // 由 runtime 的 InternalVoteExecutor 按 MODULE_TAG+ACTION 分派。
       AppLog.d('[VoteDetail] 调 InternalVoteService.submit');
       final result = await InternalVoteService(chain: sdk, transactions: sdk)
@@ -626,7 +620,7 @@ class _MultisigProposalDetailPageState
         if (!mounted) return;
         if (!verified.isAdmin) throw StateError('当前钱包没有投票资格');
         _verifiedVoteContext = verified;
-        await _load(showSpinner: false);
+        await _load(showSpinner: false, verifyDetails: true);
         if (!mounted) return;
         if (_error != null || !(_isCurrentUserAdmin && _canVote)) {
           throw StateError(_error ?? '提案已停止投票或当前钱包没有未使用的投票票据');
@@ -875,7 +869,7 @@ class _MultisigProposalDetailPageState
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '关闭多签提案信息',
+              _institutionInfo?.title ?? '机构管理提案信息',
               style: TextStyle(
                 fontSize: AppLayout.scaledValue(16),
                 fontWeight: FontWeight.w700,
@@ -883,49 +877,40 @@ class _MultisigProposalDetailPageState
               ),
             ),
             SizedBox(height: AppLayout.scaledValue(12)),
-            if (_institutionCloseInfo != null)
-              ..._buildInstitutionCloseInfoRows(),
+            if (_institutionInfo != null) ..._buildInstitutionInfoRows(),
           ],
         ),
       ),
     );
   }
 
-  List<Widget> _buildInstitutionCloseInfoRows() {
-    final info = _institutionCloseInfo!;
-    final accountSs58 = citizenSs58FromAccountIdBytes(info.institutionBytes);
+  List<Widget> _buildInstitutionInfoRows() {
+    final info = _institutionInfo!;
     return [
-      _buildInfoRow('身份CID号', formatIdentityCidText(info.actorCidNumber)),
-      Divider(height: AppLayout.scaledValue(20)),
-      _buildInfoRow(
-        '机构账户',
-        _truncateAddress(accountSs58),
-        onCopy: () {
-          Clipboard.setData(ClipboardData(text: accountSs58));
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('地址已复制'),
-              duration: Duration(seconds: 1),
-            ),
-          );
-        },
-      ),
-      Divider(height: AppLayout.scaledValue(20)),
-      _buildInfoRow(
-        '受益人',
-        _truncateAddress(info.beneficiary),
-        onCopy: () {
-          Clipboard.setData(ClipboardData(text: info.beneficiary));
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('地址已复制'),
-              duration: Duration(seconds: 1),
-            ),
-          );
-        },
-      ),
-      Divider(height: AppLayout.scaledValue(20)),
-      _buildInfoRow('发起管理员', _truncateAddress(info.proposer)),
+      _buildInfoRow('机构CID', formatIdentityCidText(info.actorCidNumber)),
+      for (final row in info.rows) ...[
+        Divider(height: AppLayout.scaledValue(20)),
+        _buildInfoRow(
+          row.label,
+          row.value,
+          onCopy: !row.copyable
+              ? null
+              : () {
+                  Clipboard.setData(ClipboardData(text: row.value));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('内容已复制'),
+                      duration: Duration(seconds: 1),
+                    ),
+                  );
+                },
+        ),
+      ],
+      if (info is institution_models.InstitutionChangeInfo && info.action == 5)
+        const Padding(
+          padding: EdgeInsets.only(top: 12),
+          child: Text('表决通过后仍须执行；业务完成以最终执行结果为准。'),
+        ),
     ];
   }
 

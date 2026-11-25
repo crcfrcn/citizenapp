@@ -1,5 +1,11 @@
 // 验证机构详情、人员任职及当前钱包展示，保留账户、余额和关注回归。
 import 'dart:async';
+import 'package:citizen_testing/isar_test_env.dart';
+import 'package:citizen_citizen/institution/institution_models.dart';
+import 'package:citizen_citizen/institution/institution_info.dart';
+import 'package:citizen_citizen/proposal/institution_manage_detail_page.dart';
+import 'package:citizen_citizen/proposal/proposal_detail_local_store.dart';
+import 'package:citizen_citizen/proposal/proposal_context.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -126,9 +132,7 @@ Future<void> _openDetails(WidgetTester tester, _FakeChainState chain) async {
   );
   await tester.pumpWidget(
     MultiProvider(
-      providers: [
-        Provider<CitizenBalances>.value(value: chain.balances),
-      ],
+      providers: [Provider<CitizenBalances>.value(value: chain.balances)],
       child: MaterialApp(
         home: InstitutionDetailPage(
           cidNumber: _cid,
@@ -145,6 +149,95 @@ Future<void> _openDetails(WidgetTester tester, _FakeChainState chain) async {
 }
 
 void main() {
+  useIsolatedIsar();
+  testWidgets('政策缓存展示完整权限及指纹，错误机构正文不能出现投票按钮', (tester) async {
+    final institution = InstitutionInfo(
+      fullName: '测试机构',
+      shortName: '测试',
+      cidFullNameEn: 'Test',
+      cidShortNameEn: 'Test',
+      cidNumber: _cid,
+      orgType: OrgType.institution,
+      adminCode: 'CREG',
+      accounts: const InstitutionAccounts(
+        mainAccountId: _adminAccountId,
+        feeAccountId: _fcsfAccountId,
+      ),
+      internalThresholdOverride: 2,
+    );
+    final id = BigInt.from(9901);
+    Future<void> seed(String cid) async {
+      final info = InstitutionChangeInfo(
+        proposalId: id,
+        actorCidNumber: cid,
+        action: 5,
+        rows: [
+          const InstitutionDetailRow('完整替换原生权限', 'R_POLICY；multisig / 0 / 表决'),
+          InstitutionDetailRow('期望机构状态指纹', '0x${'09' * 32}', copyable: true),
+        ],
+      );
+      await ProposalDetailLocalStore.instance.put(
+        ProposalDetailSnapshot(
+          proposalId: id,
+          proposalKind: 'institution_multisig',
+          updatedAt: DateTime.now().millisecondsSinceEpoch,
+          status: 0,
+          threshold: 2,
+          detail: info.toJson(),
+          extra: {
+            'voter_tickets': [
+              {
+                'account_id': null,
+                'person_cid': 'CN220-CTZN2-198805200-2026',
+                'cid_number': _cid,
+                'role_code': 'R_POLICY',
+                'role_name': '业务岗位',
+              },
+            ],
+          },
+        ),
+      );
+    }
+
+    Widget page() => _wrap(
+      MultisigProposalDetailPage(
+        institution: institution,
+        proposalId: id,
+        proposalContext: ProposalContext(institution: institution),
+        resolveVoteContext: () async =>
+            ProposalContext(institution: institution),
+      ),
+    );
+    Future<void> waitFor(Finder result) async {
+      // Isar通过原生异步回调读取；模拟时钟推进不能代替真实I/O完成。
+      for (var i = 0; i < 50 && result.evaluate().isEmpty; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump();
+      }
+      expect(result, findsOneWidget);
+      await tester.pumpAndSettle();
+    }
+
+    await tester.runAsync(() => seed(_cid));
+    await tester.pumpWidget(page());
+    await waitFor(find.text('原生权限与共同阈值政策'));
+    expect(find.text('原生权限与共同阈值政策'), findsOneWidget);
+    expect(find.text('R_POLICY；multisig / 0 / 表决'), findsOneWidget);
+    expect(find.text('0x${'09' * 32}'), findsOneWidget);
+    expect(find.text('关闭多签提案信息'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+    await tester.runAsync(() => seed('another-institution'));
+    await tester.pumpWidget(page());
+    await waitFor(find.text('该提案的本机记录已不可用'));
+    expect(find.text('该提案的本机记录已不可用'), findsOneWidget);
+    expect(find.byType(ProposalVoteActions), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('同一人员多个岗位在卡片独立显示，不以钱包冒充人员CID', (tester) async {
     final person = _person(_adminAccountId, roles: ['MEMBER', 'DIRECTOR']);
     await tester.pumpWidget(_wrap(InstitutionAssignmentCard(person: person)));

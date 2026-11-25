@@ -165,6 +165,28 @@ class Chain extends TestChainReads {
 
 void main() {
   TestCitizenSdkHarness();
+  test('同轮SDK原节点访问授权仍编码0x18，失去绑定或任职时拒绝', () async {
+    final c = Chain();
+    await c.seed();
+    final account = '0x${'01' * 32}';
+    final payload = await c.service().buildRoleAccessPayload(
+      identity: c.identity,
+      accountId: account,
+    );
+    expect(payload.length, 97);
+    expect(payload.take(4), [0x47, 0x4d, 0x42, 0x18]);
+    expect(payload.sublist(36, 40), [78, 82, 67, 0]);
+    expect(payload[40], 0);
+    c.rows.remove(hex(c.key('Identity', 'AccountIdByCid', [text(person)])));
+    await expectLater(
+      c.service().buildRoleAccessPayload(
+        identity: c.identity,
+        accountId: account,
+      ),
+      throwsA(isA<StateError>()),
+    );
+  });
+
   test('当前链上人员绑定匹配任职，所有读固定同一最终块', () async {
     final c = Chain();
     await c.seed();
