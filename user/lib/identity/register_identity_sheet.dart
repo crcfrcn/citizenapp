@@ -10,7 +10,7 @@ import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_topup/topup_sheet.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 
-/// 「注册身份」的选择结果:主体类型 + 绑定的钱包账户。
+/// 「注册身份」的选择结果:身份类型 + 绑定的钱包账户。
 class RegisterChoice {
   const RegisterChoice({
     required this.institution,
@@ -161,7 +161,7 @@ class _RegisterIdentitySheetState extends State<RegisterIdentitySheet> {
                     width: AppLayout.scaled(context, 36),
                     height: AppLayout.scaled(context, 4),
                     margin: EdgeInsets.only(
-                      bottom: AppLayout.scaled(context, 16),
+                      bottom: AppLayout.scaled(context, 2),
                     ),
                     decoration: BoxDecoration(
                       color: AppTheme.textTertiary,
@@ -171,18 +171,45 @@ class _RegisterIdentitySheetState extends State<RegisterIdentitySheet> {
                     ),
                   ),
                 ),
-                Text(
-                  '注册身份',
-                  style: TextStyle(
-                    fontSize: AppLayout.scaled(context, 17),
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.textPrimary,
-                  ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.only(
+                          top: AppLayout.scaled(context, 16),
+                        ),
+                        child: Text(
+                          '注册身份',
+                          style: TextStyle(
+                            fontSize: AppLayout.scaled(context, 17),
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.textPrimary,
+                          ),
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        alignment: Alignment.center,
+                        padding: EdgeInsets.only(
+                          top: AppLayout.scaled(context, 16),
+                        ),
+                        minimumSize: const Size(
+                          AppLayout.minimumTapTarget,
+                          AppLayout.minimumTapTarget,
+                        ),
+                      ),
+                      onPressed: _submitted
+                          ? null
+                          : () => Navigator.of(context).pop(false),
+                      child: const Text('取消'),
+                    ),
+                  ],
                 ),
-                SizedBox(height: AppLayout.scaled(context, 6)),
+                SizedBox(height: AppLayout.scaled(context, 2)),
                 Text(
-                  '占用一个匿名身份CID号并绑定到你选的钱包账户,自付最低链上费。身份主键是'
-                  '身份CID号,绑定账户只是鉴权凭证——私钥泄漏可换绑到新账户,身份CID号不丢失。',
+                  '身份CID号是公民App的唯一用户账号，所绑定的钱包是唯一登录与控制凭证，请妥善保存。',
                   style: TextStyle(
                     fontSize: AppLayout.scaled(context, 12),
                     height: 1.5,
@@ -190,7 +217,7 @@ class _RegisterIdentitySheetState extends State<RegisterIdentitySheet> {
                   ),
                 ),
                 SizedBox(height: AppLayout.scaled(context, 16)),
-                const _SectionLabel('主体类型'),
+                const _SectionLabel('身份类型'),
                 SizedBox(height: AppLayout.scaled(context, 8)),
                 _TypeOption(
                   label: '公民',
@@ -227,25 +254,12 @@ class _RegisterIdentitySheetState extends State<RegisterIdentitySheet> {
                     ),
                   ),
                 ],
-                SizedBox(height: AppLayout.scaled(context, 14)),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                  decoration: AppTheme.bannerDecoration(AppTheme.warning),
-                  child: Text(
-                    '自助注册只产生匿名身份。投票公民、竞选公民只能在对应注册局线下注册,'
-                    '本页无法自助升级。',
-                    style: TextStyle(
-                      fontSize: AppLayout.scaled(context, 12),
-                      height: 1.5,
-                      color: AppTheme.textSecondary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
                 SizedBox(height: AppLayout.scaled(context, 16)),
                 if (_error != null) ...[
-                  Text(identityCidUiText(_error!), style: const TextStyle(color: AppTheme.danger)),
+                  Text(
+                    identityCidUiText(_error!),
+                    style: const TextStyle(color: AppTheme.danger),
+                  ),
                   if (_needsTopup)
                     Row(
                       children: [
@@ -265,15 +279,6 @@ class _RegisterIdentitySheetState extends State<RegisterIdentitySheet> {
                     ),
                   SizedBox(height: AppLayout.scaled(context, 12)),
                 ],
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: _submitted
-                        ? null
-                        : () => Navigator.of(context).pop(false),
-                    child: const Text('取消'),
-                  ),
-                ),
                 SizedBox(
                   width: double.infinity,
                   height: AppLayout.scaled(context, 46),
@@ -311,7 +316,7 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
-/// 主体类型选项卡:选中态描边加粗、附机构码与说明。
+/// 身份类型选项卡:选中态描边加粗、附机构码与说明。
 class _TypeOption extends StatelessWidget {
   const _TypeOption({
     required this.label,
@@ -423,14 +428,14 @@ class _AccountRadio extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = selected ? AppTheme.primary : AppTheme.border;
     return InkWell(
-      borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+      borderRadius: BorderRadius.circular(AppTheme.radiusSm),
       onTap: onTap,
       child: Container(
         width: double.infinity,
         padding: EdgeInsets.all(AppLayout.scaled(context, 12)),
         decoration: BoxDecoration(
           color: AppTheme.surfaceCard,
-          borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+          borderRadius: BorderRadius.circular(AppTheme.radiusSm),
           border: Border.all(color: color, width: selected ? 2 : 1),
         ),
         child: Row(

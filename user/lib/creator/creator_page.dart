@@ -335,6 +335,13 @@ class _CreatorPageState extends State<CreatorPage> {
         onRegistered: () => unawaited(_bootstrap()),
       );
     }
+    if (!_businessReady) {
+      if (_error == null) return const SizedBox.expand();
+      return Padding(
+        padding: const EdgeInsets.all(16),
+        child: _inlineError(_error!),
+      );
+    }
     return _activeView(
       _data.plan ?? CreatorPlan.empty(),
       _data.overview ?? CreatorOverview.zero,
@@ -529,9 +536,9 @@ class _CreatorPageState extends State<CreatorPage> {
   }) {
     return InkWell(
       onTap: enabled
-          ? () => ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(const SnackBar(content: Text('订阅者明细即将上线')))
+          ? () =>
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(const SnackBar(content: Text('订阅者明细即将上线')))
           : null,
       borderRadius: BorderRadius.circular(AppTheme.radiusMd),
       child: Container(
@@ -644,9 +651,8 @@ class _CreatorPageState extends State<CreatorPage> {
         _data.membershipStatus != CreatorMembershipStatus.inactive) {
       return;
     }
-    await Navigator.of(
-      context,
-    ).push<void>(MaterialPageRoute(builder: (_) => const MembershipPage()));
+    await Navigator.of(context)
+        .push<void>(MaterialPageRoute(builder: (_) => const MembershipPage()));
     if (mounted) _onChainData();
   }
 }

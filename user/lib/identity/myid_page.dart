@@ -27,7 +27,7 @@ import 'package:citizen_system/theme/app_layout.dart';
 ///
 /// 右上角按钮随状态切换:纯访客→「注册」(自助占一个匿名 CID);匿名已注册→「更换」
 /// (把 CID 换绑到另一个本地账户);投票/竞选→「更换」但只提示须去注册局。访客卡在
-/// 已占匿名 CID 时于卡内补显「身份CID号」,徽章色不变(仍访客,决策:不新增卡/色)。
+/// 已占匿名 CID 时按公民/居民显示标题，并补显 CID 和绑定账户，徽章色沿用。
 /// 顶部支持下拉刷新。
 class MyIdPage extends StatefulWidget {
   const MyIdPage({super.key, this.myIdService, this.openRegistrationTopup});
@@ -341,6 +341,25 @@ class _MyIdPageState extends State<MyIdPage> {
   bool _showActualValues(MyIdTier tier) =>
       _isCurrent(tier) && tier != MyIdTier.visitor;
 
+  String get _visitorTitle {
+    final cid = _state.cidNumber?.trim() ?? '';
+    final parts = cid.split('-');
+    if (parts.length == 4 && parts[1].length == 5) {
+      switch (parts[1].substring(0, 4)) {
+        case 'CTZN':
+          return '身份 · 公民';
+        case 'NATP':
+          return '身份 · 居民';
+      }
+    }
+    if (cid.isNotEmpty ||
+        _state.status == MyIdStatus.unknown ||
+        _isQueryFailed) {
+      return '身份';
+    }
+    return '身份 · 访客';
+  }
+
   @override
   Widget build(BuildContext context) {
     final tiers = _orderedTiers();
@@ -404,11 +423,15 @@ class _MyIdPageState extends State<MyIdPage> {
                         current: _isCurrent(tiers[index]),
                         showActualValues: _showActualValues(tiers[index]),
                         fields: _fieldsFor(tiers[index]),
+                        visitorTitle: _visitorTitle,
                         registeredCid:
                             tiers[index] == MyIdTier.visitor &&
                                 _state.isAnonymousRegistered
                             ? _state.cidNumber
                             : null,
+                        registeredAccount: _shortAddress(
+                          _state.votingAccountId,
+                        ),
                       ),
                       if (index != tiers.length - 1)
                         SizedBox(height: AppLayout.scaled(context, 14)),
@@ -428,17 +451,17 @@ class _MyIdPageState extends State<MyIdPage> {
     final showValues = _showActualValues(tier);
     final fields = <_PassportField>[
       _PassportField(
-        label: '投票账户',
-        value: showValues ? _shortAddress(_state.votingAccountId) : null,
-        mono: true,
-      ),
-      _PassportField(
         label: '身份CID号',
         value: showValues
             ? formatIdentityCidText(_displayValue(_state.cidNumber))
             : null,
         mono: true,
         singleLine: true,
+      ),
+      _PassportField(
+        label: '绑定账户',
+        value: showValues ? _shortAddress(_state.votingAccountId) : null,
+        mono: true,
       ),
       _PassportField(
         label: '居住选区',
@@ -497,8 +520,8 @@ class _MyIdPageState extends State<MyIdPage> {
   static String _shortAddress(String? input) {
     final value = input?.trim() ?? '';
     if (value.isEmpty) return '—';
-    if (value.length <= 18) return value;
-    return '${value.substring(0, 8)}…${value.substring(value.length - 8)}';
+    if (value.length <= 20) return value;
+    return '${value.substring(0, 8)}......${value.substring(value.length - 12)}';
   }
 
   static String _statusText(MyIdStatus? status) => switch (status) {
@@ -531,6 +554,8 @@ class _PassportIdentityCard extends StatelessWidget {
     required this.current,
     required this.showActualValues,
     required this.fields,
+    required this.visitorTitle,
+    required this.registeredAccount,
     this.registeredCid,
   });
 
@@ -538,12 +563,14 @@ class _PassportIdentityCard extends StatelessWidget {
   final bool current;
   final bool showActualValues;
   final List<_PassportField> fields;
+  final String visitorTitle;
+  final String registeredAccount;
 
   /// 访客卡专用:已占匿名 CID 时的 身份CID号(非空则在卡内补显「身份CID号」)。
   final String? registeredCid;
 
   String get _title => switch (tier) {
-    MyIdTier.visitor => '身份·访客',
+    MyIdTier.visitor => visitorTitle,
     MyIdTier.voting => '公民身份 · 投票',
     MyIdTier.candidate => '公民身份 · 竞选',
   };
@@ -636,7 +663,7 @@ class _PassportIdentityCard extends StatelessWidget {
                   ],
                 ),
               ),
-              // 访客卡:已占匿名 CID 时补一行「身份CID号」;纯访客只留标题行,高度自然收缩。
+              // 普通卡:已注册时依次显示 CID、绑定账户；纯访客只留标题行。
               if (tier == MyIdTier.visitor) ...[
                 if (registeredCid != null &&
                     registeredCid!.trim().isNotEmpty) ...[
@@ -647,6 +674,16 @@ class _PassportIdentityCard extends StatelessWidget {
                       value: formatIdentityCidText(registeredCid!),
                       mono: true,
                       singleLine: true,
+                    ),
+                    color: _color,
+                    showValue: true,
+                  ),
+                  SizedBox(height: AppLayout.scaled(context, 6)),
+                  _PassportFieldRow(
+                    field: _PassportField(
+                      label: '绑定账户',
+                      value: registeredAccount,
+                      mono: true,
                     ),
                     color: _color,
                     showValue: true,

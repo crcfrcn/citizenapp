@@ -72,7 +72,7 @@ class MyIdState {
   /// 公民档护照状态；已知访客为 null，缺快照为 unknown，读取失败为 queryFailed。
   final MyIdStatus? status;
 
-  /// 链上投票绑定账户 = CID 绑定账户地址(SS58)。访客不显示,为 null。
+  /// CID 当前绑定账户的 SS58 展示地址；未注册时为 null。
   final String? votingAccountId;
   final String? cidNumber;
 
@@ -299,7 +299,7 @@ class MyIdService {
     }
     final saved = await _badgeSnapshotStore.readForAccountId(account.accountId);
     if (saved?.verified == true) {
-      return _stateForSnapshot(account.accountId, saved!.identity);
+      return _stateForSnapshot(account.ss58Address, saved!.identity);
     }
     // 既有本地绑定本身已持久保存CID；缺少完整卡片时仍能显示公民号，绝不自动联网。
     final current = await _currentUserContext.resolve();
@@ -320,7 +320,7 @@ class MyIdService {
         'voting' => MyIdTier.voting,
         _ => MyIdTier.visitor,
       },
-      votingAccountId: account.accountId,
+      votingAccountId: account.ss58Address,
       cidNumber: cid,
     );
   }
@@ -418,7 +418,7 @@ class MyIdService {
   Future<MyIdState> _applyIdentityState(FinalizedIdentity identity) async {
     await _applyVerifiedIdentity(identity);
     final state = await _stateForSnapshot(
-      identity.accountId,
+      identity.accountAddress,
       identity.snapshot,
     );
     final wallet = await _getWalletState().result;
@@ -464,7 +464,7 @@ class MyIdService {
   }
 
   Future<MyIdState> _stateForSnapshot(
-    String identityAccountId,
+    String identityAccountAddress,
     CitizenIdentityChainSnapshot? chainIdentity,
   ) async {
     if (chainIdentity == null) {
@@ -475,7 +475,7 @@ class MyIdService {
       // 匿名已注册:访客卡 + 展示 CID;徽章仍访客色(决策:不新增卡/色)。
       return MyIdState(
         tier: MyIdTier.visitor,
-        votingAccountId: identityAccountId,
+        votingAccountId: identityAccountAddress,
         cidNumber: chainIdentity.cidNumber,
       );
     }
@@ -514,7 +514,7 @@ class MyIdService {
     return MyIdState(
       tier: tier,
       status: status,
-      votingAccountId: identityAccountId,
+      votingAccountId: identityAccountAddress,
       cidNumber: chainIdentity.cidNumber,
       residenceDistrict: residence,
       passportValidFrom: _formatDateInt(voting.passportValidFrom),
@@ -738,6 +738,10 @@ class MyIdService {
   Future<void> _applyVerifiedIdentity(FinalizedIdentity resolved) async {
     await _identityResolver.assertCurrent(resolved);
     if (resolved.snapshot == null) {
+      final previous = await _badgeSnapshotStore.readForAccountId(
+        resolved.accountId,
+      );
+      await _identityResolver.assertCurrent(resolved);
       // 持久保存已核实未注册的事实；不删除钱包或同CID业务历史。
       await _badgeSnapshotStore.writeVerified(
         accountId: resolved.accountId,
@@ -747,6 +751,8 @@ class MyIdService {
             _accountSecurity.revision.value == resolved.identityRevision,
       );
       await _identityResolver.assertCurrent(resolved);
+      // 同一账户的未注册事实没变，不再广播身份变化、重建注册页背景。
+      if (previous?.verified == true && previous?.identity == null) return;
       _currentUserContext.invalidate();
       _sessionProvider.invalidateAccount(resolved.accountId);
       _accountSecurity.notifyIdentityBindingChanged();

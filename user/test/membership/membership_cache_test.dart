@@ -2,6 +2,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+
 import 'package:citizen_chain/citizen_chain.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_testing/chain_data_fixture.dart' as f;
@@ -20,6 +21,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
+
 import '../creator/creator_test_support.dart';
 
 SquareSession sessionFor(CreatorTestUser user) => SquareSession(
@@ -106,6 +108,22 @@ class _Resources extends Fake implements SubscriptionService {
 }
 
 class _Identity extends Fake implements FinalizedIdentityResolver {}
+
+class _UnregisteredUser extends CreatorTestUser {
+  bool registered = false;
+
+  @override
+  Future<CurrentUser?> resolve() async {
+    final current = await super.resolve();
+    return registered
+        ? current
+        : CurrentUser(
+            account: current!.account,
+            binding: null,
+            verifiedUnregistered: true,
+          );
+  }
+}
 
 class _ChangedIdentity extends Fake implements FinalizedIdentityResolver {
   @override
@@ -219,6 +237,30 @@ void main() {
   );
   Future<void> dispose(WidgetTester tester) =>
       tester.pumpWidget(const SizedBox());
+
+  testWidgets('未注册会员页只在标题栏右侧显示注册，身份恢复后退出未注册态', (tester) async {
+    final unregistered = _UnregisteredUser();
+    user = unregistered;
+    await tester.pumpWidget(app());
+    await tester.pumpAndSettle();
+    final register = find.widgetWithText(TextButton, '注册');
+    expect(register, findsOneWidget);
+    expect(
+      find.descendant(of: find.byType(AppBar), matching: register),
+      findsOneWidget,
+    );
+    expect(find.text('尚未注册'), findsNothing);
+    expect(find.text('注册后即可使用会员服务。'), findsNothing);
+    expect(tester.widget<FilledButton>(frontButton()).onPressed, isNull);
+    expect(resources.calls, 0);
+    unregistered.registered = true;
+    security.revision.value++;
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(TextButton, '注册'), findsNothing);
+    expect(find.byTooltip('刷新'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await dispose(tester);
+  });
 
   test('订阅、取消、换档都拒绝与页面不符的身份，不请求钱包签名', () async {
     final service = SubscriptionService(

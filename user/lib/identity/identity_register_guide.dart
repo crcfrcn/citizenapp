@@ -38,9 +38,11 @@ class _IdentityRegisterGuideState extends State<IdentityRegisterGuide> {
 
   Future<void> _onRegister() async {
     if (_registering) return;
+    // 身份同步广播会重建引导；弹窗必须归属仍挂载的页面，而不是临时按钮。
+    final pageContext = Scaffold.maybeOf(context)?.context ?? context;
     setState(() => _registering = true);
     try {
-      final registered = await startCidRegistrationFlow(context);
+      final registered = await startCidRegistrationFlow(pageContext);
       if (registered) widget.onRegistered?.call();
     } finally {
       if (mounted) setState(() => _registering = false);

@@ -197,7 +197,7 @@ void main() {
   testWidgets('三张身份卡始终存在且旧访客文案彻底删除', (tester) async {
     await pumpPage(tester, const MyIdState(tier: MyIdTier.visitor));
 
-    expect(find.text('身份·访客'), findsOneWidget);
+    expect(find.text('身份 · 访客'), findsOneWidget);
     expect(find.text('公民身份 · 投票'), findsOneWidget);
     expect(find.text('公民身份 · 竞选'), findsOneWidget);
     // 旧文案零残留
@@ -231,7 +231,7 @@ void main() {
       find.byKey(const ValueKey<String>('current-identity-visitor')),
       findsNothing,
     );
-    expect(find.text('投票账户'), findsNWidgets(2));
+    expect(find.text('绑定账户'), findsNWidgets(2));
     expect(find.text('公民姓名'), findsOneWidget);
     expect(find.text('—'), findsNothing);
   });
@@ -252,8 +252,28 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('当前身份'), findsOneWidget);
-    expect(find.text('w5BekTim…vMgf7o8E'), findsOneWidget);
+    expect(find.text('w5BekTim......weR8vMgf7o8E'), findsOneWidget);
     expect(find.text('CID-2026-0715'), findsOneWidget);
+    expect(
+      tester
+          .getTopLeft(
+            find.descendant(
+              of: card(MyIdTier.voting),
+              matching: find.text('身份CID号'),
+            ),
+          )
+          .dy,
+      lessThan(
+        tester
+            .getTopLeft(
+              find.descendant(
+                of: card(MyIdTier.voting),
+                matching: find.text('绑定账户'),
+              ),
+            )
+            .dy,
+      ),
+    );
     expect(find.text('中枢省 · 固市 · 和平镇'), findsOneWidget);
     expect(find.text('正常'), findsOneWidget);
     expect(find.text('2026年07月15日 至 2036年07月14日'), findsOneWidget);
@@ -285,15 +305,35 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('当前身份'), findsOneWidget);
-    expect(find.text('w5BekTim…vMgf7o8E'), findsOneWidget);
+    expect(find.text('w5BekTim......weR8vMgf7o8E'), findsOneWidget);
     expect(find.text('CID-2026-0715'), findsOneWidget);
     expect(find.text('张三'), findsOneWidget);
     expect(find.text('男'), findsOneWidget);
     expect(find.text('1992年05月18日'), findsOneWidget);
+    expect(
+      tester
+          .getTopLeft(
+            find.descendant(
+              of: card(MyIdTier.candidate),
+              matching: find.text('身份CID号'),
+            ),
+          )
+          .dy,
+      lessThan(
+        tester
+            .getTopLeft(
+              find.descendant(
+                of: card(MyIdTier.candidate),
+                matching: find.text('绑定账户'),
+              ),
+            )
+            .dy,
+      ),
+    );
 
     final votingCard = card(MyIdTier.voting);
     expect(
-      find.descendant(of: votingCard, matching: find.text('投票账户')),
+      find.descendant(of: votingCard, matching: find.text('绑定账户')),
       findsOneWidget,
     );
     expect(
@@ -301,7 +341,10 @@ void main() {
       findsNothing,
     );
     expect(
-      find.descendant(of: votingCard, matching: find.text('w5BekTim…vMgf7o8E')),
+      find.descendant(
+        of: votingCard,
+        matching: find.text('w5BekTim......weR8vMgf7o8E'),
+      ),
       findsNothing,
     );
   });
@@ -319,7 +362,11 @@ void main() {
     expect(find.text('身份验证失败，请重试'), findsNothing);
     expect(find.text('重试'), findsNothing);
     expect(find.text('当前身份'), findsNothing);
-    expect(find.text('身份·访客'), findsOneWidget);
+    expect(find.text('身份 · 访客'), findsNothing);
+    expect(
+      find.descendant(of: card(MyIdTier.visitor), matching: find.text('身份')),
+      findsOneWidget,
+    );
     expect(find.text('注册身份·访客'), findsNothing);
     expect(find.text('公民身份 · 投票'), findsOneWidget);
     expect(find.text('公民身份 · 竞选'), findsOneWidget);
@@ -500,6 +547,10 @@ void main() {
       ),
       findsNothing,
     );
+    expect(
+      find.descendant(of: card(MyIdTier.visitor), matching: find.text('绑定账户')),
+      findsNothing,
+    );
   });
 
   testWidgets('匿名已注册:右上「更换」+ 访客卡显公民号,匿名标签仍在', (tester) async {
@@ -521,6 +572,32 @@ void main() {
     );
     final visitorCard = card(MyIdTier.visitor);
     expect(
+      find.descendant(of: visitorCard, matching: find.text('身份 · 公民')),
+      findsOneWidget,
+    );
+    expect(find.text('身份 · 访客'), findsNothing);
+    expect(
+      find.descendant(
+        of: visitorCard,
+        matching: find.text('w5BekTim......weR8vMgf7o8E'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .getTopLeft(
+            find.descendant(of: visitorCard, matching: find.text('身份CID号')),
+          )
+          .dy,
+      lessThan(
+        tester
+            .getTopLeft(
+              find.descendant(of: visitorCard, matching: find.text('绑定账户')),
+            )
+            .dy,
+      ),
+    );
+    expect(
       find.descendant(of: visitorCard, matching: find.text('身份CID号')),
       findsOneWidget,
     );
@@ -531,7 +608,7 @@ void main() {
       ),
       findsOneWidget,
     );
-    // 决策:不新增卡/色,访客卡仍是「身份·访客」+匿名标签。
+    // 已注册公民显示公民标题，匿名标签与卡片颜色沿用。
     expect(
       find.byKey(const ValueKey<String>('passport-anonymous-tag')),
       findsOneWidget,
@@ -542,6 +619,67 @@ void main() {
     await pumpPage(tester, _votingState);
     expect(find.widgetWithText(TextButton, '更换'), findsOneWidget);
     expect(find.widgetWithText(TextButton, '注册'), findsNothing);
+  });
+
+  testWidgets('居民CID显示居民标题，账户缺失不展示其他账户', (tester) async {
+    await pumpPage(
+      tester,
+      const MyIdState(
+        tier: MyIdTier.visitor,
+        cidNumber: 'CN000-NATP1-000000001-2026',
+      ),
+      surfaceSize: const Size(390, 844),
+    );
+    final visitorCard = card(MyIdTier.visitor);
+    expect(
+      find.descendant(of: visitorCard, matching: find.text('身份 · 居民')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: visitorCard, matching: find.text('绑定账户')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: visitorCard, matching: find.text('—')),
+      findsOneWidget,
+    );
+    expect(find.text('身份 · 访客'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('切换CID同时更新标题及绑定地址，未知状态不冒充访客', (tester) async {
+    final service = _FakeMyIdService(
+      const MyIdState(
+        tier: MyIdTier.visitor,
+        cidNumber: 'CN000-CTZN1-000000001-2026',
+        votingAccountId: 'w5BekTimvtfYZvFpkDzy7ypqUntPgTbjRFCt9weR8vMgf7o8E',
+      ),
+    );
+    await tester.pumpWidget(MaterialApp(home: MyIdPage(myIdService: service)));
+    await tester.pumpAndSettle();
+    expect(find.text('身份 · 公民'), findsOneWidget);
+    service.state = const MyIdState(
+      tier: MyIdTier.visitor,
+      cidNumber: 'CN000-NATP1-000000002-2026',
+      votingAccountId: '12345678ABCDEFGHIJKLabcdefghijkl',
+    );
+    await tester
+        .widget<RefreshIndicator>(find.byType(RefreshIndicator))
+        .onRefresh();
+    await tester.pumpAndSettle();
+    expect(find.text('身份 · 居民'), findsOneWidget);
+    expect(find.text('12345678......abcdefghijkl'), findsOneWidget);
+    expect(find.text('w5BekTim......weR8vMgf7o8E'), findsNothing);
+    service.state = const MyIdState(
+      tier: MyIdTier.visitor,
+      status: MyIdStatus.unknown,
+    );
+    await tester
+        .widget<RefreshIndicator>(find.byType(RefreshIndicator))
+        .onRefresh();
+    await tester.pumpAndSettle();
+    expect(find.text('身份 · 访客'), findsNothing);
+    expect(find.text('身份 · 居民'), findsNothing);
   });
 
   testWidgets('链读失败态右上不显示注册/更换按钮', (tester) async {

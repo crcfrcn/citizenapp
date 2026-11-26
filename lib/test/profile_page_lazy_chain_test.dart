@@ -4,7 +4,10 @@ import 'package:citizen_user/profile/citizen_profile_api.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+
 import 'dart:convert';
+import 'dart:async';
+
 import 'package:citizen_testing/membergate_fixture.dart';
 import 'package:citizen_testing/mls_authentication_fixture.dart';
 import 'package:citizen_user/identity/finalized_identity_resolver.dart';
@@ -41,6 +44,8 @@ import 'package:citizen_user/identity/identity_binding.dart';
 import 'package:citizen_system/theme/app_layout.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_user/identity/identity_badge.dart';
+import 'package:citizen_user/identity/myid_service.dart';
+import 'package:citizen_user/identity/register_identity_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -151,6 +156,53 @@ class _UnboundLocalUser extends _CachedIdentityCache {
   @override
   Future<CurrentUser?> resolve() async =>
       CurrentUser(account: _testWallet, binding: null);
+}
+
+class _UnregisteredLocalUser extends _CachedIdentityCache {
+  @override
+  Future<CurrentUser?> resolve() async => CurrentUser(
+    account: _testWallet,
+    binding: null,
+    verifiedUnregistered: true,
+  );
+}
+
+class _UnregisteredBadgeStore extends _FakeIdentityBadgeSnapshotStore {
+  @override
+  Future<IdentityBadgeSnapshot?> readForAccountId(String accountId) async =>
+      IdentityBadgeSnapshot(
+        cidNumber: '',
+        cidLevel: 'visitor',
+        updatedAt: 1,
+        accountId: accountId,
+        verified: true,
+      );
+}
+
+class _BackgroundRegistrationResolver extends Fake
+    implements FinalizedIdentityResolver {
+  final pending = Completer<FinalizedIdentity?>();
+  int calls = 0;
+  @override
+  Future<FinalizedIdentity?> resolve() {
+    calls++;
+    return pending.future;
+  }
+}
+
+class _BackgroundRegistrationService extends Fake implements MyIdService {
+  int synchronizations = 0;
+  int accountReads = 0;
+  @override
+  Future<void> synchronizeIdentity(FinalizedIdentity identity) async {
+    synchronizations++;
+  }
+
+  @override
+  Future<List<CitizenWalletStateAccount>> listBindableAccounts() async {
+    accountReads++;
+    return [_testWallet];
+  }
 }
 
 class _VerifiedLocalBadgeStore extends _FakeIdentityBadgeSnapshotStore {
@@ -282,6 +334,57 @@ void main() {
     CitizenProfileApi.resetEntryRefreshMemory();
   });
   _sdkHarness = TestCitizenSdkHarness();
+  testWidgets('未注册点击背景直接打开注册弹窗，连续点击不重复打开且取消不进资料页', (tester) async {
+    final resolver = _BackgroundRegistrationResolver();
+    final registration = _BackgroundRegistrationService();
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          Provider<CitizenSdk>.value(value: _sdkHarness.sdk),
+          Provider<MyIdService>.value(value: registration),
+          Provider<FinalizedIdentityResolver>.value(value: resolver),
+        ],
+        child: MaterialApp(
+          home: MyTab(
+            walletStateReader: _FakeWallet(_testWallet).getWalletState,
+            currentUserContext: _UnregisteredLocalUser(),
+            badgeSnapshotStore: _UnregisteredBadgeStore(),
+            profileCache: FakeProfileCache(sampleProfile()),
+            profileApi: FakeProfileApi(sampleProfile()),
+            sessionProvider: _ForbiddenSessionProvider(),
+            subscriptionService: _ConfirmedMembershipSnapshotService(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final background = find.byKey(const ValueKey('my-profile-background'));
+    final point = tester.getTopLeft(background) + const Offset(20, 100);
+    await tester.tapAt(point);
+    await tester.pump();
+    await tester.tapAt(point);
+    await tester.pump();
+    expect(resolver.calls, 1);
+    expect(find.text('本地尚未保存身份CID号，请主动刷新身份'), findsNothing);
+    resolver.pending.complete(
+      FinalizedIdentity(
+        accountId: _testWallet.accountId,
+        accountAddress: _testWallet.ss58Address,
+        snapshot: null,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(RegisterIdentitySheet), findsOneWidget);
+    expect(find.byType(UserProfilePage), findsNothing);
+    expect(registration.synchronizations, 1);
+    expect(registration.accountReads, 1);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(find.byType(RegisterIdentitySheet), findsNothing);
+    expect(find.byType(UserProfilePage), findsNothing);
+    expect(find.text('本地尚未保存身份CID号，请主动刷新身份'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
   testWidgets('本地展示CID绑定尚未恢复仍显示本人资料，分类不抢跑会话', (tester) async {
     final session = _ForbiddenSessionProvider();
     final api = FakeProfileApi(

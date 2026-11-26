@@ -5,7 +5,10 @@ import 'dart:async';
 import 'package:citizen_user/creator/creator_page.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_user/identity/account_security_service.dart';
+import 'package:citizen_user/identity/current_user_context.dart';
 import 'package:citizen_user/identity/finalized_identity_resolver.dart';
+import 'package:citizen_user/identity/register_identity_sheet.dart';
+import 'package:citizen_user/identity/identity_badge_snapshot_store.dart';
 import 'package:citizen_user/identity/square_session_provider.dart';
 import 'package:citizen_user/square_api_client.dart';
 
@@ -32,6 +35,50 @@ class _BusinessGate implements CidBusinessGate {
 class _CreatorSecurity extends Fake implements AccountSecurityService {
   @override
   final revision = ValueNotifier<int>(0);
+}
+
+class _RegistrationSecurity extends _CreatorSecurity {
+  VoidCallback? onNotify;
+  int notifications = 0;
+
+  @override
+  void notifyIdentityBindingChanged() {
+    notifications++;
+    onNotify?.call();
+    revision.value++;
+  }
+}
+
+class _UnregisteredCurrentUser extends Fake implements CurrentUserContext {
+  _UnregisteredCurrentUser(this.account);
+  final CitizenWalletStateAccount account;
+
+  @override
+  Future<CurrentUser?> resolve() async =>
+      CurrentUser(account: account, binding: null, verifiedUnregistered: true);
+
+  @override
+  void invalidate() {}
+}
+
+class _UnregisteredResolver extends Fake implements FinalizedIdentityResolver {
+  _UnregisteredResolver(this.account);
+  final CitizenWalletStateAccount account;
+
+  @override
+  Future<FinalizedIdentity?> resolve() async => FinalizedIdentity(
+    accountId: account.accountId,
+    accountAddress: account.ss58Address,
+    snapshot: null,
+  );
+
+  @override
+  Future<void> assertCurrent(FinalizedIdentity identity) async {}
+}
+
+class _RegistrationSessions extends _CreatorSessions {
+  @override
+  void invalidateAccount(String accountId) {}
 }
 
 class _CreatorResolver extends Fake implements FinalizedIdentityResolver {
@@ -88,6 +135,87 @@ void main() {
   useIsolatedIsar();
   const cidNumber = 'CN220-CTZN2-100000001-2026';
 
+  for (final knownUnregistered in [false, true]) {
+    testWidgets('创作者单次注册不闪现管理模板（已有未注册快照：$knownUnregistered）', (tester) async {
+      final core = await openTestSdk(
+        modules: CitizenSdkModules.wallet | CitizenSdkModules.qr,
+      );
+      final sdk = core.sdk;
+      await tester.runAsync(
+        () => sdk.importColdAccount(testCitizenAccountId).result,
+      );
+      final wallet = await tester.runAsync(() => sdk.getWalletState().result);
+      final account = wallet!.defaultAccount!;
+      if (knownUnregistered) {
+        await tester.runAsync(
+          () => IdentityBadgeSnapshotStore().writeVerified(
+            accountId: account.accountId,
+            identity: null,
+            isCurrent: () => true,
+          ),
+        );
+      }
+      final gate = _BusinessGate(
+        Future.value(const CidBusinessDecision(CidBusinessStatus.unregistered)),
+      );
+      final security = _RegistrationSecurity();
+      final recheck = Completer<CidBusinessDecision>();
+      security.onNotify = () => gate.result = recheck.future;
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.runAsync(sdk.close);
+        security.revision.dispose();
+        gate.revision.dispose();
+      });
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            Provider<CitizenSdk>.value(value: sdk),
+            Provider<AccountSecurityService>.value(value: security),
+            Provider<CurrentUserContext>.value(
+              value: _UnregisteredCurrentUser(account),
+            ),
+            Provider<FinalizedIdentityResolver>.value(
+              value: _UnregisteredResolver(account),
+            ),
+            Provider<SquareSessionProvider>.value(
+              value: _RegistrationSessions(),
+            ),
+            Provider<CidBusinessGate>.value(value: gate),
+          ],
+          child: MaterialApp(
+            home: CreatorPage(service: _PendingCreatorService()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('注册'));
+      for (var i = 0; i < 30; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump();
+        if (find.byType(RegisterIdentitySheet).evaluate().isNotEmpty) break;
+      }
+      expect(security.notifications, knownUnregistered ? 0 : 1);
+      expect(find.byType(RegisterIdentitySheet), findsOneWidget);
+      expect(find.text('我的创作者会员', skipOffstage: false), findsNothing);
+      expect(find.text('创建和管理你的会员档。', skipOffstage: false), findsNothing);
+      if (knownUnregistered) {
+        expect(find.text('尚未注册', skipOffstage: false), findsOneWidget);
+      }
+      recheck.complete(
+        const CidBusinessDecision(CidBusinessStatus.unregistered),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(RegisterIdentitySheet), findsOneWidget);
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+      expect(find.byType(RegisterIdentitySheet), findsNothing);
+      expect(find.text('尚未注册'), findsOneWidget);
+    });
+  }
+
   testWidgets('身份核对未完成时禁用创作者业务，确认未注册后显示统一引导', (tester) async {
     final decision = Completer<CidBusinessDecision>();
     final service = _PendingCreatorService();
@@ -98,6 +226,7 @@ void main() {
       ),
     );
     expect(find.text('已开通'), findsNothing);
+    expect(find.text('我的创作者会员'), findsNothing);
     expect(service.lastSnapshotCid, isNull);
     decision.complete(
       const CidBusinessDecision(CidBusinessStatus.unregistered),
@@ -143,6 +272,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.textContaining('暂时无法核实身份CID号'), findsOneWidget);
+    expect(find.text('我的创作者会员'), findsNothing);
     expect(find.text('已开通'), findsNothing);
     await tester.tap(find.text('重试'));
     await tester.pumpAndSettle();

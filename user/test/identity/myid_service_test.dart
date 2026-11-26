@@ -353,6 +353,33 @@ void main() {
     expect(service.sync.value?.state.cidNumber, identity.snapshot!.cidNumber);
   });
 
+  test('同一账户重复确认未注册不重复失效会话或广播身份变化', () async {
+    final wallet = _FakeWalletManager(_aliceWallet);
+    final current = _InvalidationCountingIdentityCache();
+    final store = IdentityBadgeSnapshotStore();
+    final identity = FinalizedIdentity(
+      accountId: _validAccountId,
+      accountAddress: _validAddress,
+      snapshot: null,
+    );
+    final service = testService(
+      wallet: wallet,
+      currentUserContext: current,
+      badgeSnapshotStore: store,
+      identityResolver: _SyncResolver(identity),
+    );
+    await service.refreshState();
+    final revision = wallet.revision.value;
+    final invalidations = current.invalidateCalls;
+    expect(wallet.identityNotifications, 1);
+    await service.refreshState();
+    await service.synchronizeIdentity(identity);
+    expect(wallet.identityNotifications, 1);
+    expect(wallet.revision.value, revision);
+    expect(current.invalidateCalls, invalidations);
+    expect((await store.readForAccountId(_validAccountId))?.verified, isTrue);
+  });
+
   test('绑定不变的身份等级更新仍刷新展示，不清会话或增加版本', () async {
     final identity = _registeredIdentity(_validAccountId);
     final updated = FinalizedIdentity(
@@ -467,11 +494,11 @@ void main() {
     resolver.pending!.complete(_registeredIdentity(nextId));
     expect((await pending).status, MyIdStatus.queryFailed);
     expect(wallet.bindings, isEmpty);
-    expect(
-      (await service.refreshState()).status,
-      isNot(MyIdStatus.queryFailed),
-    );
+    final current = await service.refreshState();
+    expect(current.status, isNot(MyIdStatus.queryFailed));
     expect(wallet.activeBinding!.accountId, nextId);
+    expect(current.votingAccountId, citizenSs58FromAccountId(nextId));
+    expect(current.cidNumber, _registeredIdentity(nextId).snapshot!.cidNumber);
   });
 
   test('公开同步保存完整竞选快照，绑定收尾不能降为匿名', () async {
@@ -538,6 +565,7 @@ void main() {
       );
       final state = await service.getState();
       expect(state.cidNumber, 'CID-DISPLAY-TEST');
+      expect(state.votingAccountId, _validAddress);
     }
     expect(reader.reads, 0);
   });
@@ -572,6 +600,7 @@ void main() {
     final state = await service.getState();
     expect(state.tier, MyIdTier.voting);
     expect(state.passportValidUntil, '2031-01-01');
+    expect(state.votingAccountId, _validAddress);
     expect(state.residenceDistrict, contains('N(0755)'));
     expect(resolver.reads, 0);
   });
@@ -592,8 +621,7 @@ void main() {
     final current = CurrentUser(
       account: _aliceWallet,
       binding: const IdentityBinding(
-        genesisHash:
-            '0x0000000000000000000000000000000000000000000000000000000000000000',
+        genesisHash: '0x0000000000000000000000000000000000000000000000000000000000000000',
         cidNumber: 'CID-LOCAL-TEST',
         bindRev: 1,
         accountId: _validAccountId,
@@ -604,7 +632,9 @@ void main() {
       badgeSnapshotStore: IdentityBadgeSnapshotStore(),
       currentUserContext: _LocalCurrentUser(current),
     );
-    expect((await service.getState()).cidNumber, 'CID-LOCAL-TEST');
+    final state = await service.getState();
+    expect(state.cidNumber, 'CID-LOCAL-TEST');
+    expect(state.votingAccountId, _validAddress);
     expect(reader.reads, 0);
   });
 
@@ -664,7 +694,7 @@ void main() {
     expect(state.tier, MyIdTier.visitor);
     expect(state.isAnonymousRegistered, isTrue);
     expect(state.cidNumber, 'GD-CTZN1-8F3A2B');
-    expect(state.votingAccountId, _validAccountId);
+    expect(state.votingAccountId, _validAddress);
     expect(state.status, isNull);
   });
 
@@ -682,7 +712,7 @@ void main() {
 
     expect(state.tier, MyIdTier.voting);
     expect(state.status, MyIdStatus.normal);
-    expect(state.votingAccountId, _validAccountId);
+    expect(state.votingAccountId, _validAddress);
     expect(state.cidNumber, 'GD-CTZN1-8F3A2B');
     expect(state.passportValidFrom, '2026-01-01');
     expect(state.passportValidUntil, '2031-01-01');
@@ -745,9 +775,8 @@ void main() {
     ).refreshState();
     expect(expired.status, MyIdStatus.expired);
 
-    final revoked = await buildService(
-      voting: voting(status: 1),
-    ).refreshState();
+    final revoked = await buildService(voting: voting(status: 1))
+        .refreshState();
     expect(revoked.status, MyIdStatus.revoked);
   });
 

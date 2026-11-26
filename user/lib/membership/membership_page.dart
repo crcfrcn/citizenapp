@@ -532,7 +532,7 @@ class _MembershipPageState extends State<MembershipPage>
 
   @override
   Widget build(BuildContext context) {
-    // 三张套餐卡始终显示；未注册引导与真实数据的加载状态不替换卡片。
+    // 三张套餐卡始终显示；未注册入口放在标题栏，加载状态不替换卡片。
     // 会员、价格与钱包状态由 [_load] 后台补齐；真正订阅、
     // 换档或取消时由 [SubscriptionService] 核验钱包、CID 与轻节点会员状态，
     // 随后的链上交易继续执行最终状态校验。
@@ -541,7 +541,19 @@ class _MembershipPageState extends State<MembershipPage>
         title: const Text('会员｜订阅'),
         centerTitle: true,
         actions: [
-          if (!_unregistered)
+          if (_unregistered)
+            Padding(
+              padding: EdgeInsets.only(right: AppLayout.scaled(context, 4)),
+              child: TextButton(
+                onPressed: () async {
+                  if (await startCidRegistrationFlow(context) && mounted) {
+                    await _load(forceRefresh: true);
+                  }
+                },
+                child: const Text('注册'),
+              ),
+            )
+          else
             IconButton(
               tooltip: '刷新',
               onPressed: _chainLoading || _busy ? null : _retryLoad,
@@ -571,19 +583,6 @@ class _MembershipPageState extends State<MembershipPage>
 
     return Column(
       children: [
-        if (_unregistered)
-          ListTile(
-            title: const Text('尚未注册'),
-            subtitle: const Text('注册后即可使用会员服务。'),
-            trailing: TextButton(
-              onPressed: () async {
-                if (await startCidRegistrationFlow(context) && mounted) {
-                  await _load(forceRefresh: true);
-                }
-              },
-              child: const Text('注册'),
-            ),
-          ),
         if (_chainFailure != null)
           _LoadFailureBanner(
             key: const ValueKey('membership-load-failure-banner'),

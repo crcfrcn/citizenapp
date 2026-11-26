@@ -184,8 +184,40 @@ void main() {
     expect(picked?.bindAccountId, a5.accountId);
   });
 
-  testWidgets('含「投票/竞选须去注册局」的风险提示', (tester) async {
-    await openSheet(tester, (_) {});
-    expect(find.textContaining('投票公民、竞选公民只能在对应注册局'), findsOneWidget);
+  testWidgets('新说明和身份类型标题，取消在标题行右侧且不提交注册', (tester) async {
+    var submits = 0;
+    await openSheet(tester, (_) => submits++);
+    expect(
+      find.text('身份CID号是公民App的唯一用户账号，所绑定的钱包是唯一登录与控制凭证，请妥善保存。'),
+      findsOneWidget,
+    );
+    expect(find.text('身份类型'), findsOneWidget);
+    expect(find.text('主体类型'), findsNothing);
+    expect(find.textContaining('占用一个匿名身份CID号'), findsNothing);
+    expect(find.textContaining('自助注册只产生匿名身份'), findsNothing);
+    final cancel = find.widgetWithText(TextButton, '取消');
+    expect(cancel, findsOneWidget);
+    final titleRect = tester.getRect(find.text('注册身份'));
+    final descriptionRect = tester.getRect(
+      find.text('身份CID号是公民App的唯一用户账号，所绑定的钱包是唯一登录与控制凭证，请妥善保存。'),
+    );
+    final typeRect = tester.getRect(find.text('身份类型'));
+    final upperGap = descriptionRect.top - titleRect.bottom;
+    final lowerGap = typeRect.top - descriptionRect.bottom;
+    expect(upperGap, greaterThan(4));
+    expect(upperGap, lessThan(lowerGap));
+    expect(tester.getSize(cancel).height, greaterThanOrEqualTo(48));
+    expect(
+      tester.getCenter(find.text('取消')).dy,
+      closeTo(titleRect.center.dy, 1),
+    );
+    expect(
+      tester.getCenter(cancel).dx,
+      greaterThan(tester.getCenter(find.text('注册身份')).dx),
+    );
+    await tester.tap(cancel);
+    await tester.pumpAndSettle();
+    expect(find.byType(RegisterIdentitySheet), findsNothing);
+    expect(submits, 0);
   });
 }

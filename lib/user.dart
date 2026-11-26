@@ -31,6 +31,8 @@ import 'package:citizen_user/creator/creator_service.dart';
 import 'package:citizen_user/membership/membership_page.dart';
 import 'package:citizen_user/membership/subscription_service.dart';
 import 'package:citizen_user/identity/myid_page.dart';
+import 'package:citizen_user/identity/myid_service.dart';
+import 'package:citizen_user/identity/register_identity_flow.dart';
 import 'package:citizen_storage/user_isar.dart';
 import 'package:citizenapp/security/app_lock_service.dart';
 import 'package:citizenapp/security/pin_input_page.dart';
@@ -101,6 +103,7 @@ class _ProfilePageState extends State<MyTab> {
   /// _loadState 世代号：本地钱包、资料和徽章快照并发重载时，旧结果
   /// 不得覆盖新默认钱包。
   int _loadGeneration = 0;
+  bool _openingIdentityRegistration = false;
 
   /// 身份账户 ID 来自当前默认账户的本机绑定；普通“我的”页面不读取链。
   String _identityAccountId = '';
@@ -403,9 +406,17 @@ class _ProfilePageState extends State<MyTab> {
                   : identity.cidNumber)
               .trim();
       if (cidNumber.isEmpty) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('本地尚未保存身份CID号，请主动刷新身份')));
+        if (_openingIdentityRegistration) return null;
+        _openingIdentityRegistration = true;
+        try {
+          final registered = await startCidRegistrationFlow(
+            context,
+            myIdService: context.read<MyIdService?>(),
+          );
+          if (registered && mounted) await _loadState();
+        } finally {
+          _openingIdentityRegistration = false;
+        }
         return null;
       }
       return (accountId: identity.accountId, cidNumber: cidNumber);
