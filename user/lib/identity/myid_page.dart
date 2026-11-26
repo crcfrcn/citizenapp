@@ -571,8 +571,7 @@ class _PassportIdentityCard extends StatelessWidget {
 
   String get _title => switch (tier) {
     MyIdTier.visitor => visitorTitle,
-    MyIdTier.voting => '公民身份 · 投票',
-    MyIdTier.candidate => '公民身份 · 竞选',
+    MyIdTier.voting || MyIdTier.candidate => '身份 · 公民',
   };
 
   Color get _color => switch (tier) {
@@ -640,7 +639,7 @@ class _PassportIdentityCard extends StatelessWidget {
                       tooltip: _title,
                     ),
                     SizedBox(width: AppLayout.scaled(context, 12)),
-                    // Flexible（非 Expanded）让标题只占内容宽度，匿名标签紧贴访客卡标题右侧，
+                    // Flexible（非 Expanded）让标题只占内容宽度，类型胶囊紧贴标题右侧，
                     // 而不是被撑到卡片最右端；标题过长时仍走省略号避免溢出。
                     Flexible(
                       child: Text(
@@ -655,11 +654,8 @@ class _PassportIdentityCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    // 访客卡默认匿名，用一枚小标签直接点明，替代原“没有公民身份信息”整段空态。
-                    if (tier == MyIdTier.visitor) ...[
-                      SizedBox(width: AppLayout.scaled(context, 8)),
-                      _AnonymousTag(color: _color),
-                    ],
+                    SizedBox(width: AppLayout.scaled(context, 8)),
+                    _IdentityTag(tier: tier),
                   ],
                 ),
               ),
@@ -733,16 +729,36 @@ class _PassportIdentityCard extends StatelessWidget {
   }
 }
 
-/// 访客卡的“匿名”提示标签：小圆角药丸 + 隐私图标，沿用所在卡片的身份色。
-class _AnonymousTag extends StatelessWidget {
-  const _AnonymousTag({required this.color});
+/// 身份类型胶囊：匿名金色、投票蓝色、竞选黄色，各配对应图标。
+class _IdentityTag extends StatelessWidget {
+  const _IdentityTag({required this.tier});
 
-  final Color color;
+  final MyIdTier tier;
 
   @override
   Widget build(BuildContext context) {
+    final (name, label, icon, color) = switch (tier) {
+      MyIdTier.visitor => (
+        'anonymous',
+        '匿名',
+        Icons.visibility_off_outlined,
+        AppTheme.identityVisitor,
+      ),
+      MyIdTier.voting => (
+        'voting',
+        '投票',
+        Icons.how_to_vote_outlined,
+        AppTheme.identityVoting,
+      ),
+      MyIdTier.candidate => (
+        'candidate',
+        '竞选',
+        Icons.campaign_outlined,
+        AppTheme.gold,
+      ),
+    };
     return Container(
-      key: const ValueKey<String>('passport-anonymous-tag'),
+      key: ValueKey<String>('passport-$name-tag'),
       padding: EdgeInsets.symmetric(
         horizontal: AppLayout.scaled(context, 8),
         vertical: AppLayout.scaled(context, 3),
@@ -755,14 +771,10 @@ class _AnonymousTag extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.visibility_off_outlined,
-            size: AppLayout.scaled(context, 12),
-            color: color,
-          ),
+          Icon(icon, size: AppLayout.scaled(context, 12), color: color),
           SizedBox(width: AppLayout.scaled(context, 3)),
           Text(
-            '匿名',
+            label,
             style: TextStyle(
               fontSize: AppLayout.scaled(context, 11),
               height: 1.2,

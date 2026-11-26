@@ -34,7 +34,7 @@ typedef ChatEntryOpener = Future<void> Function(BuildContext context);
 /// 公民“聊天”Tab。
 ///
 /// 顶部为搜索框（进入 [ChatSearchPage]），右上角加号弹出 4 个入口：
-/// 扫一扫 / 收付款 / 发起聊天 / 加好友。会话列表在其下方。
+/// 扫一扫 / 收付款 / 加好友 / 发起聊天。会话列表在其下方。
 class ChatTab extends StatefulWidget {
   ChatTab({
     super.key,
@@ -1078,16 +1078,16 @@ const List<_ChatEntryItem> _chatEntryItems = [
     '收付款',
     icon: Icons.payments_outlined,
   ),
+  _ChatEntryItem(
+    _ChatEntryAction.addFriend,
+    '加好友',
+    icon: Icons.person_add_alt_1_outlined,
+  ),
   // 与底部导航「聊天」tab 同一个图标，保持同一语义同一形。
   _ChatEntryItem(
     _ChatEntryAction.startChat,
     '发起聊天',
     icon: Icons.textsms_outlined,
-  ),
-  _ChatEntryItem(
-    _ChatEntryAction.addFriend,
-    '加好友',
-    icon: Icons.person_add_alt_1_outlined,
   ),
 ];
 

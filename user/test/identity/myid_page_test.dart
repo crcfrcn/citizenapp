@@ -22,6 +22,7 @@ import 'package:citizen_user/identity/identity_badge_snapshot_store.dart';
 import 'package:citizen_user/identity/register_identity_sheet.dart';
 import 'package:citizen_user/identity/myid_service.dart';
 import 'package:citizen_system/theme/app_layout.dart';
+import 'package:citizen_system/theme/app_theme.dart';
 
 const MyIdState _votingState = MyIdState(
   tier: MyIdTier.voting,
@@ -198,8 +199,20 @@ void main() {
     await pumpPage(tester, const MyIdState(tier: MyIdTier.visitor));
 
     expect(find.text('身份 · 访客'), findsOneWidget);
-    expect(find.text('公民身份 · 投票'), findsOneWidget);
-    expect(find.text('公民身份 · 竞选'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: card(MyIdTier.voting),
+        matching: find.text('身份 · 公民'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: card(MyIdTier.candidate),
+        matching: find.text('身份 · 公民'),
+      ),
+      findsOneWidget,
+    );
     // 旧文案零残留
     expect(find.text('匿名访客'), findsNothing);
     expect(find.text('注册身份·访客'), findsNothing);
@@ -212,6 +225,30 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('匿名'), findsOneWidget);
+    for (final (name, label, icon, color) in [
+      ('voting', '投票', Icons.how_to_vote_outlined, AppTheme.identityVoting),
+      ('candidate', '竞选', Icons.campaign_outlined, AppTheme.gold),
+    ]) {
+      final tag = find.byKey(ValueKey<String>('passport-$name-tag'));
+      expect(tag, findsOneWidget);
+      expect(
+        find.descendant(of: tag, matching: find.text(label)),
+        findsOneWidget,
+      );
+      final glyph = tester.widget<Icon>(
+        find.descendant(of: tag, matching: find.byIcon(icon)),
+      );
+      expect(glyph.color, color);
+      expect(
+        tester
+            .widget<Text>(find.descendant(of: tag, matching: find.text(label)))
+            .style!
+            .color,
+        color,
+      );
+    }
+    expect(find.text('公民身份 · 投票'), findsNothing);
+    expect(find.text('公民身份 · 竞选'), findsNothing);
   });
 
   testWidgets('访客当前卡排第一且公民卡只显示字段名称', (tester) async {
@@ -368,8 +405,20 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('注册身份·访客'), findsNothing);
-    expect(find.text('公民身份 · 投票'), findsOneWidget);
-    expect(find.text('公民身份 · 竞选'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: card(MyIdTier.voting),
+        matching: find.text('身份 · 公民'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: card(MyIdTier.candidate),
+        matching: find.text('身份 · 公民'),
+      ),
+      findsOneWidget,
+    );
     expect(find.text('—'), findsNothing);
   });
 
@@ -436,7 +485,13 @@ void main() {
     );
 
     expect(tester.takeException(), isNull);
-    expect(find.text('公民身份 · 竞选'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: card(MyIdTier.candidate),
+        matching: find.text('身份 · 公民'),
+      ),
+      findsOneWidget,
+    );
   });
 
   // 余额用例通过合成人验结果与Siteverify边界进入真实编排，不保存人验状态。
@@ -657,7 +712,13 @@ void main() {
     );
     await tester.pumpWidget(MaterialApp(home: MyIdPage(myIdService: service)));
     await tester.pumpAndSettle();
-    expect(find.text('身份 · 公民'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: card(MyIdTier.visitor),
+        matching: find.text('身份 · 公民'),
+      ),
+      findsOneWidget,
+    );
     service.state = const MyIdState(
       tier: MyIdTier.visitor,
       cidNumber: 'CN000-NATP1-000000002-2026',

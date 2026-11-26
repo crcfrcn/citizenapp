@@ -1789,11 +1789,11 @@ void main() {
     await tester.pump();
   });
 
-  testWidgets('点加号弹出扫一扫/收付款/发起聊天/加好友四项', (tester) async {
+  testWidgets('点加号弹出扫一扫/收付款/加好友/发起聊天四项', (tester) async {
     await pumpTab(tester);
     await openMenu(tester);
 
-    for (final label in ['扫一扫', '收付款', '发起聊天', '加好友']) {
+    for (final label in ['扫一扫', '收付款', '加好友', '发起聊天']) {
       expect(find.text(label), findsOneWidget, reason: '缺少菜单项 $label');
     }
     expect(find.text('发私信'), findsNothing);
@@ -1813,7 +1813,7 @@ void main() {
     await openMenu(tester);
 
     final rows = <Finder>[];
-    for (final label in ['扫一扫', '收付款', '发起聊天', '加好友']) {
+    for (final label in ['扫一扫', '收付款', '加好友', '发起聊天']) {
       final row = find.ancestor(
         of: find.text(label),
         matching: find.byType(InkWell),
@@ -1868,14 +1868,14 @@ void main() {
       ),
     );
 
-    for (final label in ['扫一扫', '收付款', '发起聊天', '加好友']) {
+    for (final label in ['扫一扫', '收付款', '加好友', '发起聊天']) {
       await openMenu(tester);
       await tester.tap(find.text(label));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
     }
 
-    expect(fired, ['scan', 'receivePay', 'chat', 'addFriend']);
+    expect(fired, ['scan', 'receivePay', 'addFriend', 'chat']);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
