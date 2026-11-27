@@ -76,7 +76,7 @@ class ClearingBankBindingSnapshot {
 
 /// 扫码支付 Step 3:**用户绑定清算行本地快照缓存**。
 ///
-/// - 链上 `OffchainTransaction::UserBank[user]` 保存清算行机构 CID。
+/// - 链上 `Offchain::UserBank[user]` 保存清算行机构 CID。
 /// - 本地快照补充名称、派生账户和节点端点，绑定和切换以 finalized 链状态为准。
 /// - 缓存按 `account_id` 隔离(单钱包多账户下,每个账户独立绑定清算行,互不干扰)。
 class ClearingBankPrefs {

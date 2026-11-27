@@ -12,7 +12,7 @@ import 'package:citizen_offchain/clearing_bank_prefs.dart';
 /// 清算行节点链上声明。
 ///
 /// 该结构直接解码 finalized 链状态
-/// `OffchainTransaction::ClearingBankNodes[cid_number]`。
+/// `Offchain::ClearingBankNodes[cid_number]`。
 class ClearingBankNodeEndpoint {
   const ClearingBankNodeEndpoint({
     required this.cidNumber,

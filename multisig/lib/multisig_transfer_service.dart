@@ -202,7 +202,7 @@ class MultisigTransferService {
 
   // ──── 常量 ────
 
-  /// MultisigTransfer pallet index（runtime pallet_index=17）。
+  /// Multisig pallet index（runtime pallet_index=17）。
   ///
   /// 本 pallet 只保留 propose_X(0/1/2)；机构岗位选民/个人多签管理员投票一律走
   /// 与 runtime `multisig::MODULE_TAG` 唯一对齐的提案数据标签。

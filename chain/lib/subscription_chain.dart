@@ -116,7 +116,7 @@ typedef FinalizedSubscriptionTransaction = ({
   int blockNumber,
 });
 
-/// SquarePost 订阅 SCALE 与标准热钱包 extrinsic 入口。
+/// Square 订阅 SCALE 与标准热钱包 extrinsic 入口。
 ///
 /// CitizenApp 只提交需要账户签名的订阅、取消、换档和创作者档位管理。首次扣款后的
 /// 真实公历到期时间及后续自动扣款全部由 runtime 根据共识时间戳完成。

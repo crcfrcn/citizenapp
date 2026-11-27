@@ -779,7 +779,7 @@ class Entry {
   @Name('to_address')
   String? toAddress;
 
-  /// 转账备注，来自 OnchainTransaction::TransferWithRemark 事件或本机提交草稿。
+  /// 转账备注，来自 Onchain::TransferWithRemark 事件或本机提交草稿。
   @Name('tx_note')
   String? txNote;
 

@@ -7,7 +7,7 @@ class OnchainAssetActions {
 
   // ---------- pallet_index / call_index(与链端 + citizenwallet PalletRegistry 同步) ----------
 
-  /// OnchainIssuance pallet_index(单源 PalletRegistry,对齐 construct_runtime)。
+  /// OnchainIssue pallet_index(单源 PalletRegistry,对齐 construct_runtime)。
   static const int onchainIssuancePalletIndex =
       PalletRegistry.onchainIssuancePallet;
 

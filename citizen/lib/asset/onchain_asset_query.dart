@@ -37,7 +37,7 @@ class OnchainAssetMeta {
     required this.state,
   }) : executionAccountId = Uint8List.fromList(executionAccountId);
 
-  /// storage key `OnchainIssuance.AssetMetas[asset_id]`，不是 OnchainAssetMeta value 的内嵌字段。
+  /// storage key `OnchainIssue.AssetMetas[asset_id]`，不是 OnchainAssetMeta value 的内嵌字段。
   final int assetId;
 
   /// 发行机构 CID；机构身份和管理员权限只按此字段寻址。
@@ -201,7 +201,7 @@ abstract class OnchainAssetQuery {
   /// 列出指定持币人(SS58)持有的所有资产与当前余额关联元数据。
   Future<List<OnchainAssetMeta>> listAssetsHeldBy(String ss58);
 
-  /// 按 asset_id 读取并严格解码 OnchainIssuance.AssetMetas元数据。
+  /// 按 asset_id 读取并严格解码 OnchainIssue.AssetMetas元数据。
   Future<OnchainAssetMeta?> readAssetById(int assetId);
 
   /// 读取特定持币人在某资产下的 raw 余额。

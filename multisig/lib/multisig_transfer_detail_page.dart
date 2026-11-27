@@ -247,8 +247,8 @@ class _MultisigTransferDetailPageState
       // 根据 kind 选择对应的详情查询方法。
       // 不同 kind 写在不同的 storage map：
       //   transfer   → VotingEngine.ProposalData（带 multisig tag）
-      //   safetyFund → MultisigTransfer.SafetyFundProposalActions
-      //   sweep      → MultisigTransfer.SweepProposalActions
+      //   safetyFund → Multisig.SafetyFundProposalActions
+      //   sweep      → Multisig.SweepProposalActions
       final detailFuture = widget.resolveVoteContext == null
           ? switch (widget.kind) {
               MultisigTransferKind.transfer => reads.fetchProposalAction(

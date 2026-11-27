@@ -19,7 +19,7 @@ class SelfRebindAuthorizationContext {
   final BigInt expectedBindingRevision;
 }
 
-/// CitizenIdentity(pallet 10)匿名 CID 自助占号／换绑的业务 RuntimeCall 与执行入口。
+/// Identity(pallet 10)匿名 CID 自助占号／换绑的业务 RuntimeCall 与执行入口。
 ///
 /// 两条 call 均由用户本人钱包自签、自付最低链上费(immortal、tip 0),不经注册局:
 /// - `self_occupy_cid`(call 5):一笔自签占一个 CN 前缀匿名 CID + 占即绑本账户。

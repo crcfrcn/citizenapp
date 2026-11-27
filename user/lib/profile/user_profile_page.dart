@@ -1179,7 +1179,7 @@ class _UserProfilePageState extends State<UserProfilePage>
     return const ColoredBox(color: AppTheme.surfaceMuted);
   }
 
-  /// 他人主页的创作者订阅入口：SquarePost 以公民 CID 为创作者唯一主键。
+  /// 他人主页的创作者订阅入口：Square 以公民 CID 为创作者唯一主键。
   /// 本人主页不显示；CID 不因换绑改变，因此换绑不会重建或丢失订阅态。
   Widget? _creatorSubscribeButton() {
     if (_isSelf || !_accessAllowed || !_relationsReady || _session == null) {
