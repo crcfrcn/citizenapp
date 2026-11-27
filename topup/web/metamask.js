@@ -31,12 +31,13 @@ export function createWalletSession({openLink}){
    error=>{current.finished=true;current.failed=true;current.reject(error);});
  };
  const deliverLink=url=>{
-  const request=[...requests].reverse().find(item=>item.active()&&item.openable);
+  const pairing=!url.startsWith('metamask://connect/mwp?id=');
+  const request=[...requests].reverse().find(item=>item.active()&&item.openable&&(!pairing||item.openable==='connect'));
   if(!request)return;
-  // MWP先经Relay发请求。一个订单只交付一次系统唤起，首次授权后的付款沿同一会话送达。
+  // 授权和付款各交付一次官方唤起；迟到的授权链接不能占用付款阶段。
+  const stage=request.openable;
   request.openable=false;
-  request.opened=true;
-  void openLink(url,request.orderId).catch(()=>{});
+  void openLink(url,request.orderId,stage).catch(()=>{});
  };
  const getSdk=({createSdk,storage,networks})=>{
   if(sdkPromise)return sdkPromise;
@@ -64,7 +65,7 @@ export function createWalletSession({openLink}){
    if(closed)throw Error('付款通信已关闭');
    let reject,timer;
    const failed=new Promise((_,fail)=>{reject=fail;});
-   const request={reject,orderId,openable:false,opened:false,expired:false,active:()=>!closed&&!request.expired&&requests.has(request)&&active()};
+   const request={reject,orderId,openable:false,expired:false,active:()=>!closed&&!request.expired&&requests.has(request)&&active()};
    requests.add(request);
    const phase=state=>{if(request.active())try{onPhase(state);}catch{}};
    try{
@@ -89,7 +90,7 @@ export function createWalletSession({openLink}){
       if(!payer){
        if(sdk.status==='pending')throw Error('付款钱包结果待核实');
        if(!connecting){
-        request.openable=true;
+        request.openable='connect';
         phase('connect_requested');
         connecting=Promise.resolve(sdk.connect(Object.values(chains),[])).finally(()=>{connecting=undefined;});
        }
@@ -113,7 +114,7 @@ export function createWalletSession({openLink}){
      }
      if(!request.active())throw Error('本次付款已结束');
      if(reauthorize)throw Error('钱包授权已失效');
-     request.openable=!request.opened;
+     request.openable='payment';
      phase('transaction_requested');
      try{
       onDispatch();
@@ -213,7 +214,7 @@ const ask=(kind,payload={},orderId)=>new Promise((resolve,reject)=>{
  const id=++sequence,timer=setTimeout(()=>{pending.delete(id);reject(Error('付款回执等待超时'));},walletTimeout);
  pending.set(id,{resolve,reject,timer});window.TopupBridge.postMessage(JSON.stringify({session:host,id,kind,...(orderId?{order_id:orderId}:{}),...payload}));
 });
-const metamask=createWalletSession({openLink:(url,orderId)=>ask('wallet_link',{url},orderId)});
+const metamask=createWalletSession({openLink:(url,orderId,stage)=>ask('wallet_link',{url,stage},orderId)});
 const adapter={
  platform:'web',
  get:key=>ask('wallet_storage',{key:'mwp/'+key}),

@@ -421,8 +421,10 @@ class _WalletTabState extends State<WalletTab> {
         return;
       }
       setState(() {
-        _identityAccountId = identity.isCitizen
-            ? identity.votingAccountId
+        // 身份服务返回SS58展示地址；经SDK解码后再与目录AccountId比较。
+        final address = identity.votingAccountId;
+        _identityAccountId = identity.isCitizen && address != null
+            ? citizenAccountIdFromBytes(citizenAccountIdBytesFromSs58(address))
             : null;
       });
     } catch (error) {

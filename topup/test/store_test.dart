@@ -29,6 +29,19 @@ class SigningStore extends TopupStore {
   }
 }
 
+// 恢复读取失败不逃逸到根界面；下一次恢复必须能够重新读取。
+class RestoringStore extends TopupStore {
+  int reads = 0;
+  @override
+  Future<List<TopupRecord>> all() async {
+    reads++;
+    if (reads == 1) {
+      throw StateError('synthetic read failure');
+    }
+    return [];
+  }
+}
+
 // 显式测试端口只驱动App调度；EVM真实解析另由付款链夹具回归覆盖。
 class PaymentApi extends TopupApi {
   PaymentApi(this.verify, {required super.httpClient});
@@ -171,7 +184,7 @@ void main() {
     'is_reused': false,
     'auto_final': false,
     'chain_state': 'unverified',
-    'result_ack': false,
+    'result_ack': 0,
     'result_publickey': publicKey ?? '0x${'03' * 32}',
     'result': null,
     'result_signature': null,
@@ -243,13 +256,13 @@ void main() {
         });
         expect(body['ack_rev'], 4);
         expect(
-          (await LocalTxStore.queryByAccountId(
-            record.payment.accountId,
-          )).single.entryState,
+          (await LocalTxStore.queryByAccountId(record.payment.accountId))
+              .single
+              .entryState,
           'completed',
         );
         return http.Response(
-          jsonEncode({...result.toJson(), 'result_ack': true}),
+          jsonEncode({...result.toJson(), 'result_ack': result.revision}),
           200,
         );
       }),
@@ -324,9 +337,9 @@ void main() {
       }
       expect(calls, 0);
       expect(
-        (await LocalTxStore.queryByAccountId(
-          record.payment.accountId,
-        )).single.entryState,
+        (await LocalTxStore.queryByAccountId(record.payment.accountId))
+            .single
+            .entryState,
         'paid',
       );
     } finally {
@@ -340,9 +353,8 @@ void main() {
     final end = await store.acceptReceipt(paid, result);
     expect(end.progress, TopupProgress.paid);
     expect(end.isPaid, true);
-    final row = (await LocalTxStore.queryByAccountId(
-      record.payment.accountId,
-    )).single;
+    final row = (await LocalTxStore.queryByAccountId(record.payment.accountId))
+        .single;
     expect(row.amountDelta, '0');
     expect(end.receipt!.toJson()['chain_state'], 'unverified');
   });
@@ -529,13 +541,11 @@ void main() {
       expect(() => TopupStore.fromEntry(row), throwsFormatException);
     }
   });
-  test('付款链立即一次加20秒指数退避十次，11轮未验真零服务端请求', () async {
+  test('付款链首次立即且15/30/60秒封顶，30轮未验真零服务端请求', () async {
     final sent = await submitted();
-    final fixture =
-        jsonDecode(
-              fixtureFile('citizen_topup', 'contract.json').readAsStringSync(),
-            )
-            as Map;
+    final fixture = jsonDecode(
+      fixtureFile('citizen_topup', 'contract.json').readAsStringSync(),
+    ) as Map;
     final policy = fixture['payment_checks'] as Map;
     final intervals = (policy['intervals_seconds'] as List).cast<int>();
     final timers = <PaymentTimer>[];
@@ -582,11 +592,11 @@ void main() {
       final failed = (await store.all()).single;
       expect(failed.progress, TopupProgress.pending);
       expect(failed.failureCode, 'payment_failed');
-      expect(failed.checkCount, 11);
+      expect(failed.checkCount, 30);
       expect(failed.requestAt, isNull);
       await updates.resume();
       await updates.settle();
-      expect(checks, 11);
+      expect(checks, 30);
       expect(requests, 0);
     } finally {
       await updates.close();
@@ -603,6 +613,12 @@ void main() {
         return proof(record);
       },
       httpClient: MockClient((request) async {
+        if (request.url.path == '/api/topup/status') {
+          return http.Response(
+            jsonEncode(response((await store.all()).single)),
+            200,
+          );
+        }
         requests++;
         expect(request.url.path, '/api/topup/confirm');
         final current = (await store.all()).single;
@@ -631,19 +647,26 @@ void main() {
     final resumed = updates();
     try {
       await resumed.resume();
-      expect(timers.last.delay, const Duration(seconds: 15));
+      expect(timers.last.delay, const Duration(seconds: 10));
       await resumed.resume();
-      expect(timers.last.delay, const Duration(seconds: 15));
-      now += 15000;
+      expect(timers.last.delay, const Duration(seconds: 10));
+      now += 10000;
       timers.last.fire();
       await resumed.settle();
       expect(checks, 2);
       expect(requests, 1);
       final paid = (await store.all()).single;
       expect(paid.progress, TopupProgress.paid);
-      expect(paid.checkCount, 2);
+      // 付款次数在验真后结束，当前计数属于结果读取阶段。
+      expect(paid.checkCount, 1);
       expect(paid.receipt, isNotNull);
-      expect(timers.where((t) => t.isActive), isEmpty);
+      expect(
+        timers.where((t) => t.isActive).single.delay,
+        const Duration(seconds: 15),
+      );
+      await resumed.resume();
+      expect(checks, 2);
+      expect(requests, 1);
     } finally {
       await resumed.close();
     }
@@ -683,6 +706,12 @@ void main() {
     final pageApi = TopupApi();
     final api = TopupApi(
       httpClient: MockClient((request) async {
+        if (request.url.path == '/api/topup/status') {
+          return http.Response(
+            jsonEncode(response((await store.all()).single)),
+            200,
+          );
+        }
         requests++;
         expect(request.url.path, '/api/topup/confirm');
         final row = (await LocalTxStore.queryByAccountId(
@@ -723,9 +752,8 @@ void main() {
       record.payment.accountId,
     )).single;
     final saved = await store.markPaid(sent, proof(sent));
-    final row = (await LocalTxStore.queryByAccountId(
-      record.payment.accountId,
-    )).single;
+    final row = (await LocalTxStore.queryByAccountId(record.payment.accountId))
+        .single;
     expect(row.rowId, before.rowId);
     expect(row.entryState, 'paid');
     expect(row.amountDelta, '0');
@@ -776,9 +804,8 @@ void main() {
     final receipt = TopupReceipt.fromJson(response(saved.record));
     final accepted = saved.record.update(receipt: receipt);
     await store.save(accepted, before: saved.record);
-    final row = (await LocalTxStore.queryByAccountId(
-      record.payment.accountId,
-    )).single;
+    final row = (await LocalTxStore.queryByAccountId(record.payment.accountId))
+        .single;
     final loaded = TopupStore.fromEntry(row);
     expect(loaded.receipt!.publicKey, receipt.publicKey);
     expect(loaded.recoveryToken, saved.record.recoveryToken);
@@ -841,9 +868,8 @@ void main() {
         expect(requests, 1);
         expect(
           TopupStore.fromEntry(
-            (await LocalTxStore.queryByAccountId(
-              record.payment.accountId,
-            )).single,
+            (await LocalTxStore.queryByAccountId(record.payment.accountId))
+                .single,
           ).isPaid,
           true,
         );
@@ -1018,9 +1044,8 @@ void main() {
   });
   test('删除后晚到验款/保存均不能复活订单，也不能取得请求能力', () async {
     final sent = await submitted(),
-        row = (await LocalTxStore.queryByAccountId(
-          record.payment.accountId,
-        )).single;
+        row = (await LocalTxStore.queryByAccountId(record.payment.accountId))
+            .single;
     await store.delete(row);
     await expectLater(
       store.markPaid(sent, proof(sent)),
@@ -1063,5 +1088,200 @@ void main() {
     expect(row.confirmedAt, 2000000);
     event.txHash = '0x${'08' * 32}';
     expect(TopupStore.matchesPayment(row, event), false);
+  });
+  test('原单补录先核对冻结交易，错误哈希零事实覆盖且不调用付款钱包', () async {
+    final original = record.update(
+      wire: jsonEncode(erc20Transaction(record.payment, record.binding)),
+      failureCode: 'payment_unverified',
+    );
+    await store.save(original);
+    final hash = '0x${'12' * 32}';
+    var matched = false, lookups = 0, paymentChecks = 0;
+    final timers = <PaymentTimer>[];
+    final api = PaymentApi(
+      (value) async {
+        paymentChecks++;
+        throw const FormatException('synthetic pending');
+      },
+      httpClient: MockClient((request) async {
+        final body = jsonDecode(request.body) as Map;
+        expect(body['method'], 'eth_getTransactionByHash');
+        lookups++;
+        return http.Response(
+          jsonEncode({
+            'jsonrpc': '2.0',
+            'id': 1,
+            'result': {
+              'hash': hash,
+              'to': record.payment.asset,
+              'value': '0x0',
+              'from': '0x${'01' * 20}',
+              'input': matched
+                  ? erc20Transaction(record.payment, record.binding)['data']
+                  : '0x',
+            },
+          }),
+          200,
+        );
+      }),
+    );
+    final updates = TopupUpdates(
+      api: api,
+      store: store,
+      timer: (delay, callback) {
+        final value = PaymentTimer(delay, callback);
+        timers.add(value);
+        return value;
+      },
+    );
+    try {
+      await expectLater(
+        updates.recoverPayment(original, 'invalid'),
+        throwsFormatException,
+      );
+      expect(lookups, 0);
+      await expectLater(
+        updates.recoverPayment(original, hash),
+        throwsFormatException,
+      );
+      expect((await store.all()).single.encode(), original.encode());
+      matched = true;
+      await updates.recoverPayment(original, hash);
+      await updates.settle();
+      final saved = (await store.all()).single;
+      expect(saved.txid, hash);
+      expect(saved.payment.orderId, original.payment.orderId);
+      expect(saved.progress, TopupProgress.pending);
+      expect(saved.proof, isNull);
+      expect(saved.requestAt, isNull);
+      expect(saved.failureCode, isNull);
+      expect(paymentChecks, 1);
+      expect(lookups, 2);
+      await expectLater(
+        updates.recoverPayment(saved, '0x${'13' * 32}'),
+        throwsFormatException,
+      );
+      expect((await store.all()).single.txid, hash);
+    } finally {
+      await updates.close();
+    }
+  });
+
+  for (final successfulRound in [1, 30, null]) {
+    test('结果只读查询30轮且成功立即停止：$successfulRound', () async {
+      final sent = await submitted();
+      final paid = await store.markPaid(sent, proof(sent));
+      final result = await sealed(paid.record);
+      var reads = 0, acks = 0, now = 2000000;
+      final timers = <PaymentTimer>[];
+      final api = PaymentApi(
+        (_) async {
+          throw StateError('已支付禁止重查付款链');
+        },
+        httpClient: MockClient((request) async {
+          expect(request.url.path, '/api/topup/status');
+          final body = jsonDecode(request.body) as Map;
+          if (body['ack_rev'] != null) {
+            acks++;
+            return http.Response(
+              jsonEncode({...result.toJson(), 'result_ack': result.revision}),
+              200,
+            );
+          }
+          reads++;
+          final current = (await store.all()).single;
+          return http.Response(
+            jsonEncode(
+              reads == successfulRound
+                  ? result.toJson()
+                  : response(current, publicKey: result.publicKey),
+            ),
+            200,
+          );
+        }),
+      );
+      final updates = TopupUpdates(
+        api: api,
+        store: store,
+        now: () => now,
+        timer: (delay, callback) {
+          final value = PaymentTimer(delay, callback);
+          timers.add(value);
+          return value;
+        },
+      );
+      try {
+        await updates.resume();
+        await updates.settle();
+        for (var round = 2; round <= (successfulRound ?? 30); round++) {
+          final timer = timers.last;
+          expect(
+            timer.delay,
+            Duration(
+              seconds: round == 2
+                  ? 15
+                  : round == 3
+                  ? 30
+                  : 60,
+            ),
+          );
+          now += timer.delay.inMilliseconds;
+          timer.fire();
+          await updates.settle();
+        }
+        expect(reads, successfulRound ?? 30);
+        expect(timers.where((value) => value.isActive), isEmpty);
+        final current = (await store.all()).single;
+        expect(current.checkCount, successfulRound ?? 30);
+        expect(
+          current.progress,
+          successfulRound == null
+              ? TopupProgress.paid
+              : TopupProgress.completed,
+        );
+        expect(acks, successfulRound == null ? 0 : 1);
+        if (successfulRound == null) {
+          expect(current.failureCode, 'issuance_request_unresolved');
+        }
+        await updates.resume();
+        await updates.settle();
+        expect(reads, successfulRound ?? 30);
+      } finally {
+        await updates.close();
+      }
+    });
+  }
+  test('ACK消费整数修订号，布尔及不匹配修订均拒绝', () async {
+    final sent = await submitted();
+    final paid = await store.markPaid(sent, proof(sent));
+    final result = await sealed(paid.record);
+    expect(result.acknowledged, false);
+    final accepted = TopupReceipt.fromJson({
+      ...result.toJson(),
+      'result_ack': result.revision,
+    });
+    expect(accepted.acknowledged, true);
+    for (final invalid in [false, true, -1, result.revision + 1]) {
+      expect(
+        () =>
+            TopupReceipt.fromJson({...result.toJson(), 'result_ack': invalid}),
+        throwsFormatException,
+      );
+    }
+    expect(
+      () => TopupReceipt.fromJson({...response(paid.record), 'result_ack': 1}),
+      throwsFormatException,
+    );
+  });
+  test('本地恢复读取失败保持原界面，下一次恢复可重试', () async {
+    final local = RestoringStore();
+    final updates = TopupUpdates(store: local);
+    try {
+      await updates.resume();
+      await updates.resume();
+      expect(local.reads, 2);
+    } finally {
+      await updates.close();
+    }
   });
 }

@@ -87,6 +87,7 @@ class TopupRecord {
     TopupReceipt? receipt,
     String? failureCode,
     bool clearFailure = false,
+    bool clearCheck = false,
   }) => TopupRecord(
     payment: payment,
     walletId: walletId,
@@ -100,7 +101,7 @@ class TopupRecord {
     proof: proof ?? this.proof,
     requestAt: requestAt ?? this.requestAt,
     checkCount: checkCount ?? this.checkCount,
-    checkAt: checkAt ?? this.checkAt,
+    checkAt: clearCheck ? null : checkAt ?? this.checkAt,
     receipt: receipt ?? this.receipt,
     failureCode: clearFailure ? failureCode : failureCode ?? this.failureCode,
   );
@@ -164,7 +165,7 @@ class TopupRecord {
           : TopupReceipt.fromJson(j['receipt'] as Map<String, dynamic>),
     );
     if (record.checkCount < 0 ||
-        record.checkCount > 11 ||
+        record.checkCount > 30 ||
         (record.checkCount == 0) != (record.checkAt == null) ||
         record.checkAt != null && record.checkAt! < payment.createdAt ||
         record.walletId != TopupWallet.id ||
@@ -415,17 +416,22 @@ class TopupStore {
                   jsonEncode(before.proof!.toJson())) &&
           (record.checkCount == before.checkCount &&
                   (record.checkAt == before.checkAt ||
-                      before.progress == TopupProgress.pending &&
-                          record.progress == TopupProgress.pending &&
+                      record.progress == before.progress &&
                           before.checkAt != null &&
                           record.checkAt != null &&
                           record.checkAt! >= before.checkAt!) ||
-              before.progress == TopupProgress.pending &&
-                  record.progress == TopupProgress.pending &&
+              record.progress == before.progress &&
+                  record.progress != TopupProgress.completed &&
+                  before.receipt?.sealed != true &&
                   record.checkCount == before.checkCount + 1 &&
                   record.checkAt != null &&
                   (before.checkAt == null ||
-                      record.checkAt! >= before.checkAt!)) &&
+                      record.checkAt! >= before.checkAt!) ||
+              before.progress == TopupProgress.pending &&
+                  record.progress == TopupProgress.paid &&
+                  record.isPaid &&
+                  record.checkCount == 0 &&
+                  record.checkAt == null) &&
           (before.requestAt == null || record.requestAt == before.requestAt) &&
           (before.receipt == null ||
               record.receipt != null &&
@@ -528,6 +534,8 @@ class TopupStore {
       payer: proof.payer,
       proof: proof,
       requestAt: DateTime.now().millisecondsSinceEpoch,
+      checkCount: 0,
+      clearCheck: true,
     );
     await save(paid, before: submitted);
     return PaidTopupOrder._(paid);

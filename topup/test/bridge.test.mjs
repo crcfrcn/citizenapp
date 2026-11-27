@@ -27,15 +27,15 @@ function deferred(){
  const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});
  return {promise,resolve,reject};
 }
-function scenario({session={sessionScopes:{}},connected=grant(base),send=async()=>hash,stored=new Map(),disconnect=async()=>{}}={}){
- const calls=[],links=[],submitted=[];
+function scenario({session={sessionScopes:{}},connected=grant(base),send=async()=>hash,stored=new Map(),disconnect=async()=>{},latePairing=false,connectLink=pair}={}){
+ const calls=[],links=[],stages=[],submitted=[];
  let count=0;
  const storage={adapter:{
   get:async key=>stored.get(key)??null,
   set:async(key,value)=>{stored.set(key,value);},
   delete:async key=>{stored.delete(key);}
  }};
- const wallet=api.createWalletSession({openLink:async url=>{links.push(url);}});
+ const wallet=api.createWalletSession({openLink:async(url,orderId,stage)=>{links.push(url);stages.push(stage);}});
  const ask=async(kind,value)=>{
   assert.equal(kind,'submitted');
   submitted.push(value);
@@ -52,19 +52,20 @@ function scenario({session={sessionScopes:{}},connected=grant(base),send=async()
     calls.push('connect');
     assert.deepEqual(JSON.parse(JSON.stringify(scopes)),Object.values(api.chains));
     assert.equal(accounts.length,0);
-    display(pair);
-    options.mobile.preferredOpenLink(pair);
+    display(connectLink);
+    options.mobile.preferredOpenLink(connectLink);
      session=await(typeof connected==='function'?connected():connected);
    },
    async disconnect(){calls.push('disconnect');await disconnect(options);session={sessionScopes:{}};},
     async invokeMethod(request){
     calls.push(JSON.parse(JSON.stringify(request)));
+    if(latePairing)display(pair);
     options.mobile.preferredOpenLink(wake);
     return send(request);
    }
   };
  };
- return {wallet,ask,createSdk,storage,stored,calls,links,submitted,get count(){return count;}};
+ return {wallet,ask,createSdk,storage,stored,calls,links,stages,submitted,get count(){return count;}};
 }
 const pay=(scenario,options={})=>api.paymentFlow({...scenario,transaction,selection:chosen,...options});
 
@@ -118,16 +119,24 @@ test('真实MWP授权、查询、签消息及其它请求仍在原60秒超时',a
  }
 });
 
-test('首连授权直接续付，配对与后续唤起只打开钱包一次',async()=>{
+test('首连授权和付款各唤起一次，同阶段重复回调不重复打开',async()=>{
  const p=scenario();
  const phases=[];
  assert.equal(await pay(p,{onPhase:value=>phases.push(value)}),hash);
- assert.deepEqual(p.links,[pair]);
+ assert.deepEqual(p.links,[pair,wake]);
  assert.deepEqual(p.calls,['connect',{
   scope:base,request:{method:'eth_sendTransaction',params:[{...transaction,from:payer}]}
  }]);
  assert.equal(p.submitted[0].transaction.data,data);
  assert.deepEqual(phases,['connect_requested','connect_resolved','connect_ready','transaction_requested','result_received']);
+});
+test('授权恢复和付款使用同一官方链接时，各阶段仍只唤起一次',async()=>{
+ const p=scenario({connectLink:wake});
+ assert.equal(await pay(p),hash);
+ assert.deepEqual(p.links,[wake,wake]);
+ assert.deepEqual(p.stages,['connect','payment']);
+ assert.equal(p.calls.filter(value=>typeof value==='object').length,1);
+ assert.equal(p.submitted.length,1);
 });
 test('已恢复授权的会话只唤起付款，连续两单复用客户端',async()=>{
  const p=scenario({session:grant(base)});
@@ -277,6 +286,7 @@ test('实际桥接消息绑定原订单，存储使用原生 MWP 命名空间',a
   await api.start(config,{createSdk});
   await api.start(config,{createSdk});
   assert.equal(calls,1);
+  assert.equal(messages.find(message=>message.kind==='wallet_link').stage,'payment');
   assert.deepEqual(messages.filter(message=>message.kind==='wallet_storage').map(message=>message.key),[...Array(3).fill('mwp/synthetic'),'mwp/reauthorize']);
   for(const kind of ['wallet_link','submitted']){
    const relevant=messages.filter(message=>message.kind===kind);
@@ -301,7 +311,7 @@ test('4100保留钱包码、原单不重发；下一单公开断开后沿原连�
  assert.equal(sent,2);
  assert.equal(p.stored.has('reauthorize'),false);
  assert.equal(p.calls.filter(v=>v==='connect').length,1);
- assert.deepEqual(p.links,[wake,pair]);
+ assert.deepEqual(p.links,[wake,pair,wake]);
 });
 test('重启仍持有标记：不接受旧缓存，重新授权取消后继续保留标记',async()=>{
  const stored=new Map([['reauthorize','1']]);
@@ -393,7 +403,7 @@ test('重新授权中的并发新单只共享一次授权，各单只付款一�
  consent.resolve(grant(base));
  assert.deepEqual(await Promise.all([first,second]),[hash,hash]);
  assert.equal(p.calls.filter(v=>typeof v==='object').length,2);
- assert.equal(p.links.length,2);
+ assert.deepEqual(p.links,[pair,wake,wake]);
 });
 test('公开断开失败不付款，下次用户操作可重试清理',async()=>{
  let attempts=0;
@@ -413,4 +423,11 @@ test('连接阶段4100也保留原始码与标记，不发起付款',async()=>{
  assert.deepEqual(p.calls,['connect','disconnect']);
  assert.equal(p.stored.get('reauthorize'),'1');
  assert.equal(p.submitted.length,0);
+});
+
+test('迟到授权链接不能吞掉原交易的付款唤起',async()=>{
+ const p=scenario({latePairing:true});
+ assert.equal(await pay(p),hash);
+ assert.deepEqual(p.links,[pair,wake]);
+ assert.equal(p.calls.filter(value=>typeof value==='object'&&value.request.method==='eth_sendTransaction').length,1);
 });

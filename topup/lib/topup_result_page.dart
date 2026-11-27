@@ -1,14 +1,16 @@
-// 展示本地充值明细快照，不发起网络读取或再次付款。
+// 展示原充值明细，仅可补充原付款定位并独立核验，不再次付款。
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:citizen_topup/topup_api.dart';
 import 'package:citizen_storage/user_isar.dart' show Entry;
 import 'package:citizen_system/theme/app_layout.dart';
 import 'package:citizen_wallet/history/record_format.dart';
 import 'package:citizen_topup/store.dart';
 
 /// 本地充值详情正文；原交易详情拥有行快照、变更监听、复制和删除。
-/// 无网络、定时器、钱包恢复或再次付款入口。
+/// 未知原单可补录交易哈希；输入不会直接改变支付状态。
 class TopupDetails extends StatelessWidget {
   const TopupDetails({super.key, required this.record, required this.row});
   final Entry record;
@@ -80,7 +82,35 @@ class TopupDetails extends StatelessWidget {
         row(context, label: '服务来源', value: order.origin),
         row(context, label: '创建时间', value: formatMillisFull(record.createdAt)),
         if (order.progress == TopupProgress.pending && order.checkCount > 0)
-          row(context, label: '付款验证', value: '${order.checkCount}/11轮'),
+          row(context, label: '付款验证', value: '${order.checkCount}/30轮'),
+        if (order.isPaid &&
+            order.receipt?.sealed != true &&
+            order.checkCount > 0)
+          row(context, label: '结果核验', value: '${order.checkCount}/30轮'),
+        if (order.progress == TopupProgress.pending &&
+            !order.terminal &&
+            order.txid == null &&
+            order.wire != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: OutlinedButton(
+              style: OutlinedButton.styleFrom(minimumSize: const Size(0, 48)),
+              onPressed: () async {
+                final updates = context.read<TopupUpdates>();
+                final found = await showDialog<bool>(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (_) =>
+                      _RecoverPayment(order: order, updates: updates),
+                );
+                if (found == true && context.mounted) {
+                  ScaffoldMessenger.of(context)
+                      .showSnackBar(const SnackBar(content: Text('原付款已进入核验')));
+                }
+              },
+              child: const Text('核验原付款'),
+            ),
+          ),
         if (order.requestAt != null)
           row(
             context,
@@ -122,4 +152,124 @@ class TopupDetails extends StatelessWidget {
       ],
     );
   }
+}
+
+/// 恢复只读原交易；错误就地显示，等待中禁止重复提交。
+class _RecoverPayment extends StatefulWidget {
+  const _RecoverPayment({required this.order, required this.updates});
+  final TopupRecord order;
+  final TopupUpdates updates;
+  @override
+  State<_RecoverPayment> createState() => _RecoverPaymentState();
+}
+
+class _RecoverPaymentState extends State<_RecoverPayment> {
+  final _input = TextEditingController();
+  final _form = GlobalKey<FormState>();
+  bool _busy = false;
+  String? _error;
+  @override
+  void dispose() {
+    _input.dispose();
+    super.dispose();
+  }
+
+  Future<void> _verify() async {
+    if (_busy || !_form.currentState!.validate()) {
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await widget.updates.recoverPayment(widget.order, _input.text);
+      if (mounted) {
+        Navigator.pop(context, true);
+      }
+    } on Object {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _error = '未能核实原付款，请核对交易哈希或稍后重试';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+    canPop: !_busy,
+    child: AlertDialog(
+      title: const Text('核验原付款'),
+      content: SingleChildScrollView(
+        child: Form(
+          key: _form,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('已在 MetaMask 付款但订单未更新时，填写原付款的交易哈希进行核验。'),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _input,
+                enabled: !_busy,
+                maxLength: 66,
+                minLines: 1,
+                maxLines: 2,
+                autocorrect: false,
+                enableSuggestions: false,
+                textInputAction: TextInputAction.done,
+                decoration: const InputDecoration(
+                  labelText: '交易哈希',
+                  hintText: '0x…',
+                  errorMaxLines: 3,
+                ),
+                validator: (value) =>
+                    RegExp(r'^0x[0-9a-fA-F]{64}$').hasMatch(value?.trim() ?? '')
+                    ? null
+                    : '请输入0x开头的64位交易哈希',
+                onFieldSubmitted: (_) => _verify(),
+              ),
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    _error!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
+          onPressed: _busy ? null : () => Navigator.pop(context, false),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
+          onPressed: _busy ? null : _verify,
+          child: _busy
+              ? const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    SizedBox(width: 8),
+                    Text('核验中'),
+                  ],
+                )
+              : const Text('核验'),
+        ),
+      ],
+    ),
+  );
 }

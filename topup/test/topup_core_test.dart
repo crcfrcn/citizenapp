@@ -7,6 +7,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:citizen_topup/topup_result_page.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:citizen_topup/topup_models.dart';
@@ -171,11 +174,9 @@ void main() {
     expect(lines.join(), isNot(contains('synthetic-private')));
   });
   test('配置指纹逐字匹配服务端公开12行规范，JSON/显示顺序不影响结果', () {
-    final fixture =
-        jsonDecode(
-              fixtureFile('citizen_topup', 'contract.json').readAsStringSync(),
-            )
-            as Map<String, dynamic>;
+    final fixture = jsonDecode(
+      fixtureFile('citizen_topup', 'contract.json').readAsStringSync(),
+    ) as Map<String, dynamic>;
     final value = TopupConfig.fromJson(
       fixture['config'] as Map<String, dynamic>,
     );
@@ -757,4 +758,85 @@ void _documentTests() {
       throwsFormatException,
     );
   });
+  testWidgets('核验原付款保留标签和就地校验，窄屏横屏及大字体可操作', (tester) async {
+    final draft = TopupDraft.create(
+      TopupSelection(
+        token: 'USDT',
+        package: TopupConfig.local().packageById('pkg_1'),
+        network: TopupNetwork.ethereum,
+      ),
+      '0x${'04' * 32}',
+    );
+    final signed = TopupRecord.signed(
+      draft,
+      TopupWallet.id,
+      '0x${'01' * 64}',
+      now: 1000000,
+    );
+    final original = signed.update(
+      wire: jsonEncode(erc20Transaction(signed.payment, signed.binding)),
+      failureCode: 'payment_unverified',
+    );
+    final entry = TopupStore.toEntry(original);
+    final updates = TopupUpdates();
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    try {
+      for (final size in [const Size(375, 812), const Size(812, 375)]) {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = size;
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: size.width > size.height
+                ? ThemeData.dark()
+                : ThemeData.light(),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context).copyWith(
+                textScaler: TextScaler.linear(2),
+                disableAnimations: true,
+              ),
+              child: child!,
+            ),
+            home: Provider<TopupUpdates>.value(
+              value: updates,
+              child: Scaffold(
+                body: TopupDetails(
+                  record: entry,
+                  row: (
+                    context, {
+                    required label,
+                    required value,
+                    bool copyable = false,
+                  }) => Text('$label：$value'),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.scrollUntilVisible(
+          find.text('核验原付款'),
+          200,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await tester.tap(find.text('核验原付款'));
+        await tester.pumpAndSettle();
+        expect(find.text('交易哈希'), findsOneWidget);
+        expect(
+          tester.getSize(find.byType(FilledButton)).height,
+          greaterThanOrEqualTo(48),
+        );
+        await tester.enterText(find.byType(TextFormField), 'invalid');
+        await tester.tap(find.text('核验'));
+        await tester.pumpAndSettle();
+        expect(find.text('请输入0x开头的64位交易哈希'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await tester.tap(find.text('取消'));
+        await tester.pumpAndSettle();
+      }
+    } finally {
+      await updates.close();
+    }
+  }, timeout: const Timeout(Duration(seconds: 30)));
 }

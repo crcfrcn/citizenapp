@@ -139,7 +139,7 @@ class _Payment {
   final bool Function() presenting;
   final completion = Completer<TopupRecord?>();
   bool dispatched = false, stopped = false, executionRequested = false;
-  Future<WalletLinkResult>? launch;
+  final launches = <String, Future<WalletLinkResult>>{};
 }
 
 class TopupWebviewPage extends StatefulWidget {
@@ -591,7 +591,7 @@ class _TopupWebviewPageState extends State<TopupWebviewPage>
     final payment = _payments[data['order_id']],
         record = _payments[data['order_id']]?.record;
     if (data['kind'] == 'wallet_link') {
-      final rawUrl = data['url'];
+      final rawUrl = data['url'], stage = data['stage'];
       if (payment == null ||
           record == null ||
           record.terminal ||
@@ -600,12 +600,17 @@ class _TopupWebviewPageState extends State<TopupWebviewPage>
           payment.stopped ||
           !payment.dispatched ||
           !payment.presenting() ||
-          rawUrl is! String) {
+          rawUrl is! String ||
+          !const {'connect', 'payment'}.contains(stage)) {
         AppLog.topupPhase('link_inactive');
         await _reply(id, error: '未能打开付款钱包');
         return;
       }
-      final result = await (payment.launch ??= _openWallet(rawUrl, payment));
+      // 按阶段去重：官方同一链接可能分别用于恢复授权和付款。
+      final result = await payment.launches.putIfAbsent(
+        stage as String,
+        () => _openWallet(rawUrl, payment),
+      );
       await _reply(
         id,
         error: result == WalletLinkResult.opened ? null : '未能打开付款钱包',

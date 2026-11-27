@@ -307,8 +307,7 @@ class TopupSelection {
 abstract final class TopupWallet {
   static const id = 'metamask';
   // MetaMask官方扩展app/images/logo/metamask-fox.svg，随包绘制，不请求远程图片。
-  static const logo =
-      r'''<svg width="35" height="34" viewBox="0 0 35 34" fill="none" xmlns="http://www.w3.org/2000/svg">
+  static const logo = r'''<svg width="35" height="34" viewBox="0 0 35 34" fill="none" xmlns="http://www.w3.org/2000/svg">
 <path d="M32.7077 32.7522L25.1688 30.5174L19.4833 33.9008L15.5167 33.8991L9.82793 30.5174L2.29225 32.7522L0 25.0489L2.29225 16.4993L0 9.27094L2.29225 0.312256L14.0674 7.31554H20.9326L32.7077 0.312256L35 9.27094L32.7077 16.4993L35 25.0489L32.7077 32.7522Z" fill="#FF5C16"/>
 <path d="M2.29395 0.312256L14.0691 7.32047L13.6008 12.1301L2.29395 0.312256Z" fill="#FF5C16"/>
 <path d="M9.82959 25.0522L15.0106 28.9811L9.82959 30.5175V25.0522Z" fill="#FF5C16"/>
@@ -691,20 +690,22 @@ class TopupReceipt {
         !states.contains(state) ||
         !chainStates.contains(value['chain_state']) ||
         value['order_rev'] is! int ||
-        (value['order_rev'] as int) < 0 ||
+        (value['order_rev'] as int) < 1 ||
+        (value['order_rev'] as int) > 9007199254740991 ||
         value['is_reused'] is! bool ||
-        value['result_ack'] is! bool ||
+        value['result_ack'] is! int ||
+        (value['result_ack'] as int) < 0 ||
+        (value['result_ack'] != 0 &&
+            (value['result_ack'] != value['order_rev'] || result == null)) ||
         value['auto_final'] != (state == 'paid' || state == 'exception') ||
         value['result_publickey'] is! String ||
-        !RegExp(
-          r'^0x[0-9a-f]{64}$',
-        ).hasMatch(value['result_publickey'] as String) ||
+        !RegExp(r'^0x[0-9a-f]{64}$')
+            .hasMatch(value['result_publickey'] as String) ||
         value['payment_txid'] is! String ||
         value['gmb_tx_hash'] != null &&
             (value['gmb_tx_hash'] is! String ||
-                !RegExp(
-                  r'^0x[0-9a-f]{64}$',
-                ).hasMatch(value['gmb_tx_hash'] as String)) ||
+                !RegExp(r'^0x[0-9a-f]{64}$')
+                    .hasMatch(value['gmb_tx_hash'] as String)) ||
         value['exception_reason'] != null &&
             value['exception_reason'] is! String ||
         (result == null) != (signature == null)) {
@@ -762,7 +763,7 @@ class TopupReceipt {
   }
 
   bool get sealed => _data['result'] != null;
-  bool get acknowledged => _data['result_ack'] == true;
+  bool get acknowledged => sealed && _data['result_ack'] == revision;
   String? get gmbTxHash => _data['gmb_tx_hash'] as String?;
   String? get resultSignature => _data['result_signature'] as String?;
   String get signedText {
@@ -838,7 +839,7 @@ class TopupReceipt {
       'exception_reason': result['exception_reason'],
       'auto_final': true,
       'chain_state': result['chain_state'],
-      'result_ack': prior.acknowledged,
+      'result_ack': prior._data['result_ack'],
       'result': result,
       'result_signature': payload['result_signature'],
     });
