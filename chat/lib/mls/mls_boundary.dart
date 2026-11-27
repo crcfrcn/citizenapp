@@ -1,6 +1,6 @@
 // 定义MLS身份、密钥包、线格式及受限认证请求的Dart边界。
 
-export 'package:citizen_network/mls_authentication.dart';
+export 'package:citizen_network/auth.dart' hide bytesToHex, hexToBytes;
 // 公民聊天 的 RFC 9420 MLS 边界模型。
 //
 // Dart 只传递身份、KeyPackage、MLS wire bytes和受限认证请求。签名唯一由

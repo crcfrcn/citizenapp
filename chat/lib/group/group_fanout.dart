@@ -3,7 +3,7 @@
 import 'package:chat/message/message_id.dart';
 import 'package:chat/mls/mls_group_boundary.dart';
 import 'package:chat/mls/mls_session.dart';
-import 'package:citizen_network/protocol/message.dart';
+import 'package:citizen_network/message.dart';
 
 /// 一份群 OpenMLS 密文按成员生成独立路由消息，密文绝不重复加密。
 final class GroupMessageFanout {

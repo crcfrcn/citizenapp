@@ -7,7 +7,7 @@ import 'dart:typed_data';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:citizen_network/protocol/chat_frame.pb.dart' as chat_protocol;
+import 'package:citizen_network/frame.dart' as chat_protocol;
 import 'package:citizen_user/identity/account_security_service.dart';
 import 'package:citizen_user/identity/square_session_provider.dart';
 import 'package:citizen_user/identity/identity_register_guide.dart';

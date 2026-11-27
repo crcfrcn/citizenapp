@@ -4,7 +4,7 @@ import 'package:chat/transport/attachment_transfer.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_user/square_api_client.dart';
 import 'package:chat/chat_error.dart';
-import 'package:citizen_network/mls_authentication.dart';
+import 'package:citizen_network/auth.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/mls/mls_boundary.dart';
 import 'package:citizen_testing/mls_test_env.dart';

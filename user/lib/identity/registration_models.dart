@@ -5,7 +5,7 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'dart:convert';
 
 import 'package:citizen_user/identity/identity_binding.dart';
-import 'package:citizen_network/citizen_serve_api_config.dart';
+import 'package:citizen_network/http.dart';
 
 class RegistrationException implements Exception {
   const RegistrationException(

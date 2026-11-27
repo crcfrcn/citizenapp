@@ -5,7 +5,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart' show ValueNotifier;
 
-import 'package:citizen_network/hex_codec.dart' show bytesToHex, hexToBytes;
+import 'package:citizen_network/auth.dart' show bytesToHex, hexToBytes;
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_sdk/test/platform/fixture.dart';
 import 'package:flutter_test/flutter_test.dart';

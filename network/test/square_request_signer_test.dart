@@ -1,6 +1,6 @@
 // 验证HTTPS请求证明的正文目标绑定、会话并发和关闭后的迟到拒绝。
 
-import 'package:citizen_network/citizen_serve_api_config.dart';
+import 'package:citizen_network/http.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -11,7 +11,6 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:citizen_user/identity/mls_authentication.dart';
 import 'package:citizen_user/square_api_client.dart';
-import 'package:citizen_network/square_request_signer.dart';
 import 'package:citizen_system/notifications/app_push_token.dart';
 
 import 'package:citizen_testing/mls_authentication_fixture.dart';

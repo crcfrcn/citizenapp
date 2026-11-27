@@ -4,7 +4,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
-import 'package:citizen_network/citizen_serve_api_config.dart';
+import 'package:citizen_network/http.dart';
 import 'package:citizen_user/identity/registration_models.dart';
 
 /// 默认Cloudflare核验；只确认当次通过，不创建任务、签发凭据或持久化令牌。

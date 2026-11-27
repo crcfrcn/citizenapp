@@ -8,8 +8,8 @@ import 'package:fake_async/fake_async.dart';
 import 'package:fixnum/fixnum.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/mls/mls_boundary.dart';
-import 'package:citizen_network/protocol/chat_frame.pb.dart';
-import 'package:citizen_network/protocol/message.dart';
+import 'package:citizen_network/frame.dart';
+import 'package:citizen_network/message.dart';
 import 'package:chat/transport/attachment_transfer.dart';
 import 'package:chat/transport/chat_connection.dart';
 

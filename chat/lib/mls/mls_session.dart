@@ -1,7 +1,7 @@
 // 表示MLS线消息和发送语义，接收类型交由OpenMLS判断。
 
 import 'package:fixnum/fixnum.dart';
-import 'package:citizen_network/protocol/message.dart';
+import 'package:citizen_network/message.dart';
 
 /// 发送端已知的 MLS wire 语义；接收端由 OpenMLS 解析真实类型。
 enum MlsMessageKind { welcome, commit, application, unknown }

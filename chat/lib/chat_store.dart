@@ -3,7 +3,7 @@
 import 'package:citizen_user/identity/identity_binding.dart';
 import 'package:chat/message/chat_message.dart';
 import 'package:chat/group/group_models.dart';
-import 'package:citizen_network/protocol/message.dart';
+import 'package:citizen_network/message.dart';
 import 'chat_models.dart';
 import 'dart:async';
 import 'dart:convert';

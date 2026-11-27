@@ -7,7 +7,7 @@ import 'dart:convert';
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/foundation.dart';
-import 'package:citizen_network/hex_codec.dart';
+import 'package:citizen_network/auth.dart';
 import 'package:citizen_user/identity/identity_binding.dart';
 import 'package:citizen_user/identity/public_identity_store.dart';
 import 'package:citizen_system/security/system_protected_storage.dart';

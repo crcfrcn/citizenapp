@@ -1,9 +1,7 @@
 // 发现云端登记订阅关系，连接创作者链状态及统计读取。
 
 import 'dart:convert';
-import 'package:citizen_network/citizen_serve_api_config.dart'
-    show HttpsOnlyClient;
-import 'package:citizen_network/square_request_signer.dart';
+import 'package:citizen_network/http.dart';
 import 'package:http/http.dart' as http;
 import 'package:citizen_user/square_api_client.dart'
     show SquareApiConfig, SquareSession;

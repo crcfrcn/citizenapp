@@ -8,8 +8,8 @@ class OnchainAssetActions {
   // ---------- pallet_index / call_index(与链端 + citizenwallet PalletRegistry 同步) ----------
 
   /// OnchainIssue pallet_index(单源 PalletRegistry,对齐 construct_runtime)。
-  static const int onchainIssuancePalletIndex =
-      PalletRegistry.onchainIssuancePallet;
+  static const int onchainIssuePalletIndex =
+      PalletRegistry.onchainIssuePallet;
 
   /// pallet_assets 内核 pallet_index(原生 extrinsic 全部被 RuntimeCallFilter reject)。
   static const int assetsPalletIndex = PalletRegistry.assetsPallet;

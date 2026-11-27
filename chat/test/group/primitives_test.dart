@@ -7,7 +7,7 @@ import 'package:chat/group/group_limits.dart';
 import 'package:chat/group/group_membership.dart';
 import 'package:chat/mls/mls_group_boundary.dart';
 import 'package:chat/mls/mls_session.dart';
-import 'package:citizen_network/protocol/message.dart';
+import 'package:citizen_network/message.dart';
 
 void main() {
   group('GroupMessageFanout', () {

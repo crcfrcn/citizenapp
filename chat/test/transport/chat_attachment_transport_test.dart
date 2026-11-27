@@ -5,7 +5,7 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:citizen_network/protocol/chat_frame.pb.dart';
+import 'package:citizen_network/frame.dart';
 import 'package:chat/transport/attachment_transfer.dart';
 import 'package:chat/transport/chat_connection.dart';
 

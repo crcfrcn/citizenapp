@@ -1,7 +1,7 @@
 // 以跨语言向量核对MLS设备登记SCALE和GMB操作域。
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:citizen_network/hex_codec.dart';
+import 'package:citizen_network/auth.dart';
 import 'package:citizen_user/identity/mls_device_binding.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 

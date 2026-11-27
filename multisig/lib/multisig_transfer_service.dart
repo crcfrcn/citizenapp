@@ -541,7 +541,7 @@ class MultisigTransferService {
       displayMeta = await fetchProposalDisplayId(proposalId);
     } catch (e) {
       // 展示号缺失不阻断主流程，但必须留痕，否则 RPC 故障会伪装成"无展示号"。
-      AppLog.d('[MultisigTransfer] fetchProposalDisplayId($proposalId) 失败: $e');
+      AppLog.d('[Multisig] fetchProposalDisplayId($proposalId) 失败: $e');
     }
 
     return ProposalMeta(
@@ -795,14 +795,14 @@ class MultisigTransferService {
         } catch (e) {
           // 查询失败必须留痕，否则与"确实不是安全基金提案"无法区分。
           onDetailFailure?.call(id);
-          AppLog.d('[MultisigTransfer] fetchSafetyFundAction($id) 失败: $e');
+          AppLog.d('[Multisig] fetchSafetyFundAction($id) 失败: $e');
         }
         if (safetyFundDetail == null) {
           try {
             sweepDetail = await fetchSweepAction(id, atRuntime: runtime);
           } catch (e) {
             onDetailFailure?.call(id);
-            AppLog.d('[MultisigTransfer] fetchSweepAction($id) 失败: $e');
+            AppLog.d('[Multisig] fetchSweepAction($id) 失败: $e');
           }
         }
       }
@@ -827,7 +827,7 @@ class MultisigTransferService {
             }
           }
         } catch (e) {
-          AppLog.d('[MultisigTransfer] 联合提案类型检测($id) 失败: $e');
+          AppLog.d('[Multisig] 联合提案类型检测($id) 失败: $e');
         }
       }
       results.add(
@@ -1063,7 +1063,7 @@ class MultisigTransferService {
     } catch (e) {
       // SCALE 解码失败必须留痕：runtime 升级布局变更时提案会"凭空消失"，
       // 没有日志就无从排查。
-      AppLog.d('[MultisigTransfer] 提案 $proposalId ProposalData 解码失败: $e');
+      AppLog.d('[Multisig] 提案 $proposalId ProposalData 解码失败: $e');
       return null;
     }
   }
@@ -1173,7 +1173,7 @@ class MultisigTransferService {
       );
     } catch (e) {
       // 字段级解码失败同样要留痕，与上层"提案不存在"区分开。
-      AppLog.d('[MultisigTransfer] 提案 $proposalId TransferAction 解码失败: $e');
+      AppLog.d('[Multisig] 提案 $proposalId TransferAction 解码失败: $e');
       return null;
     }
   }
@@ -1308,7 +1308,7 @@ class MultisigTransferService {
       );
     } catch (e) {
       // SCALE 解码失败必须留痕，与"确实不是安全基金提案"区分开。
-      AppLog.d('[MultisigTransfer] 提案 $proposalId SafetyFundAction 解码失败: $e');
+      AppLog.d('[Multisig] 提案 $proposalId SafetyFundAction 解码失败: $e');
       return null;
     }
   }
@@ -1352,7 +1352,7 @@ class MultisigTransferService {
       );
     } catch (e) {
       // SCALE 解码失败必须留痕，与"确实不是手续费划转提案"区分开。
-      AppLog.d('[MultisigTransfer] 提案 $proposalId SweepAction 解码失败: $e');
+      AppLog.d('[Multisig] 提案 $proposalId SweepAction 解码失败: $e');
       return null;
     }
   }

@@ -369,7 +369,7 @@ class AppLog {
             _ => 'other',
           };
     debugPrintSynchronously(
-      '[CitizenIdentity] stage=${stage == 'read' ? 'read' : 'sync'} '
+      '[Identity] stage=${stage == 'read' ? 'read' : 'sync'} '
       'state=${error == null ? 'ready' : 'failed'} elapsed_ms=${elapsed.inMilliseconds} code=$reason',
     );
   }

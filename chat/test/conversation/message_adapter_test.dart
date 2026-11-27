@@ -3,7 +3,7 @@
 import 'package:citizen_testing/chat_runtime_fixture.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:citizen_network/protocol/message.dart' as pb;
+import 'package:citizen_network/message.dart' as pb;
 import 'package:chat/chat.dart';
 
 const _aliceUserId = 'CN220-CTZN2-100000001-2026';

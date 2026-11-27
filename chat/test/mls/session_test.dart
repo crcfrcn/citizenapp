@@ -1,6 +1,6 @@
 // 验证早到密文持久去重及MLS状态目录保护和链接边界。
 
-import 'package:citizen_network/mls_authentication.dart';
+import 'package:citizen_network/auth.dart';
 
 import 'dart:io';
 

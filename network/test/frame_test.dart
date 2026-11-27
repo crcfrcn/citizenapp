@@ -2,9 +2,8 @@
 
 import 'package:fixnum/fixnum.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:citizen_network/protocol/chat_frame.pb.dart';
-import 'package:citizen_network/protocol/message.dart';
-import 'package:citizen_network/protocol/message.pb.dart';
+import 'package:citizen_network/frame.dart';
+import 'package:citizen_network/message.dart';
 
 void main() {
   test('邮箱进度按唯一Proto往返，空消息页也可继续', () {

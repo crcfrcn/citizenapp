@@ -116,7 +116,7 @@ void main() {
   }) => CitizenSystemEvent(
     eventIndex: index,
     extrinsicIndex: null,
-    pallet: 'FullnodeIssuance',
+    pallet: 'FullnodeIssue',
     name: 'FullnodeIssuanceIssued',
     fields: {
       'block': '$block',
@@ -209,7 +209,7 @@ void main() {
       CitizenSystemEvent(
         eventIndex: 9,
         extrinsicIndex: 0,
-        pallet: 'FullnodeIssuance',
+        pallet: 'FullnodeIssue',
         name: 'FullnodeIssuanceIssued',
         fields: reward(4).fields,
       ),
@@ -902,7 +902,7 @@ List<CitizenSystemEvent> _eventFacts({
 
   for (final note in ['合成备注', if (twice) '第二笔']) {
     add('Balances', 'Transfer', {'from': from, 'to': to, 'amount': '100'});
-    add('OnchainTransaction', 'TransferWithRemark', {
+    add('Onchain', 'TransferWithRemark', {
       'from_account_id': from,
       'beneficiary_account_id': to,
       'amount': '100',
@@ -911,7 +911,7 @@ List<CitizenSystemEvent> _eventFacts({
   }
   if (feeAmount != null) {
     for (var i = 0; i < (duplicateFee ? 2 : 1); i++) {
-      add('OnchainTransaction', 'FeePaid', {
+      add('Onchain', 'FeePaid', {
         'account_id': from,
         'fee': feeAmount.toString(),
       });

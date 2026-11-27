@@ -1,7 +1,7 @@
 // 定义聊天稳定错误和统一私信拒绝提示，限制异常携带敏感内容。
 
 import 'transport/attachment_transfer.dart';
-import 'package:citizen_network/mls_authentication.dart';
+import 'package:citizen_network/auth.dart';
 import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 

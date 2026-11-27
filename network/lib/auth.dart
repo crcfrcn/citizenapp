@@ -1,8 +1,10 @@
+// 集中定义设备身份、MLS认证、稳定错误及共用字节编码。
+
+import 'dart:typed_data';
+
 // 定义聊天设备身份、MLS请求证明、操作和稳定错误类型。
 
 /// 本机 Chat 设备身份。
-library;
-
 class ChatDevice {
   const ChatDevice({
     required this.userId,
@@ -362,4 +364,20 @@ String chatErrorMessage(Object error, {String fallback = '聊天暂时无法使�
     return '该群聊已不存在';
   }
   return fallback;
+}
+
+// 提供纯字节与十六进制文本转换。
+
+/// 纯字节编码，不生成、保存或使用任何密钥。
+String bytesToHex(List<int> bytes) =>
+    bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+
+Uint8List hexToBytes(String value) {
+  final text = value.startsWith('0x') ? value.substring(2) : value;
+  if (text.length.isOdd || !RegExp(r'^[0-9a-fA-F]*$').hasMatch(text)) {
+    throw const FormatException('十六进制字节格式无效');
+  }
+  return Uint8List.fromList(List<int>.generate(
+    text.length ~/ 2, (index) => int.parse(text.substring(index * 2, index * 2 + 2), radix: 16),
+  ));
 }

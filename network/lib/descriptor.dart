@@ -1,8 +1,4 @@
-// 提供聊天WSS帧、命令和回执的Protobuf JSON描述及二进制描述符。
-
-// This is a generated file - do not edit.
-//
-// Generated from chat_frame.proto.
+// 汇集现有Protobuf JSON及二进制描述符，保持全部协议描述字节原样。
 
 // @dart = 3.3
 
@@ -11,11 +7,144 @@
 // ignore_for_file: curly_braces_in_flow_control_structures
 // ignore_for_file: deprecated_member_use_from_same_package, library_prefixes
 // ignore_for_file: non_constant_identifier_names, prefer_relative_imports
-// ignore_for_file: unused_import
 
 import 'dart:convert' as $convert;
 import 'dart:core' as $core;
 import 'dart:typed_data' as $typed_data;
+
+@$core.Deprecated('Use attachmentChunkDescriptor instead')
+const AttachmentChunk$json = {
+  '1': 'AttachmentChunk',
+  '2': [
+    {'1': 'chunk_index', '3': 1, '4': 1, '5': 13, '10': 'chunkIndex'},
+    {'1': 'cipher_byte_size', '3': 2, '4': 1, '5': 4, '10': 'cipherByteSize'},
+    {'1': 'cipher_sha256', '3': 3, '4': 1, '5': 9, '10': 'cipherSha256'},
+  ],
+};
+
+/// Descriptor for `AttachmentChunk`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List attachmentChunkDescriptor = $convert.base64Decode(
+    'Cg9BdHRhY2htZW50Q2h1bmsSHwoLY2h1bmtfaW5kZXgYASABKA1SCmNodW5rSW5kZXgSKAoQY2'
+    'lwaGVyX2J5dGVfc2l6ZRgCIAEoBFIOY2lwaGVyQnl0ZVNpemUSIwoNY2lwaGVyX3NoYTI1NhgD'
+    'IAEoCVIMY2lwaGVyU2hhMjU2');
+
+@$core.Deprecated('Use attachmentMetadataDescriptor instead')
+const AttachmentMetadata$json = {
+  '1': 'AttachmentMetadata',
+  '2': [
+    {'1': 'attachment_id', '3': 1, '4': 1, '5': 9, '10': 'attachmentId'},
+    {'1': 'sender_user_id', '3': 2, '4': 1, '5': 9, '10': 'senderUserId'},
+    {
+      '1': 'recipient_user_ids',
+      '3': 3,
+      '4': 3,
+      '5': 9,
+      '10': 'recipientUserIds'
+    },
+    {
+      '1': 'chunks',
+      '3': 4,
+      '4': 3,
+      '5': 11,
+      '6': '.chat.protocol.AttachmentChunk',
+      '10': 'chunks'
+    },
+    {'1': 'cipher_byte_size', '3': 5, '4': 1, '5': 4, '10': 'cipherByteSize'},
+    {'1': 'cipher_sha256', '3': 6, '4': 1, '5': 9, '10': 'cipherSha256'},
+    {'1': 'created_at_millis', '3': 7, '4': 1, '5': 4, '10': 'createdAtMillis'},
+  ],
+};
+
+/// Descriptor for `AttachmentMetadata`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List attachmentMetadataDescriptor = $convert.base64Decode(
+    'ChJBdHRhY2htZW50TWV0YWRhdGESIwoNYXR0YWNobWVudF9pZBgBIAEoCVIMYXR0YWNobWVudE'
+    'lkEiQKDnNlbmRlcl91c2VyX2lkGAIgASgJUgxzZW5kZXJVc2VySWQSLAoScmVjaXBpZW50X3Vz'
+    'ZXJfaWRzGAMgAygJUhByZWNpcGllbnRVc2VySWRzEjYKBmNodW5rcxgEIAMoCzIeLmNoYXQucH'
+    'JvdG9jb2wuQXR0YWNobWVudENodW5rUgZjaHVua3MSKAoQY2lwaGVyX2J5dGVfc2l6ZRgFIAEo'
+    'BFIOY2lwaGVyQnl0ZVNpemUSIwoNY2lwaGVyX3NoYTI1NhgGIAEoCVIMY2lwaGVyU2hhMjU2Ei'
+    'oKEWNyZWF0ZWRfYXRfbWlsbGlzGAcgASgEUg9jcmVhdGVkQXRNaWxsaXM=');
+
+@$core.Deprecated('Use basicPayloadDescriptor instead')
+const BasicPayload$json = {
+  '1': 'BasicPayload',
+  '2': [
+    {
+      '1': 'text',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.chat.protocol.TextContent',
+      '9': 0,
+      '10': 'text'
+    },
+    {
+      '1': 'emoji',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.chat.protocol.EmojiContent',
+      '9': 0,
+      '10': 'emoji'
+    },
+    {
+      '1': 'sticker',
+      '3': 3,
+      '4': 1,
+      '5': 11,
+      '6': '.chat.protocol.StickerContent',
+      '9': 0,
+      '10': 'sticker'
+    },
+  ],
+  '8': [
+    {'1': 'content'},
+  ],
+};
+
+/// Descriptor for `BasicPayload`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List basicPayloadDescriptor = $convert.base64Decode(
+    'CgxCYXNpY1BheWxvYWQSMAoEdGV4dBgBIAEoCzIaLmNoYXQucHJvdG9jb2wuVGV4dENvbnRlbn'
+    'RIAFIEdGV4dBIzCgVlbW9qaRgCIAEoCzIbLmNoYXQucHJvdG9jb2wuRW1vamlDb250ZW50SABS'
+    'BWVtb2ppEjkKB3N0aWNrZXIYAyABKAsyHS5jaGF0LnByb3RvY29sLlN0aWNrZXJDb250ZW50SA'
+    'BSB3N0aWNrZXJCCQoHY29udGVudA==');
+
+@$core.Deprecated('Use textContentDescriptor instead')
+const TextContent$json = {
+  '1': 'TextContent',
+  '2': [
+    {'1': 'value', '3': 1, '4': 1, '5': 9, '10': 'value'},
+  ],
+};
+
+/// Descriptor for `TextContent`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List textContentDescriptor =
+    $convert.base64Decode('CgtUZXh0Q29udGVudBIUCgV2YWx1ZRgBIAEoCVIFdmFsdWU=');
+
+@$core.Deprecated('Use emojiContentDescriptor instead')
+const EmojiContent$json = {
+  '1': 'EmojiContent',
+  '2': [
+    {'1': 'value', '3': 1, '4': 1, '5': 9, '10': 'value'},
+  ],
+};
+
+/// Descriptor for `EmojiContent`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List emojiContentDescriptor =
+    $convert.base64Decode('CgxFbW9qaUNvbnRlbnQSFAoFdmFsdWUYASABKAlSBXZhbHVl');
+
+@$core.Deprecated('Use stickerContentDescriptor instead')
+const StickerContent$json = {
+  '1': 'StickerContent',
+  '2': [
+    {'1': 'pack_id', '3': 1, '4': 1, '5': 9, '10': 'packId'},
+    {'1': 'sticker_id', '3': 2, '4': 1, '5': 9, '10': 'stickerId'},
+  ],
+};
+
+/// Descriptor for `StickerContent`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List stickerContentDescriptor = $convert.base64Decode(
+    'Cg5TdGlja2VyQ29udGVudBIXCgdwYWNrX2lkGAEgASgJUgZwYWNrSWQSHQoKc3RpY2tlcl9pZB'
+    'gCIAEoCVIJc3RpY2tlcklk');
 
 @$core.Deprecated('Use chatFrameDescriptor instead')
 const ChatFrame$json = {
@@ -740,3 +869,219 @@ const RemovePush$json = {
 /// Descriptor for `RemovePush`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List removePushDescriptor = $convert
     .base64Decode('CgpSZW1vdmVQdXNoEhoKCHBsYXRmb3JtGAEgASgJUghwbGF0Zm9ybQ==');
+
+@$core.Deprecated('Use mediaDescriptorDescriptor instead')
+const MediaDescriptor$json = {
+  '1': 'MediaDescriptor',
+  '2': [
+    {'1': 'attachment_id', '3': 1, '4': 1, '5': 9, '10': 'attachmentId'},
+    {'1': 'file_name', '3': 2, '4': 1, '5': 9, '10': 'fileName'},
+    {'1': 'mime', '3': 3, '4': 1, '5': 9, '10': 'mime'},
+    {'1': 'byte_size', '3': 4, '4': 1, '5': 4, '10': 'byteSize'},
+    {'1': 'width', '3': 5, '4': 1, '5': 13, '10': 'width'},
+    {'1': 'height', '3': 6, '4': 1, '5': 13, '10': 'height'},
+    {'1': 'duration_ms', '3': 7, '4': 1, '5': 13, '10': 'durationMs'},
+    {'1': 'blurhash', '3': 8, '4': 1, '5': 9, '10': 'blurhash'},
+    {'1': 'cipher_byte_size', '3': 10, '4': 1, '5': 4, '10': 'cipherByteSize'},
+    {'1': 'cipher_sha256', '3': 11, '4': 1, '5': 12, '10': 'cipherSha256'},
+    {
+      '1': 'attachment_group_id',
+      '3': 12,
+      '4': 1,
+      '5': 9,
+      '10': 'attachmentGroupId'
+    },
+    {
+      '1': 'attachment_welcome',
+      '3': 13,
+      '4': 1,
+      '5': 12,
+      '10': 'attachmentWelcome'
+    },
+    {
+      '1': 'attachment_member_identities',
+      '3': 14,
+      '4': 3,
+      '5': 9,
+      '10': 'attachmentMemberIdentities'
+    },
+    {'1': 'sender_identity', '3': 15, '4': 1, '5': 9, '10': 'senderIdentity'},
+    {
+      '1': 'attachment_chunk_count',
+      '3': 16,
+      '4': 1,
+      '5': 13,
+      '10': 'attachmentChunkCount'
+    },
+    {'1': 'plain_sha256', '3': 17, '4': 1, '5': 12, '10': 'plainSha256'},
+    {
+      '1': 'attachment_chat_epoch',
+      '3': 18,
+      '4': 1,
+      '5': 4,
+      '10': 'attachmentChatEpoch'
+    },
+  ],
+  '9': [
+    {'1': 9, '2': 10},
+  ],
+};
+
+/// Descriptor for `MediaDescriptor`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List mediaDescriptorDescriptor = $convert.base64Decode(
+    'Cg9NZWRpYURlc2NyaXB0b3ISIwoNYXR0YWNobWVudF9pZBgBIAEoCVIMYXR0YWNobWVudElkEh'
+    'sKCWZpbGVfbmFtZRgCIAEoCVIIZmlsZU5hbWUSEgoEbWltZRgDIAEoCVIEbWltZRIbCglieXRl'
+    'X3NpemUYBCABKARSCGJ5dGVTaXplEhQKBXdpZHRoGAUgASgNUgV3aWR0aBIWCgZoZWlnaHQYBi'
+    'ABKA1SBmhlaWdodBIfCgtkdXJhdGlvbl9tcxgHIAEoDVIKZHVyYXRpb25NcxIaCghibHVyaGFz'
+    'aBgIIAEoCVIIYmx1cmhhc2gSKAoQY2lwaGVyX2J5dGVfc2l6ZRgKIAEoBFIOY2lwaGVyQnl0ZV'
+    'NpemUSIwoNY2lwaGVyX3NoYTI1NhgLIAEoDFIMY2lwaGVyU2hhMjU2Ei4KE2F0dGFjaG1lbnRf'
+    'Z3JvdXBfaWQYDCABKAlSEWF0dGFjaG1lbnRHcm91cElkEi0KEmF0dGFjaG1lbnRfd2VsY29tZR'
+    'gNIAEoDFIRYXR0YWNobWVudFdlbGNvbWUSQAocYXR0YWNobWVudF9tZW1iZXJfaWRlbnRpdGll'
+    'cxgOIAMoCVIaYXR0YWNobWVudE1lbWJlcklkZW50aXRpZXMSJwoPc2VuZGVyX2lkZW50aXR5GA'
+    '8gASgJUg5zZW5kZXJJZGVudGl0eRI0ChZhdHRhY2htZW50X2NodW5rX2NvdW50GBAgASgNUhRh'
+    'dHRhY2htZW50Q2h1bmtDb3VudBIhCgxwbGFpbl9zaGEyNTYYESABKAxSC3BsYWluU2hhMjU2Ej'
+    'IKFWF0dGFjaG1lbnRfY2hhdF9lcG9jaBgSIAEoBFITYXR0YWNobWVudENoYXRFcG9jaEoECAkQ'
+    'Cg==');
+
+@$core.Deprecated('Use mediaPayloadDescriptor instead')
+const MediaPayload$json = {
+  '1': 'MediaPayload',
+  '2': [
+    {
+      '1': 'image',
+      '3': 16,
+      '4': 1,
+      '5': 11,
+      '6': '.chat.protocol.MediaDescriptor',
+      '9': 0,
+      '10': 'image'
+    },
+    {
+      '1': 'video',
+      '3': 17,
+      '4': 1,
+      '5': 11,
+      '6': '.chat.protocol.MediaDescriptor',
+      '9': 0,
+      '10': 'video'
+    },
+    {
+      '1': 'file',
+      '3': 18,
+      '4': 1,
+      '5': 11,
+      '6': '.chat.protocol.MediaDescriptor',
+      '9': 0,
+      '10': 'file'
+    },
+    {
+      '1': 'audio',
+      '3': 19,
+      '4': 1,
+      '5': 11,
+      '6': '.chat.protocol.MediaDescriptor',
+      '9': 0,
+      '10': 'audio'
+    },
+  ],
+  '8': [
+    {'1': 'content'},
+  ],
+};
+
+/// Descriptor for `MediaPayload`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List mediaPayloadDescriptor = $convert.base64Decode(
+    'CgxNZWRpYVBheWxvYWQSNgoFaW1hZ2UYECABKAsyHi5jaGF0LnByb3RvY29sLk1lZGlhRGVzY3'
+    'JpcHRvckgAUgVpbWFnZRI2CgV2aWRlbxgRIAEoCzIeLmNoYXQucHJvdG9jb2wuTWVkaWFEZXNj'
+    'cmlwdG9ySABSBXZpZGVvEjQKBGZpbGUYEiABKAsyHi5jaGF0LnByb3RvY29sLk1lZGlhRGVzY3'
+    'JpcHRvckgAUgRmaWxlEjYKBWF1ZGlvGBMgASgLMh4uY2hhdC5wcm90b2NvbC5NZWRpYURlc2Ny'
+    'aXB0b3JIAFIFYXVkaW9CCQoHY29udGVudA==');
+
+@$core.Deprecated('Use recipientDescriptor instead')
+const Recipient$json = {
+  '1': 'Recipient',
+  '2': [
+    {'1': 'user_id', '3': 1, '4': 1, '5': 9, '10': 'userId'},
+    {'1': 'device_id', '3': 2, '4': 1, '5': 9, '10': 'deviceId'},
+  ],
+};
+
+/// Descriptor for `Recipient`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List recipientDescriptor = $convert.base64Decode(
+    'CglSZWNpcGllbnQSFwoHdXNlcl9pZBgBIAEoCVIGdXNlcklkEhsKCWRldmljZV9pZBgCIAEoCV'
+    'IIZGV2aWNlSWQ=');
+
+@$core.Deprecated('Use encryptedDeliveryDescriptor instead')
+const EncryptedDelivery$json = {
+  '1': 'EncryptedDelivery',
+  '2': [
+    {
+      '1': 'recipient',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.chat.protocol.Recipient',
+      '10': 'recipient'
+    },
+    {
+      '1': 'openmls_ciphertext',
+      '3': 2,
+      '4': 1,
+      '5': 12,
+      '10': 'openmlsCiphertext'
+    },
+  ],
+};
+
+/// Descriptor for `EncryptedDelivery`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List encryptedDeliveryDescriptor = $convert.base64Decode(
+    'ChFFbmNyeXB0ZWREZWxpdmVyeRI2CglyZWNpcGllbnQYASABKAsyGC5jaGF0LnByb3RvY29sLl'
+    'JlY2lwaWVudFIJcmVjaXBpZW50Ei0KEm9wZW5tbHNfY2lwaGVydGV4dBgCIAEoDFIRb3Blbm1s'
+    'c0NpcGhlcnRleHQ=');
+
+@$core.Deprecated('Use encryptedMessageDescriptor instead')
+const EncryptedMessage$json = {
+  '1': 'EncryptedMessage',
+  '2': [
+    {'1': 'message_id', '3': 1, '4': 1, '5': 9, '10': 'messageId'},
+    {'1': 'conversation_id', '3': 2, '4': 1, '5': 9, '10': 'conversationId'},
+    {'1': 'sender_user_id', '3': 3, '4': 1, '5': 9, '10': 'senderUserId'},
+    {'1': 'sender_device_id', '3': 4, '4': 1, '5': 9, '10': 'senderDeviceId'},
+    {
+      '1': 'deliveries',
+      '3': 5,
+      '4': 3,
+      '5': 11,
+      '6': '.chat.protocol.EncryptedDelivery',
+      '10': 'deliveries'
+    },
+    {'1': 'created_at_millis', '3': 6, '4': 1, '5': 4, '10': 'createdAtMillis'},
+    {'1': 'group_id', '3': 7, '4': 1, '5': 12, '10': 'groupId'},
+  ],
+};
+
+/// Descriptor for `EncryptedMessage`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List encryptedMessageDescriptor = $convert.base64Decode(
+    'ChBFbmNyeXB0ZWRNZXNzYWdlEh0KCm1lc3NhZ2VfaWQYASABKAlSCW1lc3NhZ2VJZBInCg9jb2'
+    '52ZXJzYXRpb25faWQYAiABKAlSDmNvbnZlcnNhdGlvbklkEiQKDnNlbmRlcl91c2VyX2lkGAMg'
+    'ASgJUgxzZW5kZXJVc2VySWQSKAoQc2VuZGVyX2RldmljZV9pZBgEIAEoCVIOc2VuZGVyRGV2aW'
+    'NlSWQSQAoKZGVsaXZlcmllcxgFIAMoCzIgLmNoYXQucHJvdG9jb2wuRW5jcnlwdGVkRGVsaXZl'
+    'cnlSCmRlbGl2ZXJpZXMSKgoRY3JlYXRlZF9hdF9taWxsaXMYBiABKARSD2NyZWF0ZWRBdE1pbG'
+    'xpcxIZCghncm91cF9pZBgHIAEoDFIHZ3JvdXBJZA==');
+
+@$core.Deprecated('Use chatRouteDescriptor instead')
+const ChatRoute$json = {
+  '1': 'ChatRoute',
+  '2': [
+    {'1': 'peer_user_id', '3': 1, '4': 1, '5': 9, '10': 'peerUserId'},
+    {'1': 'device_id', '3': 2, '4': 1, '5': 9, '10': 'deviceId'},
+    {'1': 'created_at_millis', '3': 3, '4': 1, '5': 4, '10': 'createdAtMillis'},
+    {'1': 'expires_at_millis', '3': 4, '4': 1, '5': 4, '10': 'expiresAtMillis'},
+  ],
+};
+
+/// Descriptor for `ChatRoute`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List chatRouteDescriptor = $convert.base64Decode(
+    'CglDaGF0Um91dGUSIAoMcGVlcl91c2VyX2lkGAEgASgJUgpwZWVyVXNlcklkEhsKCWRldmljZV'
+    '9pZBgCIAEoCVIIZGV2aWNlSWQSKgoRY3JlYXRlZF9hdF9taWxsaXMYAyABKARSD2NyZWF0ZWRB'
+    'dE1pbGxpcxIqChFleHBpcmVzX2F0X21pbGxpcxgEIAEoBFIPZXhwaXJlc0F0TWlsbGlz');

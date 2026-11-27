@@ -4,7 +4,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
-import 'package:citizen_network/citizen_serve_api_config.dart';
+import 'package:citizen_network/http.dart';
 import 'package:citizen_system/app_log.dart';
 import 'package:citizen_topup/topup_models.dart';
 import 'package:citizen_topup/topup_erc20.dart';

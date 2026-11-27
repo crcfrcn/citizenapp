@@ -53,7 +53,7 @@ Future<void> main() async {
   final contract = vectors['contract'] as Map<String, dynamic>;
   test('资产调用编号、动作与精度沿固定链合同，留洞不复用', () {
     expect(
-      OnchainAssetActions.onchainIssuancePalletIndex,
+      OnchainAssetActions.onchainIssuePalletIndex,
       contract['pallet_index'],
     );
     expect(

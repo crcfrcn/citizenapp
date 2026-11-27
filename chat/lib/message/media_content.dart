@@ -2,7 +2,7 @@
 
 import 'dart:convert';
 import 'package:fixnum/fixnum.dart';
-import 'package:citizen_network/protocol/media_content.pb.dart' as protocol;
+import 'package:citizen_network/content.dart' as protocol;
 
 enum MediaContentKind { image, video, file, audio }
 

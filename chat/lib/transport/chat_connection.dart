@@ -6,17 +6,17 @@ import 'package:citizen_user/identity/square_session_provider.dart';
 import 'package:citizen_user/membership/subscription_service.dart';
 import 'dart:io';
 import 'package:chat/mls/mls_boundary.dart';
-import 'package:citizen_network/protocol/chat_frame.pb.dart'
+import 'package:citizen_network/frame.dart'
     show ResourceUsage, ChatFrame;
 import 'package:chat/message/chat_message.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:fixnum/fixnum.dart' as fixnum;
-import 'package:citizen_network/protocol/attachment.pb.dart'
+import 'package:citizen_network/message.dart'
     as attachment_protocol;
-import 'package:citizen_network/protocol/chat_frame.pb.dart' as frame_protocol;
-import 'package:citizen_network/protocol/message.dart' as message_protocol;
+import 'package:citizen_network/frame.dart' as frame_protocol;
+import 'package:citizen_network/message.dart' as message_protocol;
 import 'attachment_transfer.dart';
 
 /// App签发的短期聊天许可。只接受完整WSS入口，Token只保存在内存中。

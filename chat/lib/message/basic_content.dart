@@ -3,7 +3,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:protobuf/protobuf.dart';
-import 'package:citizen_network/protocol/basic_content.pb.dart' as wire;
+import 'package:citizen_network/content.dart' as wire;
 
 /// 第一类消息的闭集，媒体、通话和扩展消息不得进入该结构。
 enum BasicContentKind { text, emoji, sticker }

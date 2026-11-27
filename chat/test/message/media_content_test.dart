@@ -2,7 +2,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chat/message/media_content.dart';
-import 'package:citizen_network/protocol/media_content.pb.dart' as protocol;
+import 'package:citizen_network/content.dart' as protocol;
 
 void main() {
   final sender = 'CID-A:${'11' * 32}';

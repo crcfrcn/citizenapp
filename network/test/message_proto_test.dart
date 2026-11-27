@@ -2,7 +2,7 @@
 
 import 'package:fixnum/fixnum.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:citizen_network/protocol/message.dart';
+import 'package:citizen_network/message.dart';
 
 void main() {
   test('EncryptedMessage 只往返端到端密文瞬时投递字段', () {

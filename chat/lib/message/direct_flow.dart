@@ -9,7 +9,7 @@ import 'package:chat/message/chat_content.dart';
 import 'package:chat/message/chat_message.dart';
 import 'package:chat/mls/mls_boundary.dart';
 import 'package:chat/mls/mls_group_boundary.dart';
-import 'package:citizen_network/protocol/message.dart';
+import 'package:citizen_network/message.dart';
 import 'package:chat/chat_store.dart';
 import 'package:chat/transport/chat_connection.dart';
 

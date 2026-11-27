@@ -8,7 +8,7 @@ import 'package:citizen_sdk/citizen_sdk.dart'
     show CitizenSdk, isCitizenAccountId, scaleTokenUnits;
 
 import 'package:crypto/crypto.dart';
-import 'package:citizen_network/citizen_serve_api_config.dart';
+import 'package:citizen_network/http.dart';
 
 /// 精确主网标识；会话批准的链列表不等于钱包的本次付款网络。
 enum TopupNetwork {

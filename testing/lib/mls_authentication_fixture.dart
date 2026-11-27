@@ -6,7 +6,7 @@ import 'package:citizen_user/square_api_client.dart';
 import 'package:crypto/crypto.dart';
 import 'package:chat/chat.dart' as chat;
 import 'package:citizen_user/identity/mls_authentication.dart';
-import 'package:citizen_network/square_request_signer.dart';
+import 'package:citizen_network/http.dart';
 
 const testMlsDeviceId =
     'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';

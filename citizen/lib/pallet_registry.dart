@@ -15,12 +15,12 @@ class PalletRegistry {
   static const int balancesPallet = 2;
 
   // ---- Identity (10) · 公民链上身份(匿名自助占号 / 换绑) ----
-  static const int citizenIdentityPallet = 10;
+  static const int identityPallet = 10;
   static const int selfOccupyCidCall = 5;
   static const int selfRebindCidAccountCall = 9;
 
   // ---- Multisig (17) ----
-  static const int multisigTransferPallet = 17;
+  static const int multisigPallet = 17;
 
   // ---- InternalVote (20) · 内部投票管理员一人一票 ----
   static const int internalVotePallet = 20;
@@ -32,7 +32,7 @@ class PalletRegistry {
 
   // ---- OnchainIssue (23) · 链上发行代币(Plain FT, ADR-011) ----
   // call_index 5..=9 / 15+ 留洞不复用(永久 ABI)。
-  static const int onchainIssuancePallet = 23;
+  static const int onchainIssuePallet = 23;
   static const int proposeIssueCall = 0;
   static const int proposeMintCall = 1;
   static const int proposeBurnCall = 2;
@@ -57,7 +57,7 @@ class PalletRegistry {
   static const int guardVoteCall = 5;
 
   // ---- Square (34) · 广场发帖 + 会员订阅价格治理 ----
-  static const int squarePostPallet = 34;
+  static const int squarePallet = 34;
   static const int publishPostCall = 0;
   static const int subscribeCall = 1;
   static const int cancelSubscriptionCall = 2;

@@ -117,11 +117,10 @@ export 'transport/attachment_transfer.dart';
 export 'transport/chat_connection.dart';
 
 export 'package:citizen_storage/chat_isar.dart';
-export 'package:citizen_network/mls_authentication.dart';
-export 'package:citizen_network/protocol/message.dart';
-export 'package:citizen_network/protocol/chat_frame.pb.dart';
-export 'package:citizen_network/protocol/basic_content.pb.dart';
-export 'package:citizen_network/protocol/basic_content.pbenum.dart';
+export 'package:citizen_network/auth.dart' hide bytesToHex, hexToBytes;
+export 'package:citizen_network/message.dart' hide AttachmentChunk, AttachmentMetadata;
+export 'package:citizen_network/frame.dart';
+export 'package:citizen_network/content.dart' hide MediaDescriptor, MediaPayload, MediaPayload_Content;
 export 'package:citizen_system/notifications/app_push_token.dart';
 part 'conversation/conversation_header.dart';
 part 'conversation/chat_tab.dart';

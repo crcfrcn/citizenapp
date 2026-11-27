@@ -2,7 +2,7 @@
 
 import 'dart:io';
 
-import 'package:citizen_network/protocol/message.dart';
+import 'package:citizen_network/message.dart';
 import 'package:fixnum/fixnum.dart';
 
 import 'mls_boundary.dart';

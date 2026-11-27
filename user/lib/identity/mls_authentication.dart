@@ -5,7 +5,7 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
-import 'package:citizen_network/mls_authentication.dart' as mls;
+import 'package:citizen_network/auth.dart' as mls;
 
 typedef MlsAccountBinding = ({String cidNumber, String accountId, int bindRev});
 

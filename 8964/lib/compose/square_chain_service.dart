@@ -212,7 +212,7 @@ class SquareChainService implements SquarePostChainPublisher {
     );
   }
 
-  static const int palletIndex = PalletRegistry.squarePostPallet;
+  static const int palletIndex = PalletRegistry.squarePallet;
   static const int publishPostCallIndex = PalletRegistry.publishPostCall;
   static const int maxPostIdBytes = 64;
   static const int maxStorageReceiptIdBytes = 96;

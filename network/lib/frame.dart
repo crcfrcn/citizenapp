@@ -1,8 +1,4 @@
-// 提供聊天WSS帧、命令和回执的Protobuf Dart模型和编解码。
-
-// This is a generated file - do not edit.
-//
-// Generated from chat_frame.proto.
+// 定义聊天WSS帧、命令和回执，复用合并后的消息模型；Protobuf声明保持原样。
 
 // @dart = 3.3
 
@@ -13,12 +9,9 @@
 // ignore_for_file: non_constant_identifier_names, prefer_relative_imports
 
 import 'dart:core' as $core;
-
 import 'package:fixnum/fixnum.dart' as $fixnum;
 import 'package:protobuf/protobuf.dart' as $pb;
-
-import 'attachment.pb.dart' as $1;
-import 'message.pb.dart' as $0;
+import 'message.dart' as $0;
 
 export 'package:protobuf/protobuf.dart' show GeneratedMessageGenericExtensions;
 
@@ -1948,7 +1941,7 @@ class SubmitCommit extends $pb.GeneratedMessage {
 
 class BeginAttachment extends $pb.GeneratedMessage {
   factory BeginAttachment({
-    $1.AttachmentMetadata? attachment,
+    $0.AttachmentMetadata? attachment,
   }) {
     final result = create();
     if (attachment != null) result.attachment = attachment;
@@ -1968,8 +1961,8 @@ class BeginAttachment extends $pb.GeneratedMessage {
       _omitMessageNames ? '' : 'BeginAttachment',
       package: const $pb.PackageName(_omitMessageNames ? '' : 'chat.protocol'),
       createEmptyInstance: create)
-    ..aOM<$1.AttachmentMetadata>(1, _omitFieldNames ? '' : 'attachment',
-        subBuilder: $1.AttachmentMetadata.create)
+    ..aOM<$0.AttachmentMetadata>(1, _omitFieldNames ? '' : 'attachment',
+        subBuilder: $0.AttachmentMetadata.create)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1992,15 +1985,15 @@ class BeginAttachment extends $pb.GeneratedMessage {
   static BeginAttachment? _defaultInstance;
 
   @$pb.TagNumber(1)
-  $1.AttachmentMetadata get attachment => $_getN(0);
+  $0.AttachmentMetadata get attachment => $_getN(0);
   @$pb.TagNumber(1)
-  set attachment($1.AttachmentMetadata value) => $_setField(1, value);
+  set attachment($0.AttachmentMetadata value) => $_setField(1, value);
   @$pb.TagNumber(1)
   $core.bool hasAttachment() => $_has(0);
   @$pb.TagNumber(1)
   void clearAttachment() => $_clearField(1);
   @$pb.TagNumber(1)
-  $1.AttachmentMetadata ensureAttachment() => $_ensure(0);
+  $0.AttachmentMetadata ensureAttachment() => $_ensure(0);
 }
 
 class CompleteAttachment extends $pb.GeneratedMessage {

@@ -16,8 +16,8 @@ import 'package:chat/mls/mls_boundary.dart';
 import 'package:chat/mls/mls_group_boundary.dart';
 import 'package:chat/transport/attachment_transfer.dart'
     show ChatConnectionException;
-import 'package:citizen_network/protocol/chat_frame.pb.dart' show SubmitCommit;
-import 'package:citizen_network/protocol/message.dart';
+import 'package:citizen_network/frame.dart' show SubmitCommit;
+import 'package:citizen_network/message.dart';
 import 'package:crypto/crypto.dart';
 import 'package:fixnum/fixnum.dart';
 import 'package:chat/chat_store.dart';

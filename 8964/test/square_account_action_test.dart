@@ -11,7 +11,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:citizen_user/square_api_client.dart';
 import 'package:citizen_user/identity/identity_binding.dart';
-import 'package:citizen_network/hex_codec.dart' show bytesToHex, hexToBytes;
+import 'package:citizen_network/auth.dart' show bytesToHex, hexToBytes;
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_user/identity/mls_authentication.dart';
 

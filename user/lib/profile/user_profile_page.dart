@@ -42,7 +42,7 @@ import 'package:citizen_user/membership/subscription_service.dart';
 import 'package:citizen_scanner/qr_sign_session_page.dart';
 import 'package:citizen_system/theme/app_theme.dart';
 import 'package:citizen_system/app_log.dart';
-import 'package:citizen_network/hex_codec.dart' show bytesToHex;
+import 'package:citizen_network/auth.dart' show bytesToHex;
 
 /// 推特式用户主页。
 ///

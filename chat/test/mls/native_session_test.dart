@@ -1,6 +1,6 @@
 // 验证MLS发送和接收中断后从原生持久状态恢复相同结果。
 
-import 'package:citizen_network/mls_authentication.dart';
+import 'package:citizen_network/auth.dart';
 
 import 'dart:convert';
 import 'dart:io';

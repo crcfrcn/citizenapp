@@ -19,7 +19,7 @@ import 'package:citizen_user/identity/cid_business_gate.dart';
 import 'package:citizen_user/identity/account_security_service.dart';
 import 'package:citizen_user/identity/identity_binding.dart';
 import 'package:citizen_user/identity/mls_authentication.dart';
-import 'package:citizen_network/mls_authentication.dart' as mls;
+import 'package:citizen_network/auth.dart' as mls;
 
 /// 页面建立 CitizenServe 会话后的互斥结果。
 ///

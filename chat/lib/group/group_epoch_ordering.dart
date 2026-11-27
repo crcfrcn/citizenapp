@@ -2,7 +2,7 @@
 
 import 'package:chat/mls/mls_group_boundary.dart';
 import 'package:chat/mls/mls_session.dart';
-import 'package:citizen_network/protocol/message.dart';
+import 'package:citizen_network/message.dart';
 
 // epoch 有序处理:乱序 Commit 缓冲 + 回放(纯逻辑,注入 process/buffer seam,可测)。
 //

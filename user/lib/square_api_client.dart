@@ -1,7 +1,7 @@
 // 以当前会话和请求证明访问公民服务API，严格解析业务响应和错误。
 
-import 'package:citizen_network/protocol/chat_frame.pb.dart' as wire;
-import 'package:citizen_network/citizen_serve_api_config.dart';
+import 'package:citizen_network/frame.dart' as wire;
+import 'package:citizen_network/http.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 
 import 'dart:async';
@@ -18,12 +18,11 @@ import 'package:citizen_square/post/square_models.dart';
 import 'package:citizen_user/profile/citizen_profile.dart';
 import 'package:citizen_user/profile/citizen_profile_cache.dart';
 import 'package:citizen_square/post/square_post_store.dart';
-import 'package:citizen_network/hex_codec.dart' show bytesToHex, hexToBytes;
+import 'package:citizen_network/auth.dart' show bytesToHex, hexToBytes;
 import 'package:citizen_user/identity/mls_authentication.dart';
 import 'package:citizen_user/identity/identity_binding.dart';
-import 'package:citizen_network/mls_authentication.dart' as mls;
+import 'package:citizen_network/auth.dart' as mls;
 import 'package:crypto/crypto.dart' show sha256;
-import 'package:citizen_network/square_request_signer.dart';
 import 'package:citizen_system/notifications/app_push_token.dart';
 
 /// 仅记录产品固定请求阶段，禁止将URL、账户或请求正文当成诊断字段。

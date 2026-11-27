@@ -25,7 +25,7 @@ import 'package:citizen_square/post/square_models.dart';
 import 'package:citizen_square/article/square_article_card.dart';
 import 'package:citizen_square/media/square_media_grid.dart';
 import 'package:citizen_square/post/square_post_card.dart';
-import 'package:citizen_network/citizen_serve_api_config.dart';
+import 'package:citizen_network/http.dart';
 
 import 'package:citizen_testing/platform_input.dart';
 
