@@ -1,3 +1,5 @@
+# 声明公民治理包身份、工作区归属及现有依赖。
+
 name: citizen_citizen
 description: 公民Appcitizen包。
 publish_to: none

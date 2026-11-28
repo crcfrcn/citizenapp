@@ -4,13 +4,15 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:chat/message/content.dart';
+import 'package:chat/mls/attachment.dart';
+import 'package:chat/mls/native.dart';
+import 'package:chat/mls/protocol.dart';
+import 'package:chat/mls/store.dart';
+import 'package:citizen_testing/chat/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:chat/message/chat_content.dart';
-import 'package:chat/mls/mls_attachment.dart';
-import 'package:chat/mls/mls_boundary.dart';
-import 'package:chat/mls/mls_bindings.dart';
-import 'package:chat/mls/mls_state_store.dart';
-import 'package:citizen_testing/mls_test_env.dart';
+
+// 以真实MLS验证多设备分块附件、持久确认及篡改和错序拒绝。
 
 void main() {
   requireMlsTestLibrary();
@@ -156,20 +158,22 @@ void main() {
       );
       await expectLater(seal(a.attachment(state: hooked)), throwsStateError);
       final prefix = await cipher.readAsBytes();
-      final nativeBefore = await a.store
-          .attachmentAction('attachment_progress', {
-            'group_id': MlsAttachment.groupId(
-              roster.firstWhere((m) => m.endsWith(a.identity.deviceId)),
-              'file-1',
-            ),
-          });
+      final nativeBefore = await a.store.attachmentAction(
+        'attachment_progress',
+        {
+          'group_id': MlsAttachment.groupId(
+            roster.firstWhere((m) => m.endsWith(a.identity.deviceId)),
+            'file-1',
+          ),
+        },
+      );
       expect(nativeBefore['next_chunk'], committed ? 1 : 0);
       final control = await seal(a.attachment());
       final complete = await cipher.readAsBytes();
       expect(complete.sublist(0, prefix.length), prefix);
-      final state =
-          jsonDecode(await File('${a.store.path}/state.bin').readAsString())
-              as Map;
+      final state = jsonDecode(
+        await File('${a.store.path}/state.bin').readAsString(),
+      ) as Map;
       expect(
         (state['results'] as Map).values.where(
           (v) => (v as Map)['request']['group_id'] == control.attachmentGroupId,

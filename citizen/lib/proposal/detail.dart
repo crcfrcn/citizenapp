@@ -1,0 +1,952 @@
+// 原机构管理提案详情。
+
+import 'package:citizen_system/format.dart';
+import 'package:citizen_sdk/citizen_sdk.dart';
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:citizen_system/log.dart';
+import 'package:flutter/services.dart';
+import 'package:citizen_citizen/institution/data.dart' show InstitutionInfo;
+import 'package:citizen_citizen/proposal/vote.dart' show InternalVoteService;
+import 'package:citizen_citizen/proposal/data.dart' show ProposalContext;
+import 'package:citizen_citizen/proposal/store.dart' show ProposalDetailLocalStore, ProposalDetailSnapshot;
+import 'package:citizen_citizen/proposal/vote.dart' show ProposalAdminVoteList, ProposalStatusBadge, ProposalVoteActions, ProposalVoteProgress;
+import 'package:citizen_citizen/proposal/service.dart' show ProposalQueryService, proposalReadStage, readProposalBlock;
+import 'package:citizen_citizen/proposal/data.dart' show EligibleVoterTicket;
+import 'package:citizen_scanner/sign.dart';
+import 'package:citizen_system/theme.dart';
+import 'package:citizen_citizen/institution/data.dart' as institution_models show InstitutionChangeInfo, InstitutionProposalInfo;
+import 'package:citizen_citizen/institution/service.dart' show InstitutionChainService;
+
+// 展示多签账户管理提案详情、计票和当前可用投票动作。
+
+/// 机构管理提案详情页：展示关闭、岗位任职、账户新增及政策内容和原投票进度。
+class MultisigProposalDetailPage extends StatefulWidget {
+  const MultisigProposalDetailPage({
+    super.key,
+    required this.institution,
+    required this.proposalId,
+    required this.proposalContext,
+    this.resolveVoteContext,
+  });
+
+  final InstitutionInfo institution;
+  final BigInt proposalId;
+  final ProposalContext proposalContext;
+  final Future<ProposalContext> Function()? resolveVoteContext;
+
+  List<CitizenWalletStateAccount> get adminWallets =>
+      proposalContext.adminWallets;
+
+  @override
+  State<MultisigProposalDetailPage> createState() =>
+      _MultisigProposalDetailPageState();
+}
+
+class _MultisigProposalDetailPageState
+    extends State<MultisigProposalDetailPage> {
+  static const int _statusVoting = 0;
+
+  ProposalContext? _verifiedVoteContext;
+  ProposalContext get _proposalContext =>
+      _verifiedVoteContext ?? widget.proposalContext;
+  List<CitizenWalletStateAccount> get _voteWallets =>
+      _proposalContext.adminWallets;
+  StreamSubscription<Set<BigInt>>? _localUpdates;
+  bool _preparingVote = false;
+
+  Future<void> _readLocalDetail() async {
+    final snapshot = await _applyLocalSnapshot();
+    if (!mounted || snapshot != null) return;
+    setState(() {
+      _loading = false;
+      _error = '该提案的本机记录已不可用';
+    });
+  }
+
+  final ProposalDetailLocalStore _detailStore =
+      ProposalDetailLocalStore.instance;
+  final InstitutionChainService _manageService = InstitutionChainService();
+  bool _dependenciesReady = false;
+  int _generation = 0;
+  Future<void>? _loadFlight;
+  final Completer<void> _closed = Completer<void>();
+  bool _ticketsReady = false;
+  bool _hasDetails = false;
+  bool _isCurrent(int generation) => mounted && generation == _generation;
+
+  bool _loading = true;
+  String? _error;
+  bool _submitting = false;
+
+  int? _status;
+
+  // 冻结业务详情只供审阅；实际投票仍重读原票据和当前身份绑定。
+  institution_models.InstitutionProposalInfo? _institutionInfo;
+
+  // 投票计数
+  int _yesCount = 0;
+  int _noCount = 0;
+  int _threshold = 0;
+
+  // 提案创建时冻结的合格选民与投票记录；机构路径来自岗位快照。
+  List<String> _admins = const [];
+  Map<String, bool?> _adminVotes = {};
+  List<EligibleVoterTicket> _voterTickets = const [];
+
+  List<CitizenWalletStateAccount> _votableWallets = const [];
+  CitizenWalletStateAccount? _selectedVoteWallet;
+  String? _voteNotice;
+  bool _voteNoticeIsError = false;
+
+  @override
+  void initState() {
+    super.initState();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_dependenciesReady) return;
+    _dependenciesReady = true;
+    if (widget.resolveVoteContext == null) {
+      _load();
+    } else {
+      _localUpdates = _detailStore.changes.listen((ids) {
+        if (ids.contains(widget.proposalId) &&
+            mounted &&
+            !_submitting &&
+            !_preparingVote) {
+          _verifiedVoteContext = null;
+          unawaited(_readLocalDetail());
+        }
+      });
+      unawaited(_readLocalDetail());
+    }
+  }
+
+  @override
+  void dispose() {
+    unawaited(_localUpdates?.cancel());
+    ++_generation;
+    _closed.complete();
+    super.dispose();
+  }
+
+  Future<void> _load({bool showSpinner = true, bool verifyDetails = false}) {
+    final pending = _loadFlight;
+    if (pending != null) {
+      // 投票前的正文重验不能合并进只读缓存加载，须等它结束后另读最终块。
+      return verifyDetails
+          ? pending.then(
+              (_) => mounted
+                  ? _load(showSpinner: showSpinner, verifyDetails: true)
+                  : Future<void>.value(),
+            )
+          : pending;
+    }
+    final generation = ++_generation;
+    late final Future<void> task;
+    task =
+        _readDetails(
+          generation,
+          showSpinner: showSpinner,
+          verifyDetails: verifyDetails,
+        ).whenComplete(() {
+          if (identical(_loadFlight, task)) _loadFlight = null;
+        });
+    _loadFlight = task;
+    return task;
+  }
+
+  Future<void> _readDetails(
+    int generation, {
+    required bool showSpinner,
+    required bool verifyDetails,
+  }) async {
+    if (!_isCurrent(generation)) return;
+    setState(() => _ticketsReady = false);
+
+    AppLog.d('[VoteDetail._load] 开始 proposalId=${widget.proposalId}');
+    ProposalDetailSnapshot? localSnapshot;
+    if (showSpinner) {
+      localSnapshot = await _applyLocalSnapshot();
+    }
+    if (!_isCurrent(generation)) return;
+    // 岗位票据包含 CID + 岗位码，旧的账户级本地详情快照不能作为投票资格真源；
+    // 即使缓存新鲜也继续读取链上 VotePlan/VoterSnapshot。
+
+    if (showSpinner && localSnapshot == null && !_hasDetails) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    } else if (mounted) {
+      setState(() => _error = null);
+    }
+
+    try {
+      if (!mounted) {
+        return;
+      }
+      final sdk = context.read<CitizenSdk>();
+      final block = await readProposalBlock(sdk, _closed.future);
+      if (block == null || !_isCurrent(generation)) return;
+      final reads = ProposalQueryService(chain: sdk, block: block);
+      // step1:并行加载合格选民快照、提案状态、投票计数、阈值快照。
+      // 机构资格只来自岗位有效选民快照，个人资格来自管理员快照；缺失或损坏
+      // 必须失败，禁止回落到当前 admins。
+      AppLog.d(
+        '[VoteDetail._load] step1: 并行 fetchSnapshot/Status/Tally/Threshold...',
+      );
+      final results = await Future.wait([
+        proposalReadStage(
+          'proposal_snapshot',
+          () => reads.fetchEligibleVoterTickets(
+            widget.proposalId,
+            widget.institution,
+            includeRoleNames: true,
+          ),
+        ),
+        proposalReadStage(
+          'proposal_status',
+          () => reads.fetchProposalStatus(widget.proposalId),
+        ),
+        proposalReadStage(
+          'proposal_tally',
+          () => reads.fetchVoteTally(widget.proposalId),
+        ),
+        proposalReadStage(
+          'proposal_threshold',
+          () => reads.fetchInternalThresholdSnapshot(widget.proposalId),
+        ),
+      ]);
+
+      final voterTickets = results[0] as List<EligibleVoterTicket>;
+      final admins = voterTickets
+          .map((ticket) => ticket.voterAccountId)
+          .whereType<String>()
+          .toSet()
+          .toList();
+      final status = results[1] as int?;
+      final tally = results[2] as ({int yes, int no});
+      final thresholdSnapshot = results[3] as int?;
+      final threshold = _resolveVoteThreshold(
+        thresholdSnapshot,
+        voterTickets.length,
+      );
+      AppLog.d(
+        '[VoteDetail._load] step1 完成 admins.len=${admins.length} status=$status yes=${tally.yes} no=${tally.no} threshold=$threshold',
+      );
+
+      final browseLocal = widget.resolveVoteContext != null && !verifyDetails;
+      final raw = browseLocal
+          ? null
+          : await proposalReadStage(
+              'proposal_details',
+              () => reads.fetchProposalData(widget.proposalId),
+            );
+      final institutionInfo = browseLocal
+          ? _institutionInfo
+          : raw == null
+          ? null
+          : _manageService.decodeManageProposalData(widget.proposalId, raw);
+      if (institutionInfo == null ||
+          institutionInfo.actorCidNumber != widget.institution.cidNumber) {
+        throw const FormatException('机构管理提案内容缺失、损坏或机构不匹配');
+      }
+
+      // step3:批量查询每张快照票据的投票记录，避免逐条 RPC。
+      AppLog.d('[VoteDetail._load] step3: 批量查岗位票据 (${voterTickets.length} 张)');
+      final votes = await proposalReadStage(
+        'proposal_votes',
+        () => reads.fetchTicketVotesBatch(widget.proposalId, voterTickets),
+      );
+      AppLog.d('[VoteDetail._load] step3 完成');
+
+      // 筛选可投票钱包
+      final votable = <CitizenWalletStateAccount>[];
+      for (final w in _voteWallets) {
+        final accountId = _requireAccountId(w.accountId);
+        final walletTickets = voterTickets.where(
+          (ticket) => ticket.voterAccountId == accountId,
+        );
+        if (walletTickets.any((ticket) => votes[ticket.ticketKey] == null)) {
+          votable.add(w);
+        }
+      }
+
+      if (!_isCurrent(generation)) {
+        AppLog.d('[VoteDetail._load] !mounted 提前返回');
+        return;
+      }
+      if (widget.resolveVoteContext == null) {
+        try {
+          await _detailStore.put(
+            _snapshotFromChain(
+              status: status,
+              tally: tally,
+              threshold: threshold,
+              admins: admins,
+              tickets: voterTickets,
+              votes: votes,
+              institutionInfo: institutionInfo,
+            ),
+          );
+        } catch (_) {
+          // 详情快照只是首屏加速，写入失败不能影响链上结果展示。
+        }
+      }
+      if (!_isCurrent(generation)) return;
+      AppLog.d('[VoteDetail._load] step5: setState');
+      setState(() {
+        _admins = admins;
+        _status = status;
+        _yesCount = tally.yes;
+        _noCount = tally.no;
+        _threshold = threshold;
+        _adminVotes = votes;
+        _voterTickets = voterTickets;
+        _votableWallets = votable;
+        _selectedVoteWallet = votable.isNotEmpty ? votable.first : null;
+        _institutionInfo = institutionInfo;
+        _loading = false;
+        _error = null;
+        _ticketsReady = true;
+        _hasDetails = true;
+      });
+      AppLog.d('[VoteDetail._load] 结束');
+    } on Object catch (error) {
+      AppLog.proposalFailure(stage: 'proposal_display', error: error);
+      if (!_isCurrent(generation)) return;
+      setState(() {
+        _ticketsReady = false;
+        _loading = false;
+        if (error is FormatException) {
+          _institutionInfo = null;
+          _hasDetails = false;
+          _error = '机构管理提案内容无效或机构不匹配';
+        } else if (!_hasDetails) {
+          _error = '提案链状态暂时不可用';
+        }
+      });
+      if (widget.resolveVoteContext != null) rethrow;
+    }
+  }
+
+  Future<ProposalDetailSnapshot?> _applyLocalSnapshot() async {
+    try {
+      final snapshot = await _detailStore.read(
+        'institution_multisig',
+        widget.proposalId,
+      );
+      if (snapshot == null || !mounted) return snapshot;
+      final tickets = snapshot.voterTickets;
+      if (tickets.isEmpty ||
+          tickets.any(
+            (ticket) =>
+                ticket.cidNumber != widget.institution.cidNumber ||
+                ticket.personCid == null,
+          )) {
+        return null;
+      }
+      final admins = tickets
+          .map((ticket) => ticket.voterAccountId)
+          .whereType<String>()
+          .toSet()
+          .toList();
+      final votable = <CitizenWalletStateAccount>[];
+      for (final w in _voteWallets) {
+        final accountId = _requireAccountId(w.accountId);
+        if (tickets.any(
+          (ticket) =>
+              ticket.voterAccountId == accountId &&
+              snapshot.adminVotes[ticket.ticketKey] == null,
+        )) {
+          votable.add(w);
+        }
+      }
+      final institutionInfo = _institutionInfoFromSnapshot(snapshot);
+      if (institutionInfo == null) {
+        return null;
+      }
+      setState(() {
+        _hasDetails = true;
+        _admins = admins;
+        _status = snapshot.status;
+        _yesCount = snapshot.yesCount;
+        _noCount = snapshot.noCount;
+        _threshold = snapshot.threshold ?? 0;
+        _adminVotes = snapshot.adminVotes;
+        _voterTickets = tickets;
+        _votableWallets = votable;
+        _selectedVoteWallet = votable.isNotEmpty ? votable.first : null;
+        _institutionInfo = institutionInfo;
+        _loading = false;
+        _error = null;
+      });
+      return snapshot;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  ProposalDetailSnapshot _snapshotFromChain({
+    required int? status,
+    required ({int yes, int no}) tally,
+    required int threshold,
+    required List<String> admins,
+    required List<EligibleVoterTicket> tickets,
+    required Map<String, bool?> votes,
+    required institution_models.InstitutionProposalInfo? institutionInfo,
+  }) {
+    return ProposalDetailSnapshot(
+      proposalId: widget.proposalId,
+      proposalKind: 'institution_multisig',
+      updatedAt: DateTime.now().millisecondsSinceEpoch,
+      status: status,
+      yesCount: tally.yes,
+      noCount: tally.no,
+      threshold: threshold,
+      admins: admins.map(_requireAccountId).toList(growable: false),
+      // 票据键包含CID和岗位码，不是钱包地址，必须按原键保存。
+      adminVotes: Map.of(votes),
+      pendingPublicKeys: const [],
+      extra: {'voter_tickets': ProposalDetailSnapshot.encodeTickets(tickets)},
+      detail: institutionInfo != null
+          ? _institutionInfoToJson(institutionInfo)
+          : const {},
+    );
+  }
+
+  Map<String, Object?> _institutionInfoToJson(
+    institution_models.InstitutionProposalInfo info,
+  ) => info.toJson();
+
+  institution_models.InstitutionProposalInfo? _institutionInfoFromSnapshot(
+    ProposalDetailSnapshot snapshot,
+  ) {
+    final info = institution_models.InstitutionProposalInfo.fromJson(
+      snapshot.proposalId,
+      snapshot.detail,
+    );
+    return info?.actorCidNumber == widget.institution.cidNumber ? info : null;
+  }
+
+  // ──── 工具方法 ────
+
+  String _truncateAddress(String address) {
+    if (address.length <= 14) return address;
+    return '${address.substring(0, 6)}...${address.substring(address.length - 6)}';
+  }
+
+  /// 阈值来自原提案快照；缺失时拒绝，不能以当前机构的新阈值补齐旧提案。
+  int _resolveVoteThreshold(int? snapshotThreshold, int tickets) {
+    if (snapshotThreshold == null ||
+        snapshotThreshold <= 0 ||
+        snapshotThreshold > tickets) {
+      throw const FormatException('原提案阈值快照缺失或损坏');
+    }
+    return snapshotThreshold;
+  }
+
+  // ──── 投票提交 ────
+
+  bool get _isCurrentUserAdmin => _proposalContext.isAdmin;
+
+  bool get _canVote {
+    if (!_ticketsReady || _institutionInfo == null) return false;
+    if (_selectedVoteWallet == null) return false;
+    if (_status != _statusVoting) return false;
+    return _votableWallets.isNotEmpty;
+  }
+
+  bool get _allVoted {
+    if (!_ticketsReady) return false;
+    if (_voteWallets.isEmpty) return false;
+    for (final w in _voteWallets) {
+      final accountId = _requireAccountId(w.accountId);
+      final tickets = _voterTickets.where(
+        (ticket) => ticket.voterAccountId == accountId,
+      );
+      if (tickets.any((ticket) => _adminVotes[ticket.ticketKey] == null)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  Future<EligibleVoterTicket?> _selectTicket(
+    List<EligibleVoterTicket> tickets,
+  ) async {
+    if (tickets.length == 1) return tickets.single;
+    return showDialog<EligibleVoterTicket>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('选择本次投票岗位'),
+        children: tickets
+            .map(
+              (ticket) => SimpleDialogOption(
+                onPressed: () => Navigator.pop(dialogContext, ticket),
+                child: Text(ticket.voterRoleCode ?? '个人多签管理员'),
+              ),
+            )
+            .toList(growable: false),
+      ),
+    );
+  }
+
+  Future<void> _submitVote(bool approve) async {
+    if (!_ticketsReady) return;
+    AppLog.d(
+      '[VoteDetail] _submitVote 开始 approve=$approve proposalId=${widget.proposalId}',
+    );
+    final wallet = _selectedVoteWallet;
+    if (wallet == null) {
+      AppLog.d('[VoteDetail] _submitVote 无可投钱包,直接 return');
+      return;
+    }
+    AppLog.d(
+      '[VoteDetail] 选中钱包 ${wallet.ss58Address} accountId=${wallet.accountId} isHot=${wallet.signMode == CitizenWalletSignMode.hot}',
+    );
+
+    setState(() => _submitting = true);
+
+    try {
+      final signerPublicKeyBytes = citizenAccountIdBytes(wallet.accountId);
+      final accountId = _requireAccountId(wallet.accountId);
+      final availableTickets = _voterTickets
+          .where(
+            (ticket) =>
+                ticket.voterAccountId == accountId &&
+                _adminVotes[ticket.ticketKey] == null,
+          )
+          .toList(growable: false);
+      if (availableTickets.isEmpty) {
+        throw StateError('当前钱包不在该提案的合格选民快照中，不能投票');
+      }
+      final ticket = await _selectTicket(availableTickets);
+      if (ticket == null) throw StateError('已取消选择投票岗位');
+      if (!mounted) return;
+      final sdk = context.read<CitizenSdk>();
+      final balance = await sdk.getAccountBalance(
+        accountId,
+        forceRefresh: true,
+      );
+      if (balance.freeFen <= BigInt.zero) {
+        throw StateError('当前投票钱包余额不足，无法支付链上投票手续费');
+      }
+
+      // 机构管理投票统一走 InternalVote::cast(20.0)，
+      // 由 runtime 的 InternalVoteExecutor 按 MODULE_TAG+ACTION 分派。
+      AppLog.d('[VoteDetail] 调 InternalVoteService.submit');
+      final result = await InternalVoteService(chain: sdk, transactions: sdk)
+          .submit(
+            proposalId: widget.proposalId,
+            approve: approve,
+            actorCidNumber: ticket.cidNumber,
+            voterRoleCode: ticket.voterRoleCode,
+            signerPublicKey: Uint8List.fromList(signerPublicKeyBytes),
+            externalSigning: (pending) => showCitizenSdkQrResponse(
+              context,
+              request: pending.qrRequest,
+              expiresAt: BigInt.from(
+                pending.expiresAt.millisecondsSinceEpoch ~/ 1000,
+              ),
+            ),
+          );
+      AppLog.d(
+        '[VoteDetail] submit 已入块 txHash=${result.txHash} nonce=${result.usedNonce} block=${result.blockHash}',
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _adminVotes[ticket.ticketKey] = approve;
+        _votableWallets = _votableWallets
+            .where((w) {
+              final accountId = _requireAccountId(w.accountId);
+              return _voterTickets.any(
+                (candidate) =>
+                    candidate.voterAccountId == accountId &&
+                    _adminVotes[candidate.ticketKey] == null,
+              );
+            })
+            .toList(growable: false);
+        _selectedVoteWallet = _votableWallets.isNotEmpty
+            ? _votableWallets.first
+            : null;
+        _voteNotice = '链上已确认该合格选民投票。';
+        _voteNoticeIsError = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('投票已由 runtime 确认：${_truncateAddress(result.txHash)}'),
+          backgroundColor: AppTheme.primaryDark,
+        ),
+      );
+
+      if (widget.resolveVoteContext == null) {
+        unawaited(_load());
+      }
+    } catch (e, st) {
+      AppLog.d('[VoteDetail] _submitVote catch 异常: $e\n$st');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('投票失败：$e'), backgroundColor: AppTheme.danger),
+      );
+    } finally {
+      AppLog.d('[VoteDetail] finally setState(_submitting=false)');
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  String _requireAccountId(String accountId) {
+    if (!isCitizenAccountId(accountId)) {
+      throw const FormatException('account_id 必须为小写 0x + 64 位十六进制');
+    }
+    return accountId;
+  }
+
+  Future<void> _confirmVote(bool approve) async {
+    final resolve = widget.resolveVoteContext;
+    if (_preparingVote || _submitting) return;
+    if (resolve != null) setState(() => _preparingVote = true);
+    try {
+      if (resolve != null) {
+        final verified = await resolve();
+        if (!mounted) return;
+        if (!verified.isAdmin) throw StateError('当前钱包没有投票资格');
+        _verifiedVoteContext = verified;
+        await _load(showSpinner: false, verifyDetails: true);
+        if (!mounted) return;
+        if (_error != null || !(_isCurrentUserAdmin && _canVote)) {
+          throw StateError(_error ?? '提案已停止投票或当前钱包没有未使用的投票票据');
+        }
+      }
+      if (resolve != null && ModalRoute.of(context)?.isCurrent != true) return;
+      final label = approve ? '赞成' : '反对';
+      final choices = resolve != null && _votableWallets.length > 1
+          ? _votableWallets
+          : const <CitizenWalletStateAccount>[];
+      var selected = _selectedVoteWallet;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, updateDialog) {
+            return AlertDialog(
+              title: Text('确认$label'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('确定要对此提案投"$label"票吗？投票后不可更改。'),
+                  if (choices.isNotEmpty)
+                    DropdownButton<int>(
+                      isExpanded: true,
+                      value: selected?.walletIndex,
+                      items: [
+                        for (final wallet in choices)
+                          DropdownMenuItem(
+                            value: wallet.walletIndex,
+                            child: Text(
+                              wallet.ss58Address,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: (index) => updateDialog(() {
+                        selected = choices.firstWhere(
+                          (wallet) => wallet.walletIndex == index,
+                        );
+                      }),
+                    ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('取消'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: Text(label),
+                ),
+              ],
+            );
+          },
+        ),
+      );
+      if (!mounted || confirmed != true) return;
+      if (resolve != null && ModalRoute.of(context)?.isCurrent != true) return;
+      _selectedVoteWallet = selected;
+      await _submitVote(approve);
+    } on Object catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('投票校验未通过：$error')));
+      }
+    } finally {
+      if (resolve != null && mounted) {
+        _verifiedVoteContext = null;
+        _ticketsReady = false;
+        await _readLocalDetail();
+        if (mounted) setState(() => _preparingVote = false);
+      }
+    }
+  }
+  // ──── 构建 UI ────
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: Text(
+          '提案详情',
+          style: TextStyle(
+            fontSize: AppLayout.scaled(context, 17),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        centerTitle: true,
+        backgroundColor: Colors.white,
+        foregroundColor: AppTheme.primaryDark,
+        elevation: 0,
+        scrolledUnderElevation: 0.5,
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+          ? _buildError()
+          : _buildContent(),
+      bottomNavigationBar:
+          !_loading &&
+              _error == null &&
+              _status == _statusVoting &&
+              (widget.resolveVoteContext != null || _isCurrentUserAdmin)
+          ? ProposalVoteActions(
+              votableWallets: _votableWallets,
+              selectedWallet: _selectedVoteWallet,
+              submitting: _submitting || _preparingVote,
+              canVote: widget.resolveVoteContext != null || _canVote,
+              allVoted: _allVoted,
+              onWalletChanged: (w) => setState(() => _selectedVoteWallet = w),
+              onVote: _confirmVote,
+            )
+          : null,
+    );
+  }
+
+  Widget _buildError() {
+    return Center(
+      child: Padding(
+        padding: EdgeInsets.all(AppLayout.scaledValue(24)),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.error_outline,
+              size: AppLayout.scaledValue(48),
+              color: AppTheme.danger,
+            ),
+            SizedBox(height: AppLayout.scaledValue(12)),
+            Text(
+              '加载失败',
+              style: TextStyle(
+                fontSize: AppLayout.scaledValue(16),
+                color: AppTheme.textSecondary,
+              ),
+            ),
+            SizedBox(height: AppLayout.scaledValue(6)),
+            Text(
+              _error!,
+              style: TextStyle(
+                fontSize: AppLayout.scaledValue(12),
+                color: AppTheme.textTertiary,
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 4,
+              overflow: TextOverflow.ellipsis,
+            ),
+            SizedBox(height: AppLayout.scaledValue(16)),
+            OutlinedButton(
+              onPressed: widget.resolveVoteContext == null
+                  ? _load
+                  : _readLocalDetail,
+              child: const Text('重试'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildContent() {
+    return RefreshIndicator(
+      onRefresh: () async {
+        if (widget.resolveVoteContext == null) {
+          await _load();
+        } else {
+          await _readLocalDetail();
+        }
+      },
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+        children: [
+          ProposalStatusBadge(status: _status, proposalId: widget.proposalId),
+          if (_voteNotice != null) ...[
+            SizedBox(height: AppLayout.scaledValue(12)),
+            _buildVoteNotice(),
+          ],
+          SizedBox(height: AppLayout.scaledValue(16)),
+          _buildProposalInfoCard(),
+          SizedBox(height: AppLayout.scaledValue(16)),
+          ProposalVoteProgress(
+            yesCount: _yesCount,
+            noCount: _noCount,
+            threshold: _threshold,
+          ),
+          SizedBox(height: AppLayout.scaledValue(16)),
+          ProposalAdminVoteList(
+            admins: _admins,
+            voterTickets: _voterTickets,
+            adminVotes: _adminVotes,
+            pendingPublicKeys: const {},
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVoteNotice() {
+    final color = _voteNoticeIsError ? AppTheme.danger : AppTheme.info;
+    return Container(
+      padding: EdgeInsets.all(AppLayout.scaledValue(12)),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(AppLayout.scaledValue(8)),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            _voteNoticeIsError ? Icons.error_outline : Icons.info_outline,
+            size: AppLayout.scaledValue(18),
+            color: color,
+          ),
+          SizedBox(width: AppLayout.scaledValue(8)),
+          Expanded(
+            child: Text(
+              _voteNotice!,
+              style: TextStyle(
+                fontSize: AppLayout.scaledValue(13),
+                color: color,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProposalInfoCard() {
+    return Card(
+      elevation: 0,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppLayout.scaledValue(12)),
+        side: const BorderSide(color: AppTheme.border),
+      ),
+      child: Padding(
+        padding: EdgeInsets.all(AppLayout.scaledValue(16)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              _institutionInfo?.title ?? '机构管理提案信息',
+              style: TextStyle(
+                fontSize: AppLayout.scaledValue(16),
+                fontWeight: FontWeight.w700,
+                color: AppTheme.primaryDark,
+              ),
+            ),
+            SizedBox(height: AppLayout.scaledValue(12)),
+            if (_institutionInfo != null) ..._buildInstitutionInfoRows(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildInstitutionInfoRows() {
+    final info = _institutionInfo!;
+    return [
+      _buildInfoRow('机构CID', formatIdentityCidText(info.actorCidNumber)),
+      for (final row in info.rows) ...[
+        Divider(height: AppLayout.scaledValue(20)),
+        _buildInfoRow(
+          row.label,
+          row.value,
+          onCopy: !row.copyable
+              ? null
+              : () {
+                  Clipboard.setData(ClipboardData(text: row.value));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('内容已复制'),
+                      duration: Duration(seconds: 1),
+                    ),
+                  );
+                },
+        ),
+      ],
+      if (info is institution_models.InstitutionChangeInfo && info.action == 5)
+        const Padding(
+          padding: EdgeInsets.only(top: 12),
+          child: Text('表决通过后仍须执行；业务完成以最终执行结果为准。'),
+        ),
+    ];
+  }
+
+  Widget _buildInfoRow(String label, String value, {VoidCallback? onCopy}) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: AppLayout.scaledValue(80),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: AppLayout.scaledValue(13),
+              color: AppTheme.textSecondary,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: TextStyle(
+              fontSize: AppLayout.scaledValue(13),
+              color: AppTheme.textPrimary,
+            ),
+          ),
+        ),
+        if (onCopy != null)
+          GestureDetector(
+            onTap: onCopy,
+            child: Icon(
+              Icons.copy,
+              size: AppLayout.scaledValue(16),
+              color: AppTheme.textTertiary,
+            ),
+          ),
+      ],
+    );
+  }
+
+  // ──── 工具 ────
+}

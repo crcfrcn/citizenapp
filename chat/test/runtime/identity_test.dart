@@ -1,17 +1,18 @@
 // 验证MLS证明字段、当前账户代次及关闭后不生成或交付旧身份。
 
-import 'package:citizen_network/auth.dart';
-import 'package:citizen_testing/chat_runtime_fixture.dart';
-
 import 'dart:async';
 import 'dart:io';
 
+import 'package:chat/mls/store.dart';
+import 'package:chat/runtime.dart';
+import 'package:chat/store.dart';
+import 'package:citizen_network/auth.dart';
+import 'package:citizen_testing/chat/native.dart';
+import 'package:citizen_testing/chat/runtime.dart';
 import 'package:crypto/crypto.dart' as crypto_hash;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:chat/mls/mls_state_store.dart';
-import 'package:chat/chat_runtime.dart';
-import 'package:chat/chat_store.dart';
-import 'package:citizen_testing/mls_test_env.dart';
+
+// 验证MLS证明字段、当前账户代次及关闭后不生成或交付旧身份。
 
 // 合同测试锁定 公民聊天 的中性身份、状态清理边界和脱敏错误码。
 void main() {

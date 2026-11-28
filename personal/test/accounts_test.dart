@@ -1,17 +1,17 @@
+// 个人多签accounts功能回归，保留迁入用例和断言。
+
 import 'package:citizen_personal/storage.dart';
-import 'package:citizen_storage/user_isar.dart';
-import 'package:citizen_storage/user_isar.dart' as wallet_store;
-import 'package:citizen_testing/fake_citizen_sdk.dart';
-import 'package:citizen_testing/isar_test_env.dart';
+import 'package:citizen_storage/user.dart';
+import 'package:citizen_storage/user.dart' as wallet_store;
+import 'package:citizen_testing/sdk.dart';
+import 'package:citizen_testing/database.dart';
 import 'package:isar_community/isar.dart';
 import 'package:provider/provider.dart';
 import 'chain_test.dart' show PersonalLifecycleFixture;
 import 'proposals_test.dart' show PersonalproposalhistoryserviceOfflineChain;
 import 'package:citizen_sdk/test/platform/fixture.dart';
-import 'package:citizen_citizen/proposal/proposal_registry.dart'
-    show ProposalKind;
+import 'package:citizen_citizen/proposal/data.dart' show ProposalKind;
 import 'package:citizen_sdk/citizen_sdk.dart';
-// 个人多签accounts功能回归，保留迁入用例和断言。
 
 import 'package:citizen_personal/accounts.dart';
 import 'package:citizen_personal/members.dart';

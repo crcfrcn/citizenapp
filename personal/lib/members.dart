@@ -3,11 +3,10 @@
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'dart:async';
 import 'dart:convert';
-import 'package:citizen_citizen/proposal/proposal_context.dart';
-import 'package:citizen_scanner/qr_sign_session_page.dart';
-import 'package:citizen_system/theme/app_layout.dart';
-import 'package:citizen_system/theme/app_theme.dart';
-import 'package:citizen_widgets/chain_balance_scope.dart';
+import 'package:citizen_citizen/proposal/data.dart' show ProposalRole;
+import 'package:citizen_scanner/sign.dart';
+import 'package:citizen_system/theme.dart';
+import 'package:citizen_widgets/balance.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';

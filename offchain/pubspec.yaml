@@ -1,3 +1,5 @@
+# 声明链下清算包身份、工作区归属及现有依赖。
+
 name: citizen_offchain
 description: 公民App链下交易包。
 publish_to: none

@@ -1,5 +1,7 @@
+# 声明钱包包身份、工作区归属及现有依赖。
+
 name: citizen_wallet
-description: 公民App钱包包：core、onboarding、account、history。
+description: 公民App钱包包：共用入口、账户、创建导入与交易记录。
 publish_to: none
 version: 1.0.0
 resolution: workspace

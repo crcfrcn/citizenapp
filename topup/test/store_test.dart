@@ -1,23 +1,23 @@
-// 验证原订单签后落库、付款真实性、回执恢复及防重复和删除边界。
+// 验证持久化、恢复及迟到结果隔离。
 
 import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
-
 import 'package:polkadart_keyring/polkadart_keyring.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizen_storage/user_isar.dart' as storage;
+import 'package:citizen_storage/user.dart' as storage;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:citizen_testing/isar_test_env.dart';
+import 'package:citizen_testing/database.dart';
 import 'package:citizen_testing/fixture.dart';
-import 'package:citizen_wallet/history/local_tx_store.dart';
+import 'package:citizen_wallet/history/store.dart' show LocalTxStore;
 import 'package:citizen_topup/store.dart';
-import 'package:citizen_topup/topup_models.dart';
-import 'package:citizen_topup/topup_api.dart';
-import 'package:citizen_topup/topup_erc20.dart';
+import 'package:citizen_topup/data.dart';
+import 'package:citizen_topup/api.dart';
+
+// 验证原订单签后落库、付款真实性、回执恢复及防重复和删除边界。
 
 // 真实存储计数端口：签后建单与完整付款请求在同一次保存中提交。
 class SigningStore extends TopupStore {

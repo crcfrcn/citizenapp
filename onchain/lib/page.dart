@@ -1,0 +1,1407 @@
+// 交易Tab、转账表单和确认交互。
+
+import 'package:citizen_system/format.dart';
+import 'package:citizen_widgets/balance.dart';
+import 'package:citizen_system/security/access.dart';
+import 'package:citizen_storage/user.dart' as wallet_store show Entry;
+import 'package:citizen_sdk/citizen_sdk.dart';
+import 'dart:async';
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:citizen_system/log.dart';
+import 'package:flutter_svg/flutter_svg.dart';
+import 'package:citizen_system/theme.dart';
+import 'package:citizen_widgets/progress.dart';
+import 'package:citizen_onchain/service.dart' show OnchainPaymentDraft, OnchainPaymentErrorCode, OnchainPaymentException, OnchainPaymentStep, OnchainRecipient, PaymentAccountSelection, onchainPaymentFailureText;
+import 'package:citizen_personal/accounts.dart';
+import 'package:citizen_onchain/service.dart' show OnchainPaymentService;
+import 'package:citizen_wallet/history/store.dart' show LocalTxStore;
+import 'package:citizen_wallet/history/service.dart' show WalletTransactionHistoryService;
+import 'package:citizen_wallet/history/service.dart' show TxAutoRefreshMixin;
+import 'package:citizen_storage/user.dart' hide Group;
+import 'package:citizen_scanner/sign.dart';
+import 'package:citizen_scanner/scan.dart';
+import 'package:citizen_user/context.dart' show ContactPickMode;
+import 'package:citizen_user/security.dart' show AccountSecurityService;
+import 'package:citizen_wallet/history/page.dart' show TransactionHistoryPage;
+
+// 展示交易表单，协调钱包或通讯录选择及SDK执行结果反馈。
+
+// 交易表单通过公开选择端口使用钱包和通讯录，不导入这两个包的页面。
+final class TransactionNavigation {
+  const TransactionNavigation({
+    required this.walletPicker,
+    required this.contactPicker,
+  });
+  final Widget Function() walletPicker;
+  final Widget Function(ContactPickMode mode) contactPicker;
+}
+
+/// 交易 Tab 页面。
+///
+/// 本页只负责交易页入口编排；链上支付主体仍由 onchain 模块渲染。
+/// 扫码收在收款地址输入框内（只填地址）；签名请求统一走「聊天 → 扫一扫」。
+class TransactionTabPage extends StatelessWidget {
+  const TransactionTabPage({
+    super.key,
+    this.currentWalletLoader,
+    this.localRecordsLoader,
+    this.balanceLoader,
+    this.contactPageBuilder,
+  });
+
+  /// 测试夹具可注入公开页面数据；正式 Tab 不传值并直接读取 CitizenSDK。
+  final OnchainCurrentWalletLoader? currentWalletLoader;
+  final OnchainLocalRecordsLoader? localRecordsLoader;
+  final Future<BigInt> Function(String accountId)? balanceLoader;
+  final OnchainContactPageBuilder? contactPageBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    return OnchainPaymentPanel(
+      // 交易 Tab 的页面标题由真实公民链状态取代；独立链上支付页仍保留自己的标题。
+      chainStatusInHeader: true,
+      currentWalletLoader: currentWalletLoader,
+      localRecordsLoader: localRecordsLoader,
+      balanceLoader: balanceLoader,
+      contactPageBuilder: contactPageBuilder,
+      extraEntriesBuilder: (context) => [
+        const PersonalAccountEntryCard(),
+        SizedBox(height: AppLayout.scaled(context, 12)),
+      ],
+    );
+  }
+}
+
+typedef OnchainPaymentExtraEntriesBuilder =
+    List<Widget> Function(BuildContext context);
+
+/// 交易表单四个输入框(收款地址 / 金额 / 币种 / 备注)共用的装饰。
+///
+/// [suffixIcon] 必须逐字段传入,不能写死进本函数 —— 只有收款地址需要扫码按钮,
+/// 写死会让金额、币种、备注也长出图标。
+///
+/// 提到类外是因为它不依赖任何实例状态,且「带 suffixIcon 的收款地址框必须与不带的
+/// 金额框等高」这条布局约束要由测试钉住:`isDense` 把内容高压到与 suffix 图标同高,
+/// 二者相等时输入框才不会被图标撑高。
+@visibleForTesting
+InputDecoration transactionFieldDecoration({
+  required String hintText,
+  Widget? suffixIcon,
+}) {
+  return InputDecoration(
+    hintText: hintText,
+    suffixIcon: suffixIcon,
+    filled: true,
+    fillColor: AppTheme.surfaceCard,
+    isDense: true,
+    contentPadding: EdgeInsets.symmetric(
+      horizontal: AppLayout.scaledValue(14),
+      vertical: AppLayout.scaledValue(14),
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+      borderSide: const BorderSide(color: AppTheme.border),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+      borderSide: const BorderSide(color: AppTheme.primary, width: 1.5),
+    ),
+    errorBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+      borderSide: const BorderSide(color: AppTheme.danger),
+    ),
+  );
+}
+
+/// 只接收本次prepared匹配的SDK记录；传输异常不能覆盖已核实的链上终态。
+@visibleForTesting
+({String message, bool succeeded})? onchainTransactionFeedback({
+  required OnchainPaymentStep step,
+  required CitizenTransactionHistoryRecord? record,
+  CitizenSdkErrorCode? errorCode,
+}) {
+  if (step == OnchainPaymentStep.preparation) return null;
+  if (record != null) {
+    return (
+      message: switch (record.status) {
+        CitizenTransactionHistoryStatus.finalizedSuccess =>
+          '交易已完成，tx=${record.transactionHash}',
+        CitizenTransactionHistoryStatus.finalizedFailed =>
+          '交易已最终失败，tx=${record.transactionHash}',
+        CitizenTransactionHistoryStatus.poolRejected =>
+          '交易池已拒绝，tx=${record.transactionHash}',
+        CitizenTransactionHistoryStatus.pending ||
+        CitizenTransactionHistoryStatus.inBlock => '交易结果待确认，请查看交易记录',
+      },
+      succeeded:
+          record.status == CitizenTransactionHistoryStatus.finalizedSuccess,
+    );
+  }
+  if (errorCode == null ||
+      const {
+        CitizenSdkErrorCode.network,
+        CitizenSdkErrorCode.unavailable,
+        CitizenSdkErrorCode.notReady,
+        CitizenSdkErrorCode.timeout,
+        CitizenSdkErrorCode.decode,
+      }.contains(errorCode)) {
+    return (message: '暂未取得交易确认结果，请查看交易记录', succeeded: false);
+  }
+  return null;
+}
+
+typedef OnchainWalletPicker = Future<PaymentAccountSelection?> Function();
+typedef OnchainCurrentWalletLoader =
+    Future<CitizenWalletStateAccount?> Function();
+typedef OnchainLocalRecordsLoader =
+    Future<List<wallet_store.Entry>> Function(String accountId, {int limit});
+typedef OnchainContactPageBuilder = Widget Function(ContactPickMode mode);
+
+class OnchainPaymentPage extends StatelessWidget {
+  const OnchainPaymentPage({
+    super.key,
+    this.initialToAddress,
+    this.initialRecipientCid,
+  });
+
+  /// 预填收款地址（从通讯录等入口跳转时使用）。
+  final String? initialToAddress;
+  final String? initialRecipientCid;
+
+  @override
+  Widget build(BuildContext context) {
+    return OnchainPaymentPanel(
+      title: '链上支付',
+      initialToAddress: initialToAddress,
+      initialRecipientCid: initialRecipientCid,
+    );
+  }
+}
+
+class OnchainPaymentPanel extends StatefulWidget {
+  const OnchainPaymentPanel({
+    super.key,
+    this.title,
+    this.chainStatusInHeader = false,
+    this.initialToAddress,
+    this.initialRecipientCid,
+    this.extraEntriesBuilder,
+    this.walletPicker,
+    this.currentWalletLoader,
+    this.localRecordsLoader,
+    this.paymentService,
+    this.balanceLoader,
+    this.contactPageBuilder,
+  }) : assert(chainStatusInHeader || title != null, '非交易 Tab 的链上支付面板必须提供标题');
+
+  final String? title;
+
+  /// 交易 Tab 将真实链状态放入原页面标题位置。
+  ///
+  /// 默认关闭；通讯录进入的独立“链上支付”页只保留标题，链状态在后台读取。
+  final bool chainStatusInHeader;
+
+  /// 预填收款地址（从通讯录等入口跳转时使用）。
+  final String? initialToAddress;
+  final String? initialRecipientCid;
+
+  /// 交易 Tab 可在顶栏链状态下方、链上支付表单上方插入入口。
+  /// onchain 模块不直接 import offchain / multisig，跨功能编排留在 ui 层。
+  final OnchainPaymentExtraEntriesBuilder? extraEntriesBuilder;
+
+  /// 默认打开我的钱包选择页；测试或宿主页面可替换选择流程。
+  final OnchainWalletPicker? walletPicker;
+
+  /// 默认读取当前激活钱包；测试可替换为内存钱包。
+  final OnchainCurrentWalletLoader? currentWalletLoader;
+
+  /// 默认读取本地流水；测试可替换为内存流水。
+  final OnchainLocalRecordsLoader? localRecordsLoader;
+
+  /// 测试可注入；生产直接使用 CitizenSDK 钱包构造同一服务。
+  final OnchainPaymentService? paymentService;
+  final Future<BigInt> Function(String accountId)? balanceLoader;
+
+  /// 测试只记录页面意图；正式运行固定打开现有通讯录页面。
+  final OnchainContactPageBuilder? contactPageBuilder;
+
+  @override
+  State<OnchainPaymentPanel> createState() => _OnchainPaymentPanelState();
+}
+
+class _OnchainPaymentPanelState extends State<OnchainPaymentPanel>
+    with TxAutoRefreshMixin<OnchainPaymentPanel> {
+  /// 链的 SS58 地址前缀。
+
+  OnchainPaymentService? _paymentService;
+  AccountSecurityService? _accountSecurity;
+  bool _dependenciesReady = false;
+  final TextEditingController _toController = TextEditingController();
+  final TextEditingController _amountController = TextEditingController();
+  final TextEditingController _remarkController = TextEditingController();
+  final FocusNode _toFocus = FocusNode();
+  final FocusNode _amountFocus = FocusNode();
+  final FocusNode _remarkFocus = FocusNode();
+  bool get _editingInput =>
+      _toFocus.hasFocus || _amountFocus.hasFocus || _remarkFocus.hasFocus;
+  void _onInputFocusChanged() {
+    if (mounted) setState(() {});
+  }
+
+  // CitizenChain 原生币在交易页统一展示为 GMB。
+  final String _selectedSymbol = 'GMB';
+
+  CitizenWalletStateAccount? _currentWallet;
+  // IndexedStack存活期间保留付款选择；重新启动按默认账户初始化，不写SDK身份或钱包选择。
+  String? _selectedAccountId;
+  CitizenBalanceState<CitizenAccountBalance>? _walletBalance;
+  BigInt _testBalance = BigInt.zero;
+  int _walletLoadGeneration = 0;
+  String get _balanceText {
+    if (widget.balanceLoader != null) {
+      return formatFen(_testBalance);
+    }
+    final value = _walletBalance?.value;
+    return value == null ? '—' : formatFen(value.freeFen);
+  }
+
+  bool _loadingWallet = true;
+  bool _submitting = false;
+  String? _recipientCid;
+  int _recipientGeneration = 0;
+  bool _resolvingRecipient = false;
+  String? _recipientError;
+  bool _checkingBalance = false;
+  CitizenChainSyncStatus? _chainProgress;
+  String? _chainProgressError;
+
+  /// 下拉刷新进行中：驱动连接状态栏 busy（触发轻节点连接即时重探）。
+  bool _refreshing = false;
+
+  /// 本地链上转账记录（用于状态行显示）。
+  List<wallet_store.Entry> _localTxRecords = [];
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialToAddress != null) {
+      _toController.text = widget.initialToAddress!;
+    }
+    _recipientCid = widget.initialRecipientCid;
+    _remarkController.addListener(_onRemarkChanged);
+    for (final node in [_toFocus, _amountFocus, _remarkFocus]) {
+      node.addListener(_onInputFocusChanged);
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_dependenciesReady) return;
+    if (widget.currentWalletLoader != null) {
+      _paymentService = widget.paymentService;
+      _dependenciesReady = true;
+      _bootstrap();
+      return;
+    }
+    final sdk = context.read<CitizenSdk>();
+    final accountSecurity = context.read<AccountSecurityService>();
+    _paymentService =
+        widget.paymentService ??
+        OnchainPaymentService(wallet: sdk, transactions: sdk, chain: sdk);
+    _accountSecurity = accountSecurity;
+    accountSecurity.revision.addListener(_onWalletsChanged);
+    _dependenciesReady = true;
+    _bootstrap();
+  }
+
+  @override
+  void dispose() {
+    unawaited(
+      stopTxAutoRefresh().catchError((Object error, StackTrace stackTrace) {
+        AppLog.d('[Transaction] 链上支付 watcher 停止失败: $error\n$stackTrace');
+      }),
+    );
+    _walletLoadGeneration += 1;
+    _accountSecurity?.revision.removeListener(_onWalletsChanged);
+    _remarkController.removeListener(_onRemarkChanged);
+    for (final node in [_toFocus, _amountFocus, _remarkFocus]) {
+      node.removeListener(_onInputFocusChanged);
+      node.dispose();
+    }
+    _toController.dispose();
+    _amountController.dispose();
+    _remarkController.dispose();
+    super.dispose();
+  }
+
+  void _onWalletsChanged() {
+    if (!mounted) return;
+    _reloadWalletAndLocalRecords();
+  }
+
+  void _onRemarkChanged() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  Future<void> _bootstrap() async {
+    await _reloadWalletAndLocalRecords();
+    // 交易终态由 CitizenSDK history 写入业务投影，列表经
+    // TxAutoRefreshMixin 响应式重刷，不定时盲刷也不轮询 nonce。
+  }
+
+  /// 从本地 Isar 加载链上转账记录。
+  Future<void> _loadLocalRecords({CitizenWalletStateAccount? wallet}) async {
+    final targetWallet = wallet ?? _currentWallet;
+    if (targetWallet == null) {
+      if (mounted && _localTxRecords.isNotEmpty) {
+        setState(() {
+          _localTxRecords = [];
+        });
+      }
+      return;
+    }
+    final targetAccountId = LocalTxStore.requireAccountId(
+      targetWallet.accountId,
+    );
+    try {
+      final records = await _queryLocalRecords(targetAccountId, limit: 100);
+      // 钱包流水不再保存 direction，支出由 amount_delta 的负号判断。
+      final filtered = records
+          .where(
+            (r) =>
+                r.entryKind == 'transfer' &&
+                BigInt.parse(r.amountDelta).isNegative,
+          )
+          .toList();
+      if (mounted) {
+        final currentAccountId = _accountIdOf(_currentWallet);
+        if (currentAccountId != targetAccountId) {
+          return;
+        }
+        setState(() {
+          _localTxRecords = filtered;
+        });
+      }
+    } catch (e) {
+      if (UserIsar.instance.isBusyError(e)) {
+        return;
+      }
+      AppLog.d('[链上交易] 加载本地记录失败: $e');
+    }
+  }
+
+  @override
+  Future<void> onTxRecordsChanged() => _loadLocalRecords();
+
+  String? _accountIdOf(CitizenWalletStateAccount? wallet) {
+    if (wallet == null) return null;
+    return LocalTxStore.requireAccountId(wallet.accountId);
+  }
+
+  Future<List<wallet_store.Entry>> _queryLocalRecords(
+    String accountId, {
+    int limit = 100,
+  }) {
+    final loader = widget.localRecordsLoader;
+    if (loader != null) {
+      return loader(accountId, limit: limit);
+    }
+    return LocalTxStore.queryByAccountId(accountId, limit: limit);
+  }
+
+  int _countByStatus(String status) {
+    return _localTxRecords.where((r) => r.entryState == status).length;
+  }
+
+  /// `inBlock` 只是未最终化的内部进度，界面与 `pending` 统一归为“待确认”。
+  int get _waitingCount => _localTxRecords
+      .where(
+        (record) =>
+            record.entryState == LocalTxStore.statusPending ||
+            record.entryState == LocalTxStore.statusInBlock,
+      )
+      .length;
+
+  Future<void> _reloadWallet() async {
+    final generation = ++_walletLoadGeneration;
+    CitizenWalletStateAccount? wallet;
+    CitizenBalanceState<CitizenAccountBalance>? balance;
+    var testBalance = BigInt.zero;
+    var accountValidated = false;
+    try {
+      final loader = widget.currentWalletLoader;
+      wallet = loader != null
+          ? await loader()
+          : await _paymentService!.getCurrentWallet(
+              accountId: _selectedAccountId,
+            );
+      if (!mounted || generation != _walletLoadGeneration) return;
+      if (wallet != null &&
+          _selectedAccountId != null &&
+          wallet.accountId != _selectedAccountId) {
+        throw const OnchainPaymentException(
+          OnchainPaymentErrorCode.walletMissing,
+          '付款账户已变化，请重新选择',
+        );
+      }
+      _selectedAccountId ??= wallet?.accountId;
+      accountValidated = true;
+      if (wallet != null) {
+        final injected = widget.balanceLoader;
+        if (injected != null) {
+          testBalance = await injected(wallet.accountId);
+        } else {
+          final store = context.read<CitizenSdk>().balances;
+          balance = store.accountState(wallet.accountId);
+        }
+      }
+    } catch (e, st) {
+      if (!accountValidated) wallet = null;
+      if (!UserIsar.instance.isBusyError(e)) {
+        AppLog.d('[链上交易] 当前钱包加载失败: $e\n$st');
+      }
+    }
+    if (!mounted || generation != _walletLoadGeneration) return;
+    final nextAccountId = _accountIdOf(wallet);
+    final changed = nextAccountId != _accountIdOf(_currentWallet);
+    _walletBalance = balance;
+    setState(() {
+      _currentWallet = wallet;
+      _testBalance = testBalance;
+      _loadingWallet = false;
+      if (changed) _localTxRecords = [];
+    });
+    startTxAutoRefresh(nextAccountId);
+  }
+
+  Future<BigInt> _loadFinalizedBalance(
+    String accountId, {
+    bool forceRefresh = false,
+  }) async {
+    final balance = await context.read<CitizenSdk>().getAccountBalance(
+      accountId,
+      forceRefresh: forceRefresh,
+    );
+    return balance.freeFen;
+  }
+
+  Future<void> _reloadWalletAndLocalRecords() async {
+    await _reloadWallet();
+    await _loadLocalRecords();
+  }
+
+  /// 下拉刷新：余额 + 本地交易记录重载；`_refreshing` 驱动链状态读取 busy →
+  /// 触发轻节点连接即时重探（ChainProgressBanner 内部 `_loadProgress`）。
+  Future<void> _onPullRefresh() async {
+    if (mounted) setState(() => _refreshing = true);
+    try {
+      await _reloadWalletAndLocalRecords();
+      if (!mounted) return;
+      final account = _currentWallet;
+      if (account != null && widget.balanceLoader == null) {
+        await context.read<CitizenSdk>().getAccountBalance(account.accountId);
+      }
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
+  }
+
+  Future<void> _openWalletTab() async {
+    _dismissKeyboard();
+    final picker = widget.walletPicker;
+    final navigator = Navigator.of(context);
+    final selected = picker != null
+        ? await picker()
+        : await navigator.push<PaymentAccountSelection>(
+            MaterialPageRoute(
+              builder: (_) =>
+                  context.read<TransactionNavigation>().walletPicker(),
+            ),
+          );
+    if (!mounted) {
+      return;
+    }
+    if (selected != null) {
+      _selectedAccountId = selected.accountId;
+      await _reloadWalletAndLocalRecords();
+    }
+  }
+
+  Future<void> _openContactsPage() async {
+    _dismissKeyboard();
+    const mode = ContactPickMode.pickForTransfer;
+    final cid = await Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(
+        builder: (_) =>
+            widget.contactPageBuilder?.call(mode) ??
+            context.read<TransactionNavigation>().contactPicker(mode),
+      ),
+    );
+    if (!mounted || cid == null) return;
+    await _resolveContact(cid);
+  }
+
+  // 联系人只传CID，地址必须来自当前已确认链绑定；迟到结果不能覆盖新输入。
+  Future<void> _resolveContact(String cid) async {
+    final generation = ++_recipientGeneration;
+    setState(() {
+      _toController.clear();
+      _recipientCid = cid;
+      _resolvingRecipient = true;
+      _recipientError = null;
+    });
+    try {
+      final service = _paymentService;
+      if (service == null) throw StateError('收款人链验证不可用');
+      final recipient = await service.resolveRecipient(
+        address: '',
+        cidNumber: cid,
+      );
+      if (!mounted || generation != _recipientGeneration) return;
+      setState(() => _toController.text = recipient.address);
+    } catch (_) {
+      if (!mounted || generation != _recipientGeneration) return;
+      setState(() => _recipientError = '无法读取收款人有效钱包账户，请重新选择或填写地址');
+    } finally {
+      if (mounted && generation == _recipientGeneration) {
+        setState(() => _resolvingRecipient = false);
+      }
+    }
+  }
+
+  void _clearRecipient() {
+    _recipientGeneration++;
+    _recipientCid = null;
+    _resolvingRecipient = false;
+    _recipientError = null;
+  }
+
+  Future<void> _submit() async {
+    final blockedReason = _submitBlockedReason;
+    if (blockedReason != null) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(blockedReason)));
+      }
+      return;
+    }
+    if (_loadingWallet) {
+      return;
+    }
+    if (_currentWallet == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请先创建或导入钱包')));
+      await _openWalletTab();
+      return;
+    }
+
+    final requestedAddress = _toController.text.trim();
+    final requestedCid = _recipientCid;
+    final symbol = _selectedSymbol;
+    final amountRaw = _amountController.text.trim();
+    if ((requestedCid == null && requestedAddress.isEmpty) ||
+        amountRaw.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请先选择收款人或填写收款地址，再填写金额')));
+      return;
+    }
+    final amountFen = parseFen(amountRaw);
+    if (amountFen == null ||
+        amountFen <= BigInt.zero ||
+        amountFen.bitLength > 128) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('金额格式不正确')));
+      return;
+    }
+    final remark = _remarkController.text;
+    final remarkBytes = utf8.encode(remark).length;
+    // 预估手续费，展示确认对话框
+    if (_checkingBalance) return;
+    final balanceAccountId = _currentWallet!.accountId;
+    setState(() => _checkingBalance = true);
+    final CitizenFeeSnapshot fees;
+    final BigInt balanceFen;
+    try {
+      balanceFen =
+          await (widget.balanceLoader?.call(balanceAccountId) ??
+              _loadFinalizedBalance(balanceAccountId, forceRefresh: true));
+      if (!mounted || _currentWallet?.accountId != balanceAccountId) return;
+      fees = await _paymentService!.quoteFee(amountFen);
+      final remarkLimit = remarkBytes == 0
+          ? 0
+          : await _paymentService!.readRemarkLimit(fees.bestBlock);
+      if (!mounted ||
+          _currentWallet?.accountId != balanceAccountId ||
+          _amountController.text.trim() != amountRaw ||
+          _remarkController.text != remark) {
+        return;
+      }
+      if (remarkBytes > remarkLimit) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('转账备注不能超过 $remarkLimit 字节，当前 $remarkBytes 字节'),
+          ),
+        );
+        return;
+      }
+      if (widget.balanceLoader != null) {
+        setState(() => _testBalance = balanceFen);
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('余额校验失败，请刷新后重试')));
+      }
+      return;
+    } finally {
+      if (mounted) setState(() => _checkingBalance = false);
+    }
+    final OnchainRecipient recipient;
+    setState(() => _checkingBalance = true);
+    try {
+      recipient = await _paymentService!.resolveRecipient(
+        address: requestedAddress,
+        cidNumber: requestedCid,
+      );
+      if (!mounted ||
+          _recipientCid != requestedCid ||
+          _toController.text.trim() != requestedAddress ||
+          _amountController.text.trim() != amountRaw ||
+          _remarkController.text != remark ||
+          _currentWallet?.accountId != balanceAccountId) {
+        return;
+      }
+    } on FormatException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
+      }
+      return;
+    } on Object {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('无法确认收款人当前账户，请重试')));
+      }
+      return;
+    } finally {
+      if (mounted) setState(() => _checkingBalance = false);
+    }
+    // 预填后发生换绑时先更新展示，必须由用户再次确认新的收款账户。
+    if (requestedCid != null &&
+        requestedAddress.isNotEmpty &&
+        recipient.address != requestedAddress) {
+      setState(() => _toController.text = recipient.address);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('收款人钱包绑定已变更，请核对新地址后重新确认')));
+      return;
+    }
+    final toAddress = recipient.address;
+    final feeFen =
+        fees.feeFen + (remark.isNotEmpty ? fees.FLAT_FEE : BigInt.zero);
+
+    // 余额校验：转账金额 + 手续费 ≤ 可用余额（余额 - ED）
+    final availableBalance = balanceFen - fees.existentialDepositFen;
+    if (amountFen + feeFen > availableBalance) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '余额不足，可用余额：${formatFen(availableBalance)} GMB'
+            '（已扣除 ED ${formatFen(fees.existentialDepositFen)} GMB）',
+          ),
+        ),
+      );
+      return;
+    }
+    // 收起焦点与软键盘:确认弹窗关闭时 Flutter 会把焦点还给之前的输入框、
+    // 误弹一次键盘(紧接着就是生物识别,键盘纯属多余)。进入确认流程即失焦,
+    // 弹窗关闭后无焦点可恢复,键盘不再弹。
+    FocusManager.instance.primaryFocus?.unfocus();
+    final payerName = _currentWallet!.name;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('确认交易'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('付款账户：$payerName'),
+            if (recipient.cidNumber != null)
+              Text('收款身份CID号：${formatIdentityCidText(recipient.cidNumber!)}'),
+            if (requestedCid == null && requestedAddress.startsWith('0x'))
+              Text('以太坊地址：$requestedAddress'),
+            Text('收款账户：${recipient.address}'),
+            Text('转账金额：${formatFen(amountFen)} $symbol'),
+            if (remark.isNotEmpty) ...[
+              SizedBox(height: AppLayout.scaledValue(4)),
+              Text('转账备注：$remark'),
+            ],
+            SizedBox(height: AppLayout.scaledValue(4)),
+            Text('预估手续费：${formatFen(feeFen)} $symbol'),
+            Divider(height: AppLayout.scaledValue(16)),
+            Text(
+              '合计：${formatFen(amountFen + feeFen)} $symbol',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('确认'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    if (!mounted) return;
+    if (_currentWallet?.accountId != balanceAccountId) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('付款账户已变化，请重新确认')));
+      return;
+    }
+
+    setState(() {
+      _submitting = true;
+    });
+    var paymentStep = OnchainPaymentStep.preparation;
+    CitizenTransactionHistoryRecord? observedRecord;
+    bool showReconciled([CitizenSdkErrorCode? code]) {
+      final feedback = onchainTransactionFeedback(
+        step: paymentStep,
+        record: observedRecord,
+        errorCode: code,
+      );
+      if (feedback == null) return false;
+      if (feedback.succeeded) _clearTransferForm();
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(feedback.message)));
+      return true;
+    }
+
+    try {
+      final wallet = _currentWallet!;
+      final sdk = context.read<CitizenSdk>();
+      final history = context.read<WalletTransactionHistoryService>();
+      final prepared = await _paymentService!.prepareTransfer(
+        OnchainPaymentDraft(
+          sourceAccountId: balanceAccountId,
+          toAddress: toAddress,
+          recipient: recipient,
+          amountFen: amountFen,
+          symbol: symbol,
+          remark: remark,
+        ),
+      );
+      if (!mounted || _currentWallet?.accountId != balanceAccountId) {
+        await sdk.cancelPreparedTransaction(prepared.preparationId);
+        throw const OnchainPaymentException(
+          OnchainPaymentErrorCode.walletMissing,
+          '付款账户已变化，请重新确认',
+        );
+      }
+      paymentStep = OnchainPaymentStep.execution;
+      final completed = await history.trackTransfer(
+        sdk: sdk,
+        prepared: prepared,
+        amountFen: amountFen,
+        fromAddress: wallet.ss58Address,
+        toAddress: toAddress,
+        remark: remark,
+        onRecord: (record) => observedRecord = record,
+        execute: () async => completeCitizenTransaction(
+          await sdk.executePreparedTransaction(prepared.preparationId),
+          requestResponse: (pending) {
+            paymentStep = OnchainPaymentStep.externalSignature;
+            if (!mounted) return Future<String?>.value();
+            return showCitizenSdkQrResponse(
+              context,
+              request: pending.qrRequest,
+              expiresAt: BigInt.from(
+                pending.expiresAt.millisecondsSinceEpoch ~/ 1000,
+              ),
+            );
+          },
+          consumeResponse: sdk.consumePreparedTransactionQrResponse,
+          cancelExecution: sdk.cancelPreparedTransactionExecution,
+        ),
+      );
+      if (!mounted || _currentWallet?.accountId != balanceAccountId) return;
+      if (completed == null) {
+        throw const AccountSecurityException('交易签名已取消');
+      }
+
+      final txHash = '0x${_toHex(completed.transactionHash)}';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_executionMessage(completed, txHash))),
+      );
+      _clearTransferForm();
+    } on AccountSecurityException catch (e) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
+    } on OnchainPaymentException catch (e) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
+    } on CitizenSdkException catch (e) {
+      // 诊断仅含固定步骤和SDK枚举；不得记录错误描述、账户或交易载荷。
+      final method = switch (e.method) {
+        'prepareTransaction' => 'prepareTransaction',
+        'executePreparedTransaction' => 'executePreparedTransaction',
+        'consumePreparedTransactionQrResponse' =>
+          'consumePreparedTransactionQrResponse',
+        _ => 'unknown',
+      };
+      AppLog.d(
+        '[链上交易] step=${paymentStep.name} code=${e.code.name} '
+        'stage=${e.stage.name} method=$method',
+      );
+      if (!mounted || _currentWallet?.accountId != balanceAccountId) return;
+      if (showReconciled(e.code)) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(onchainPaymentFailureText(paymentStep, e.code))),
+      );
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      // 未分类异常不得把可能携带交易内容的原始描述写入日志或弹窗。
+      AppLog.d('[链上交易] 未分类异常类型: ${e.runtimeType}');
+      if (_currentWallet?.accountId != balanceAccountId) return;
+      if (showReconciled()) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('交易异常，请稍后重试')));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+        });
+      }
+    }
+  }
+
+  void _clearTransferForm() {
+    _toController.clear();
+    _clearRecipient();
+    _amountController.clear();
+    _remarkController.clear();
+  }
+
+  String _executionMessage(
+    CitizenTransactionExecutionCompleted completed,
+    String txHash,
+  ) {
+    return switch (completed.resolution) {
+      CitizenTransactionResolution.finalizedSuccess => '交易已完成，tx=$txHash',
+      CitizenTransactionResolution.finalizedFailed => '交易已最终失败，tx=$txHash',
+      CitizenTransactionResolution.poolRejected => '交易池已拒绝，tx=$txHash',
+    };
+  }
+
+  void _dismissKeyboard() => FocusManager.instance.primaryFocus?.unfocus();
+
+  Widget _buildFieldLabel(String label) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: AppLayout.scaledValue(8)),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: AppTheme.textPrimary,
+          fontSize: AppLayout.scaledValue(14),
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusMetric({required String label, required int count}) {
+    return Expanded(
+      child: Text(
+        '$label $count',
+        maxLines: 1,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: AppTheme.textPrimary,
+          fontSize: AppLayout.scaledValue(13),
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSubmitCard() {
+    return Container(
+      decoration: AppTheme.cardDecoration(radius: AppTheme.radiusLg),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (_currentWallet != null)
+              Padding(
+                padding: EdgeInsets.only(bottom: AppLayout.scaledValue(18)),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Transform.rotate(
+                      angle: 0.785398,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(
+                          AppLayout.scaledValue(6),
+                        ),
+                        child: Image.asset(
+                          'packages/citizen_assets/icons/icons8-96.png',
+                          width: AppLayout.scaledValue(22),
+                          height: AppLayout.scaledValue(22),
+                        ),
+                      ),
+                    ),
+                    SizedBox(width: AppLayout.scaledValue(6)),
+                    Text(
+                      '钱包可用余额：$_balanceText GMB',
+                      style: TextStyle(
+                        fontSize: AppLayout.scaledValue(14),
+                        color: AppTheme.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            _buildFieldLabel(
+              _recipientCid == null
+                  ? '收款地址'
+                  : '收款身份CID号：${formatIdentityCidText(_recipientCid!)}',
+            ),
+            TextField(
+              controller: _toController,
+              focusNode: _toFocus,
+              onTapOutside: (_) => _dismissKeyboard(),
+              onChanged: (_) => setState(_clearRecipient),
+              style: TextStyle(
+                color: AppTheme.textPrimary,
+                fontSize: AppLayout.scaledValue(14),
+              ),
+              decoration:
+                  transactionFieldDecoration(
+                    hintText: '请输入 公民链SS58地址 或 以太坊0x地址',
+                    suffixIcon: AddressScanButton(
+                      onAddressScanned: (accountAddress) => setState(() {
+                        _toController.text = accountAddress;
+                        _clearRecipient();
+                      }),
+                    ),
+                  ).copyWith(
+                    helperText: _resolvingRecipient ? '正在读取收款账户…' : null,
+                    errorText: _recipientError,
+                  ),
+            ),
+            SizedBox(height: AppLayout.scaledValue(16)),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildFieldLabel('金额'),
+                      TextField(
+                        controller: _amountController,
+                        focusNode: _amountFocus,
+                        onTapOutside: (_) => _dismissKeyboard(),
+                        textInputAction: TextInputAction.done,
+                        onSubmitted: (_) => _dismissKeyboard(),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        inputFormatters: [ThousandSeparatorFormatter()],
+                        style: TextStyle(
+                          color: AppTheme.textPrimary,
+                          fontSize: AppLayout.scaledValue(14),
+                        ),
+                        decoration: transactionFieldDecoration(
+                          hintText: '请输入金额',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(width: AppLayout.scaledValue(12)),
+                SizedBox(
+                  width: AppLayout.scaledValue(112),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildFieldLabel('币种'),
+                      InputDecorator(
+                        decoration: transactionFieldDecoration(hintText: ''),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            // 公民币标志只辅助识别；GMB 文本继续承担币种语义与无障碍朗读。
+                            ExcludeSemantics(
+                              child: Image.asset(
+                                'packages/citizen_assets/logo/mark256.png',
+                                width: 18,
+                                height: 18,
+                                color: AppTheme.primary,
+                                colorBlendMode: BlendMode.srcIn,
+                                filterQuality: FilterQuality.high,
+                              ),
+                            ),
+                            SizedBox(width: AppLayout.scaledValue(6)),
+                            Text(
+                              'GMB',
+                              style: TextStyle(
+                                color: AppTheme.textPrimary,
+                                fontSize: AppLayout.scaledValue(14),
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: AppLayout.scaledValue(16)),
+            _buildFieldLabel('转账备注（选填）'),
+            Stack(
+              children: [
+                TextField(
+                  controller: _remarkController,
+                  focusNode: _remarkFocus,
+                  onTapOutside: (_) => _dismissKeyboard(),
+                  minLines: 3,
+                  maxLines: 3,
+                  style: TextStyle(
+                    color: AppTheme.textPrimary,
+                    fontSize: AppLayout.scaledValue(14),
+                  ),
+                  decoration:
+                      transactionFieldDecoration(
+                        hintText: '输入备注收1.00元备注手续费。',
+                      ).copyWith(
+                        contentPadding: const EdgeInsets.fromLTRB(
+                          14,
+                          14,
+                          14,
+                          32,
+                        ),
+                      ),
+                ),
+                Positioned(
+                  right: AppLayout.scaledValue(12),
+                  bottom: AppLayout.scaledValue(10),
+                  child: Text(
+                    '$_transferRemarkBytes 字节',
+                    style: TextStyle(
+                      fontSize: AppLayout.scaledValue(12),
+                      color: AppTheme.textSecondary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: AppLayout.scaledValue(14)),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: _canSubmit ? _submit : null,
+                child: Text(_submitting ? '签名中' : '签名交易'),
+              ),
+            ),
+            // 链状态决定表单是否可提交，备注在报价块上校验。
+            Padding(
+              padding: EdgeInsets.only(
+                top: AppLayout.scaledValue(18),
+                bottom: AppLayout.scaledValue(12),
+              ),
+              child: const Divider(color: AppTheme.divider),
+            ),
+            // 展示口径只有三态；inBlock 未获最终性确认，归入“待确认”。
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                _buildStatusMetric(label: '待确认', count: _waitingCount),
+                SizedBox(
+                  height: AppLayout.scaledValue(18),
+                  child: const VerticalDivider(
+                    width: 1,
+                    thickness: 1,
+                    color: AppTheme.divider,
+                  ),
+                ),
+                _buildStatusMetric(
+                  label: '已确认',
+                  count: _countByStatus(LocalTxStore.statusFinalized),
+                ),
+                SizedBox(
+                  height: AppLayout.scaledValue(18),
+                  child: const VerticalDivider(
+                    width: 1,
+                    thickness: 1,
+                    color: AppTheme.divider,
+                  ),
+                ),
+                _buildStatusMetric(
+                  label: '失败',
+                  count: _countByStatus(LocalTxStore.statusFailed),
+                ),
+                InkWell(
+                  onTap: _currentWallet != null
+                      ? () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => TransactionHistoryPage(
+                                accountAddress: _currentWallet!.ss58Address,
+                                accountId: _currentWallet!.accountId,
+                              ),
+                            ),
+                          );
+                        }
+                      : null,
+                  borderRadius: BorderRadius.circular(AppLayout.scaledValue(8)),
+                  child: Padding(
+                    padding: EdgeInsets.all(AppLayout.scaledValue(6)),
+                    child: Icon(
+                      Icons.chevron_right,
+                      size: AppLayout.scaledValue(22),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.balanceLoader != null) return _buildBalanceView(context);
+    return ChainBalanceScope(
+      accountIds: _currentWallet == null
+          ? const <String>[]
+          : [_currentWallet!.accountId],
+      builder: (context, _) => _buildBalanceView(context),
+    );
+  }
+
+  Widget _buildBalanceView(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 10, 4, 0),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  IconButton(
+                    tooltip: '我的通讯录',
+                    onPressed: _openContactsPage,
+                    icon: SvgPicture.asset(
+                      'packages/citizen_assets/icons/contact-round.svg',
+                      width: AppLayout.scaled(context, 22),
+                      height: AppLayout.scaled(context, 22),
+                      colorFilter: const ColorFilter.mode(
+                        AppTheme.primary,
+                        BlendMode.srcIn,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Center(
+                      child: widget.chainStatusInHeader
+                          ? ChainProgressBanner(
+                              margin: EdgeInsets.zero,
+                              busy: _refreshing,
+                              showInlineStatus: true,
+                              onProgressChanged: _handleChainProgressChanged,
+                              onErrorChanged: _handleChainProgressErrorChanged,
+                            )
+                          : Text(
+                              widget.title!,
+                              style: TextStyle(
+                                fontSize: AppLayout.scaled(context, 20),
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                    ),
+                  ),
+                  // 付款源属于交易页本地选择；向辅助技术公开当前账户序号，避免只读到选择按钮。
+                  MergeSemantics(
+                    child: Semantics(
+                      value: _currentWallet == null
+                          ? null
+                          : '当前付款账户：#${_currentWallet!.accountIndex}',
+                      child: IconButton(
+                        tooltip: '选择交易钱包',
+                        onPressed: _openWalletTab,
+                        icon: SvgPicture.asset(
+                          'packages/citizen_assets/icons/wallet.svg',
+                          width: AppLayout.scaled(context, 22),
+                          height: AppLayout.scaled(context, 22),
+                          colorFilter: const ColorFilter.mode(
+                            AppTheme.primary,
+                            BlendMode.srcIn,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (!widget.chainStatusInHeader)
+              ChainProgressBanner(
+                busy: _refreshing,
+                onProgressChanged: _handleChainProgressChanged,
+                onErrorChanged: _handleChainProgressErrorChanged,
+              ),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: _onPullRefresh,
+                child: ListView(
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: EdgeInsets.all(AppLayout.scaled(context, 16)),
+                  children: [
+                    if (widget.extraEntriesBuilder != null)
+                      ...widget.extraEntriesBuilder!(context),
+                    if (_currentWallet == null && !_loadingWallet)
+                      Padding(
+                        padding: EdgeInsets.only(
+                          bottom: AppLayout.scaled(context, 12),
+                        ),
+                        child: Container(
+                          decoration: AppTheme.cardDecoration(),
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('未检测到钱包，无法执行链上签名与交易广播'),
+                                SizedBox(height: AppLayout.scaled(context, 8)),
+                                FilledButton(
+                                  onPressed: _openWalletTab,
+                                  child: const Text('去创建/导入钱包'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    _buildSubmitCard(),
+                    SizedBox(height: AppLayout.scaled(context, 24)),
+                  ],
+                ),
+              ),
+            ),
+            // AppShell的外层Scaffold可能已消费键盘insets，以真实输入焦点判断。
+            if (_editingInput)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  key: const ValueKey('transaction-hide-keyboard'),
+                  onPressed: _dismissKeyboard,
+                  icon: const Icon(Icons.keyboard_hide_outlined),
+                  label: const Text('收起键盘'),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _handleChainProgressChanged(CitizenChainSyncStatus? progress) {
+    if (!mounted) return;
+    setState(() {
+      _chainProgress = progress;
+    });
+  }
+
+  void _handleChainProgressErrorChanged(String? error) {
+    if (!mounted) return;
+    setState(() {
+      _chainProgressError = error;
+    });
+  }
+
+  int get _transferRemarkBytes => utf8.encode(_remarkController.text).length;
+
+  bool get _canSubmit =>
+      !_submitting &&
+      !_checkingBalance &&
+      !_loadingWallet &&
+      _currentWallet != null &&
+      _submitBlockedReason == null;
+
+  String? get _submitBlockedReason {
+    if (_resolvingRecipient) return '正在读取收款账户，请稍后再试';
+    if (_recipientError != null) return _recipientError;
+    if (_submitting ||
+        _checkingBalance ||
+        _loadingWallet ||
+        _currentWallet == null) {
+      return null;
+    }
+    final progress = _chainProgress;
+    if (progress == null) {
+      return _chainProgressError ?? '正在读取区块链状态，请稍后再试';
+    }
+    if (progress.peerCount == BigInt.zero) {
+      return '轻节点尚未连接到区块链网络，请等待至少 1 个 peer';
+    }
+    if (progress.isSyncing) {
+      return '轻节点仍在验证或同步链状态，完成后才能签名交易';
+    }
+    if (!progress.isUsable) {
+      return _chainProgressError ?? '区块链状态尚未就绪，请稍后再试';
+    }
+    return null;
+  }
+}
+
+String _toHex(List<int> bytes) {
+  const chars = '0123456789abcdef';
+  final buf = StringBuffer();
+  for (final b in bytes) {
+    buf
+      ..write(chars[(b >> 4) & 0x0f])
+      ..write(chars[b & 0x0f]);
+  }
+  return buf.toString();
+}

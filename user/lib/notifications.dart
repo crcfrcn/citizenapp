@@ -1,17 +1,16 @@
-// 按CID维护通知列表及独立已读状态，合并恢复和校准请求。
+// 维护跨功能通知、独立已读状态及恢复校准。
 
-import 'package:citizen_storage/user_isar.dart' as user_store show Notice;
-
+import 'package:citizen_storage/user.dart' as user_store show Notice;
 import 'dart:async';
 import 'dart:convert';
-
 import 'package:flutter/foundation.dart';
-import 'package:citizen_user/identity/current_user_context.dart';
-import 'package:citizen_user/identity/square_session_provider.dart';
-import 'package:citizen_user/square_api_client.dart';
-import 'package:citizen_storage/user_isar.dart';
+import 'package:citizen_user/context.dart' show CurrentUserContext;
+import 'package:citizen_user/identity/session.dart' show SquareSessionProvider;
+import 'package:citizen_user/api.dart' show SquareApiClient;
+import 'package:citizen_storage/user.dart';
+import 'package:citizen_system/push.dart';
 
-import 'package:citizen_system/notifications/app_push_service.dart';
+// 按CID维护通知列表及独立已读状态，合并恢复和校准请求。
 
 /// 通知动作固定发起时的身份与代次，不能在异步结束时改归当前账号。
 typedef NotificationScope = ({

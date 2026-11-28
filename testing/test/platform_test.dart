@@ -1,6 +1,6 @@
 // 验证平台路径边界及缺失原件不返回伪造空文本。
 
-import 'package:citizen_testing/platform_input.dart';
+import 'package:citizen_testing/platform.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

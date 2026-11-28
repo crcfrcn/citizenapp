@@ -1,23 +1,22 @@
 // 以真实MLS验证群控制及按冻结设备路由持久化附件投递。
 
-import 'package:citizen_testing/chat_runtime_fixture.dart';
-
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter_test/flutter_test.dart';
-import 'package:chat/message/chat_content.dart';
-import 'package:chat/message/chat_message.dart';
-import 'package:chat/mls/mls_boundary.dart';
-import 'package:chat/mls/mls_group_boundary.dart';
+import 'package:chat/group/flow.dart';
+import 'package:chat/message/content.dart';
+import 'package:chat/message/flow.dart';
+import 'package:chat/mls/protocol.dart';
+import 'package:chat/models.dart';
+import 'package:chat/store.dart';
+import 'package:chat/transport/connection.dart';
 import 'package:citizen_network/message.dart';
-import 'package:chat/message/direct_flow.dart';
-import 'package:chat/group/group_flow.dart';
-import 'package:chat/chat_store.dart';
-import 'package:chat/chat_models.dart';
-import 'package:citizen_testing/chat_isar_test_env.dart';
-import 'package:citizen_testing/mls_test_env.dart';
-import 'package:chat/transport/chat_connection.dart';
+import 'package:citizen_testing/chat/native.dart';
+import 'package:citizen_testing/chat/runtime.dart';
+import 'package:citizen_testing/database.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+// 以真实MLS验证群控制及按冻结设备路由持久化附件投递。
 
 Future<GroupState> _joinedDirectGroup(
   TestMlsDevice sender,

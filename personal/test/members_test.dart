@@ -1,16 +1,17 @@
-import 'package:flutter/material.dart';
 // 个人多签members功能回归，保留迁入用例和断言。
+
+import 'package:flutter/material.dart';
 
 import 'dart:convert';
 import 'dart:typed_data';
-import 'package:citizen_citizen/institution/institution_role_models.dart';
+import 'package:citizen_citizen/institution/data.dart' show InstitutionIdentity;
 import 'package:citizen_personal/accounts.dart';
 import 'package:citizen_personal/chain.dart';
 import 'package:citizen_personal/members.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_sdk/test/platform/fixture.dart';
-import 'package:citizen_testing/fake_citizen_sdk.dart';
-import 'package:citizen_testing/isar_test_env.dart';
+import 'package:citizen_testing/sdk.dart';
+import 'package:citizen_testing/database.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:polkadart/polkadart.dart' show Hasher;
 

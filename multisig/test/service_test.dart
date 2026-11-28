@@ -1,0 +1,492 @@
+// 验证多签服务及失败处理。
+
+import 'dart:typed_data';
+import 'dart:convert';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_sdk/test/platform/fixture.dart';
+import 'package:citizen_testing/sdk.dart';
+import 'package:citizen_multisig/service.dart' show MultisigTransferService;
+import 'package:citizen_citizen/institution/data.dart' show InstitutionAccounts, InstitutionInfo, OrgType;
+
+// 验证多签冷热执行的真实交易事件、岗位及资金和备注绑定。
+
+final signer = Uint8List.fromList(List.filled(32, 1));
+final block = CitizenBlockRef(
+  hash: '0x${'ab' * 32}',
+  number: BigInt.from(50),
+  finality: CitizenBlockFinality.finalized,
+);
+CitizenPreparedTransaction prepared() => CitizenPreparedTransaction(
+  preparationId: 'prepared',
+  sourceAccountId: signer,
+  callDataHash: Uint8List(32),
+  bestBlock: block,
+  runtimeSpecNumber: 1,
+  transactionFormatNumber: 1,
+  nonce: BigInt.from(3),
+);
+CitizenTransactionExecutionCompleted completed({
+  CitizenTransactionResolution resolution =
+      CitizenTransactionResolution.finalizedSuccess,
+  CitizenExecution? execution,
+  bool missing = false,
+}) => CitizenTransactionExecutionCompleted(
+  executionId: 'execution',
+  sourceAccountId: signer,
+  callDataHash: Uint8List(32),
+  transactionHash: Uint8List(32),
+  resolution: resolution,
+  execution: missing
+      ? null
+      : execution ??
+            CitizenExecution(
+              status: CitizenExecutionStatus.success,
+              block: block,
+              extrinsicIndex: 2,
+              dispatchVariant: null,
+              palletIndex: null,
+              errorIndex: null,
+            ),
+  poolRejectionReason: null,
+  replacementHash: null,
+);
+CitizenTransactionExternalSigningPending pending() =>
+    CitizenTransactionExternalSigningPending(
+      executionId: 'execution',
+      sourceAccountId: signer,
+      callDataHash: Uint8List(32),
+      qrRequest: 'synthetic-qr',
+      expiresAt: DateTime.utc(2027),
+    );
+TestCitizenTransactionFlow flow({
+  bool cold = false,
+  CitizenTransactionExecutionCompleted? result,
+}) => TestCitizenTransactionFlow()
+  ..prepare = ((_, _) async => prepared())
+  ..execute = ((_) async => cold ? pending() : result ?? completed())
+  ..consume = ((_, _) async => result ?? completed())
+  ..cancel = ((_) async {});
+
+final fundingAccountId = '0x${'09' * 32}';
+
+Uint8List eventBytes({
+  int index = 2,
+  int who = 1,
+  int amount = 100,
+  int phase = 0,
+  String remark = '',
+}) => Uint8List.fromList([
+  4,
+  phase,
+  if (phase == 0) ...[index, 0, 0, 0],
+  17,
+  0,
+  7,
+  ...List.filled(15, 0),
+  ...'PMUL'.codeUnits,
+  0,
+  ...List.filled(32, who),
+  ...List.filled(32, 9),
+  ...List.filled(32, 2),
+  amount,
+  ...List.filled(15, 0),
+  utf8.encode(remark).length << 2,
+  ...utf8.encode(remark),
+  9,
+  0,
+  0,
+  0,
+  0,
+]);
+
+class Chain extends TestChainReads {
+  Uint8List? events = eventBytes();
+  @override
+  Future<CitizenRuntimeContext> getRuntimeContext(CitizenBlockRef ref) =>
+      CitizenSdkTestFixture.runtimeContext(ref);
+  @override
+  Future<Uint8List?> getSystemEvents(CitizenBlockRef ref) async {
+    expect(ref, same(block));
+    return events;
+  }
+}
+
+Future<Object> submit(MultisigTransferService service, {String remark = ''}) =>
+    service.submitAccountTransfer(
+      fundingAccountId: fundingAccountId,
+      actorCidNumber: null,
+      orgCode: 'PMUL',
+      proposerRoleCode: null,
+      beneficiaryAddress: citizenSs58FromAccountId('0x${'02' * 32}'),
+      amountFen: BigInt.from(100),
+      remark: remark,
+      signerPublicKey: signer,
+      externalSigning: (_) async => 'synthetic-response',
+    );
+void main() {
+  for (final remark in [' ', ' memo ', '\n', '中文 ']) {
+    for (final cold in [false, true]) {
+      test('转账备注按上链原文验收：$remark，冷签$cold', () async {
+        final chain = Chain()..events = eventBytes(remark: remark);
+        final tx = flow(cold: cold);
+        final service = MultisigTransferService(
+          buildCall: _buildCall,
+          getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
+          getFinalizedHead: chain.getFinalizedHead,
+          getStorageKeysPaged: chain.getStorageKeysPaged,
+          getStorage: chain.getStorage,
+          getStorageBatch: chain.getStorageBatch,
+          getSystemEvents: chain.getSystemEvents,
+          getRuntimeContext: chain.getRuntimeContext,
+          prepareTransaction: tx.prepareTransaction,
+          executePreparedTransaction: tx.executePreparedTransaction,
+          cancelPreparedTransactionExecution:
+              tx.cancelPreparedTransactionExecution,
+          consumePreparedTransactionQrResponse:
+              tx.consumePreparedTransactionQrResponse,
+        );
+        final result = await submit(service, remark: remark);
+        expect((result as dynamic).proposalId, BigInt.from(7));
+        expect(tx.prepareCount, 1);
+        expect(tx.executeCount, 1);
+        // 事件即使只缺少首尾空白，也不是本次签名的备注原文。
+        chain.events = eventBytes(remark: remark.trim());
+        await expectLater(submit(service, remark: remark), throwsStateError);
+      });
+    }
+  }
+
+  test('机构普通转账使用Some(CID)及实际岗位，缺岗位在准备前失败', () async {
+    final institution = InstitutionInfo(
+      fullName: '合成机构',
+      shortName: '合成',
+      cidFullNameEn: 'Synthetic',
+      cidShortNameEn: 'SYN',
+      cidNumber: 'CID-A',
+      orgType: OrgType.nrc,
+      adminCode: 'NRC',
+      accounts: InstitutionAccounts(
+        mainAccountId: '0x${'09' * 32}',
+        feeAccountId: '0x${'03' * 32}',
+      ),
+    );
+    final bytes = eventBytes();
+    // 只将个人事件的PMUL/None替换成机构NRC/Some(CID)，其它独立编码字段不变。
+    final payload = Uint8List.fromList([
+      ...bytes.take(24),
+      ...'NRC'.codeUnits,
+      0,
+      1,
+      20,
+      ...'CID-A'.codeUnits,
+      ...bytes.skip(29),
+    ]);
+    final tx = flow(),
+        service = (() {
+          final reads0 = Chain()..events = payload;
+          return MultisigTransferService(
+            buildCall: _buildCall,
+            getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
+            getFinalizedHead: reads0.getFinalizedHead,
+            getStorageKeysPaged: reads0.getStorageKeysPaged,
+            getStorage: reads0.getStorage,
+            getStorageBatch: reads0.getStorageBatch,
+
+            getSystemEvents: reads0.getSystemEvents,
+            getRuntimeContext: reads0.getRuntimeContext,
+            prepareTransaction: tx.prepareTransaction,
+            executePreparedTransaction: tx.executePreparedTransaction,
+            cancelPreparedTransactionExecution:
+                tx.cancelPreparedTransactionExecution,
+            consumePreparedTransactionQrResponse:
+                tx.consumePreparedTransactionQrResponse,
+          );
+        })();
+    Future<Object> run(String? role) => service.submitProposeTransfer(
+      institution: institution,
+      proposerRoleCode: role,
+      beneficiaryAddress: citizenSs58FromAccountId('0x${'02' * 32}'),
+      amountFen: BigInt.from(100),
+      remark: '',
+      signerPublicKey: signer,
+      externalSigning: (_) async => null,
+    );
+    await expectLater(run(null), throwsArgumentError);
+    expect(tx.prepareCount, 0);
+    final result = await run('DIRECTOR');
+    expect((result as dynamic).proposalId, BigInt.from(7));
+  });
+
+  test('安全基金及费用归集按所属事件、账户和金额确认', () async {
+    final institution = InstitutionInfo(
+      fullName: '合成机构',
+      shortName: '合成',
+      cidFullNameEn: 'Synthetic',
+      cidShortNameEn: 'SYN',
+      cidNumber: 'CID-A',
+      orgType: OrgType.nrc,
+      adminCode: 'NRC',
+      accounts: InstitutionAccounts(
+        mainAccountId: '0x${'09' * 32}',
+        feeAccountId: '0x${'03' * 32}',
+        safetyFundAccountId: '0x${'04' * 32}',
+      ),
+    );
+    for (final kind in [3, 6]) {
+      for (final note in kind == 3 ? ['', ' ', ' 原文 '] : ['']) {
+        for (final cold in [true, false]) {
+          final chain = Chain()
+            ..events = Uint8List.fromList([
+              4,
+              0,
+              2,
+              0,
+              0,
+              0,
+              17,
+              kind,
+              7,
+              ...List.filled(15, 0),
+              20,
+              ...'CID-A'.codeUnits,
+              ...signer,
+              ...List.filled(32, kind == 3 ? 4 : 3),
+              ...List.filled(32, kind == 3 ? 2 : 9),
+              100,
+              ...List.filled(15, 0),
+              if (kind == 3) ...[
+                utf8.encode(note).length << 2,
+                ...utf8.encode(note),
+              ],
+              9,
+              0,
+              0,
+              0,
+              0,
+            ]);
+          final tx = flow(cold: cold),
+              service = MultisigTransferService(
+                buildCall: _buildCall,
+                getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
+                getFinalizedHead: chain.getFinalizedHead,
+                getStorageKeysPaged: chain.getStorageKeysPaged,
+                getStorage: chain.getStorage,
+                getStorageBatch: chain.getStorageBatch,
+
+                getSystemEvents: chain.getSystemEvents,
+                getRuntimeContext: chain.getRuntimeContext,
+                prepareTransaction: tx.prepareTransaction,
+                executePreparedTransaction: tx.executePreparedTransaction,
+                cancelPreparedTransactionExecution:
+                    tx.cancelPreparedTransactionExecution,
+                consumePreparedTransactionQrResponse:
+                    tx.consumePreparedTransactionQrResponse,
+              );
+          final result = kind == 3
+              ? await service.submitProposeSafetyFund(
+                  institution: institution,
+                  proposerRoleCode: 'DIRECTOR',
+                  beneficiaryAddress: citizenSs58FromAccountId(
+                    '0x${'02' * 32}',
+                  ),
+                  amountFen: BigInt.from(100),
+                  remark: note,
+                  signerPublicKey: signer,
+                  externalSigning: (_) async => 'synthetic-response',
+                )
+              : await service.submitProposeSweep(
+                  institution: institution,
+                  proposerRoleCode: 'DIRECTOR',
+                  amountFen: BigInt.from(100),
+                  signerPublicKey: signer,
+                  externalSigning: (_) async => 'synthetic-response',
+                );
+          expect(result.proposalId, BigInt.from(7));
+          expect(result.blockHash, block.hash);
+          expect(tx.consumeCount, cold ? 1 : 0);
+        }
+      }
+    }
+  });
+  test('多签外签回调异常取消pending，未知消费不重播', () async {
+    for (final stage in ['callback', 'consume']) {
+      final tx = flow(cold: true),
+          service = (() {
+            final reads0 = Chain();
+            return MultisigTransferService(
+              buildCall: _buildCall,
+              getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
+              getFinalizedHead: reads0.getFinalizedHead,
+              getStorageKeysPaged: reads0.getStorageKeysPaged,
+              getStorage: reads0.getStorage,
+              getStorageBatch: reads0.getStorageBatch,
+
+              getSystemEvents: reads0.getSystemEvents,
+              getRuntimeContext: reads0.getRuntimeContext,
+              prepareTransaction: tx.prepareTransaction,
+              executePreparedTransaction: tx.executePreparedTransaction,
+              cancelPreparedTransactionExecution:
+                  tx.cancelPreparedTransactionExecution,
+              consumePreparedTransactionQrResponse:
+                  tx.consumePreparedTransactionQrResponse,
+            );
+          })();
+      if (stage == 'consume') {
+        tx.consume = (_, _) async => throw StateError('合成未知消费');
+      }
+      await expectLater(
+        service.submitAccountTransfer(
+          fundingAccountId: fundingAccountId,
+          actorCidNumber: null,
+          orgCode: 'PMUL',
+          proposerRoleCode: null,
+          beneficiaryAddress: citizenSs58FromAccountId('0x${'02' * 32}'),
+          amountFen: BigInt.from(100),
+          remark: '',
+          signerPublicKey: signer,
+          externalSigning: (_) async {
+            if (stage == 'callback') {
+              throw StateError('合成回调失败');
+            }
+            return 'synthetic-response';
+          },
+        ),
+        throwsStateError,
+      );
+      expect(tx.cancelCount, 1);
+      expect(tx.executeCount, 1);
+    }
+  });
+
+  for (final cold in [true, false]) {
+    test('多签提案冷热签按实际执行块确认事件：$cold', () async {
+      final tx = flow(cold: cold), chain = Chain();
+      final result = await submit(
+        MultisigTransferService(
+          buildCall: _buildCall,
+          getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
+          getFinalizedHead: chain.getFinalizedHead,
+          getStorageKeysPaged: chain.getStorageKeysPaged,
+          getStorage: chain.getStorage,
+          getStorageBatch: chain.getStorageBatch,
+
+          getSystemEvents: chain.getSystemEvents,
+          getRuntimeContext: chain.getRuntimeContext,
+          prepareTransaction: tx.prepareTransaction,
+          executePreparedTransaction: tx.executePreparedTransaction,
+          cancelPreparedTransactionExecution:
+              tx.cancelPreparedTransactionExecution,
+          consumePreparedTransactionQrResponse:
+              tx.consumePreparedTransactionQrResponse,
+        ),
+      );
+      expect((result as dynamic).proposalId, BigInt.from(7));
+      expect(tx.prepareCount, 1);
+    });
+  }
+  for (final bad in ['index', 'phase', 'count', 'embedded']) {
+    test('多签不得接受其他交易、非交易Phase或载荷中伪事件：$bad', () async {
+      final chain = Chain();
+      chain.events = bad == 'index'
+          ? eventBytes(index: 99)
+          : bad == 'phase'
+          ? eventBytes(phase: 1)
+          : bad == 'count'
+          ? Uint8List.fromList([0, ...eventBytes().skip(1)])
+          : Uint8List.fromList([4, 2, 99, 99, ...eventBytes()]);
+      await expectLater(
+        submit(
+          (() {
+            final reads0 = flow();
+            return MultisigTransferService(
+              buildCall: _buildCall,
+              getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
+              getFinalizedHead: chain.getFinalizedHead,
+              getStorageKeysPaged: chain.getStorageKeysPaged,
+              getStorage: chain.getStorage,
+              getStorageBatch: chain.getStorageBatch,
+
+              getSystemEvents: chain.getSystemEvents,
+              getRuntimeContext: chain.getRuntimeContext,
+              prepareTransaction: reads0.prepareTransaction,
+              executePreparedTransaction: reads0.executePreparedTransaction,
+              cancelPreparedTransactionExecution:
+                  reads0.cancelPreparedTransactionExecution,
+              consumePreparedTransactionQrResponse:
+                  reads0.consumePreparedTransactionQrResponse,
+            );
+          })(),
+        ),
+        throwsA(anything),
+      );
+    });
+  }
+  test('错误业务字段、取消及未知广播结果不报创建成功', () async {
+    for (final bad in ['signer', 'amount', 'remark', 'cancel', 'execute']) {
+      final chain = Chain()
+            ..events = eventBytes(
+              who: bad == 'signer' ? 2 : 1,
+              amount: bad == 'amount' ? 101 : 100,
+              remark: bad == 'remark' ? 'other' : '',
+            ),
+          tx = flow(cold: bad == 'cancel');
+      if (bad == 'execute') {
+        tx.execute = (_) async => throw StateError('合成未知执行');
+      }
+      final service = MultisigTransferService(
+        buildCall: _buildCall,
+        getStorageRuntimeContext: CitizenSdkTestFixture.runtimeContext,
+        getFinalizedHead: chain.getFinalizedHead,
+        getStorageKeysPaged: chain.getStorageKeysPaged,
+        getStorage: chain.getStorage,
+        getStorageBatch: chain.getStorageBatch,
+
+        getSystemEvents: chain.getSystemEvents,
+        getRuntimeContext: chain.getRuntimeContext,
+        prepareTransaction: tx.prepareTransaction,
+        executePreparedTransaction: tx.executePreparedTransaction,
+        cancelPreparedTransactionExecution:
+            tx.cancelPreparedTransactionExecution,
+        consumePreparedTransactionQrResponse:
+            tx.consumePreparedTransactionQrResponse,
+      );
+      if (bad == 'cancel') {
+        await expectLater(
+          service.submitAccountTransfer(
+            fundingAccountId: fundingAccountId,
+            actorCidNumber: null,
+            orgCode: 'PMUL',
+            proposerRoleCode: null,
+            beneficiaryAddress: citizenSs58FromAccountId('0x${'02' * 32}'),
+            amountFen: BigInt.from(100),
+            remark: '',
+            signerPublicKey: signer,
+            externalSigning: (_) async => null,
+          ),
+          throwsStateError,
+        );
+        expect(tx.cancelCount, 1);
+      } else {
+        await expectLater(submit(service), throwsA(anything));
+        expect(tx.cancelCount, 0);
+      }
+      expect(tx.executeCount, 1);
+    }
+  });
+}
+
+Future<Uint8List> _buildCall(
+  String pallet,
+  String method,
+  Object fields,
+) async {
+  final runtime = await CitizenSdkTestFixture.runtimeContext(
+    CitizenBlockRef(
+      hash: '0x${'11' * 32}',
+      number: BigInt.one,
+      finality: CitizenBlockFinality.finalized,
+    ),
+  );
+  return runtime.encodeCall(pallet, method, fields);
+}

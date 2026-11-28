@@ -1,3 +1,5 @@
+# 声明通用系统包身份、工作区归属及现有依赖。
+
 name: citizen_system
 description: 公民Appsystem包。
 publish_to: none

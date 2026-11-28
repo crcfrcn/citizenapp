@@ -1,3 +1,5 @@
+# 声明本地存储包身份、工作区归属及现有依赖。
+
 name: citizen_storage
 description: 公民Appstorage包。
 publish_to: none

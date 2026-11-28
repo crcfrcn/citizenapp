@@ -1,3 +1,5 @@
+# 声明包身份、工作区归属及现有依赖。
+
 name: citizen_chain
 description: CitizenApp verified light-client business data and synchronization.
 publish_to: none

@@ -4,12 +4,11 @@ import 'package:citizen_personal/chain.dart';
 import 'package:citizen_personal/lifecycle.dart';
 import 'package:citizen_personal/proposals.dart';
 import 'package:citizen_personal/storage.dart';
-import 'package:citizen_scanner/qr_scan_page.dart';
+import 'package:citizen_scanner/scan.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizen_wallet/account/wallet_qr_dialog.dart'
-    show buildWalletAccountQrData;
-import 'package:citizen_testing/fake_citizen_sdk.dart';
-import 'package:citizen_testing/isar_test_env.dart';
+import 'package:citizen_wallet/account/card.dart' show buildWalletAccountQrData;
+import 'package:citizen_testing/sdk.dart';
+import 'package:citizen_testing/database.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';

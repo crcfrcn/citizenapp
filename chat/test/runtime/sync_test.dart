@@ -1,34 +1,33 @@
 // 验证真实同步、身份锁、持久确认、前后台及迟到传输回收。
 
-import 'package:citizen_system/notifications/app_push_token.dart';
-import 'package:chat/chat_push.dart';
-import 'package:citizen_testing/chat_runtime_fixture.dart';
-
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:fixnum/fixnum.dart';
-import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter/foundation.dart' show debugPrint;
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:chat/message/chat_content.dart';
-import 'package:chat/message/chat_message.dart';
-import 'package:chat/mls/mls_attachment.dart';
-import 'package:chat/mls/mls_boundary.dart';
-import 'package:chat/mls/mls_group_boundary.dart';
-import 'package:chat/mls/mls_bindings.dart';
-import 'package:chat/mls/mls_state_store.dart';
-import 'package:citizen_network/message.dart';
+import 'package:chat/message/content.dart';
+import 'package:chat/message/flow.dart';
+import 'package:chat/mls/attachment.dart';
+import 'package:chat/mls/native.dart';
+import 'package:chat/mls/protocol.dart';
+import 'package:chat/mls/store.dart';
+import 'package:chat/models.dart';
+import 'package:chat/push.dart';
+import 'package:chat/runtime.dart';
+import 'package:chat/store.dart';
+import 'package:chat/transport/attachment.dart';
+import 'package:chat/transport/connection.dart';
 import 'package:citizen_network/frame.dart' show SubmitCommit;
-import 'package:chat/chat_runtime.dart';
-import 'package:chat/message/direct_flow.dart';
-import 'package:chat/chat_media_limits.dart';
-import 'package:chat/chat_store.dart';
-import 'package:citizen_testing/chat_isar_test_env.dart';
-import 'package:citizen_testing/mls_test_env.dart';
-import 'package:chat/transport/chat_connection.dart';
-import 'package:chat/transport/attachment_transfer.dart';
+import 'package:citizen_network/message.dart';
+import 'package:citizen_system/push.dart';
+import 'package:citizen_testing/chat/native.dart';
+import 'package:citizen_testing/chat/runtime.dart';
+import 'package:citizen_testing/database.dart';
+import 'package:fixnum/fixnum.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+// 验证真实同步、身份锁、持久确认、前后台及迟到传输回收。
 
 const _device =
     'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
@@ -420,7 +419,11 @@ final class _Fixture {
     cryptoFactory: (_, _) => crypto,
     transportFactory: ({required identity, required accessProvider}) {
       transportCreates++;
-      return transport = _Transport(accessProvider, store, directGroup: _directGroup);
+      return transport = _Transport(
+        accessProvider,
+        store,
+        directGroup: _directGroup,
+      );
     },
   );
   static Future<_Fixture> create() async {
@@ -1421,8 +1424,7 @@ void main() {
       if (terminal == 'binding') {
         fixture.host.account = const ChatRuntimeAccount(
           hostIndex: 0,
-          bindingScope:
-              '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          bindingScope: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
           userId: 'user-a',
           bindingRevision: 2,
           accountId: 'account-a',

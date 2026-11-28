@@ -757,21 +757,20 @@ export async function generatedHeaders(source) {
   "network/lib/content.dart": "提供基础及媒体内容的Protobuf模型和编解码。",
   "network/lib/frame.dart": "提供聊天WSS帧、命令和回执的Protobuf模型和编解码。",
   "network/lib/descriptor.dart": "提供全部现有Protobuf JSON和二进制描述符。",
-  "storage/lib/chain_state.g.dart": "定义最终链业务快照的Isar结构、序列化和查询扩展。",
-  "storage/lib/chat_isar.g.dart": "定义本机聊天记录、路由和队列的Isar结构及访问扩展。",
-  "storage/lib/social_isar.g.dart": "定义广场帖子、草稿和媒体的Isar结构及访问扩展。",
-  "storage/lib/user_isar.g.dart": "定义用户、目录和钱包业务记录的Isar结构及访问扩展。",
+  "storage/lib/chat.g.dart": "定义本机聊天记录、路由和队列的Isar结构及访问扩展。",
+  "storage/lib/social.g.dart": "定义广场帖子、草稿和媒体的Isar结构及访问扩展。",
+  "storage/lib/user.g.dart": "定义用户、目录、钱包及最终链快照的Isar结构及访问扩展。",
   "topup/web/metamask.bundle.js": "提供随包MetaMask钱包连接、订单付款及原生桥接脚本。"
 };
  for(const [name,intro] of Object.entries(files)){
   const path=join(source,name);let text;
   try{text=await readFile(path,'utf8');}catch(error){if(error.code==='ENOENT')continue;throw error;}
   const header=(name.endsWith('.rs')?'//! ':'// ')+intro;
-  // 用户仅授权social_isar的原生成API声明；不改变其它生成物或手写检查。
+  // 用户仅授权social的原生成API声明；不改变其它生成物或手写检查。
   let generatedDeclaration=false;
-  if(name==='storage/lib/social_isar.g.dart'&&!/^\/\/ ignore_for_file: experimental_member_use$/mu.test(text)){
-   const part="part of 'social_isar.dart';";
-   if(!text.includes(part))throw Error('social_isar生成输出缺少原part声明');
+  if(name==='storage/lib/social.g.dart'&&!/^\/\/ ignore_for_file: experimental_member_use$/mu.test(text)){
+   const part="part of 'social.dart';";
+   if(!text.includes(part))throw Error('social生成输出缺少原part声明');
    text=text.replace(part,'// ignore_for_file: experimental_member_use\n\n'+part);
    generatedDeclaration=true;
   }

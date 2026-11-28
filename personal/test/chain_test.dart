@@ -1,5 +1,6 @@
-import 'package:citizen_citizen/account_derivation.dart' show deriveAccountId;
 // 个人多签chain功能回归，保留迁入用例和断言。
+
+import 'package:citizen_citizen/data.dart' show deriveAccountId;
 
 import 'dart:convert';
 import 'dart:typed_data';
@@ -9,7 +10,7 @@ import 'package:citizen_personal/chain.dart';
 import 'package:citizen_personal/proposals.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:citizen_sdk/test/platform/fixture.dart';
-import 'package:citizen_testing/fake_citizen_sdk.dart';
+import 'package:citizen_testing/sdk.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // 原用例所属：personal/test/personal_manage_service_test.dart

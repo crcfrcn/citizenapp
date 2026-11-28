@@ -3,7 +3,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
-import 'package:citizen_system/app_log.dart';
+import 'package:citizen_system/log.dart';
 import 'auth.dart' as mls;
 
 // 限定正式服务及媒体来源，以禁止重定向的HTTPS客户端隔离凭据。

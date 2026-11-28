@@ -1,3 +1,5 @@
+# 声明多签交易包身份、工作区归属及现有依赖。
+
 name: citizen_multisig
 description: 公民App多签交易包。
 publish_to: none

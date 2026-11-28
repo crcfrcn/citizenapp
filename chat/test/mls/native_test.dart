@@ -1,12 +1,111 @@
-// 通过真实FFI验证MLS身份复用、认证证明及损坏状态拒绝。
+// 归并聊天原有回归，保留各来源用例、断言及独立生命周期。
 
+import 'dart:convert';
+import 'dart:ffi';
 import 'dart:io';
 
+import 'package:chat/mls/native.dart';
+import 'package:chat/mls/protocol.dart';
+import 'package:chat/mls/store.dart';
+import 'package:citizen_testing/chat/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:chat/mls/mls_boundary.dart';
-import 'package:chat/mls/mls_bindings.dart';
-import 'package:chat/mls/mls_state_store.dart';
-import 'package:citizen_testing/mls_test_env.dart';
+
+// 验证MLS发送和接收中断后从原生持久状态恢复相同结果。
+
+void _registerNativeSession() {
+  requireMlsTestLibrary();
+  test('MLS发送和接收在宿主落库前中断，重建后仍恢复相同结果', () async {
+    final root = await Directory.systemTemp.createTemp('chat_native_session_');
+    addTearDown(() => root.delete(recursive: true));
+    Future<MlsStateStore> fixture(String user) async {
+      final directory = await Directory('${root.path}/$user').create();
+      final store = MlsStateStore(
+        Directory(await directory.resolveSymbolicLinks()),
+        ownerUserId: user,
+      );
+      await store.prepareIdentity();
+      return store;
+    }
+
+    final aStore = await fixture('alice'), bStore = await fixture('bob');
+    final aId = await aStore.readIdentity(), bId = await bStore.readIdentity();
+    final a = MlsCrypto(identity: aId, stateStore: aStore),
+        b = MlsCrypto(identity: bId, stateStore: bStore);
+    final package = await b.createKeyPackage(bId, lastResort: true);
+    await a.withMessage('create', () => a.createGroup('group'));
+    final added = await a.withMessage(
+      'add',
+      () => a.addMembers('group', [package]),
+    );
+    await a.finishCommit('add', accepted: true);
+    await b.withMessage('welcome', () => b.groupProcess(added.welcome!));
+    // 群已建立后签认证证明，快照逐字不变；随后继续真实MLS发送和重启恢复。
+    final snapshot = File('${aStore.path}/state.bin');
+    final beforeAuthentication = await snapshot.readAsBytes();
+    final authentication = await aStore.signAuthentication(
+      accountId: '0x${List.filled(32, '11').join()}',
+      bindingRevision: 1,
+      request: MlsAuthenticationRequest(
+        tokenPurpose: 'device',
+        serviceOrigin: 'https://api.example.test',
+        nonceId: '0x${List.filled(32, '22').join()}',
+        expiresAt: DateTime.now().millisecondsSinceEpoch + 120000,
+        httpMethod: 'POST',
+        requestTarget: '/auth/session',
+        bodyBytes: utf8.encode('synthetic request'),
+      ),
+    );
+    expect(authentication.toJson()['device_id'], aId.deviceId);
+    expect(await snapshot.readAsBytes(), beforeAuthentication);
+    final first = await a.withMessage(
+      'message-a',
+      () => a.groupCreateMessage('group', utf8.encode('合成消息')),
+    );
+    final restarted = MlsCrypto(
+      identity: await aStore.readIdentity(),
+      stateStore: aStore,
+    );
+    final retry = await restarted.withMessage(
+      'message-a',
+      () => restarted.groupCreateMessage('group', utf8.encode('合成消息')),
+    );
+    expect(retry.wireHex, first.wireHex);
+    final result = await b.withMessage(
+      'message-b',
+      () => b.groupProcess(first),
+    );
+    expect(utf8.decode(result.plaintext!), '合成消息');
+    expect(result.senderMemberIdentity, 'alice:${aId.deviceId}');
+    final restartedReceiver = MlsCrypto(
+      identity: await bStore.readIdentity(),
+      stateStore: bStore,
+    );
+    final recovered = await restartedReceiver.withMessage(
+      'message-b',
+      () => restartedReceiver.groupProcess(first),
+    );
+    expect(recovered.plaintext, result.plaintext);
+    expect(recovered.senderMemberIdentity, result.senderMemberIdentity);
+    await restartedReceiver.acknowledgeMessage('message-b');
+    final duplicate = await restartedReceiver.withMessage(
+      'message-b',
+      () => restartedReceiver.groupProcess(first),
+    );
+    expect(duplicate.status, GroupProcessStatus.stale);
+    expect(duplicate.committed, isTrue);
+    expect(duplicate.plaintext, isNull);
+    await expectLater(a.groupCreateMessage('group', [1]), throwsStateError);
+    await expectLater(
+      restarted.withMessage(
+        'message-a',
+        () => restarted.groupCreateMessage('group', [2]),
+      ),
+      throwsA(isA<MlsException>()),
+    );
+  });
+}
+
+// 通过真实FFI验证MLS身份复用、认证证明及损坏状态拒绝。
 
 MlsAuthenticationRequest _authenticationRequest() => MlsAuthenticationRequest(
   tokenPurpose: 'device',
@@ -18,7 +117,7 @@ MlsAuthenticationRequest _authenticationRequest() => MlsAuthenticationRequest(
   bodyBytes: [1, 2, 3],
 );
 
-void main() {
+void _registerNative() {
   requireMlsTestLibrary();
   test('原生诊断只公开固定码和操作，私密技术文本不进入用户提示', () {
     for (final entry in {
@@ -224,9 +323,8 @@ void main() {
     final store = MlsStateStore(root, ownerUserId: 'phase-user');
     final first = await store.prepareIdentity();
     final before = await File('${root.path}/state.bin').readAsBytes();
-    await File(
-      '${root.path}/state.lock',
-    ).writeAsString('initializing\n', flush: true);
+    await File('${root.path}/state.lock')
+        .writeAsString('initializing\n', flush: true);
     expect((await store.prepareIdentity()).deviceId, first.deviceId);
     expect(await File('${root.path}/state.bin').readAsBytes(), before);
     await File('${root.path}/state.bin').delete();
@@ -330,4 +428,46 @@ void main() {
       ),
     );
   });
+}
+
+// 核对本轮真实动态库导出全部声明聊天C接口。
+
+void _registerSymbol() {
+  test('本轮独立动态库真实导出头文件中的全部聊天FFI接口', () {
+    final file = Platform.environment['MLS_TEST_LIBRARY'];
+    expect(file, isNotNull, reason: '必须由本产品测试入口交付本轮真实原生库');
+    final library = DynamicLibrary.open(file!);
+    final header = File('chat/mls/mls.h').readAsStringSync();
+    final names = RegExp(r'\b(mls_[a-z_]+)\s*\(')
+        .allMatches(header)
+        .map((value) => value.group(1)!)
+        .toSet();
+    expect(names.length, 10);
+    for (final name in names) {
+      expect(
+        library.lookup<NativeFunction<Void Function()>>(name).address,
+        isNot(0),
+        reason: name,
+      );
+    }
+    for (final name in [
+      'mls_rekey_state_json',
+      'mls_two_party_smoke_json',
+      'mls_device_identity_json',
+      'mls_encrypt_json',
+      'mls_decrypt_json',
+    ]) {
+      expect(
+        () => library.lookup<NativeFunction<Void Function()>>(name),
+        throwsArgumentError,
+        reason: '禁止重新导出退役接口$name',
+      );
+    }
+  });
+}
+
+void main() {
+  group("mls/native_session_test", _registerNativeSession);
+  group("mls/native_test", _registerNative);
+  group("mls/symbol_test", _registerSymbol);
 }

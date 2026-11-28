@@ -1,3 +1,5 @@
+# 声明充值包身份、工作区归属及现有依赖。
+
 name: citizen_topup
 description: 公民App充值包。
 publish_to: none

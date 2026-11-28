@@ -1,14 +1,13 @@
-// 持久化原充值订单及付款事实，协调验款、发币回执和删除隔离。
+// 原订单持久化、恢复及回执归属。
 
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
-
 import 'package:isar_community/isar.dart';
-import 'package:citizen_storage/user_isar.dart' as storage;
+import 'package:citizen_storage/user.dart' as storage;
+import 'package:citizen_topup/data.dart';
 
-import 'package:citizen_topup/topup_models.dart';
-import 'package:citizen_topup/topup_erc20.dart';
+// 持久化原充值订单及付款事实，协调验款、发币回执和删除隔离。
 
 /// 已支付只表示付款链验款成功；发币请求结果不改写真实付款事实。
 enum TopupProgress { pending, paid, completed }

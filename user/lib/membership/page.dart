@@ -1,0 +1,1983 @@
+// 展示会员状态、价格、用量、权益详情及操作界面。
+
+import 'package:citizen_system/format.dart';
+import 'package:citizen_user/identity/registration.dart' show startCidRegistrationFlow;
+import 'package:citizen_chain/service.dart';
+import 'dart:async';
+import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:citizen_user/identity/session.dart' show SquareSessionProvider, SquareSessionStatus, SquareSessionStatusText;
+import 'package:citizen_user/api.dart' show SquareMembershipPlan, SquareMembershipState, SquareMembershipUsageState, SquareResourceAuthorization;
+import 'package:citizen_user/membership/service.dart' show SubscriptionException, SubscriptionService;
+import 'package:citizen_user/identity/state.dart' show CidBusinessGate, FinalizedIdentityResolver;
+import 'package:citizen_user/identity/badge.dart' show IdentityBadge, identityBadgeStyle;
+import 'package:citizen_system/theme.dart';
+import 'package:citizen_user/security.dart' show AccountSecurityService;
+import 'package:citizen_user/context.dart' show CurrentUserContext, IdentityBinding;
+
+// 展示会员链上状态、价格及独立云端额度用量和订阅操作。
+
+const List<String> _tierOrder = ['freedom', 'democracy', 'spark'];
+
+/// 会员链上状态与价格来自统一轻节点；云端额度及用量独立读取。
+class MembershipPage extends StatefulWidget {
+  const MembershipPage({
+    super.key,
+    ChainDataService? chainData,
+    SquareSessionProvider? sessionProvider,
+    SubscriptionService? subscriptionService,
+    this.currentUserContext,
+  }) : _chainData = chainData,
+       _sessionProvider = sessionProvider,
+       _subscriptionService = subscriptionService;
+  final ChainDataService? _chainData;
+  final SquareSessionProvider? _sessionProvider;
+  final SubscriptionService? _subscriptionService;
+  final CurrentUserContext? currentUserContext;
+  @override
+  State<MembershipPage> createState() => _MembershipPageState();
+}
+
+class _MembershipPageState extends State<MembershipPage>
+    with SingleTickerProviderStateMixin {
+  ChainDataService? _chainData;
+  late final SquareSessionProvider _sessionProvider;
+  late final SubscriptionService _subscriptionService;
+  AccountSecurityService? _accountSecurity;
+  bool _dependenciesReady = false,
+      _chainLoading = false,
+      _resourceLoading = false,
+      _unregistered = false,
+      _busy = false;
+  CurrentUserContext? _currentUser;
+  IdentityBinding? _binding;
+  SquareResourceAuthorization? _resources;
+  Timer? _priceTimer;
+  int _generation = 0;
+  String? _chainFailure;
+  bool get _refreshing => _chainLoading || _resourceLoading;
+  SquareSessionStatus? _sessionStatus;
+  late final AnimationController _snapController;
+  Animation<double>? _snapAnim;
+  double _page = 0;
+  int _cardCount = 0;
+  _MembershipViewData _data = const _MembershipViewData(
+    accountId: '',
+    cidNumber: '',
+    state: _emptyMembershipState,
+    prices: {},
+    subscriptionReady: false,
+  );
+  @override
+  void initState() {
+    super.initState();
+    _snapController =
+        AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 320),
+        )..addListener(() {
+          final anim = _snapAnim;
+          if (anim != null && mounted) {
+            setState(() => _page = anim.value);
+          }
+        });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_dependenciesReady) return;
+    _chainData = widget._chainData ?? context.read<ChainDataService?>();
+    _chainData?.addListener(_onChainData);
+    _currentUser =
+        widget.currentUserContext ?? context.read<CurrentUserContext?>();
+    _sessionProvider =
+        widget._sessionProvider ?? context.read<SquareSessionProvider>();
+    if (widget._subscriptionService case final service?) {
+      _subscriptionService = service;
+    } else {
+      final sdk = context.read<CitizenSdk>();
+      _subscriptionService = SubscriptionService(
+        chainData: _chainData,
+        wallet: sdk,
+        chain: sdk,
+        transactions: sdk,
+        identityResolver: context.read<FinalizedIdentityResolver>(),
+      );
+    }
+    _accountSecurity = context.read<AccountSecurityService?>();
+    _accountSecurity?.revision.addListener(_onIdentityChanged);
+    _dependenciesReady = true;
+    unawaited(_load());
+  }
+
+  @override
+  void dispose() {
+    _priceTimer?.cancel();
+    _chainData?.removeListener(_onChainData);
+    _accountSecurity?.revision.removeListener(_onIdentityChanged);
+    _snapController.dispose();
+    super.dispose();
+  }
+
+  void _onIdentityChanged() {
+    if (!mounted) {
+      return;
+    }
+    // 先撤下旧身份，不等待旧链读或云端请求完成。
+    _priceTimer?.cancel();
+    setState(() {
+      _binding = null;
+      _resources = null;
+      _unregistered = false;
+      _busy = false;
+      _sessionStatus = null;
+      _data = const _MembershipViewData(
+        accountId: '',
+        cidNumber: '',
+        state: _emptyMembershipState,
+        prices: {},
+        subscriptionReady: false,
+      );
+    });
+    unawaited(_load());
+  }
+
+  Future<void> _retryLoad() => _load(forceRefresh: true);
+
+  bool _matches(ChainDataSnapshot? data) {
+    final binding = _binding;
+    return binding != null &&
+        data?.genesisHash == binding.genesisHash &&
+        data?.accountId == binding.accountId &&
+        data?.ownCid == binding.cidNumber &&
+        data?.own?.identity?.bindRev == binding.bindRev;
+  }
+
+  bool _current(int generation) => mounted && generation == _generation;
+
+  void _onChainData() {
+    if (!mounted || _binding == null) return;
+    if (_matches(_chainData?.snapshot) && _chainData?.isStale == false) {
+      _chainFailure = null;
+    }
+    _applyLightData(_chainData?.snapshot);
+    if (!_chainLoading &&
+        _chainFailure == null &&
+        _matches(_chainData?.snapshot) &&
+        _chainData?.isStale == false &&
+        _chainData?.pricesReady == false) {
+      unawaited(_prepareChain(_generation));
+    }
+  }
+
+  void _applyLightData(ChainDataSnapshot? data) {
+    if (!mounted) {
+      return;
+    }
+    final binding = _binding;
+    final matches = _matches(data);
+    final state = matches ? data!.own?.platform : null;
+    final priceSnapshot = binding == null
+        ? null
+        : _chainData?.pricesFor(binding.genesisHash);
+    _applyViewData(
+      _MembershipViewData(
+        accountId: matches ? data!.accountId : '',
+        cidNumber: matches ? data!.ownCid ?? '' : '',
+        state: SquareMembershipState(
+          active: matches && data!.memberActive(binding!.cidNumber),
+          memberLevel: state?.plan.memberLevel,
+          subState: state?.subState,
+          chargeAt: state?.chargeAt ?? 0,
+          paidUntil: state?.paidUntil ?? 0,
+          plans: matches ? _resources?.plans ?? const [] : const [],
+          usageState: matches ? _resources?.usageState : null,
+          cleanupAfter: matches ? _resources?.cleanupAfter : null,
+        ),
+        prices: priceSnapshot?.prices ?? const {},
+        pricesReady: matches && _chainData?.pricesReady == true,
+        subscriptionReady: matches && _chainData?.isStale == false,
+      ),
+    );
+    _priceTimer?.cancel();
+    final remaining = _chainData?.priceCacheRemaining;
+    if (binding != null && matches && remaining != null) {
+      final generation = _generation;
+      _priceTimer = Timer(remaining, () {
+        if (!_current(generation)) return;
+        _applyLightData(_chainData?.snapshot);
+        if (!_chainLoading) unawaited(_prepareChain(generation));
+      });
+    }
+  }
+
+  Future<void> _prepareChain(
+    int generation, {
+    bool forceRefresh = false,
+  }) async {
+    final binding = _binding, source = _chainData;
+    if (!_current(generation) ||
+        binding == null ||
+        source == null ||
+        _chainLoading) {
+      return;
+    }
+    setState(() => _chainLoading = true);
+    try {
+      await source.ensureMembership(
+        genesisHash: binding.genesisHash,
+        accountId: binding.accountId,
+        cidNumber: binding.cidNumber,
+        bindRev: binding.bindRev,
+        forceRefresh: forceRefresh,
+      );
+      if (!_current(generation)) return;
+      _chainFailure = null;
+    } on Object {
+      if (!_current(generation)) return;
+      _chainFailure = '轻节点会员读取失败，请刷新重试';
+    } finally {
+      if (_current(generation)) {
+        _chainLoading = false;
+        _applyLightData(source.snapshot);
+      }
+    }
+  }
+
+  Future<void> _loadResources(
+    int generation, {
+    bool forceRefresh = false,
+  }) async {
+    final binding = _binding;
+    if (!_current(generation) || binding == null) return;
+    final cached = SubscriptionService.cachedResourcesFor(
+      cidNumber: binding.cidNumber,
+      accountId: binding.accountId,
+      bindRev: binding.bindRev,
+    );
+    if (!forceRefresh && cached != null) {
+      _resources = cached;
+      _applyLightData(_chainData?.snapshot);
+      return;
+    }
+    setState(() => _resourceLoading = true);
+    try {
+      final resolution = await _sessionProvider.resolveSession();
+      if (!_current(generation)) return;
+      _sessionStatus = resolution.status;
+      final session = resolution.session;
+      if (session == null ||
+          session.accountId != binding.accountId ||
+          session.cidNumber != binding.cidNumber ||
+          session.bindRev != binding.bindRev) {
+        throw StateError('云端会话尚未就绪');
+      }
+      final resources = await _subscriptionService.authorizeResources(
+        session,
+        forceRefresh: forceRefresh,
+      );
+      if (!_current(generation)) return;
+      _resources = resources;
+    } on Object {
+      // 云端规则及用量读取失败静默结束，不向会员页添加提示。
+    } finally {
+      if (_current(generation)) {
+        _resourceLoading = false;
+        _applyLightData(_chainData?.snapshot);
+      }
+    }
+  }
+
+  Future<void> _load({bool forceRefresh = false}) async {
+    final generation = ++_generation;
+    _priceTimer?.cancel();
+    setState(() {
+      _chainLoading = false;
+      _resourceLoading = false;
+      _chainFailure = null;
+    });
+    try {
+      if (_currentUser == null || _chainData == null) {
+        throw StateError('会员依赖尚未就绪');
+      }
+      var current = await _currentUser!.resolve();
+      if (!mounted) {
+        return;
+      }
+      if (!_current(generation)) return;
+      if (current != null &&
+          current.binding == null &&
+          !current.isUnregistered) {
+        await context.read<CidBusinessGate?>()?.resolve();
+        current = await _currentUser!.resolve();
+      }
+      if (!_current(generation)) return;
+      final binding = current?.binding;
+      _unregistered = current?.isUnregistered == true;
+      if (binding == null) {
+        _binding = null;
+        _resources = null;
+        _sessionStatus = current == null
+            ? SquareSessionStatus.noWallet
+            : SquareSessionStatus.identityUnavailable;
+        _chainFailure = _unregistered ? null : _sessionStatus!.message;
+        _applyLightData(null);
+        return;
+      }
+      final old = _binding;
+      if (old?.genesisHash != binding.genesisHash ||
+          old?.accountId != binding.accountId ||
+          old?.cidNumber != binding.cidNumber ||
+          old?.bindRev != binding.bindRev) {
+        _resources = null;
+      }
+      _binding = binding;
+      _resources =
+          SubscriptionService.cachedResourcesFor(
+            cidNumber: binding.cidNumber,
+            accountId: binding.accountId,
+            bindRev: binding.bindRev,
+          ) ??
+          _resources;
+      // 在任何链读或服务会话之前先展示匹配的缓存。
+      _applyLightData(_chainData!.snapshot);
+      await Future.wait([
+        _prepareChain(generation, forceRefresh: forceRefresh),
+        _loadResources(generation, forceRefresh: forceRefresh),
+      ]);
+    } on Object {
+      if (!_current(generation)) return;
+      setState(() => _chainFailure = '会员身份暂不可用，请重试');
+    }
+  }
+
+  void _applyViewData(_MembershipViewData data) {
+    if (!mounted) {
+      return;
+    }
+    final accountChanged = _data.accountId != data.accountId;
+    final membershipChanged = _data.state.memberLevel != data.state.memberLevel;
+    final defaultIndex = _tierIndexOfLevel(data.state.memberLevel);
+    setState(() {
+      _data = data;
+      if (accountChanged || membershipChanged || _cardCount == 0) {
+        _page = defaultIndex.toDouble();
+      }
+    });
+  }
+
+  /// App 内订阅 / 取消：据当前订阅态决定动作 → 上链热签（生物识别）→ confirm → 刷新。
+  /// 失败弹 SnackBar（文案单源自 [SubscriptionException]）。
+  Future<void> _handleAction(String level) async {
+    final binding = _binding, source = _chainData;
+    if (_busy || binding == null || source == null) return;
+    final generation = _generation;
+    final displayedPrice = _data.prices[level];
+    setState(() => _busy = true);
+    try {
+      await source.ensureMembership(
+        genesisHash: binding.genesisHash,
+        accountId: binding.accountId,
+        cidNumber: binding.cidNumber,
+        bindRev: binding.bindRev,
+        forceRefresh: true,
+      );
+      if (!_current(generation)) return;
+      if (!_matches(source.snapshot) || source.isStale) {
+        throw const SubscriptionException('当前会员身份已变化，请重试');
+      }
+      _applyLightData(source.snapshot);
+      final action = _actionFor(_data.state, level);
+      final price = source.priceSnapshot?.prices[level];
+      if (action != _SubscribeAction.cancel && price == null) {
+        throw const SubscriptionException('链上价格尚未就绪');
+      }
+      if (action != _SubscribeAction.cancel &&
+          displayedPrice != null &&
+          price != displayedPrice) {
+        throw const SubscriptionException('会员价格已更新，请确认后重试');
+      }
+      if (!mounted) {
+        return;
+      }
+      if (action == _SubscribeAction.cancel) {
+        await _subscriptionService.cancel(
+          context: context,
+          expectedBinding: binding,
+        );
+      } else if (action == _SubscribeAction.change) {
+        await _subscriptionService.changePlan(
+          level,
+          price!,
+          context: context,
+          expectedBinding: binding,
+        );
+      } else {
+        await _subscriptionService.subscribe(
+          level,
+          price!,
+          context: context,
+          expectedBinding: binding,
+        );
+      }
+      if (!_current(generation)) return;
+      await source.ensureMembership(
+        genesisHash: binding.genesisHash,
+        accountId: binding.accountId,
+        cidNumber: binding.cidNumber,
+        bindRev: binding.bindRev,
+        forceRefresh: true,
+      );
+      if (!_current(generation)) return;
+      _applyLightData(source.snapshot);
+      await _loadResources(generation, forceRefresh: true);
+    } on Object catch (error) {
+      if (mounted && _current(generation)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              identityCidUiText(
+                error is SubscriptionException ? error.message : '会员操作失败，请重试',
+              ),
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (_current(generation)) setState(() => _busy = false);
+    }
+  }
+
+  /// 打开该档「会员详情页」（完整权益只读展示 + 订阅入口，订阅动作仍走本页 [_handleAction]）。
+  void _openDetail(
+    String level,
+    SquareMembershipPlan? plan,
+    int? priceFen,
+    SquareMembershipState state,
+  ) {
+    final generation = _generation;
+    final action = _actionFor(state, level);
+    final noWallet = _sessionStatus == SquareSessionStatus.noWallet;
+    // 缓存只提供展示，详情按钮与会员卡一样必须有当前可用会话。
+    final sessionUnavailable = _data.accountId.isEmpty;
+    final stateNotReady = !_data.subscriptionReady;
+    final priceNotReady =
+        !_data.pricesReady && action != _SubscribeAction.cancel;
+    final label = noWallet
+        ? '请先添加钱包账户'
+        : sessionUnavailable
+        ? _sessionStatus?.message ?? '会员状态同步中'
+        : stateNotReady
+        ? '会员状态同步中'
+        : priceNotReady || action != _SubscribeAction.cancel && priceFen == null
+        ? '链上价格未就绪'
+        : _actionLabel(action);
+    final enabled =
+        !noWallet &&
+        !sessionUnavailable &&
+        !stateNotReady &&
+        !priceNotReady &&
+        (action == _SubscribeAction.cancel || priceFen != null);
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => MembershipDetailPage(
+          memberLevel: level,
+          plan: plan,
+          usageState: state.memberLevel == level ? state.usageState : null,
+          priceFen: priceFen,
+          actionLabel: label,
+          subscribeEnabled: enabled,
+          onSubscribe: () {
+            if (_current(generation)) _handleAction(level);
+          },
+        ),
+      ),
+    );
+  }
+
+  void _animateToPage(int target) {
+    final clamped = target.clamp(0, (_cardCount - 1).clamp(0, 99)).toDouble();
+    _snapAnim = Tween<double>(begin: _page, end: clamped).animate(
+      CurvedAnimation(parent: _snapController, curve: Curves.easeOutCubic),
+    );
+    _snapController.forward(from: 0);
+  }
+
+  void _onDragUpdate(DragUpdateDetails details, double dragUnit) {
+    setState(() {
+      _page = (_page - details.primaryDelta! / dragUnit).clamp(
+        0.0,
+        (_cardCount - 1).toDouble(),
+      );
+    });
+  }
+
+  void _onDragEnd(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    final int target;
+    if (velocity.abs() > 320) {
+      target = velocity < 0 ? _page.ceil() : _page.floor();
+    } else {
+      target = _page.round();
+    }
+    _animateToPage(target);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // 三张套餐卡始终显示；未注册入口放在标题栏，加载状态不替换卡片。
+    // 会员、价格与钱包状态由 [_load] 后台补齐；真正订阅、
+    // 换档或取消时由 [SubscriptionService] 核验钱包、CID 与轻节点会员状态，
+    // 随后的链上交易继续执行最终状态校验。
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('会员｜订阅'),
+        centerTitle: true,
+        actions: [
+          if (_unregistered)
+            Padding(
+              padding: EdgeInsets.only(right: AppLayout.scaled(context, 4)),
+              child: TextButton(
+                onPressed: () async {
+                  if (await startCidRegistrationFlow(context) && mounted) {
+                    await _load(forceRefresh: true);
+                  }
+                },
+                child: const Text('注册'),
+              ),
+            )
+          else
+            IconButton(
+              tooltip: '刷新',
+              onPressed: _chainLoading || _busy ? null : _retryLoad,
+              icon: const Icon(Icons.refresh),
+            ),
+        ],
+      ),
+      body: _buildBody(),
+    );
+  }
+
+  Widget _buildBody() {
+    final data = _data;
+    final state = data.state;
+    // 卡片身份来自固定三档；服务端缺档只让该档权益未知，不能删除卡片。
+    _cardCount = _tierOrder.length;
+    final size = MediaQuery.of(context).size;
+    final cardWidth = (size.width * 0.8).clamp(280.0, 360.0);
+    final bandHeight = (size.height * 0.60).clamp(430.0, 540.0);
+    final peek = cardWidth * 0.40;
+    final frontIndex = _page.round().clamp(0, _tierOrder.length - 1);
+    final activeColor = _tierColor(_tierOrder[frontIndex]);
+
+    // 绘制顺序：离最上层越远越先画（在下层），当前卡最后画（压在最上层）。
+    final drawOrder = List<int>.generate(_tierOrder.length, (i) => i)
+      ..sort((a, b) => (b - _page).abs().compareTo((a - _page).abs()));
+
+    return Column(
+      children: [
+        if (_chainFailure != null)
+          _LoadFailureBanner(
+            key: const ValueKey('membership-load-failure-banner'),
+            message: _chainFailure!,
+            onRetry: _retryLoad,
+          ),
+        if (state.cleanupAfter case final deadline?)
+          ListTile(
+            title: const Text('会员存储超额'),
+            subtitle: Text(
+              '请在 ${MaterialLocalizations.of(context).formatMediumDate(DateTime.fromMillisecondsSinceEpoch(deadline))} ${MaterialLocalizations.of(context).formatTimeOfDay(TimeOfDay.fromDateTime(DateTime.fromMillisecondsSinceEpoch(deadline)))} 前降低存储用量或恢复会员，届时服务端将回收超额内容。',
+            ),
+          ),
+        if (state.hasSubscriptionWindow) _ActiveMembershipBanner(state: state),
+        Expanded(
+          child: GestureDetector(
+            key: const ValueKey('membership-tier-stack-gesture'),
+            behavior: HitTestBehavior.opaque,
+            onHorizontalDragStart: (_) => _snapController.stop(),
+            onHorizontalDragUpdate: (d) => _onDragUpdate(d, cardWidth),
+            onHorizontalDragEnd: _onDragEnd,
+            child: Center(
+              child: SizedBox(
+                height: bandHeight,
+                width: double.infinity,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    for (final index in drawOrder)
+                      _buildStackedCard(
+                        index: index,
+                        level: _tierOrder[index],
+                        plan: state.planForLevel(_tierOrder[index]),
+                        state: state,
+                        priceFen: data.prices[_tierOrder[index]],
+                        canSubscribe:
+                            data.accountId.isNotEmpty &&
+                            data.subscriptionReady &&
+                            (data.pricesReady ||
+                                _actionFor(state, _tierOrder[index]) ==
+                                    _SubscribeAction.cancel),
+                        unavailableLabel: _unregistered
+                            ? '注册后可订阅'
+                            : data.subscriptionReady && !data.pricesReady
+                            ? '价格尚未就绪'
+                            : data.accountId.isEmpty && !_refreshing
+                            ? _sessionStatus?.message ?? '会员状态同步中'
+                            : '会员状态同步中',
+                        cardWidth: cardWidth,
+                        cardHeight: bandHeight,
+                        peek: peek,
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        _PageDots(
+          count: _tierOrder.length,
+          activeIndex: frontIndex,
+          activeColor: activeColor,
+        ),
+        SizedBox(height: AppLayout.scaledValue(10)),
+        Text(
+          '左右滑动切换会员档',
+          style: TextStyle(
+            color: AppTheme.textTertiary,
+            fontSize: AppLayout.scaledValue(12),
+          ),
+        ),
+        SizedBox(height: AppLayout.scaledValue(20)),
+      ],
+    );
+  }
+
+  Widget _buildStackedCard({
+    required int index,
+    required String level,
+    required SquareMembershipPlan? plan,
+    required SquareMembershipState state,
+    required int? priceFen,
+    required bool canSubscribe,
+    required String unavailableLabel,
+    required double cardWidth,
+    required double cardHeight,
+    required double peek,
+  }) {
+    final off = index - _page;
+    final absOff = off.abs();
+    final scale = (1.0 - 0.16 * absOff).clamp(0.68, 1.0);
+    final opacity = (1.0 - 0.55 * absOff).clamp(0.0, 1.0);
+    final isFront = absOff < 0.5;
+
+    final visual = Transform.translate(
+      offset: Offset(off * peek, 0),
+      child: Transform.scale(
+        scale: scale,
+        child: Opacity(
+          opacity: opacity,
+          child: SizedBox(
+            width: cardWidth,
+            height: cardHeight,
+            child: _MembershipTierCard(
+              memberLevel: level,
+              plan: plan,
+              state: state,
+              priceFen: priceFen,
+              canSubscribe: canSubscribe,
+              unavailableLabel: unavailableLabel,
+              busy: _busy,
+              onTapAction: () => _handleAction(level),
+              onViewDetail: () => _openDetail(level, plan, priceFen, state),
+              elevated: isFront,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    if (isFront) {
+      // 当前卡在最上层，内部按钮可点。
+      return KeyedSubtree(
+        key: const ValueKey('membership-front-card'),
+        child: visual,
+      );
+    }
+    // 下层候选卡：点击整卡切到最上层（拦掉内部按钮点击）。
+    return IgnorePointer(
+      ignoring: opacity < 0.05,
+      child: GestureDetector(
+        onTap: () => _animateToPage(index),
+        child: IgnorePointer(child: visual),
+      ),
+    );
+  }
+}
+
+class _MembershipViewData {
+  const _MembershipViewData({
+    required this.accountId,
+    required this.cidNumber,
+    required this.state,
+    required this.prices,
+    required this.subscriptionReady,
+    this.pricesReady = false,
+  });
+
+  final String accountId;
+  final String cidNumber;
+  final SquareMembershipState state;
+
+  /// 各档链上月价（分，公民币）；缺档表示链上未设该档价，卡片显示占位「—」。
+  final Map<String, int> prices;
+
+  /// 至少成功读取过一次 finalized 订阅态；未就绪时只展示卡片，禁止动权入口。
+  final bool subscriptionReady;
+  final bool pricesReady;
+}
+
+/// 单张会员档卡（ADR-037）：一张卡 = 一个订阅档（自由/民主/薪火）。档色顶带 + 大字档名
+/// + 会员权益（完整聊天矩阵 / 公文 / 文章 / 视频）+ 公民币月价 + 订阅按钮。无任何身份字段。
+class _MembershipTierCard extends StatelessWidget {
+  const _MembershipTierCard({
+    required this.memberLevel,
+    required this.plan,
+    required this.state,
+    required this.priceFen,
+    required this.canSubscribe,
+    required this.unavailableLabel,
+    required this.busy,
+    required this.onTapAction,
+    required this.onViewDetail,
+    this.elevated = true,
+  });
+
+  final String memberLevel;
+  final SquareMembershipPlan? plan;
+  final SquareMembershipState state;
+
+  /// 本档链上月价（分）；null=链上未设该档价，价签显示占位「—」。
+  final int? priceFen;
+
+  /// 是否已有可执行订阅动作的默认钱包账户会话。
+  final bool canSubscribe;
+
+  final String unavailableLabel;
+
+  /// 订阅 / 取消上链进行中：禁用按钮并显示进度圈。
+  final bool busy;
+
+  final VoidCallback onTapAction;
+
+  /// 点击「查看详细权益」进入该档会员详情页。
+  final VoidCallback onViewDetail;
+
+  /// 是否在最上层（决定投影强度）。
+  final bool elevated;
+
+  @override
+  Widget build(BuildContext context) {
+    final level = memberLevel;
+    final plan = this.plan;
+    final benefits = membershipBenefits(level, plan);
+    final tierColor = _tierColor(level);
+    final onTier = _onTierColor(level);
+    // 当前所购且有效的档：高亮边框 + 顶带「当前会员」标记。
+    final isCurrentTier = state.active && state.memberLevel == level;
+    final action = _actionFor(state, level);
+    final actionLabel = !canSubscribe
+        ? unavailableLabel
+        : action != _SubscribeAction.cancel && priceFen == null
+        ? '链上价格未就绪'
+        : _actionLabel(action);
+
+    return Container(
+      key: ValueKey('membership-tier-card-$level'),
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceCard,
+        borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+        border: Border.all(
+          color: isCurrentTier ? tierColor : AppTheme.border,
+          width: isCurrentTier ? 2 : 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: elevated ? 0.22 : 0.08),
+            blurRadius: AppLayout.scaledValue(elevated ? 24 : 8),
+            offset: Offset(0, AppLayout.scaledValue(elevated ? 12 : 4)),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildHeader(level, tierColor, onTier, isCurrentTier, priceFen),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _SectionLabel(
+                            icon: Icons.workspace_premium_outlined,
+                            text: '会员权益',
+                            color: tierColor,
+                          ),
+                          SizedBox(height: AppLayout.scaled(context, 10)),
+                          // 原七行顺序、图标和排版保持；只更新文案，完整权益见详情。
+                          _ParamLine(
+                            icon: Icons.chat_bubble_outline,
+                            color: tierColor,
+                            text: '聊天 文字/表情/贴纸/图片',
+                          ),
+                          SizedBox(height: AppLayout.scaled(context, 8)),
+                          _ParamLine(
+                            icon: Icons.mic_none_outlined,
+                            color: tierColor,
+                            text: '语音/视频消息 ${benefits.voice} · 语音/视频通话',
+                          ),
+                          SizedBox(height: AppLayout.scaled(context, 8)),
+                          _ParamLine(
+                            icon: Icons.attach_file_outlined,
+                            color: tierColor,
+                            text: '聊天附件 每个 ${benefits.file}',
+                          ),
+                          SizedBox(height: AppLayout.scaled(context, 8)),
+                          _ParamLine(
+                            icon: Icons.videocam_outlined,
+                            color: tierColor,
+                            text:
+                                '视频 ${benefits.videoDuration} · ${benefits.videoQuality} · ${benefits.videoSize}',
+                          ),
+                          SizedBox(height: AppLayout.scaled(context, 8)),
+                          _ParamLine(
+                            icon: Icons.photo_outlined,
+                            color: tierColor,
+                            text:
+                                '公文 ${benefits.documentText} · ${benefits.documentImages}图',
+                          ),
+                          SizedBox(height: AppLayout.scaled(context, 8)),
+                          _ParamLine(
+                            icon: Icons.article_outlined,
+                            color: tierColor,
+                            text:
+                                '文章 ${benefits.articleBody} · ${benefits.articleImages}图 · ${benefits.articleVideos}视频',
+                          ),
+                          SizedBox(height: AppLayout.scaled(context, 8)),
+                          _ParamLine(
+                            icon: Icons.storage_outlined,
+                            color: tierColor,
+                            text: '广场存储 ${benefits.storage}',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: AppLayout.scaled(context, 8)),
+                  // 查看详细权益：整行可点，进入该档会员详情页。
+                  InkWell(
+                    onTap: onViewDetail,
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(
+                        vertical: AppLayout.scaled(context, 8),
+                      ),
+                      child: Row(
+                        children: [
+                          Text(
+                            '查看详细权益',
+                            style: TextStyle(
+                              color: tierColor,
+                              fontSize: AppLayout.scaled(context, 13),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const Spacer(),
+                          Icon(
+                            Icons.chevron_right,
+                            size: AppLayout.scaled(context, 18),
+                            color: tierColor,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: AppLayout.scaled(context, 12)),
+                  SizedBox(
+                    width: double.infinity,
+                    child: _SubscribeButton(
+                      label: actionLabel,
+                      color: tierColor,
+                      busy: busy,
+                      action: action,
+                      enabled:
+                          canSubscribe &&
+                          (action == _SubscribeAction.cancel ||
+                              priceFen != null),
+                      onTap: onTapAction,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeader(
+    String level,
+    Color tierColor,
+    Color onTier,
+    bool isCurrentTier,
+    int? priceFen,
+  ) {
+    // 自由金底使用规范允许的主文字色；民主蓝/薪火红深色底使用纯白标志。
+    final gmbMarkColor = level == 'freedom'
+        ? AppTheme.textPrimary
+        : Colors.white;
+    final badgeStyle = identityBadgeStyle(
+      cidLevel: null,
+      memberLevel: level,
+      membergateActive: true,
+    )!;
+    final titleColumn = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          '会员订阅',
+          style: TextStyle(
+            color: onTier.withValues(alpha: 0.82),
+            fontSize: AppLayout.scaledValue(12),
+            fontWeight: FontWeight.w500,
+            letterSpacing: 0.4,
+          ),
+        ),
+        SizedBox(height: AppLayout.scaledValue(4)),
+        Row(
+          key: ValueKey('membership-tier-title-$level'),
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 会员名称复用全 App 唯一八花瓣徽章；浅色底衬只解决同色头部上的对比度。
+            Container(
+              width: AppLayout.scaledValue(26),
+              height: AppLayout.scaledValue(26),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: AppTheme.surfaceCard.withValues(alpha: 0.92),
+                shape: BoxShape.circle,
+              ),
+              child: IdentityBadge(
+                key: ValueKey('membership-tier-badge-$level'),
+                style: badgeStyle,
+                size: AppLayout.scaledValue(22),
+                tooltip: plan?.displayName ?? membershipTitle(level),
+              ),
+            ),
+            SizedBox(width: AppLayout.scaledValue(8)),
+            Text(
+              plan?.displayName ?? membershipTitle(level),
+              style: TextStyle(
+                color: onTier,
+                fontSize: AppLayout.scaledValue(22),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+        if (isCurrentTier) ...[
+          SizedBox(height: AppLayout.scaledValue(10)),
+          Container(
+            padding: EdgeInsets.symmetric(
+              horizontal: AppLayout.scaledValue(10),
+              vertical: AppLayout.scaledValue(4),
+            ),
+            decoration: BoxDecoration(
+              color: onTier.withAlpha(38),
+              borderRadius: BorderRadius.circular(AppLayout.scaledValue(999)),
+            ),
+            child: Text(
+              '当前会员',
+              style: TextStyle(
+                color: onTier,
+                fontSize: AppLayout.scaledValue(11),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+    final priceColumn = Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 标志只辅助识别，价格文本继续承担金额和无障碍语义。
+            ExcludeSemantics(
+              child: Image.asset(
+                'packages/citizen_assets/logo/mark256.png',
+                key: ValueKey('membership-price-gmb-mark-$level'),
+                width: 18,
+                height: 18,
+                color: gmbMarkColor,
+                colorBlendMode: BlendMode.srcIn,
+                filterQuality: FilterQuality.high,
+              ),
+            ),
+            SizedBox(width: AppLayout.scaledValue(6)),
+            Text(
+              priceFen == null ? '—' : '${formatFen(BigInt.from(priceFen))} 元',
+              style: TextStyle(
+                color: onTier,
+                fontSize: AppLayout.scaledValue(17),
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+        if (priceFen != null)
+          Text(
+            '/月',
+            style: TextStyle(
+              color: onTier.withValues(alpha: 0.82),
+              fontSize: AppLayout.scaledValue(11),
+            ),
+          ),
+      ],
+    );
+    return Container(
+      key: ValueKey('membership-colored-header-$level'),
+      color: tierColor,
+      // 宣传语下方只保留紧凑边距，避免彩色头部在白色内容区上方虚高。
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          LayoutBuilder(
+            builder: (context, constraints) {
+              // 窄屏时价格独占下一行，避免通过缩小徽章或标题牺牲可读性。
+              if (constraints.maxWidth < 270) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    titleColumn,
+                    SizedBox(height: AppLayout.scaledValue(8)),
+                    Align(alignment: Alignment.centerRight, child: priceColumn),
+                  ],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: titleColumn),
+                  SizedBox(width: AppLayout.scaledValue(12)),
+                  // 常规宽度价格保持右上角；宣传语在下方独占全宽。
+                  priceColumn,
+                ],
+              );
+            },
+          ),
+          SizedBox(height: AppLayout.scaledValue(6)),
+          _buildCenteredMotto(level, onTier),
+        ],
+      ),
+    );
+  }
+
+  /// 宣传语中的 ASCII 句点不能继续跟随字体基线落在文字底部。
+  ///
+  /// 原文仍以 `.` 保存并用于无障碍语义；视觉层把每个分隔点拆成稍大的独立圆点，
+  /// 在固定行盒中精确上下、左右居中。长宣传语只整体缩小，不换行、不改变头部高度。
+  Widget _buildCenteredMotto(String level, Color onTier) {
+    final motto = _membershipMotto(level);
+    final segments = motto.split('.');
+    final textStyle = TextStyle(
+      color: onTier.withValues(alpha: 0.86),
+      fontSize: AppLayout.scaledValue(11),
+      fontWeight: FontWeight.w500,
+      height: 1,
+    );
+    return Semantics(
+      label: motto,
+      child: ExcludeSemantics(
+        child: SizedBox(
+          key: ValueKey('membership-motto-$level'),
+          width: double.infinity,
+          height: AppLayout.scaledValue(14),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.center,
+            child: Row(
+              key: ValueKey('membership-motto-content-$level'),
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                for (var index = 0; index < segments.length; index++) ...[
+                  Text(segments[index], maxLines: 1, style: textStyle),
+                  if (index < segments.length - 1)
+                    SizedBox(
+                      key: ValueKey('membership-motto-dot-$level-$index'),
+                      width: AppLayout.scaledValue(8),
+                      height: AppLayout.scaledValue(14),
+                      child: Center(
+                        child: Container(
+                          key: ValueKey(
+                            'membership-motto-dot-shape-$level-$index',
+                          ),
+                          // 最长宣传语会被整体轻微缩小；4.5px 可确保最终可见点仍不小于 4px。
+                          width: AppLayout.scaledValue(4.5),
+                          height: AppLayout.scaledValue(4.5),
+                          decoration: BoxDecoration(
+                            color: onTier.withValues(alpha: 0.86),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 同一业务操作只签一次：新订阅、取消当前订阅、换到另一档分别提交一笔链上交易。
+enum _SubscribeAction { subscribe, change, cancel }
+
+_SubscribeAction _actionFor(SquareMembershipState state, String level) {
+  if (state.subState == 'active') {
+    return state.memberLevel == level
+        ? _SubscribeAction.cancel
+        : _SubscribeAction.change;
+  }
+  if (state.subState == 'cancelled' && state.memberLevel != level) {
+    return _SubscribeAction.change;
+  }
+  return _SubscribeAction.subscribe;
+}
+
+String _actionLabel(_SubscribeAction action) => switch (action) {
+  _SubscribeAction.subscribe => '订阅',
+  _SubscribeAction.change => '更换为此档',
+  _SubscribeAction.cancel => '取消订阅',
+};
+
+class _SubscribeButton extends StatelessWidget {
+  const _SubscribeButton({
+    required this.label,
+    required this.color,
+    required this.busy,
+    required this.action,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final String label;
+  final Color color;
+  final bool busy;
+
+  final _SubscribeAction action;
+
+  /// 链上价格未就绪时禁止发起订阅；取消既有订阅不依赖当前价格。
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton.icon(
+      onPressed: busy || !enabled ? null : onTap,
+      icon: busy
+          ? SizedBox(
+              width: AppLayout.scaled(context, 16),
+              height: AppLayout.scaled(context, 16),
+              child: const CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            )
+          : Icon(switch (action) {
+              _SubscribeAction.subscribe => Icons.workspace_premium_outlined,
+              _SubscribeAction.change => Icons.swap_horiz,
+              _SubscribeAction.cancel => Icons.cancel_outlined,
+            }, size: AppLayout.scaled(context, 16)),
+      label: Text(label),
+      style: FilledButton.styleFrom(
+        backgroundColor: color,
+        foregroundColor: Colors.white,
+        minimumSize: Size.fromHeight(AppLayout.scaled(context, 46)),
+        textStyle: TextStyle(
+          fontSize: AppLayout.scaled(context, 14),
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+/// 卡内分区小标题（会员权益）。
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel({
+    required this.icon,
+    required this.text,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String text;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: AppLayout.scaled(context, 15), color: color),
+        SizedBox(width: AppLayout.scaled(context, 6)),
+        Text(
+          text,
+          style: TextStyle(
+            color: color,
+            fontSize: AppLayout.scaled(context, 12),
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.3,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ParamLine extends StatelessWidget {
+  const _ParamLine({
+    required this.icon,
+    required this.color,
+    required this.text,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 1),
+          child: Icon(icon, size: AppLayout.scaled(context, 16), color: color),
+        ),
+        SizedBox(width: AppLayout.scaled(context, 8)),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(
+              color: AppTheme.textSecondary,
+              fontSize: AppLayout.scaled(context, 13),
+              height: 1.5,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PageDots extends StatelessWidget {
+  const _PageDots({
+    required this.count,
+    required this.activeIndex,
+    required this.activeColor,
+  });
+
+  final int count;
+  final int activeIndex;
+  final Color activeColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: List.generate(count, (index) {
+        final active = index == activeIndex;
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          margin: EdgeInsets.symmetric(
+            horizontal: AppLayout.scaled(context, 3),
+          ),
+          width: AppLayout.scaledValue(active ? 18 : 6),
+          height: AppLayout.scaled(context, 6),
+          decoration: BoxDecoration(
+            color: active ? activeColor : AppTheme.border,
+            borderRadius: BorderRadius.circular(AppLayout.scaledValue(999)),
+          ),
+        );
+      }),
+    );
+  }
+}
+
+/// 订阅起止横幅（ADR-037）：展示当前有效会员的档位、续费态与订阅起止日期。
+/// 会员操作（订阅 / 取消）已在 App 内卡片按钮完成，横幅只读展示。
+/// 首载失败横幅:与 [_ActiveMembershipBanner] 同款卡式,不遮挡三张静态卡。
+class _LoadFailureBanner extends StatelessWidget {
+  const _LoadFailureBanner({
+    super.key,
+    required this.message,
+    required this.onRetry,
+  });
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+      decoration: AppTheme.bannerDecoration(AppTheme.warning),
+      child: Row(
+        children: [
+          Icon(
+            Icons.error_outline,
+            size: AppLayout.scaled(context, 18),
+            color: AppTheme.warning,
+          ),
+          SizedBox(width: AppLayout.scaled(context, 8)),
+          Expanded(
+            child: Text(
+              identityCidUiText(message),
+              style: TextStyle(
+                fontSize: AppLayout.scaled(context, 13),
+                color: AppTheme.textSecondary,
+              ),
+            ),
+          ),
+          TextButton(onPressed: onRetry, child: const Text('重试')),
+        ],
+      ),
+    );
+  }
+}
+
+class _ActiveMembershipBanner extends StatelessWidget {
+  const _ActiveMembershipBanner({required this.state});
+
+  final SquareMembershipState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final plan = state.planForLevel(state.memberLevel);
+    // 已知链上档位直接展示固定名称，不等待资源授权的套餐资料。
+    final name =
+        plan?.displayName ??
+        (_tierOrder.contains(state.memberLevel)
+            ? membershipTitle(state.memberLevel!)
+            : '会员');
+    // 用户订阅授权未取消时，runtime 按链上真实公历到期时间自动扣款。
+    final route = switch (state.subState) {
+      'cancelled' => '已取消 · 到期终止',
+      'terminated' => '扣款失败 · 订阅已终止',
+      'suspended' => '已挂起 · 待重新签名或充值',
+      'issuerPaused' => '创作者暂停 · 恢复后自动续',
+      _ => '链上到期自动续费',
+    };
+    final window =
+        '订阅 ${_formatYmd(state.chargeAt)} ~ ${_formatYmd(state.paidUntil)}';
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: EdgeInsets.all(AppLayout.scaled(context, 12)),
+      decoration: AppTheme.bannerDecoration(AppTheme.info),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.event_available,
+            size: AppLayout.scaled(context, 18),
+            color: AppTheme.info,
+          ),
+          SizedBox(width: AppLayout.scaled(context, 8)),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$name · $route',
+                  style: TextStyle(
+                    color: AppTheme.info,
+                    fontSize: AppLayout.scaled(context, 12),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                SizedBox(height: AppLayout.scaled(context, 2)),
+                Text(
+                  window,
+                  style: TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontSize: AppLayout.scaled(context, 12),
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 毫秒时间戳格式化为本地 YYYY-MM-DD。
+String _formatYmd(int ms) {
+  final d = DateTime.fromMillisecondsSinceEpoch(ms).toLocal();
+  final mm = d.month.toString().padLeft(2, '0');
+  final dd = d.day.toString().padLeft(2, '0');
+  return '${d.year}-$mm-$dd';
+}
+
+// 缺少真实快照只表示未知；三档UI不生成套餐额度或本地授权。
+const SquareMembershipState _emptyMembershipState = SquareMembershipState(
+  active: false,
+  paidUntil: 0,
+);
+Color _tierColor(String level) => switch (level) {
+  'spark' => AppTheme.identityCandidate,
+  'democracy' => AppTheme.identityVoting,
+  _ => AppTheme.identityVisitor,
+};
+
+/// 顶带/价格标签前景色：自由金底用深棕保证对比度，民主蓝/薪火红底用白字。
+Color _onTierColor(String level) =>
+    level == 'freedom' ? const Color(0xFF4A3000) : Colors.white;
+
+/// 会员宣传语是稳定的本地 UI 文案，不进入会员套餐 DTO 或订阅契约。
+String _membershipMotto(String level) => switch (level) {
+  'freedom' => '生命诚可贵.爱情价更高.若为自由故.两者皆可抛',
+  'democracy' => '民主不是万能的.没有民主是万万不能的',
+  'spark' => '自由民主.薪火相传',
+  _ => '',
+};
+
+/// 会员档在固定档序中的下标；未知/无订阅归 0（自由）。
+int _tierIndexOfLevel(String? level) {
+  final index = _tierOrder.indexOf(level ?? '');
+  return index < 0 ? 0 : index;
+}
+
+// 展示会员各档完整权益说明，并消费已确认套餐事实。
+
+/// 会员详情页：展开某一档（自由/民主/薪火）的**完整权益**（聊天 / 公文 / 文章 / 视频 / 用量额度）。
+///
+/// 完整权益复用会员卡的展示文案；真实套餐优先，缺少套餐也保留已确认的三档介绍。
+/// 展示文案不构造套餐、价格、当前已用量或订阅资格。
+/// 订阅动作不在本页实现：点击底部按钮返回会员页并触发原订阅流程（[onSubscribe]），
+/// 避免把签名/上链逻辑复制到详情页。
+class MembershipDetailPage extends StatelessWidget {
+  const MembershipDetailPage({
+    super.key,
+    required this.memberLevel,
+    required this.plan,
+    required this.priceFen,
+    required this.actionLabel,
+    required this.subscribeEnabled,
+    required this.onSubscribe,
+    this.usageState,
+  });
+
+  final String memberLevel;
+  final SquareMembershipPlan? plan;
+  final SquareMembershipUsageState? usageState;
+
+  /// 本档链上月价（分）；null=链上未设该档价，显示占位「—」。
+  final int? priceFen;
+  final String actionLabel;
+  final bool subscribeEnabled;
+  final VoidCallback onSubscribe;
+
+  @override
+  Widget build(BuildContext context) {
+    final level = memberLevel;
+    final plan = this.plan;
+    final benefits = membershipBenefits(level, plan);
+    final tierColor = _detailTierColor(level);
+    final onTier = _detailOnColor(level);
+    return Scaffold(
+      appBar: AppBar(title: const Text('会员详情'), centerTitle: true),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+        children: [
+          _header(level, tierColor, onTier),
+          SizedBox(height: AppLayout.scaled(context, 16)),
+          _section(tierColor, Icons.chat_bubble_outline, '聊天', [
+            _row('消息', '文字、表情、贴纸、图片'),
+            _row('语音消息', '最长 ${benefits.voice}'),
+            _row('视频消息', '最长 ${benefits.videoMessage}'),
+            _row('单个附件', '最大 ${benefits.file}'),
+            _row('语音通话', benefits.voiceCall),
+            _row('视频通话', benefits.videoCall),
+          ]),
+          SizedBox(height: AppLayout.scaled(context, 12)),
+          _section(tierColor, Icons.description_outlined, '公文', [
+            _row('文字', '最多 ${benefits.documentText}'),
+            _row(
+              '图片',
+              '${benefits.documentImages} · 最长边 ${benefits.imageDimension}',
+            ),
+            _row('单图片体积', '最大 ${benefits.imageSize}'),
+          ]),
+          SizedBox(height: AppLayout.scaled(context, 12)),
+          _section(tierColor, Icons.videocam_outlined, '视频', [
+            _row('配文', '最多 ${benefits.videoText}'),
+            _row(
+              '视频',
+              '1 个 · ${benefits.videoDuration} · ${benefits.videoQuality}',
+            ),
+            _row('单视频体积', '最大 ${benefits.videoSize}'),
+          ]),
+          SizedBox(height: AppLayout.scaled(context, 12)),
+          _section(tierColor, Icons.article_outlined, '文章', [
+            _row('正文', '最多 ${benefits.articleBody}'),
+            _row(
+              '配图',
+              '${benefits.articleImages}（含首图）· 最长边 ${benefits.imageDimension}',
+            ),
+            _row('视频', '最多 ${benefits.articleVideos}'),
+            _row('标题', benefits.articleTitle),
+            _row('首图', '必须有，计入配图数量'),
+            _row('图片与视频规格', '与本档公文图片、发布视频相同'),
+          ]),
+          SizedBox(height: AppLayout.scaled(context, 12)),
+          _section(tierColor, Icons.storage_outlined, '用量额度', [
+            _row('广场存储空间', benefits.storage),
+            _row('聊天附件存储', benefits.attachments),
+            _row('重置规则', '存储空间不随每日或订阅周期重置'),
+          ]),
+          SizedBox(height: AppLayout.scaled(context, 12)),
+          _section(tierColor, Icons.today_outlined, '每日会员额度', [
+            _row('媒体访问', benefits.mediaRequests),
+            _row('媒体下载流量', benefits.downloads),
+            _row('聊天附件上传流量', benefits.uploads),
+            _row('附件新建额度', benefits.begins),
+            _row('重置规则', '同一身份CID号跨设备累计，UTC 零点重置'),
+          ]),
+          SizedBox(height: AppLayout.scaled(context, 12)),
+          _section(tierColor, Icons.info_outline, '计量说明', [
+            _row('容量单位', 'KiB／MiB／GiB／TiB，逐级 1024'),
+            _row('单个聊天附件', '按明文大小计算'),
+            _row('附件上传与存储', '按密文大小计算'),
+          ]),
+          if (usageState case final usage?) ...[
+            SizedBox(height: AppLayout.scaled(context, 12)),
+            _section(tierColor, Icons.data_usage_outlined, '服务端用量快照', [
+              _row('已用存储', _meterValue('delivery_bytes', usage.usedBytes)),
+              _row(
+                '上传预留存储',
+                _meterValue('delivery_bytes', usage.reservedBytes),
+              ),
+              _row(
+                '服务端采样时间',
+                usage.observedAt > 0
+                    ? DateTime.fromMillisecondsSinceEpoch(
+                        usage.observedAt,
+                        isUtc: true,
+                      ).toIso8601String()
+                    : '未知',
+              ),
+              if (usage.attachment case final stock?) ...[
+                if (stock['status'] == 'available') ...[
+                  _row(
+                    '聊天附件存储',
+                    _meterValue('delivery_bytes', stock['bytes'] as int),
+                  ),
+                ] else
+                  _row('聊天附件存量', '暂不可用'),
+              ],
+              _row(
+                '统计日（UTC）',
+                DateTime.fromMillisecondsSinceEpoch(
+                  usage.dayStart,
+                  isUtc: true,
+                ).toIso8601String().substring(0, 10),
+              ),
+              for (final entry in usage.daily.entries.where(
+                (entry) => _dailyDisplay.containsKey(entry.key),
+              ))
+                _row(
+                  _dailyDisplay[entry.key]!,
+                  _meterValue(entry.key, entry.value),
+                ),
+            ]),
+          ],
+          SizedBox(height: AppLayout.scaled(context, 20)),
+          _subscribeButton(context, tierColor, onTier),
+        ],
+      ),
+    );
+  }
+
+  Widget _header(String level, Color tierColor, Color onTier) {
+    // 与三档会员卡一致：自由金底使用主文字色，深色档位使用纯白公民币标志。
+    final gmbMarkColor = level == 'freedom'
+        ? AppTheme.textPrimary
+        : Colors.white;
+    return Container(
+      padding: EdgeInsets.all(AppLayout.scaledValue(16)),
+      decoration: BoxDecoration(
+        color: tierColor,
+        borderRadius: BorderRadius.circular(AppLayout.scaledValue(14)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '会员订阅',
+                  style: TextStyle(
+                    color: onTier.withValues(alpha: 0.82),
+                    fontSize: AppLayout.scaledValue(12),
+                  ),
+                ),
+                SizedBox(height: AppLayout.scaledValue(4)),
+                Text(
+                  plan?.displayName ?? membershipTitle(level),
+                  style: TextStyle(
+                    color: onTier,
+                    fontSize: AppLayout.scaledValue(24),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(width: AppLayout.scaledValue(12)),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // 标志只辅助识别，价格文本继续承担金额和无障碍语义。
+                  ExcludeSemantics(
+                    child: Image.asset(
+                      'packages/citizen_assets/logo/mark256.png',
+                      key: ValueKey('membership-detail-price-gmb-mark-$level'),
+                      width: 18,
+                      height: 18,
+                      color: gmbMarkColor,
+                      colorBlendMode: BlendMode.srcIn,
+                      filterQuality: FilterQuality.high,
+                    ),
+                  ),
+                  SizedBox(width: AppLayout.scaledValue(6)),
+                  Text(
+                    priceFen == null
+                        ? '—'
+                        : '${formatFen(BigInt.from(priceFen!))} 元',
+                    style: TextStyle(
+                      color: onTier,
+                      fontSize: AppLayout.scaledValue(18),
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+              if (priceFen != null)
+                Text(
+                  '/月',
+                  style: TextStyle(
+                    color: onTier.withValues(alpha: 0.82),
+                    fontSize: AppLayout.scaledValue(11),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _section(
+    Color tierColor,
+    IconData icon,
+    String title,
+    List<Widget> rows,
+  ) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceCard,
+        borderRadius: BorderRadius.circular(AppLayout.scaledValue(14)),
+        border: Border.all(color: AppTheme.border),
+      ),
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: EdgeInsets.symmetric(vertical: AppLayout.scaledValue(6)),
+            child: Row(
+              children: [
+                Icon(icon, size: AppLayout.scaledValue(16), color: tierColor),
+                SizedBox(width: AppLayout.scaledValue(6)),
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: tierColor,
+                    fontSize: AppLayout.scaledValue(13),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          for (final row in rows) ...[
+            const Divider(height: 1, color: AppTheme.border),
+            row,
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _row(String label, String value) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: AppLayout.scaledValue(9)),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: AppTheme.textSecondary,
+              fontSize: AppLayout.scaledValue(14),
+            ),
+          ),
+          SizedBox(width: AppLayout.scaledValue(12)),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                color: AppTheme.textPrimary,
+                fontSize: AppLayout.scaledValue(14),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _subscribeButton(BuildContext context, Color tierColor, Color onTier) {
+    return Material(
+      color: subscribeEnabled ? tierColor : AppTheme.border,
+      borderRadius: BorderRadius.circular(AppLayout.scaledValue(12)),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppLayout.scaledValue(12)),
+        onTap: subscribeEnabled && plan != null
+            ? () {
+                // 订阅流程在会员页：先返回,再触发原 _handleAction。
+                Navigator.of(context).pop();
+                onSubscribe();
+              }
+            : null,
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            vertical: AppLayout.scaled(context, 14),
+          ),
+          child: Center(
+            child: Text(
+              // 价格已经在详情头部单独展示；按钮只表达动作或不可用原因，避免把
+              // “服务不可用/添加钱包”等状态与金额拼成一句错误文案。
+              actionLabel,
+              style: TextStyle(
+                color: subscribeEnabled ? onTier : AppTheme.textTertiary,
+                fontSize: AppLayout.scaled(context, 15),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 卡片摘要和完整详情共用的纯展示文本，不能传给额度预检或订阅授权。
+typedef MembershipBenefits = ({
+  String voice,
+  String videoMessage,
+  String voiceCall,
+  String videoCall,
+  String file,
+  String documentText,
+  String documentImages,
+  String imageDimension,
+  String imageSize,
+  String videoText,
+  String videoDuration,
+  String videoQuality,
+  String videoSize,
+  String articleBody,
+  String articleTitle,
+  String articleImages,
+  String articleVideos,
+  String storage,
+  String attachments,
+  String mediaRequests,
+  String downloads,
+  String uploads,
+  String begins,
+});
+
+/// 无套餐时使用用户确认的最新三档介绍；真实套餐或缓存到达后按原值展示。
+/// 这里只生成文案，不构造 SquareMembershipPlan，也不填充价格、用量或资格。
+MembershipBenefits membershipBenefits(
+  String level,
+  SquareMembershipPlan? plan,
+) {
+  final copy = switch (level) {
+    'freedom' => (
+      file: '10 MiB',
+      imageDimension: '1280px',
+      imageSize: '400 KiB',
+      videoDuration: '3 分钟',
+      videoQuality: '480p',
+      videoSize: '12 MiB',
+      articleImages: 20,
+      articleVideos: 1,
+      storage: '256 GiB',
+      mediaRequests: 5000,
+      downloads: '1 GiB',
+      uploads: '512 MiB',
+      begins: 128,
+    ),
+    'democracy' => (
+      file: '100 MiB',
+      imageDimension: '1600px',
+      imageSize: '800 KiB',
+      videoDuration: '30 分钟',
+      videoQuality: '720p',
+      videoSize: '200 MiB',
+      articleImages: 50,
+      articleVideos: 3,
+      storage: '1 TiB',
+      mediaRequests: 15000,
+      downloads: '5 GiB',
+      uploads: '2 GiB',
+      begins: 256,
+    ),
+    'spark' => (
+      file: '5 GiB',
+      imageDimension: '1920px',
+      imageSize: '1200 KiB',
+      videoDuration: '3 小时',
+      videoQuality: '1080p',
+      videoSize: '1800 MiB',
+      articleImages: 100,
+      articleVideos: 10,
+      storage: '10 TiB',
+      mediaRequests: 50000,
+      downloads: '50 GiB',
+      uploads: '10 GiB',
+      begins: 1024,
+    ),
+    _ => throw ArgumentError.value(level, 'level', '会员档位未知'),
+  };
+  String daily(String metric, String description) {
+    if (plan == null) return description;
+    final value = plan.dailyLimits[metric];
+    return value == null ? '待获取' : _meterValue(metric, value);
+  }
+
+  final attachmentBytes = plan?.resources['attachment_bytes'];
+  return (
+    voice: plan?.chatVoiceLabel ?? '3 分钟',
+    videoMessage: plan?.chatVideoLabel ?? '3 分钟',
+    voiceCall: plan == null || plan.chat.voiceCallEnabled ? '支持' : '不支持',
+    videoCall: plan == null || plan.chat.videoCallEnabled ? '支持' : '不支持',
+    file: plan?.fileSizeLabel ?? copy.file,
+    documentText: '${plan?.document.textMaxChars ?? 300} 字',
+    documentImages: '${plan?.document.maxImages ?? 9} 张',
+    imageDimension: plan?.documentImageLabel ?? copy.imageDimension,
+    imageSize: plan?.imageBytesLabel ?? copy.imageSize,
+    videoText: '${plan?.video.textMaxChars ?? 300} 字',
+    videoDuration: plan?.videoDurationLabel ?? copy.videoDuration,
+    videoQuality: plan?.videoQualityLabel ?? copy.videoQuality,
+    videoSize: plan?.videoBytesLabel ?? copy.videoSize,
+    articleBody: _wan(plan?.article.bodyMaxChars ?? 30000),
+    articleTitle:
+        '${plan?.article.titleMinChars ?? 10}–${plan?.article.titleMaxChars ?? 50} 字',
+    articleImages: '${plan?.article.maxImages ?? copy.articleImages} 张',
+    articleVideos: '${plan?.article.maxVideos ?? copy.articleVideos} 个',
+    storage: plan?.storageSizeLabel ?? copy.storage,
+    attachments: attachmentBytes == null
+        ? '待获取'
+        : SquareMembershipPlan.formatBytes(attachmentBytes),
+    mediaRequests: daily(
+      'media_requests',
+      '${_thousands(copy.mediaRequests)} 次',
+    ),
+    downloads: daily('delivery_bytes', copy.downloads),
+    uploads: daily('upload_bytes', copy.uploads),
+    begins: daily('attachment_begins', '${_thousands(copy.begins)} 次'),
+  );
+}
+
+// 指标名称和单位只用于当前真实已用量的展示，不参与权益文案或授权。
+// 界面只展示用户能直接理解的媒体请求与流量；完整计数仍保留在同一服务端快照中。
+const _dailyDisplay = {
+  'media_requests': '媒体读取请求',
+  'upload_bytes': '聊天附件上传总大小',
+  'delivery_bytes': '媒体下发总大小',
+  'attachment_begins': '新建聊天附件次数',
+};
+String _meterValue(String metric, int value) => metric.endsWith('_bytes')
+    ? SquareMembershipPlan.formatBytes(value)
+    : '${_thousands(value)} 次';
+
+/// 会员档色（自由金 / 民主蓝 / 薪火红），与会员卡片一致。
+Color _detailTierColor(String level) => switch (level) {
+  'spark' => AppTheme.identityCandidate,
+  'democracy' => AppTheme.identityVoting,
+  _ => AppTheme.identityVisitor,
+};
+
+/// 顶带前景色：自由金底用深棕，其余用白字。
+Color _detailOnColor(String level) =>
+    level == 'freedom' ? const Color(0xFF4A3000) : Colors.white;
+
+/// 整数千分号：5000 → "5,000"。
+String _thousands(int n) =>
+    n.toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+$)'), (_) => ',');
+
+/// 字数「万」简写：30000 → "3 万字"；非整万回退千分号原值。
+String _wan(int chars) => chars >= 10000 && chars % 10000 == 0
+    ? '${chars ~/ 10000} 万字'
+    : '${_thousands(chars)} 字';
+
+/// 固定档名仅用于展示，不包含价格、用量或授权信息。
+String membershipTitle(String level) => switch (level) {
+  'freedom' => '自由会员',
+  'democracy' => '民主会员',
+  'spark' => '薪火会员',
+  _ => throw ArgumentError.value(level, 'level', '会员档位未知'),
+};

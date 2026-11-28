@@ -1,131 +1,108 @@
-/// 公民 App 唯一本地聊天包。
+// 装配聊天唯一公开入口、页面及各功能模块。
+
 library;
 
-import 'package:citizen_system/identity_cid_display.dart';
-import 'package:citizen_user/navigation.dart';
-import 'package:provider/provider.dart';
-import 'package:citizen_sdk/citizen_sdk.dart';
-
 import 'dart:async';
+import 'dart:io';
 
+import 'package:chat/compose/composer.dart';
+import 'package:chat/compose/panel.dart';
+import 'package:chat/conversation/controller.dart';
+import 'package:chat/conversation/list.dart';
+import 'package:chat/conversation/results.dart';
+import 'package:chat/error.dart';
+import 'package:chat/group/members.dart';
+import 'package:chat/media/camera.dart';
+import 'package:chat/media/picker.dart';
+import 'package:chat/media/processor.dart';
+import 'package:chat/media/voice.dart';
+import 'package:chat/message/content.dart';
+import 'package:chat/message/flow.dart';
+import 'package:chat/message/view.dart';
+import 'package:chat/models.dart';
+import 'package:chat/runtime.dart';
+import 'package:chat/store.dart';
+import 'package:citizen_onchain/page.dart';
+import 'package:citizen_scanner/scan.dart';
+import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_system/format.dart';
+import 'package:citizen_system/theme.dart';
+
+import 'package:citizen_user/api.dart'
+    show SquareApiClient, SquareApiException, SquareApiStage;
+import 'package:citizen_user/contacts/page.dart'
+    show ContactBookPage, scanAndAddContact;
+import 'package:citizen_user/contacts/service.dart'
+    show UserContact, UserContactService;
+import 'package:citizen_user/context.dart'
+    show ContactPickMode, DirectChatOpener;
+import 'package:citizen_user/context.dart' show CurrentUser, CurrentUserContext;
+import 'package:citizen_user/identity/session.dart' show SquareSessionProvider;
+import 'package:citizen_user/membership/service.dart' show MembershipRevision;
+import 'package:citizen_user/profile/data.dart' show CitizenProfile;
+import 'package:citizen_user/profile/data.dart' show CitizenProfileApi;
+import 'package:citizen_user/profile/data.dart'
+    show
+        CitizenProfileCache,
+        CitizenProfileMediaCache,
+        CitizenProfileMediaSnapshot,
+        CitizenProfileRevisionEvent;
+import 'package:citizen_user/profile/data.dart' show ProfilePresentation;
+import 'package:citizen_user/profile/page.dart' show ProfileAvatar;
+import 'package:citizen_user/profile/page.dart' show UserProfilePage;
+import 'package:citizen_user/security.dart' show AccountSecurityService;
+import 'package:citizen_wallet/account/card.dart' show showWalletQrDialog;
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';
 import 'package:flutter_chat_ui/flutter_chat_ui.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
-import 'package:citizen_user/profile/citizen_profile.dart';
-import 'package:citizen_user/profile/profile_presentation.dart';
-import 'package:citizen_user/profile/citizen_profile_api.dart';
-import 'package:citizen_user/profile/citizen_profile_cache.dart';
-import 'package:citizen_user/identity/square_session_provider.dart';
-import 'package:citizen_user/profile/user_profile_page.dart';
-import 'package:citizen_user/profile/profile_avatar.dart';
-import 'package:citizen_user/square_api_client.dart';
-import 'package:citizen_user/membership/membership_revision.dart';
-import 'package:citizen_user/identity/current_user_context.dart';
-import 'package:citizen_user/contacts/contact_book_page.dart';
-import 'package:citizen_user/contacts/contact_service.dart';
-import 'package:citizen_scanner/scan_dispatch.dart';
-import 'package:citizen_onchain/onchain_payment_page.dart';
-import 'package:citizen_system/theme/app_layout.dart';
-import 'package:citizen_system/theme/app_theme.dart';
-import 'package:citizen_user/identity/account_security_service.dart';
-import 'package:citizen_wallet/account/wallet_qr_dialog.dart';
-
-import 'dart:io';
-
-import 'chat_error.dart';
-import 'chat_models.dart';
-import 'chat_runtime.dart';
-import 'chat_store.dart';
-import 'compose/composer_action_panel.dart';
-import 'compose/composer_bar.dart';
-import 'compose/expression_panel.dart';
-import 'conversation/conversation_list_view.dart';
-import 'conversation/conversation_controller.dart';
-import 'message/message_view.dart';
-import 'conversation/search_view.dart';
-import 'group/group_models.dart';
-import 'media/attachment_platform.dart';
-import 'media/camera_capture_page.dart';
-import 'media/compressor.dart';
-import 'media/media_picker.dart';
-import 'media/mime.dart';
-import 'media/probe.dart';
-import 'media/voice_recorder.dart';
-import 'message/chat_content.dart';
-import 'message/chat_message.dart';
-import 'message/direct_flow.dart';
-
-export 'call/call_coordinator.dart';
-export 'call/call_page.dart';
-export 'call/call_peer.dart';
-export 'call/call_scope.dart';
-export 'call/call_signal.dart';
-export 'call/call_transport.dart';
-export 'call/flutter_call_peer.dart';
-export 'chat_error.dart';
-export 'chat_models.dart';
-export 'chat_push.dart';
-export 'chat_runtime.dart';
-export 'chat_store.dart';
-export 'compose/composer_action_panel.dart';
-export 'compose/composer_bar.dart';
-export 'compose/expression_panel.dart';
-export 'compose/sticker_model.dart';
-export 'compose/sticker_pack.dart';
-export 'compose/sticker_panel.dart';
-export 'conversation/conversation_list_view.dart';
-export 'conversation/conversation_controller.dart';
-export 'message/message_view.dart';
-export 'conversation/search_view.dart';
-export 'group/group_control.dart';
-export 'group/group_epoch_ordering.dart';
-export 'group/group_fanout.dart';
-export 'group/group_flow.dart';
-export 'group/group_limits.dart';
-export 'group/group_membership.dart';
-export 'group/group_models.dart';
-export 'media/attachment_platform.dart';
-export 'media/attachment_vault.dart';
-export 'media/camera_capture_page.dart';
-export 'media/compressor.dart';
-export 'media/gallery_saver.dart';
-export 'media/image_viewer_page.dart';
-export 'media/media_picker.dart';
-export 'media/mime.dart';
-export 'media/probe.dart';
-export 'media/video_player_page.dart';
-export 'media/voice_message_player.dart';
-export 'media/voice_recorder.dart';
-export 'chat_media_limits.dart';
-export 'message/basic_content.dart';
-export 'message/chat_content.dart';
-export 'message/chat_message.dart';
-export 'message/direct_flow.dart';
-export 'message/media_content.dart';
-export 'message/message_id.dart';
-export 'mls/mls_attachment.dart';
-export 'mls/mls_boundary.dart';
-export 'mls/mls_contact_sync.dart';
-export 'mls/mls_group_boundary.dart';
-export 'mls/mls_session.dart';
-export 'mls/mls_state_store.dart';
-export 'mls/mls_bindings.dart';
-export 'mls/serial_executor.dart';
-export 'transport/attachment_transfer.dart';
-export 'transport/chat_connection.dart';
-
-export 'package:citizen_storage/chat_isar.dart';
+import 'package:provider/provider.dart';
+export 'package:chat/call/coordinator.dart';
+export 'package:chat/call/page.dart';
+export 'package:chat/call/peer.dart';
+export 'package:chat/call/protocol.dart';
+export 'package:chat/compose/composer.dart';
+export 'package:chat/compose/panel.dart';
+export 'package:chat/compose/sticker.dart';
+export 'package:chat/conversation/controller.dart';
+export 'package:chat/conversation/list.dart';
+export 'package:chat/conversation/results.dart';
+export 'package:chat/error.dart';
+export 'package:chat/group/delivery.dart';
+export 'package:chat/group/flow.dart';
+export 'package:chat/group/members.dart';
+export 'package:chat/media/camera.dart';
+export 'package:chat/media/picker.dart';
+export 'package:chat/media/processor.dart';
+export 'package:chat/media/vault.dart';
+export 'package:chat/media/viewer.dart';
+export 'package:chat/media/voice.dart';
+export 'package:chat/message/codec.dart';
+export 'package:chat/message/content.dart';
+export 'package:chat/message/flow.dart';
+export 'package:chat/message/view.dart';
+export 'package:chat/mls/attachment.dart';
+export 'package:chat/mls/contact.dart';
+export 'package:chat/mls/native.dart';
+export 'package:chat/mls/protocol.dart';
+export 'package:chat/mls/store.dart';
+export 'package:chat/models.dart';
+export 'package:chat/push.dart';
+export 'package:chat/runtime.dart';
+export 'package:chat/store.dart';
+export 'package:chat/transport/attachment.dart';
+export 'package:chat/transport/connection.dart';
 export 'package:citizen_network/auth.dart' hide bytesToHex, hexToBytes;
-export 'package:citizen_network/message.dart' hide AttachmentChunk, AttachmentMetadata;
+export 'package:citizen_network/content.dart'
+    hide MediaDescriptor, MediaPayload, MediaPayload_Content;
 export 'package:citizen_network/frame.dart';
-export 'package:citizen_network/content.dart' hide MediaDescriptor, MediaPayload, MediaPayload_Content;
-export 'package:citizen_system/notifications/app_push_token.dart';
-part 'conversation/conversation_header.dart';
-part 'conversation/chat_tab.dart';
-part 'conversation/search_page.dart';
-part 'group/group_create_page.dart';
-part 'group/group_manage_page.dart';
-part 'conversation/chat_navigation.dart';
-part 'conversation/conversation_page.dart';
+export 'package:citizen_network/message.dart'
+    hide AttachmentChunk, AttachmentMetadata;
+export 'package:citizen_storage/chat.dart';
+export 'package:citizen_system/push.dart' show AppPushToken;
+part 'conversation/page.dart';
+part 'conversation/tab.dart';
+part 'conversation/search.dart';
+part 'group/page.dart';
+part 'conversation/navigation.dart';

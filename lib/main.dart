@@ -1,70 +1,58 @@
-// 初始化唯一完整SDK会话和本机数据，处理启动清理与擦除恢复。
+// 初始化SDK、数据及应用启动入口。
 
-import 'package:citizen_widgets/chain_balance_scope.dart';
-import 'package:citizen_chain/citizen_chain.dart';
-import 'package:citizen_user/contacts/contact_service.dart';
-import 'package:citizen_topup/topup_api.dart';
-import 'package:citizen_topup/topup_webview_page.dart';
+import 'package:citizen_onchain/page.dart';
+import 'package:citizen_widgets/balance.dart';
+import 'package:citizen_chain/service.dart';
+import 'package:citizen_user/contacts/service.dart' show UserContactService;
+import 'package:citizen_topup/api.dart';
+import 'package:citizen_topup/web.dart';
 import 'navigation.dart';
-import 'package:citizen_wallet/core/navigation.dart';
-import 'package:citizen_citizen/navigation.dart';
-import 'package:citizen_onchain/onchain_payment_page.dart';
-import 'package:citizen_user/navigation.dart';
-import 'scan_dispatch_flow.dart';
-import 'package:citizen_scanner/scan_dispatch.dart';
-import 'package:citizen_system/security/account_security_exception.dart';
-import 'package:citizen_user/membership/subscription_service.dart';
-
+import 'package:citizen_wallet/view.dart' show WalletNavigation;
+import 'package:citizen_citizen/page.dart' show GovernanceNavigation;
+import 'package:citizen_user/context.dart' show UserNavigation;
+import 'package:citizen_scanner/scan.dart';
+import 'package:citizen_system/security/access.dart';
+import 'package:citizen_user/membership/service.dart' show SubscriptionService;
 import 'dart:convert';
-
-import 'package:citizen_user/notifications.dart';
-import 'package:citizen_square/feed/square_home_page.dart'
-    show openSquareNotification;
-
+import 'package:citizen_user/notifications.dart' show Notifications;
 import 'dart:async';
-
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'package:flutter/material.dart';
-import 'package:citizen_system/app_log.dart';
+import 'package:citizen_system/log.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:provider/provider.dart';
 import 'package:chat/chat.dart' as chat;
-import 'package:citizen_square/feed/square_tab_page.dart';
-import 'package:citizen_citizen/citizen_tab_page.dart';
+import 'package:citizen_square/feed/page.dart';
+import 'package:citizen_citizen/page.dart' show CitizenTabPage;
 import 'package:chat/chat.dart';
-import 'package:citizenapp/security/app_lock_service.dart';
-import 'package:citizen_system/security/emergency_wipe_platform.dart';
-import 'package:citizenapp/security/pin_input_page.dart';
-import 'package:citizen_system/security/system_protected_storage.dart';
-import 'package:citizen_wallet/history/wallet_transaction_history_service.dart';
-import 'package:citizen_system/security/screenshot_guard.dart';
+import 'package:citizenapp/security/lock.dart';
+import 'package:citizenapp/security/pin.dart';
+import 'package:citizen_system/security/storage.dart';
+import 'package:citizen_wallet/history/service.dart' show WalletTransactionHistoryService;
 import 'package:citizenapp/user.dart';
-import 'package:citizen_user/identity/current_user_context.dart';
-import 'package:citizen_user/identity/finalized_identity_resolver.dart';
-import 'package:citizen_user/identity/cid_business_gate.dart';
-import 'package:citizen_user/identity/myid_service.dart';
-import 'package:citizen_storage/user_isar.dart';
-import 'package:citizenapp/security/app_permission_gate.dart';
-import 'package:citizen_system/update/app_update.dart';
-import 'package:citizen_system/update/update_badge.dart';
-import 'package:citizen_user/identity/mls_device_registrar.dart';
-import 'package:citizen_user/identity/mls_authentication.dart';
-import 'package:citizen_user/square_api_client.dart';
-import 'package:citizen_user/identity/square_session_provider.dart';
-import 'package:citizen_system/notifications/app_push_service.dart';
-import 'package:citizen_user/identity/registration_coordinator.dart';
-import 'package:citizen_scanner/qr_sign_session_page.dart';
-import 'package:citizen_user/identity/identity_binding.dart';
-import 'package:citizen_user/identity/account_security_service.dart';
-import 'package:citizen_wallet/core/wallet_gate.dart';
-
-import 'package:citizen_system/theme/app_theme.dart';
-import 'package:citizen_system/theme/app_layout.dart';
-import 'package:citizen_system/security/biometric_auth_text.dart';
-
+import 'package:citizen_user/context.dart' show CurrentUserContext;
+import 'package:citizen_user/identity/state.dart' show FinalizedIdentityResolver;
+import 'package:citizen_user/identity/state.dart' show CidBusinessGate;
+import 'package:citizen_user/identity/state.dart' show MyIdService, MyIdStatus;
+import 'package:citizen_storage/user.dart';
+import 'package:citizenapp/security/permission.dart';
+import 'package:citizen_system/update/view.dart';
+import 'package:citizen_user/identity/session.dart' show MlsDeviceRegistrar;
+import 'package:citizen_user/identity/session.dart' show MlsAuthentication, MlsAuthenticationException;
+import 'package:citizen_user/api.dart' show SquareApiClient;
+import 'package:citizen_user/identity/session.dart' show SquareSessionProvider;
+import 'package:citizen_system/push.dart';
+import 'package:citizen_user/identity/registration.dart' show RegistrationCoordinator;
+import 'package:citizen_scanner/sign.dart';
+import 'package:citizen_user/context.dart' show IdentityBinding;
+import 'package:citizen_user/security.dart' show AccountSecurityService;
+import 'package:citizen_wallet/gate.dart' show WalletGate;
+import 'package:citizen_system/theme.dart';
 part 'app.dart';
+
+// 初始化唯一完整SDK会话和本机数据，处理启动清理与擦除恢复。
 
 final appNavigatorKey = GlobalKey<NavigatorState>();
 

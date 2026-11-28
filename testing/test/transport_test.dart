@@ -1,7 +1,7 @@
 // 验证多个真实SDK共享物理通道及未声明业务调用立即失败。
 
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizen_testing/fake_citizen_sdk.dart';
+import 'package:citizen_testing/sdk.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // 公共夹具只交付明确业务函数；协议能力来自本轮真实Core。

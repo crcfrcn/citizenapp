@@ -3,12 +3,14 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:chat/mls/contact.dart';
+import 'package:chat/mls/native.dart';
+import 'package:chat/mls/protocol.dart';
+import 'package:chat/mls/store.dart';
+import 'package:citizen_testing/chat/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:chat/mls/mls_boundary.dart';
-import 'package:chat/mls/mls_contact_sync.dart';
-import 'package:chat/mls/mls_bindings.dart';
-import 'package:chat/mls/mls_state_store.dart';
-import 'package:citizen_testing/mls_test_env.dart';
+
+// 以真实MLS验证同CID通讯录同步、丢失回执恢复和精确设备移除。
 
 void main() {
   requireMlsTestLibrary();

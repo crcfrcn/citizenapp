@@ -1,17 +1,18 @@
 // 验证公开通讯录复用已有MLS身份，拒绝错误属主且不补建钥。
 
-import 'package:citizen_network/auth.dart';
-import 'package:citizen_testing/chat_runtime_fixture.dart';
-
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:chat/mls/protocol.dart';
+import 'package:chat/mls/store.dart';
+import 'package:chat/runtime.dart';
+import 'package:citizen_network/auth.dart';
+import 'package:citizen_testing/chat/native.dart';
+import 'package:citizen_testing/chat/runtime.dart';
+import 'package:citizen_testing/database.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:chat/mls/mls_boundary.dart';
-import 'package:chat/mls/mls_state_store.dart';
-import 'package:chat/chat_runtime.dart';
-import 'package:citizen_testing/chat_isar_test_env.dart';
-import 'package:citizen_testing/mls_test_env.dart';
+
+// 验证公开通讯录复用已有MLS身份，拒绝错误属主且不补建钥。
 
 class _ContactHost implements ChatRuntimeFixture {
   ChatRuntimeAccount account = const ChatRuntimeAccount(

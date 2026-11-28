@@ -1,5 +1,6 @@
-import 'package:flutter/material.dart';
 // 个人多签proposals功能回归，保留迁入用例和断言。
+
+import 'package:flutter/material.dart';
 
 import 'dart:convert';
 import 'dart:typed_data';
@@ -8,10 +9,10 @@ import 'package:citizen_personal/chain.dart';
 import 'package:citizen_personal/proposals.dart';
 import 'package:citizen_personal/storage.dart';
 import 'package:citizen_sdk/citizen_sdk.dart';
-import 'package:citizen_multisig/multisig_transfer_models.dart';
-import 'package:citizen_storage/user_isar.dart' as store;
-import 'package:citizen_testing/fake_citizen_sdk.dart';
-import 'package:citizen_testing/isar_test_env.dart';
+import 'package:citizen_multisig/data.dart' show TransferProposalInfo;
+import 'package:citizen_storage/user.dart' as store;
+import 'package:citizen_testing/sdk.dart';
+import 'package:citizen_testing/database.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // 原用例所属：personal/test/personal_proposal_history_service_test.dart

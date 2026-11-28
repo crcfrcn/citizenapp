@@ -4,8 +4,8 @@ import 'package:citizen_sdk/citizen_sdk.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'members.dart';
-import 'package:citizen_storage/user_isar.dart' as wallet_store;
-import 'package:citizen_storage/user_isar.dart' hide Group;
+import 'package:citizen_storage/user.dart' as wallet_store;
+import 'package:citizen_storage/user.dart' hide Group;
 import 'package:isar_community/isar.dart';
 import 'proposals.dart';
 

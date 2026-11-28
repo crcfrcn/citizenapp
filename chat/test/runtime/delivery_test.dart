@@ -1,0 +1,163 @@
+// 验证私聊群信封隔离、私信拒绝及持久化前后的确认顺序。
+
+import 'dart:convert';
+
+import 'package:chat/error.dart';
+import 'package:chat/message/content.dart';
+import 'package:chat/message/flow.dart';
+import 'package:chat/mls/protocol.dart';
+import 'package:chat/models.dart';
+import 'package:chat/store.dart';
+import 'package:chat/transport/attachment.dart';
+import 'package:citizen_network/message.dart';
+import 'package:citizen_testing/chat/runtime.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+// 验证私聊群信封隔离、私信拒绝及持久化前后的确认顺序。
+
+// 直接执行收件流程并记录持久化边界，源码文字位置不能证明异步顺序。
+void main() {
+  test('私聊MLS组不得放进群聊信封，空私聊组同样拒绝', () {
+    final packet =
+        const MlsWireMessage(
+          wireBytes: [1],
+          conversationId: 'dm:local:peer',
+          groupIdBytes: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        ).toEncryptedMessage(
+          messageId: 'route-test',
+          senderUserId: 'local',
+          recipientUserId: 'peer',
+          senderDeviceId: 'phone',
+          recipientDeviceId: 'tablet',
+          createdAtMillis: 1,
+        );
+    validateChatEnvelope(packet);
+    packet.conversationId = 'grp:local:fake';
+    expect(() => validateChatEnvelope(packet), throwsFormatException);
+    packet.groupId = [];
+    validateChatEnvelope(packet);
+    packet.conversationId = 'dm:local:peer';
+    expect(() => validateChatEnvelope(packet), throwsFormatException);
+  });
+
+  test('私信拒绝固定文案，不作为连接失败', () {
+    expect(
+      chatUserErrorMessage(const ChatConnectionException('dm_forbidden')),
+      '对方不接收你的私信',
+    );
+  });
+
+  for (final fails in [false, true]) {
+    test('业务落盘${fails ? '失败不确认' : '成功后才确认原生结果，重投不重复落盘'}', () async {
+      final events = <String>[];
+      final crypto = _Crypto(events);
+      final store = _Store(events, fails);
+      final flow = ChatFlow<Object>(
+        mediaLimits: const TestChatMediaLimits(),
+        crypto: crypto,
+        store: store,
+        bindingToken: Object(),
+        ownerUserId: 'local',
+        currentAccountId: 'account',
+        deliverer: (_, _, _, _) async => throw StateError('收件不得触发发送'),
+      );
+      final message =
+          MlsWireMessage(
+            conversationId: 'dm:local:peer',
+            wireBytes: utf8.encode(
+              ChatPayloadCodec.encode(ChatContent.text('hello')),
+            ),
+          ).toEncryptedMessage(
+            messageId: 'message',
+            senderUserId: 'peer',
+            senderDeviceId: 'device',
+            recipientUserId: 'local',
+            recipientDeviceId: 'local-device',
+            createdAtMillis: 1,
+          );
+      final processing = flow.processIncomingMessageBytes(
+        message.writeToBuffer(),
+      );
+      if (fails) {
+        await expectLater(processing, throwsStateError);
+        expect(events, ['process', 'store']);
+        expect(crypto.confirmed, false);
+      } else {
+        final result = await processing;
+        expect(result.accepted, true);
+        expect(events, ['process', 'store', 'ack']);
+        events.clear();
+        expect(
+          (await flow.processIncomingMessageBytes(message.writeToBuffer()))
+              .accepted,
+          true,
+        );
+        expect(events, ['process']);
+      }
+    });
+  }
+}
+
+class _Crypto implements MlsGroupCrypto, MlsPersistentCrypto {
+  _Crypto(this.events);
+  final List<String> events;
+  bool confirmed = false;
+  @override
+  Future<T> withMessage<T>(String id, Future<T> Function() operation) =>
+      operation();
+  @override
+  Future<void> acknowledgeMessage(String id) async {
+    events.add('ack');
+    confirmed = true;
+  }
+
+  @override
+  Future<GroupInbound> groupProcess(MlsWireMessage wire) async {
+    events.add('process');
+    return GroupInbound(
+      groupId: wire.conversationId,
+      kind: GroupInboundKind.application,
+      status: confirmed ? GroupProcessStatus.stale : GroupProcessStatus.applied,
+      messageEpoch: 0,
+      groupEpoch: 0,
+      selfRemoved: false,
+      plaintext: wire.wireBytes,
+      senderMemberIdentity: 'peer:device',
+      committed: confirmed,
+    );
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw StateError('unexpected crypto');
+}
+
+class _Store implements ChatFlowStore<Object> {
+  _Store(this.events, this.fails);
+  final List<String> events;
+  final bool fails;
+  @override
+  Future<void> saveIncomingMessage({
+    required Object bindingToken,
+    required String ownerUserId,
+    required String currentAccountId,
+    required EncryptedMessage message,
+    required List<int> messageBytes,
+    required ChatMessageKind messageKind,
+    required String plaintext,
+  }) async {
+    events.add('store');
+    if (fails) throw StateError('synthetic persistence failure');
+  }
+
+  @override
+  Future<void> acknowledgePendingInbound({
+    required Object bindingToken,
+    required String ownerUserId,
+    required Iterable<String> messageIds,
+  }) async {}
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw StateError('unexpected store');
+}

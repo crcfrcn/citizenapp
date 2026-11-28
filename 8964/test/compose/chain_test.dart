@@ -1,0 +1,357 @@
+// 验证发布调用编码、当前签名关联及永久CID身份资格。
+
+import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:citizen_chain/service.dart';
+import 'package:citizen_sdk/citizen_sdk.dart';
+import 'package:citizen_sdk/test/platform/fixture.dart';
+import 'package:citizen_square/compose/chain.dart';
+import 'package:citizen_square/post/models.dart';
+import 'package:citizen_testing/sdk.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:polkadart/scale_codec.dart' show CompactBigIntCodec;
+
+// 验证发布调用编码、当前签名关联及永久CID身份资格。
+
+void main() {
+  for (final cold in [false, true]) {
+    test('${cold ? "冷" : "热"}钱包已签记录在最终回执前触发上传', () async {
+      final events = StreamController<CitizenSdkEvent>.broadcast();
+      addTearDown(events.close);
+      final terminal = Completer<CitizenTransactionExecutionCompleted>();
+      final running = Completer<void>();
+      final observed = Completer<String>();
+      final hash = Uint8List.fromList(List.filled(32, 0xab));
+      final from = Uint8List.fromList(List.filled(32, 0xcd));
+      final call = Uint8List.fromList(List.filled(32, 0xef));
+      final block = CitizenBlockRef(
+        hash: '0x${'23' * 32}',
+        number: BigInt.one,
+        finality: CitizenBlockFinality.finalized,
+      );
+      CitizenTransactionHistoryRecord history(String id, String hash) =>
+          CitizenTransactionHistoryRecord(
+            executionId: id,
+            sourceAccountId: '0x${'cd' * 32}',
+            callDataHash: '0x${'ef' * 32}',
+            transactionHash: hash,
+            status: CitizenTransactionHistoryStatus.pending,
+            block: null,
+            execution: null,
+            replacementHash: null,
+            createdAtMillis: BigInt.one,
+            updatedAtMillis: BigInt.one,
+            poolRejectionReason: null,
+          );
+      final older = history('old', '0x${'34' * 32}');
+      var records = [older];
+      final service = SquareChainService(
+        events: events.stream,
+        getHistory: ({beforeExecutionId, limit = 100}) async =>
+            CitizenTransactionHistoryPage(
+              revision: BigInt.one,
+              records: records,
+              nextBeforeExecutionId: null,
+            ),
+        prepareTransaction: (_, _) async => CitizenPreparedTransaction(
+          preparationId: 'p',
+          sourceAccountId: from,
+          callDataHash: call,
+          bestBlock: block,
+          runtimeSpecNumber: 1,
+          transactionFormatNumber: 1,
+          nonce: BigInt.zero,
+        ),
+        executePreparedTransaction: (_) async {
+          if (cold) {
+            return CitizenTransactionExternalSigningPending(
+              executionId: 'p',
+              sourceAccountId: from,
+              callDataHash: call,
+              qrRequest: 'qr',
+              expiresAt: DateTime.now().add(const Duration(minutes: 1)),
+            );
+          }
+          running.complete();
+          return terminal.future;
+        },
+        consumePreparedTransactionQrResponse: (_, _) {
+          running.complete();
+          return terminal.future;
+        },
+      );
+      final publish = service.publishPost(
+        signerPublicKey: from,
+        postId: 'post',
+        postType: SquarePostType.document,
+        contentHashHex: '12' * 32,
+        receiptId: 'post',
+        externalSigning: (_) async => 'qr',
+        onSigned: observed.complete,
+      );
+      await running.future;
+      expect(observed.isCompleted, isFalse);
+      // 即使旧交易排在前面并具有相同调用摘要，也只通知本次准备的已签哈希。
+      records = [older, history('p', '0x${'ab' * 32}')];
+      events.add(const CitizenSdkHistoryChanged(sequence: 1));
+      expect(
+        await observed.future.timeout(const Duration(seconds: 2)),
+        '0x${'ab' * 32}',
+      );
+      expect(terminal.isCompleted, isFalse);
+      terminal.complete(
+        CitizenTransactionExecutionCompleted(
+          executionId: 'p',
+          sourceAccountId: from,
+          callDataHash: call,
+          transactionHash: hash,
+          resolution: CitizenTransactionResolution.finalizedSuccess,
+          execution: CitizenExecution(
+            status: CitizenExecutionStatus.success,
+            block: block,
+            extrinsicIndex: 0,
+            dispatchVariant: null,
+            palletIndex: null,
+            errorIndex: null,
+          ),
+          poolRejectionReason: null,
+          replacementHash: null,
+        ),
+      );
+      expect((await publish).blockHash, block.hash);
+    });
+  }
+  test('publish_post call_data 与 runtime 下标和字段顺序一致', () {
+    final hashHex = List<int>.generate(
+      32,
+      (index) => index + 1,
+    ).map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+
+    final callData = SquareChainService.buildPublishPostCallData(
+      postId: 'sqp_abc',
+      postType: SquarePostType.video,
+      contentHashHex: hashHex,
+      receiptId: 'sqr_receipt',
+    );
+
+    final expected = <int>[
+      34,
+      0,
+      ...CompactBigIntCodec.codec.encode(BigInt.from(7)),
+      ...utf8.encode('sqp_abc'),
+      2,
+      ...List<int>.generate(32, (index) => index + 1),
+      ...CompactBigIntCodec.codec.encode(BigInt.from(11)),
+      ...utf8.encode('sqr_receipt'),
+    ];
+    expect(callData, Uint8List.fromList(expected));
+  });
+
+  test('publish_post 拒绝零 content_hash', () {
+    expect(
+      () => SquareChainService.buildPublishPostCallData(
+        postId: 'sqp_abc',
+        postType: SquarePostType.document,
+        contentHashHex: '00' * 32,
+        receiptId: 'sqr_receipt',
+      ),
+      throwsArgumentError,
+    );
+  });
+
+  test('只把护照有效且状态正常的投票身份视为有效', () {
+    final normal = _votingIdentityBytes(citizenStatus: 0);
+    final revoked = _votingIdentityBytes(citizenStatus: 1);
+
+    expect(
+      SquareChainService.votingIdentityIsActive(normal, today: 20260722),
+      isTrue,
+    );
+    expect(
+      SquareChainService.votingIdentityIsActive(normal, today: 20400101),
+      isFalse,
+    );
+    expect(
+      SquareChainService.votingIdentityIsActive(revoked, today: 20260722),
+      isFalse,
+    );
+    expect(
+      SquareChainService.votingIdentityIsActive(
+        Uint8List.sublistView(normal, 0, 9),
+        today: 20260722,
+      ),
+      isFalse,
+    );
+  });
+
+  test('广场身份使用永久 CID 闭环快照而不是旧 Account-keyed storage', () async {
+    final service = (() {
+      final reads0 = TestChainReads();
+      final reads1 = TestTransactionCalls();
+      return SquareChainService(
+        getFinalizedHead: reads0.getFinalizedHead,
+        getStorage: reads0.getStorage,
+        getStorageBatch: reads0.getStorageBatch,
+        prepareTransaction: reads1.prepareTransaction,
+        executePreparedTransaction: reads1.executePreparedTransaction,
+        cancelPreparedTransactionExecution:
+            reads1.cancelPreparedTransactionExecution,
+        consumePreparedTransactionQrResponse:
+            reads1.consumePreparedTransactionQrResponse,
+        identityChainReader: _FakeIdentityReader(
+          CitizenIdentityChainSnapshot(
+            cidNumber: 'CN001-CTZN-000000001-2026',
+            accountId: Uint8List(32),
+            bindRev: 1,
+            votingIdentity: _votingIdentityBytes(citizenStatus: 0),
+            candidateIdentity: _candidateIdentityBytes(),
+          ),
+        ),
+      );
+    })();
+
+    final identity = await service.fetchIdentity('ignored-in-reader');
+    expect(identity.cidNumber, 'CN001-CTZN-000000001-2026');
+    expect(identity.identityLevel, 'candidate');
+  });
+
+  test('匿名 active CID 保留帖子归属但不升级投票身份', () async {
+    final service = (() {
+      final reads0 = TestChainReads();
+      final reads1 = TestTransactionCalls();
+      return SquareChainService(
+        getFinalizedHead: reads0.getFinalizedHead,
+        getStorage: reads0.getStorage,
+        getStorageBatch: reads0.getStorageBatch,
+        prepareTransaction: reads1.prepareTransaction,
+        executePreparedTransaction: reads1.executePreparedTransaction,
+        cancelPreparedTransactionExecution:
+            reads1.cancelPreparedTransactionExecution,
+        consumePreparedTransactionQrResponse:
+            reads1.consumePreparedTransactionQrResponse,
+        identityChainReader: _FakeIdentityReader(
+          CitizenIdentityChainSnapshot(
+            cidNumber: 'CN001-CTZN-000000002-2026',
+            accountId: Uint8List(32),
+            bindRev: 1,
+            votingIdentity: null,
+          ),
+        ),
+      );
+    })();
+
+    final identity = await service.fetchIdentity('ignored-in-reader');
+    expect(identity.cidNumber, 'CN001-CTZN-000000002-2026');
+    expect(identity.identityLevel, 'visitor');
+    expect(
+      await service.fetchNormalCitizenCidNumber('ignored-in-reader'),
+      'CN001-CTZN-000000002-2026',
+    );
+  });
+
+  test('三档平台价格通过一次 finalized storage 批量读取', () async {
+    final chain = _BatchPriceChain();
+    final service = (() {
+      final reads0 = TestTransactionCalls();
+      return SquareChainService(
+        getFinalizedHead: chain.getFinalizedHead,
+        getRuntimeContext: CitizenSdkTestFixture.runtimeContext,
+        getStorage: chain.getStorage,
+        getStorageBatch: chain.getStorageBatch,
+        prepareTransaction: reads0.prepareTransaction,
+        executePreparedTransaction: reads0.executePreparedTransaction,
+        cancelPreparedTransactionExecution:
+            reads0.cancelPreparedTransactionExecution,
+        consumePreparedTransactionQrResponse:
+            reads0.consumePreparedTransactionQrResponse,
+      );
+    })();
+
+    final prices = await service.fetchAllPlatformPrices(forceFresh: true);
+
+    expect(prices, const {
+      'freedom': 29900,
+      'democracy': 99900,
+      'spark': 199900,
+    });
+    expect(chain.fetchCount, 1);
+    expect(chain.requestedKeyCount, 3);
+  });
+}
+
+Uint8List _candidateIdentityBytes() {
+  final out = BytesBuilder();
+  for (final value in ['CN', '001', '0001', '陈', '明']) {
+    final bytes = utf8.encode(value);
+    out.add(CompactBigIntCodec.codec.encode(BigInt.from(bytes.length)));
+    out.add(bytes);
+  }
+  out.add([0]);
+  out.add(_u32(20000131));
+  out.add(_u32(88));
+  return out.toBytes();
+}
+
+Uint8List _votingIdentityBytes({required int citizenStatus}) {
+  final out = BytesBuilder();
+  out.add(_u32(20260101));
+  out.add(_u32(20360101));
+  out.add([citizenStatus]);
+  for (final code in ['CN', '001', '0001']) {
+    final bytes = utf8.encode(code);
+    out.add(CompactBigIntCodec.codec.encode(BigInt.from(bytes.length)));
+    out.add(bytes);
+  }
+  out.add(_u32(88));
+  return out.toBytes();
+}
+
+class _FakeIdentityReader extends CitizenIdentityChainReader {
+  _FakeIdentityReader(this.snapshot) : super();
+
+  final CitizenIdentityChainSnapshot? snapshot;
+
+  @override
+  Future<CitizenIdentityChainSnapshot?> readByAccountId(
+    String accountAddress, {
+    CitizenBlockRef? at,
+  }) async => snapshot;
+}
+
+class _BatchPriceChain extends TestChainReads {
+  int fetchCount = 0;
+  int requestedKeyCount = 0;
+
+  @override
+  Future<CitizenBlockRef> getFinalizedHead() async => CitizenBlockRef(
+    hash: '0x${'11' * 32}',
+    number: BigInt.one,
+    finality: CitizenBlockFinality.finalized,
+  );
+
+  @override
+  Future<List<Uint8List?>> getStorageBatch(
+    CitizenBlockRef block,
+    List<Uint8List> keys,
+  ) async {
+    fetchCount++;
+    requestedKeyCount = keys.length;
+    const prices = [29900, 99900, 199900];
+    return <Uint8List?>[
+      for (var index = 0; index < keys.length; index++) _u128(prices[index]),
+    ];
+  }
+}
+
+List<int> _u32(int value) {
+  final bytes = ByteData(4)..setUint32(0, value, Endian.little);
+  return bytes.buffer.asUint8List();
+}
+
+Uint8List _u128(int value) {
+  final bytes = Uint8List(16);
+  ByteData.sublistView(bytes).setUint64(0, value, Endian.little);
+  return bytes;
+}

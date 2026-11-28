@@ -1,50 +1,47 @@
-// 展示我的资料和设置，管理隐私、黑名单、首页偏好及账户相关导航。
+// 我的页面、设置及账号交互。
 
-import 'package:citizen_system/identity_cid_display.dart';
-import 'package:citizen_chain/citizen_chain.dart';
+import 'package:citizen_system/format.dart';
+import 'package:citizen_chain/service.dart';
 import 'package:provider/provider.dart';
-
 import 'package:citizen_sdk/citizen_sdk.dart';
-
 import 'dart:async';
 import 'dart:io';
-
 import 'package:flutter/material.dart';
-import 'package:citizen_system/app_log.dart';
+import 'package:citizen_system/log.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:local_auth/local_auth.dart';
-import 'package:citizen_user/profile/citizen_profile.dart';
-import 'package:citizen_user/profile/profile_presentation.dart';
-import 'package:citizen_user/profile/citizen_profile_api.dart';
-import 'package:citizen_user/profile/citizen_profile_cache.dart';
-import 'package:citizen_user/identity/square_session_provider.dart';
-import 'package:citizen_user/profile/user_qr_page.dart';
-import 'package:citizen_user/profile/user_profile_page.dart';
-import 'package:citizen_user/profile/profile_avatar.dart';
-import 'package:citizen_user/square_api_client.dart';
-import 'package:citizen_user/identity/current_user_context.dart';
-import 'package:citizen_user/identity/finalized_identity_resolver.dart';
-import 'package:citizen_user/identity/identity_badge_snapshot_store.dart';
-import 'package:citizen_user/creator/creator_page.dart';
-import 'package:citizen_user/creator/creator_service.dart';
-import 'package:citizen_user/membership/membership_page.dart';
-import 'package:citizen_user/membership/subscription_service.dart';
-import 'package:citizen_user/identity/myid_page.dart';
-import 'package:citizen_user/identity/myid_service.dart';
-import 'package:citizen_user/identity/register_identity_flow.dart';
-import 'package:citizen_storage/user_isar.dart';
-import 'package:citizenapp/security/app_lock_service.dart';
-import 'package:citizenapp/security/pin_input_page.dart';
-import 'package:citizen_system/security/system_protected_storage.dart';
-import 'package:citizen_user/identity/account_security_service.dart';
-import 'package:citizen_user/contacts/contact_book_page.dart';
-import 'package:citizen_system/theme/app_layout.dart';
-import 'package:citizen_system/theme/app_theme.dart';
-import 'package:citizen_system/security/biometric_auth_text.dart';
-import 'package:citizen_system/update/app_update.dart';
-import 'package:citizen_system/update/update_badge.dart';
-import 'package:citizen_wallet/account/wallet_page.dart';
+import 'package:citizen_user/profile/data.dart' show CitizenProfile;
+import 'package:citizen_user/profile/data.dart' show ProfilePresentation;
+import 'package:citizen_user/profile/data.dart' show CitizenProfileApi;
+import 'package:citizen_user/profile/data.dart' show CitizenProfileCache, CitizenProfileMediaCache, CitizenProfileMediaSnapshot;
+import 'package:citizen_user/identity/session.dart' show SquareSessionProvider;
+import 'package:citizen_user/profile/page.dart' show UserQrPage;
+import 'package:citizen_user/profile/page.dart' show UserProfilePage;
+import 'package:citizen_user/profile/page.dart' show ProfileAvatar;
+import 'package:citizen_user/api.dart' show DmPolicy, ProfileVisibility, SquareApiClient, SquareApiException, SquareSession;
+import 'package:citizen_user/context.dart' show CurrentUserContext;
+import 'package:citizen_user/identity/state.dart' show FinalizedIdentityResolver;
+import 'package:citizen_user/identity/state.dart' show IdentityBadgeSnapshotStore;
+import 'package:citizen_user/creator/page.dart' show CreatorPage;
+import 'package:citizen_user/creator/service.dart' show CreatorService;
+import 'package:citizen_user/membership/page.dart' show MembershipPage;
+import 'package:citizen_user/membership/service.dart' show SubscriptionService;
+import 'package:citizen_user/identity/page.dart' show MyIdPage;
+import 'package:citizen_user/identity/state.dart' show MyIdService;
+import 'package:citizen_user/identity/registration.dart' show startCidRegistrationFlow;
+import 'package:citizen_storage/user.dart';
+import 'package:citizenapp/security/lock.dart';
+import 'package:citizenapp/security/pin.dart';
+import 'package:citizen_system/security/storage.dart';
+import 'package:citizen_user/security.dart' show AccountSecurityService;
+import 'package:citizen_user/contacts/page.dart' show ContactBookPage;
+import 'package:citizen_system/theme.dart';
+import 'package:citizen_system/security/access.dart';
+import 'package:citizen_system/update/view.dart';
+import 'package:citizen_wallet/account/page.dart' show WalletTab;
+
+// 展示我的资料和设置，管理隐私、黑名单、首页偏好及账户相关导航。
 
 class MyTab extends StatefulWidget {
   const MyTab({
@@ -1900,7 +1897,6 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 }
-
 
 class _BlockedUsersPage extends StatefulWidget {
   const _BlockedUsersPage({required this.api, required this.resolveSession, this.revision});

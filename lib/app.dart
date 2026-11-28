@@ -1,6 +1,8 @@
-// 装配应用页面、应用锁和SDK生命周期，协调推送与前后台业务。
+// 应用生命周期、页面装配及前后台协调。
 
 part of 'main.dart';
+
+// 装配应用页面、应用锁和SDK生命周期，协调推送与前后台业务。
 
 // App界面、生命周期和跨包装配由根App包唯一拥有。
 class CitizenApp extends StatefulWidget {

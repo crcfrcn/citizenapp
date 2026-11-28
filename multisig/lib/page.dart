@@ -1,0 +1,948 @@
+// 转账入口及发起页面。
+
+import 'package:citizen_widgets/balance.dart';
+import 'package:citizen_system/security/access.dart';
+import 'package:citizen_sdk/citizen_sdk.dart';
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:citizen_system/theme.dart';
+import 'package:citizen_widgets/progress.dart';
+import 'package:citizen_system/format.dart';
+import 'package:citizen_citizen/institution/data.dart' show InstitutionInfo;
+import 'package:citizen_multisig/data.dart' show MultisigTransferBalanceGuard;
+import 'package:citizen_multisig/service.dart' show MultisigTransferService, defaultInstitutionProposerRoleCode;
+import 'package:citizen_scanner/scan.dart';
+import 'package:citizen_scanner/sign.dart';
+import 'package:citizen_citizen/proposal/service.dart' show ProposalLimitService;
+
+// 采集机构转账目标、金额和备注，核价并发起提案。
+
+/// 机构转账提案创建页面。
+class MultisigTransferPage extends StatefulWidget {
+  const MultisigTransferPage({
+    super.key,
+    required InstitutionInfo this.institution,
+    required this.icon,
+    required this.badgeColor,
+    required this.adminWallets,
+  }) : accountId = null,
+       accountName = null,
+       accountCode = null,
+       onProposed = null;
+
+  const MultisigTransferPage.account({
+    super.key,
+    required this.accountId,
+    required this.accountName,
+    required this.accountCode,
+    required this.icon,
+    required this.badgeColor,
+    required this.adminWallets,
+    this.onProposed,
+  }) : institution = null;
+
+  final InstitutionInfo? institution;
+  final String? accountId;
+  final String? accountName;
+  final String? accountCode;
+  final Future<void> Function(BigInt id, String beneficiary, BigInt amount)?
+  onProposed;
+  String get fundingAccountId => institution?.mainAccountId ?? accountId!;
+  String get label => institution?.shortName ?? accountName!;
+  String get orgCode => institution?.adminCode ?? accountCode ?? 'PMUL';
+  final IconData icon;
+  final Color badgeColor;
+
+  /// 当前用户导入的、属于此机构的管理员钱包列表。
+  final List<CitizenWalletStateAccount> adminWallets;
+
+  @override
+  State<MultisigTransferPage> createState() => _MultisigTransferPageState();
+}
+
+class _MultisigTransferPageState extends State<MultisigTransferPage> {
+  final _beneficiaryController = TextEditingController();
+  final _amountController = TextEditingController();
+  final _remarkController = TextEditingController();
+  late final TextEditingController _proposerRoleCodeController;
+
+  bool _submitting = false;
+
+  // 复用现有报价快照；备注编辑本地重算，提交前仍读取最新报价。
+  CitizenFeeSnapshot? _fees;
+  String? _addressError;
+  String? _amountError;
+  CitizenChainSyncStatus? _chainProgress;
+  String? _chainProgressError;
+
+  late final String _fromSs58;
+  late CitizenWalletStateAccount _selectedWallet;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedWallet = widget.adminWallets.first;
+    _proposerRoleCodeController = TextEditingController(
+      text: widget.institution == null
+          ? ''
+          : defaultInstitutionProposerRoleCode(widget.institution!),
+    );
+    _fromSs58 = citizenSs58FromAccountId(widget.fundingAccountId);
+    _amountController.addListener(_onAmountChanged);
+  }
+
+  @override
+  void dispose() {
+    _beneficiaryController.dispose();
+    _amountController.dispose();
+    _remarkController.dispose();
+    _proposerRoleCodeController.dispose();
+    super.dispose();
+  }
+
+  /// 页面进入读取 wallet 持久余额，交易前校验由既有余额守卫强制刷新。
+  CitizenBalanceState<CitizenAccountBalance> get _balance =>
+      context.read<CitizenSdk>().balances.accountState(widget.fundingAccountId);
+  BigInt? get _availableBalance => _balance.value?.freeFen;
+  bool get _loadingBalance => _balance.value == null && !_balance.hasError;
+
+  void _onAmountChanged() {
+    if (_fees != null || _amountError != null) {
+      setState(() {
+        _fees = null;
+        _amountError = null;
+      });
+    }
+  }
+
+  Future<void> _previewFee(String text) async {
+    final amountFen = parseFen(text);
+    if (amountFen == null || amountFen <= BigInt.zero) return;
+    try {
+      final fees = await context.read<CitizenSdk>().getFeeSnapshot(
+        amountFen: amountFen,
+      );
+      if (mounted && _amountController.text == text) {
+        setState(() => _fees = fees);
+      }
+    } catch (_) {
+      // 提交时会重取报价并提示错误。
+    }
+  }
+
+  bool _validateAddress() {
+    final address = _beneficiaryController.text.trim();
+    if (address.isEmpty) {
+      setState(() => _addressError = '请输入收款地址');
+      return false;
+    }
+    try {
+      citizenAccountIdBytesFromSs58(address);
+    } on FormatException {
+      setState(() => _addressError = '地址格式无效');
+      return false;
+    }
+    if (address == _fromSs58) {
+      setState(() => _addressError = '收款地址不能与机构地址相同');
+      return false;
+    }
+    setState(() => _addressError = null);
+    return true;
+  }
+
+  bool _validateRemark() {
+    final remark = _remarkController.text;
+    final bytes = utf8.encode(remark);
+    if (bytes.length > 256) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('备注超过 256 字节限制（当前 ${bytes.length} 字节）')),
+      );
+      return false;
+    }
+    return true;
+  }
+
+  Future<void> _submit() async {
+    final blockedReason = _submitBlockedReason;
+    if (blockedReason != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(blockedReason)));
+      return;
+    }
+
+    if (_submitting) return;
+    final amountText = _amountController.text;
+    final amountFen = parseFen(amountText);
+    if (amountFen == null || amountFen <= BigInt.zero) {
+      setState(() => _amountError = '请输入大于 0 的有效金额');
+      return;
+    }
+    if (!_validateAddress() || !_validateRemark()) return;
+    final isAccountOnly = (widget.institution == null);
+    final proposerRoleCode = _proposerRoleCodeController.text.trim();
+    if (!isAccountOnly && proposerRoleCode.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请输入当前任职且拥有转账提案权限的岗位码')));
+      return;
+    }
+
+    final wallet = _selectedWallet;
+    final sdk = context.read<CitizenSdk>();
+    final beneficiary = _beneficiaryController.text.trim();
+    final remark = _remarkController.text;
+
+    setState(() => _submitting = true);
+    try {
+      await context.read<CitizenSdk>().getAccountBalance(
+        widget.fundingAccountId,
+      );
+      if (!mounted) return;
+      final fees = await sdk.getFeeSnapshot(amountFen: amountFen);
+      if (!mounted ||
+          _amountController.text != amountText ||
+          _selectedWallet != wallet) {
+        return;
+      }
+      setState(() => _fees = fees);
+      final feeFen =
+          fees.feeFen + (remark.isNotEmpty ? fees.FLAT_FEE : BigInt.zero);
+      final accounts = widget.institution?.accounts;
+      final ed = fees.existentialDepositFen;
+      final requiredFen =
+          amountFen + ed + (accounts == null ? feeFen : BigInt.zero);
+      if (_availableBalance! < requiredFen) {
+        setState(
+          () => _amountError = accounts == null
+              ? '余额不足（需支付 ${formatFen(feeFen)} 元手续费并保留 ${formatFen(ed)} 元 ED）'
+              : '机构主账户余额不足（转账后须保留 ${formatFen(ed)} 元 ED）',
+        );
+        return;
+      }
+      final balanceBlockedReason = accounts == null
+          ? await MultisigTransferBalanceGuard.checkAdminWalletBalance(
+              wallet: wallet,
+              requiredFeeFen: fees.minimumFeeFen,
+              edFen: ed,
+              actionLabel: '发起个人多签转账提案',
+              chain: sdk,
+            )
+          : await MultisigTransferBalanceGuard.checkInstitutionFeeAccountBalance(
+              feeAccountId: accounts.feeAccountId,
+              actionLabel: '发起机构多签转账提案',
+              additionalDebitFen: feeFen,
+              fees: fees,
+              chain: sdk,
+            );
+      if (!mounted ||
+          _amountController.text != amountText ||
+          _selectedWallet != wallet ||
+          _beneficiaryController.text.trim() != beneficiary ||
+          _remarkController.text != remark ||
+          _proposerRoleCodeController.text.trim() != proposerRoleCode) {
+        return;
+      }
+      if (balanceBlockedReason != null) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(balanceBlockedReason)));
+        return;
+      }
+      final signerPublicKey = citizenAccountIdBytes(wallet.accountId);
+
+      final service = MultisigTransferService(chain: sdk, transactions: sdk);
+      final submitResult = await service.submitAccountTransfer(
+        fundingAccountId: widget.fundingAccountId,
+        actorCidNumber: widget.institution?.cidNumber,
+        orgCode: widget.orgCode,
+        proposerRoleCode: isAccountOnly ? null : proposerRoleCode,
+        beneficiaryAddress: beneficiary,
+        amountFen: amountFen,
+        remark: remark,
+        signerPublicKey: signerPublicKey,
+        externalSigning: (pending) => showCitizenSdkQrResponse(
+          context,
+          request: pending.qrRequest,
+          expiresAt: BigInt.from(
+            pending.expiresAt.millisecondsSinceEpoch ~/ 1000,
+          ),
+        ),
+      );
+
+      await widget.onProposed?.call(
+        submitResult.proposalId,
+        beneficiary,
+        amountFen,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('提案创建成功')));
+      Navigator.of(context).pop(true);
+    } on AccountSecurityException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
+    } on FormatException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('提交失败：${e.message}')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('提交失败：$e')));
+    } finally {
+      if (mounted) {
+        setState(() => _submitting = false);
+      }
+    }
+  }
+
+  /// 仅当 [widget.institution] 是个人多签时,把转账提案写入 Isar 历史
+  /// (`action`),让详情页"提案列表"区域立即看到。
+  /// 机构多签的提案历史由其他模块负责,这里 silent skip。
+
+  void _handleChainProgressChanged(CitizenChainSyncStatus? progress) {
+    if (!mounted) return;
+    setState(() {
+      _chainProgress = progress;
+    });
+  }
+
+  void _handleChainProgressErrorChanged(String? error) {
+    if (!mounted) return;
+    setState(() {
+      _chainProgressError = error;
+    });
+  }
+
+  bool get _canSubmit => !_submitting && _submitBlockedReason == null;
+
+  /// 提案页允许用户先填写表单，但链未连上或仍在同步时禁止真正提交。
+  String? get _submitBlockedReason {
+    final progress = _chainProgress;
+    if (progress == null) {
+      return _chainProgressError ?? '正在读取区块链状态，请稍后再试';
+    }
+    if (progress.peerCount == BigInt.zero) {
+      return '轻节点尚未连接到区块链网络，暂不能提交转账提案';
+    }
+    if (progress.isSyncing) {
+      return '轻节点仍在验证或同步链状态，完成后才能提交转账提案';
+    }
+    if (!progress.isUsable) {
+      return _chainProgressError ?? '区块链状态尚未就绪，暂不能提交转账提案';
+    }
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) => ChainBalanceScope(
+    accountIds: [widget.fundingAccountId],
+    builder: _buildBalanceView,
+  );
+  Widget _buildBalanceView(BuildContext context, CitizenBalances balances) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: Text(
+          '发起转账提案',
+          style: TextStyle(
+            fontSize: AppLayout.scaled(context, 17),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        centerTitle: true,
+        backgroundColor: Colors.white,
+        foregroundColor: AppTheme.primaryDark,
+        elevation: 0,
+        scrolledUnderElevation: 0.5,
+      ),
+      body: Stack(
+        children: [
+          ChainProgressBanner(
+            busy: _submitting || _loadingBalance,
+            onProgressChanged: _handleChainProgressChanged,
+            onErrorChanged: _handleChainProgressErrorChanged,
+          ),
+          ListView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+            children: [
+              // ──── 机构信息 ────
+              _buildInstitutionHeader(),
+              SizedBox(height: AppLayout.scaled(context, 16)),
+
+              // ──── 发起管理员 ────
+              _buildLabel('发起管理员'),
+              SizedBox(height: AppLayout.scaled(context, 6)),
+              _buildAdminSelector(),
+              SizedBox(height: AppLayout.scaled(context, 16)),
+
+              if (widget.institution != null) ...[
+                _buildLabel('提案发起岗位码'),
+                SizedBox(height: AppLayout.scaled(context, 6)),
+                TextField(
+                  controller: _proposerRoleCodeController,
+                  maxLength: 64,
+                  decoration: const InputDecoration(
+                    hintText: '填写当前任职且拥有本业务提案权限的岗位码',
+                    filled: true,
+                    fillColor: AppTheme.surfaceMuted,
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                SizedBox(height: AppLayout.scaled(context, 16)),
+              ],
+
+              // ──── 转出地址（只读） ────
+              _buildLabel('转出地址'),
+              SizedBox(height: AppLayout.scaled(context, 6)),
+              _buildReadOnlyField(_fromSs58),
+              SizedBox(height: AppLayout.scaled(context, 16)),
+
+              // ──── 收款地址 ────
+              _buildLabel('收款地址'),
+              SizedBox(height: AppLayout.scaled(context, 6)),
+              TextField(
+                controller: _beneficiaryController,
+                decoration: InputDecoration(
+                  hintText: '输入 SS58 格式地址',
+                  hintStyle: TextStyle(
+                    color: AppTheme.textTertiary,
+                    fontSize: AppLayout.scaled(context, 14),
+                  ),
+                  filled: true,
+                  fillColor: AppTheme.surfaceMuted,
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(
+                      AppLayout.scaledValue(8),
+                    ),
+                    borderSide: const BorderSide(color: AppTheme.border),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(
+                      AppLayout.scaledValue(8),
+                    ),
+                    borderSide: const BorderSide(color: AppTheme.primaryDark),
+                  ),
+                  errorBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(
+                      AppLayout.scaledValue(8),
+                    ),
+                    borderSide: const BorderSide(color: AppTheme.danger),
+                  ),
+                  focusedErrorBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(
+                      AppLayout.scaledValue(8),
+                    ),
+                    borderSide: const BorderSide(color: AppTheme.danger),
+                  ),
+                  errorText: _addressError,
+                  suffixIcon: AddressScanButton(
+                    onAddressScanned: (accountAddress) => setState(
+                      () => _beneficiaryController.text = accountAddress,
+                    ),
+                  ),
+                ),
+                style: TextStyle(fontSize: AppLayout.scaled(context, 14)),
+              ),
+              SizedBox(height: AppLayout.scaled(context, 16)),
+
+              // ──── 转账金额 ────
+              _buildLabel('转账金额（元）'),
+              SizedBox(height: AppLayout.scaled(context, 6)),
+              TextField(
+                controller: _amountController,
+                enabled: !_submitting,
+                onSubmitted: _previewFee,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                inputFormatters: [ThousandSeparatorFormatter()],
+                decoration: InputDecoration(
+                  hintText: '输入金额',
+                  hintStyle: TextStyle(
+                    color: AppTheme.textTertiary,
+                    fontSize: AppLayout.scaled(context, 14),
+                  ),
+                  filled: true,
+                  fillColor: AppTheme.surfaceMuted,
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(
+                      AppLayout.scaledValue(8),
+                    ),
+                    borderSide: const BorderSide(color: AppTheme.border),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(
+                      AppLayout.scaledValue(8),
+                    ),
+                    borderSide: const BorderSide(color: AppTheme.primaryDark),
+                  ),
+                  errorBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(
+                      AppLayout.scaledValue(8),
+                    ),
+                    borderSide: const BorderSide(color: AppTheme.danger),
+                  ),
+                  focusedErrorBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(
+                      AppLayout.scaledValue(8),
+                    ),
+                    borderSide: const BorderSide(color: AppTheme.danger),
+                  ),
+                  errorText: _amountError,
+                  suffixText: '元',
+                ),
+                style: TextStyle(fontSize: AppLayout.scaled(context, 14)),
+              ),
+              SizedBox(height: AppLayout.scaled(context, 12)),
+
+              // ──── 预估手续费 ────
+              _buildInfoRow(
+                '预估手续费',
+                _fees != null
+                    ? '${formatFen(_fees!.feeFen + (_remarkController.text.isNotEmpty ? _fees!.FLAT_FEE : BigInt.zero))} 元'
+                    : '--',
+              ),
+              SizedBox(height: AppLayout.scaled(context, 8)),
+
+              // ──── 可用余额 ────
+              _buildInfoRow(
+                '可用余额',
+                _loadingBalance
+                    ? '查询中...'
+                    : _availableBalance != null
+                    ? '${formatFen(_availableBalance!)} 元'
+                    : '查询失败',
+              ),
+              SizedBox(height: AppLayout.scaled(context, 16)),
+
+              // ──── 备注 ────
+              _buildLabel('转账备注（选填）'),
+              SizedBox(height: AppLayout.scaled(context, 6)),
+              TextField(
+                controller: _remarkController,
+                onChanged: (_) => setState(() {
+                  _amountError = null;
+                }),
+                maxLines: 3,
+                decoration: InputDecoration(
+                  hintText: '输入备注收1.00元备注手续费。',
+                  hintStyle: TextStyle(
+                    color: AppTheme.textTertiary,
+                    fontSize: AppLayout.scaled(context, 14),
+                  ),
+                  filled: true,
+                  fillColor: AppTheme.surfaceMuted,
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(
+                      AppLayout.scaledValue(8),
+                    ),
+                    borderSide: const BorderSide(color: AppTheme.border),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(
+                      AppLayout.scaledValue(8),
+                    ),
+                    borderSide: const BorderSide(color: AppTheme.primaryDark),
+                  ),
+                ),
+                style: TextStyle(fontSize: AppLayout.scaled(context, 14)),
+              ),
+              SizedBox(height: AppLayout.scaled(context, 24)),
+
+              // ──── 提交按钮 ────
+              SizedBox(
+                width: double.infinity,
+                height: AppLayout.scaled(context, 48),
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppTheme.primaryDark,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(
+                        AppLayout.scaledValue(10),
+                      ),
+                    ),
+                  ),
+                  onPressed: _canSubmit ? _submit : null,
+                  child: _submitting
+                      ? SizedBox(
+                          width: AppLayout.scaled(context, 20),
+                          height: AppLayout.scaled(context, 20),
+                          child: const CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : Text(
+                          '提交转账提案',
+                          style: TextStyle(
+                            fontSize: AppLayout.scaled(context, 16),
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                        ),
+                ),
+              ),
+              if (_submitBlockedReason != null) ...[
+                SizedBox(height: AppLayout.scaled(context, 10)),
+                Text(
+                  _submitBlockedReason!,
+                  style: TextStyle(
+                    fontSize: AppLayout.scaled(context, 12),
+                    height: 1.4,
+                    color: AppTheme.textSecondary,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ──── 子组件 ────
+
+  String _truncateAddress(String address) {
+    if (address.length <= 16) return address;
+    return '${address.substring(0, 8)}...${address.substring(address.length - 8)}';
+  }
+
+  Widget _buildAdminSelector() {
+    final wallets = widget.adminWallets;
+    if (wallets.length == 1) {
+      // 只有一个管理员钱包，直接展示
+      return Container(
+        width: double.infinity,
+        padding: EdgeInsets.symmetric(
+          horizontal: AppLayout.scaledValue(12),
+          vertical: AppLayout.scaledValue(12),
+        ),
+        decoration: BoxDecoration(
+          color: AppTheme.success.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(AppLayout.scaledValue(8)),
+          border: Border.all(color: AppTheme.success.withValues(alpha: 0.2)),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.verified_user,
+              size: AppLayout.scaledValue(16),
+              color: AppTheme.success,
+            ),
+            SizedBox(width: AppLayout.scaledValue(8)),
+            Expanded(
+              child: Text(
+                _truncateAddress(wallets.first.ss58Address),
+                style: TextStyle(
+                  fontSize: AppLayout.scaledValue(13),
+                  fontFamily: 'monospace',
+                  color: AppTheme.success,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    // 多个管理员钱包，下拉选择
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: AppLayout.scaledValue(12)),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceMuted,
+        borderRadius: BorderRadius.circular(AppLayout.scaledValue(8)),
+        border: Border.all(color: AppTheme.success.withValues(alpha: 0.3)),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<int>(
+          value: _selectedWallet.walletIndex,
+          isExpanded: true,
+          icon: const Icon(Icons.arrow_drop_down, color: AppTheme.primaryDark),
+          items: wallets.map((w) {
+            return DropdownMenuItem<int>(
+              value: w.walletIndex,
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.verified_user,
+                    size: AppLayout.scaledValue(14),
+                    color: AppTheme.success,
+                  ),
+                  SizedBox(width: AppLayout.scaledValue(6)),
+                  Expanded(
+                    child: Text(
+                      _truncateAddress(w.ss58Address),
+                      style: TextStyle(
+                        fontSize: AppLayout.scaledValue(13),
+                        fontFamily: 'monospace',
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+          onChanged: (index) {
+            if (index == null) return;
+            setState(() {
+              _selectedWallet = wallets.firstWhere(
+                (w) => w.walletIndex == index,
+              );
+            });
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInstitutionHeader() {
+    return Row(
+      children: [
+        Container(
+          width: AppLayout.scaledValue(36),
+          height: AppLayout.scaledValue(36),
+          decoration: BoxDecoration(
+            color: widget.badgeColor.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(AppLayout.scaledValue(10)),
+          ),
+          child: Icon(
+            widget.icon,
+            size: AppLayout.scaledValue(18),
+            color: widget.badgeColor,
+          ),
+        ),
+        SizedBox(width: AppLayout.scaledValue(10)),
+        Expanded(
+          child: Text(
+            widget.label,
+            style: TextStyle(
+              fontSize: AppLayout.scaledValue(15),
+              fontWeight: FontWeight.w600,
+              color: AppTheme.primaryDark,
+            ),
+          ),
+        ),
+        // 页头已显示机构名或个人多签名，不再叠加类型标签。
+      ],
+    );
+  }
+
+  Widget _buildLabel(String text) {
+    return Text(
+      text,
+      style: TextStyle(
+        fontSize: AppLayout.scaledValue(13),
+        fontWeight: FontWeight.w600,
+        color: AppTheme.primaryDark,
+      ),
+    );
+  }
+
+  Widget _buildReadOnlyField(String value) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(
+        horizontal: AppLayout.scaledValue(12),
+        vertical: AppLayout.scaledValue(14),
+      ),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceMuted,
+        borderRadius: BorderRadius.circular(AppLayout.scaledValue(8)),
+        border: Border.all(color: AppTheme.border),
+      ),
+      child: SelectableText(
+        value,
+        style: TextStyle(
+          fontSize: AppLayout.scaledValue(13),
+          color: AppTheme.textSecondary,
+          fontFamily: 'monospace',
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: AppLayout.scaledValue(13),
+            color: AppTheme.textSecondary,
+          ),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: AppLayout.scaledValue(13),
+            fontWeight: FontWeight.w600,
+            color: AppTheme.primaryDark,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ──── 工具函数 ────
+
+// 展示多签转账入口并核对管理员钱包后导航。
+
+/// 多签转账入口卡片。
+///
+/// 转账入口按钮、管理员钱包检查和页面跳转都归 `multisig-transfer`
+/// 模块实现，外部页面只负责把当前账户上下文传进来。
+class MultisigTransferEntryCard extends StatelessWidget {
+  const MultisigTransferEntryCard({
+    super.key,
+    required this.institution,
+    required this.isPersonal,
+    required this.enabled,
+    required this.loadAdminWallets,
+    this.onCreated,
+  });
+
+  final InstitutionInfo institution;
+  final bool isPersonal;
+  final bool enabled;
+  final Future<List<CitizenWalletStateAccount>> Function() loadAdminWallets;
+  final Future<void> Function()? onCreated;
+
+  @override
+  Widget build(BuildContext context) {
+    final accentColor = enabled ? AppTheme.primaryDark : AppTheme.textTertiary;
+    final subtitle = enabled ? '从当前多签账户发起链上转账' : '账户尚未激活,无法发起转账';
+
+    return Card(
+      elevation: 0,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppLayout.scaledValue(12)),
+        side: BorderSide(color: accentColor.withValues(alpha: 0.15)),
+      ),
+      child: InkWell(
+        onTap: enabled ? () => _open(context) : null,
+        borderRadius: BorderRadius.circular(AppLayout.scaledValue(12)),
+        child: Opacity(
+          opacity: enabled ? 1.0 : 0.5,
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+                horizontal: AppLayout.scaled(context, 14),
+                vertical: AppLayout.scaled(context, 12)),
+            child: Row(
+              children: [
+                Container(
+                  width: AppLayout.scaled(context, 36),
+                  height: AppLayout.scaled(context, 36),
+                  decoration: BoxDecoration(
+                    color: accentColor.withValues(alpha: 0.08),
+                    borderRadius:
+                        BorderRadius.circular(AppLayout.scaledValue(10)),
+                  ),
+                  child: Icon(
+                    Icons.send_outlined,
+                    size: AppLayout.scaled(context, 18),
+                    color: accentColor,
+                  ),
+                ),
+                SizedBox(width: AppLayout.scaled(context, 12)),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '发起转账',
+                        style: TextStyle(
+                          fontSize: AppLayout.scaled(context, 15),
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.primaryDark,
+                        ),
+                      ),
+                      SizedBox(height: AppLayout.scaled(context, 2)),
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          fontSize: AppLayout.scaled(context, 12),
+                          color: AppTheme.textTertiary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_right,
+                  size: AppLayout.scaled(context, 20),
+                  color: AppTheme.textTertiary,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _open(BuildContext context) async {
+    final wallets = await loadAdminWallets();
+    if (!context.mounted || wallets.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('未找到此多签账户的管理员钱包')),
+        );
+      }
+      return;
+    }
+
+    final limitService = ProposalLimitService(
+      chain: context.read<CitizenSdk>(),
+    );
+    final activeIds = await limitService.fetchActiveProposalIds(institution);
+    if (!context.mounted) return;
+    if (activeIds.length >= ProposalLimitService.maxActiveProposalsPerSubject) {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('提案数量已达上限'),
+          content: Text(
+            '本账户当前有 ${activeIds.length} 个活跃提案，'
+            '已达上限 ${ProposalLimitService.maxActiveProposalsPerSubject} 个。'
+            '请等待现有提案完成后再发起新提案。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('知道了'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final created = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MultisigTransferPage(
+          institution: institution,
+          icon: isPersonal ? Icons.person : Icons.business,
+          badgeColor: isPersonal ? AppTheme.accent : AppTheme.info,
+          adminWallets: wallets,
+        ),
+      ),
+    );
+    if (created == true && context.mounted) {
+      await onCreated?.call();
+    }
+  }
+}

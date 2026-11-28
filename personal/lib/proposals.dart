@@ -1,28 +1,26 @@
 // 个人提案入口、详情、投票、上下文和历史聚合。
 
-import 'package:citizen_citizen/proposal/proposal_registry.dart'
-    show ProposalKind;
-import 'package:citizen_multisig/multisig_transfer_balance_guard.dart';
-import 'package:citizen_multisig/multisig_transfer_models.dart';
-import 'package:citizen_multisig/multisig_transfer_service.dart';
-import 'package:citizen_citizen/proposal/proposal_detail_local_store.dart';
-import 'package:citizen_citizen/proposal/proposal_limit_service.dart';
+import 'package:citizen_citizen/proposal/data.dart' show ProposalKind;
+import 'package:citizen_multisig/data.dart' show MultisigTransferBalanceGuard;
+import 'package:citizen_multisig/data.dart' show TransferProposalInfo;
+import 'package:citizen_multisig/service.dart' show MultisigTransferService;
+import 'package:citizen_citizen/proposal/store.dart' show ProposalDetailLocalStore, ProposalDetailSnapshot;
+import 'package:citizen_citizen/proposal/service.dart' show ProposalLimitService;
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'dart:async';
 import 'dart:convert';
-import 'package:citizen_citizen/proposal/internal_vote_service.dart';
-import 'package:citizen_citizen/proposal/proposal_context.dart';
-import 'package:citizen_citizen/proposal/proposal_models.dart';
-import 'package:citizen_citizen/proposal/proposal_query_service.dart';
-import 'package:citizen_citizen/proposal/proposal_vote_widgets.dart';
-import 'package:citizen_scanner/qr_sign_session_page.dart';
-import 'package:citizen_storage/user_isar.dart' as wallet_store;
-import 'package:citizen_storage/user_isar.dart' hide Group;
-import 'package:citizen_system/app_log.dart';
-import 'package:citizen_system/theme/app_layout.dart';
-import 'package:citizen_system/theme/app_theme.dart';
-import 'package:citizen_widgets/chain_progress_banner.dart';
+import 'package:citizen_citizen/proposal/vote.dart' show InternalVoteService;
+import 'package:citizen_citizen/proposal/data.dart' show ProposalRole;
+import 'package:citizen_citizen/proposal/data.dart' show EligibleVoterTicket;
+import 'package:citizen_citizen/proposal/service.dart' show proposalReadStage, readProposalBlock;
+import 'package:citizen_citizen/proposal/vote.dart' show ProposalAdminVoteList, ProposalCardHeader, ProposalStatusBadge, ProposalVoteActions, ProposalVoteProgress;
+import 'package:citizen_scanner/sign.dart';
+import 'package:citizen_storage/user.dart' as wallet_store;
+import 'package:citizen_storage/user.dart' hide Group;
+import 'package:citizen_system/log.dart';
+import 'package:citizen_system/theme.dart';
+import 'package:citizen_widgets/progress.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';

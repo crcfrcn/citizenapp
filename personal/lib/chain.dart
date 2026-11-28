@@ -1,17 +1,17 @@
 // 个人链调用、存储编解码、扫描发现和地址派生。
 
-import 'package:citizen_citizen/proposal/internal_vote_query_service.dart';
-import 'package:citizen_citizen/proposal/internal_vote_service.dart';
+import 'package:citizen_citizen/proposal/vote.dart' show InternalVoteQueryService;
+import 'package:citizen_citizen/proposal/vote.dart' show InternalVoteService;
 
 import 'package:citizen_sdk/citizen_sdk.dart';
 import 'dart:async';
 import 'dart:convert';
-import 'package:citizen_citizen/account_derivation.dart';
-import 'package:citizen_citizen/proposal/proposal_models.dart';
-import 'package:citizen_citizen/proposal/proposal_query_service.dart';
-import 'package:citizen_storage/user_isar.dart' as wallet_store;
-import 'package:citizen_storage/user_isar.dart' hide Group;
-import 'package:citizen_system/app_log.dart';
+import 'package:citizen_citizen/data.dart' show deriveAccountId;
+import 'package:citizen_citizen/proposal/data.dart' show EligibleVoterTicket, ProposalMeta;
+import 'package:citizen_citizen/proposal/service.dart' show ProposalQueryService;
+import 'package:citizen_storage/user.dart' as wallet_store;
+import 'package:citizen_storage/user.dart' hide Group;
+import 'package:citizen_system/log.dart';
 import 'package:flutter/foundation.dart';
 import 'package:isar_community/isar.dart';
 import 'accounts.dart';

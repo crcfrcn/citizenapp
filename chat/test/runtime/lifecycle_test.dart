@@ -1,10 +1,13 @@
 // 验证聊天单次启动、失败重试及资源停止和实例隔离。
 
-import 'package:citizen_testing/chat_runtime_fixture.dart';
 import 'dart:async';
 import 'dart:io';
+
+import 'package:chat/runtime.dart';
+import 'package:citizen_testing/chat/runtime.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:chat/chat_runtime.dart';
+
+// 验证聊天单次启动、失败重试及资源停止和实例隔离。
 
 void main() {
   test('启动调用运行时且并发只建立一次同步，停止关闭全部登记资源', () async {

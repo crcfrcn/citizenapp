@@ -1,19 +1,84 @@
-// 验证聊天集合结构、可靠队列、置顶、路由事务及重复投递。
+// 归并聊天原有回归，保留各来源用例、断言及独立生命周期。
 
 import 'dart:io';
 
-import 'package:flutter_test/flutter_test.dart';
-import 'package:isar_community/isar.dart';
-import 'package:chat/message/chat_content.dart';
-import 'package:chat/message/chat_message.dart';
-import 'package:chat/group/group_models.dart';
-import 'package:chat/mls/mls_session.dart';
+import 'package:chat/group/members.dart';
+import 'package:chat/message/content.dart';
+import 'package:chat/mls/protocol.dart';
+import 'package:chat/models.dart';
+import 'package:chat/store.dart';
 import 'package:citizen_network/message.dart' as pb;
 import 'package:citizen_network/message.dart' hide ChatRoute;
-import 'package:citizen_storage/chat_isar.dart';
-import 'package:chat/chat_store.dart';
-import 'package:chat/chat_models.dart';
-import 'package:citizen_testing/chat_isar_test_env.dart';
+import 'package:citizen_storage/chat.dart';
+import 'package:citizen_testing/database.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:isar_community/isar.dart';
+
+// 验证损坏或类型冲突消息被逐条隔离而不影响有效历史。
+
+void _registerHistoryDisplay() {
+  // 中文注释：统一构造已落盘的接收消息，确保各场景只改变待验证的载荷或消息类型。
+  ChatStoredMessage message({
+    required String messageId,
+    required ChatMessageKind messageKind,
+    required String plaintext,
+  }) => ChatStoredMessage(
+    messageId: messageId,
+    conversationId: 'conv-display',
+    direction: 'incoming',
+    senderUserId: 'sender-user',
+    recipientUserId: 'owner-user',
+    messageKind: messageKind,
+    deliveryState: ChatMessageDeliveryState.receivedByDevice,
+    createdAtMillis: 1,
+    plaintext: plaintext,
+  );
+
+  // 中文注释：历史记录中单条损坏消息不能导致同一批其余有效消息从聊天窗口消失。
+  test('单条畸形载荷只被隔离，其余严格载荷继续显示', () {
+    final validA = message(
+      messageId: 'valid-a',
+      messageKind: ChatMessageKind.text,
+      plaintext: ChatPayloadCodec.encode(ChatContent.text('第一条')),
+    );
+    final malformed = message(
+      messageId: 'malformed',
+      messageKind: ChatMessageKind.text,
+      plaintext: '不是目标聊天 JSON',
+    );
+    final validB = message(
+      messageId: 'valid-b',
+      messageKind: ChatMessageKind.text,
+      plaintext: ChatPayloadCodec.encode(ChatContent.text('第二条')),
+    );
+
+    final batch = filterChatMessagesForDisplay([validA, malformed, validB]);
+
+    expect(batch.messages.map((item) => item.messageId), [
+      'valid-a',
+      'valid-b',
+    ]);
+    expect(batch.integrityFailureCount, 1);
+  });
+
+  // 中文注释：落盘类型与加密载荷解码后的类型冲突时，必须按完整性失败处理而不是错误渲染。
+  test('记录类型与载荷类型不一致时严格隔离', () {
+    final mismatch = message(
+      messageId: 'kind-mismatch',
+      messageKind: ChatMessageKind.image,
+      plaintext: ChatPayloadCodec.encode(ChatContent.text('正文')),
+    );
+
+    final batch = filterChatMessagesForDisplay([
+      mismatch,
+    ], initialIntegrityFailureCount: 1);
+
+    expect(batch.messages, isEmpty);
+    expect(batch.integrityFailureCount, 2);
+  });
+}
+
+// 验证聊天集合结构、可靠队列、置顶、路由事务及重复投递。
 
 /// user ID 是消息、MLS 名册和待投递路由的唯一身份键；当前账户和公开版本用于操作围栏。
 const _bobUserId = 'CN220-CTZN2-100000002-2026';
@@ -142,7 +207,7 @@ const _physicalColumns = <String, Set<String>>{
   },
 };
 
-void main() {
+void _registerStore() {
   useIsolatedChatIsar();
   test('私信拒绝终止本条队列但保留失败消息', () async {
     final store = ChatStore();
@@ -1324,4 +1389,9 @@ void main() {
       throwsStateError,
     );
   });
+}
+
+void main() {
+  group("storage/history_display_test", _registerHistoryDisplay);
+  group("storage/store_test", _registerStore);
 }
